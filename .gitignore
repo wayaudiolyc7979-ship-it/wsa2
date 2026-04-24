@@ -1,0 +1,7 @@
+backups/
+build/
+dist/
+*.backup.py
+__pycache__/
+*.pyc
+.DS_Store
