@@ -25,7 +25,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QLabel, QSizePolicy, QFrame,
     QGroupBox, QDialog, QSpinBox, QDoubleSpinBox,
     QFormLayout, QDialogButtonBox, QScrollArea,
-    QSplashScreen, QSplitter
+    QSplashScreen, QSplitter, QStackedWidget, QColorDialog
 )
 from PyQt5.QtCore  import Qt, QTimer, pyqtSignal, QThread, QMutex, QMutexLocker, QPoint
 from PyQt5.QtGui   import (
@@ -97,19 +97,19 @@ def c_weight_db(f):
 # ───────────────────────────────────────────
 THEMES = {
     'dark': {
-        'bg':       '#0a0c0f',
+        'bg':       '#0a0c10',
         'bg2':      '#0f1318',
-        'bg3':      '#161b22',
-        'panel':    '#1a2030',
-        'border':   '#2a3545',
-        'text':     '#e0eaf4',
+        'bg3':      '#141820',
+        'panel':    '#12151c',
+        'border':   '#252a35',
+        'text':     '#dce6f0',
         'text_dim': '#6a8898',
         'accent':   '#00e5ff',
         'accent2':  '#ff6b35',
         'green':    '#39ff14',
         'yellow':   '#ffcc00',
         'red':      '#ff3333',
-        'grid':     '#2e3f52',
+        'grid':     '#1a2030',
         'spec_fill_top': (0,229,255,130),
         'spec_fill_bot': (0,229,255,5),
         'spec_line':     '#00e5ff',
@@ -150,6 +150,7 @@ BAR_PRESETS = [
     ("Mono",     (220,230,240,220),(100,120,140,20)),
 ]
 _bar_preset_idx = 0  # 0 = Default (follows theme)
+_custom_color = None  # (R,G,B) — macOS color picker로 선택한 색상
 
 # ── RTA Comparison Mode 채널 색상
 CH_A_FILL_TOP = (0, 229, 255, 110)
@@ -162,11 +163,15 @@ CH_B_PEAK     = '#ffdd55'
 DIFF_LINE     = '#cc44ff'
 
 def bar_top():
+    if _custom_color is not None:
+        return (*_custom_color, 200)
     if _bar_preset_idx == 0:
         return T('spec_fill_top')
     return BAR_PRESETS[_bar_preset_idx][1]
 
 def bar_bot():
+    if _custom_color is not None:
+        return (*_custom_color, 40)
     if _bar_preset_idx == 0:
         return T('spec_fill_bot')
     return BAR_PRESETS[_bar_preset_idx][2]
@@ -309,6 +314,10 @@ class FFTCanvas(QWidget):
         self.peak_hold=True; self.scale_log=True
         self.sample_rate=48000; self.fft_size=16384
         self._mx=-1; self._my=-1
+        self.peak_hold_frames=0
+        self.peak_decay_rate_pk=1.0
+        self._peak_age=None; self._peak_age_b=None
+        self._cache=None
         # ★ 다운샘플된 포인트 캐시
         self._ds_f=None; self._ds_avg=None; self._ds_pk=None
         # ── 채널 B (비교 모드)
@@ -319,17 +328,62 @@ class FFTCanvas(QWidget):
 
     def clear(self):
         self.freqs=None; self.avg=None; self.peak=None
+        self._peak_age=None; self._peak_age_b=None
         self._ds_f=None; self._ds_avg=None; self._ds_pk=None
         self._ds_f_b=None; self._ds_avg_b=None; self._ds_pk_b=None
         self._ds_diff=None; self.peak_b=None
         self.update()
 
+    def resizeEvent(self,e): self._cache=None; self.update()
+
+    def _build_cache(self,W,H):
+        from PyQt5.QtGui import QPixmap
+        px=QPixmap(W,H); px.fill(QColor(T('bg')))
+        p=QPainter(px)
+        pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
+        dh=H-pt-pb; uw=W-pl-pr; ny=min(self.sample_rate/2,20000)
+        # dB 그리드
+        p.setFont(QFont('Arial',9))
+        for db in range(int(self.db_min),int(self.db_max)+1,12):
+            y=pt+db_to_y(db,dh,self.db_min,self.db_max)
+            if not pt<=y<=H-pb: continue
+            is0=(db==0)
+            p.setPen(QPen(QColor(T('accent')),1.5 if is0 else 0.7,Qt.SolidLine))
+            p.drawLine(pl,y,W-pr,y)
+            p.setPen(QColor(T('text_dim')))
+            p.drawText(2,y+4,f'{db:+d}')
+        # 주파수 수직선 + 레이블
+        p.setFont(QFont('Arial',10,QFont.Bold))
+        last_lx=-999
+        for f in FREQ_MARKS:
+            if f<20 or f>ny: continue
+            fx=freq_to_x(f,pl,uw,ny) if self.scale_log else pl+(f/ny)*uw
+            if not pl<=fx<=W-pr: continue
+            p.setPen(QPen(QColor(T('grid')),1,Qt.SolidLine))
+            p.drawLine(int(fx),pt,int(fx),H-pb)
+            if fx-last_lx<36: continue
+            last_lx=fx
+            lf=int(f) if f==int(f) else f
+            txt=f'{int(f//1000)}k' if f>=1000 else str(lf)
+            tw=p.fontMetrics().horizontalAdvance(txt)
+            tx=max(pl,min(int(fx-tw/2),W-pr-tw))
+            p.setPen(QColor(T('text'))); p.drawText(tx,H-5,txt)
+        p.end(); self._cache=px
+
+    def _update_peak(self, peak, age, avg):
+        updated = avg >= peak
+        np.maximum(peak, avg, out=peak)
+        age[updated] = 0; age[~updated] += 1
+        peak[age > self.peak_hold_frames] -= self.peak_decay_rate_pk
+        np.maximum(peak, self.db_min, out=peak)  # 하한 클램프 (그래픽 깨짐 방지)
+
     def set_data(self,freqs,avg):
         self.freqs=freqs; self.avg=avg
         if self.peak_hold:
-            decay_rate=[0.02,0.04,0.07,0.12,0.20][getattr(self,'_speed_idx',2)]
-            if self.peak is None or len(self.peak)!=len(avg): self.peak=avg.copy()
-            else: np.maximum(self.peak,avg,out=self.peak); self.peak-=decay_rate
+            if self.peak is None or len(self.peak)!=len(avg):
+                self.peak=avg.copy(); self._peak_age=np.zeros(len(avg),dtype=np.int32)
+            else:
+                self._update_peak(self.peak, self._peak_age, avg)
         # ★ 다운샘플링: 로그 스케일로 균등 분포된 MAX_POINTS개 주파수만 사용
         ny=self.sample_rate/2
         mask=(freqs>=20)&(freqs<=ny)
@@ -348,9 +402,10 @@ class FFTCanvas(QWidget):
 
     def set_data_b(self,freqs,avg):
         if self.peak_hold:
-            decay_rate=[0.02,0.04,0.07,0.12,0.20][getattr(self,'_speed_idx',2)]
-            if self.peak_b is None or len(self.peak_b)!=len(avg): self.peak_b=avg.copy()
-            else: np.maximum(self.peak_b,avg,out=self.peak_b); self.peak_b-=decay_rate
+            if self.peak_b is None or len(self.peak_b)!=len(avg):
+                self.peak_b=avg.copy(); self._peak_age_b=np.zeros(len(avg),dtype=np.int32)
+            else:
+                self._update_peak(self.peak_b, self._peak_age_b, avg)
         ny=self.sample_rate/2
         mask=(freqs>=20)&(freqs<=ny)
         f_sel=freqs[mask]; a_sel=avg[mask]
@@ -369,11 +424,14 @@ class FFTCanvas(QWidget):
             self._ds_diff=self._ds_avg-b_on_a
         self.update()
 
-    def reset_peak(self): self.peak=None; self._ds_pk=None; self.peak_b=None; self._ds_pk_b=None
+    def reset_peak(self):
+        self.peak=None; self._ds_pk=None; self._peak_age=None
+        self.peak_b=None; self._ds_pk_b=None; self._peak_age_b=None
     def set_peak_hold(self,v):
         self.peak_hold=v
-        if not v: self.peak=None; self._ds_pk=None; self.peak_b=None; self._ds_pk_b=None
-    def set_db_range(self,lo,hi): self.db_min=lo; self.db_max=hi; self.update()
+        if not v: self.reset_peak()
+    def set_peak_hold_time(self,rate): self.peak_decay_rate_pk=rate
+    def set_db_range(self,lo,hi): self._cache=None; self.db_min=lo; self.db_max=hi; self.update()
     def mouseMoveEvent(self,e): self._mx=e.x(); self._my=e.y(); self.update()
     def leaveEvent(self,e): self._mx=-1; self.update()
     def mouseDoubleClickEvent(self,e):
@@ -395,43 +453,16 @@ class FFTCanvas(QWidget):
         else:                          # 휠 = 스크롤
             shift=step if delta<0 else -step
             self.db_min+=shift; self.db_max+=shift
-        self.update()
+        self._cache=None; self.update()
 
     def paintEvent(self,ev):
-        p=QPainter(self); p.setRenderHint(QPainter.Antialiasing,True)
         W=self.width(); H=self.height()
+        if self._cache is None or self._cache.size()!=self.size():
+            self._build_cache(W,H)
+        p=QPainter(self); p.setRenderHint(QPainter.Antialiasing,True)
+        p.drawPixmap(0,0,self._cache)
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
         dh=H-pt-pb; uw=W-pl-pr; ny=min(self.sample_rate/2, 20000)
-
-        p.fillRect(0,0,W,H,QColor(T('bg')))
-
-        # dB 그리드
-        p.setFont(QFont('Arial',9))
-        for db in range(int(self.db_min),int(self.db_max)+1,12):
-            y=pt+db_to_y(db,dh,self.db_min,self.db_max)
-            if not pt<=y<=H-pb: continue
-            is0=(db==0)
-            p.setPen(QPen(QColor(T('accent')),1.5 if is0 else 0.7, Qt.SolidLine))
-            p.drawLine(pl,y,W-pr,y)
-            p.setPen(QColor(T('text_dim')))
-            p.drawText(2,y+4,f'{db:+d}')
-
-        # 주파수 수직선 + 레이블
-        p.setFont(QFont('Arial',10,QFont.Bold))
-        last_lx=-999
-        for f in FREQ_MARKS:
-            if f<20 or f>ny: continue
-            fx=freq_to_x(f,pl,uw,ny) if self.scale_log else pl+(f/ny)*uw
-            if not pl<=fx<=W-pr: continue
-            p.setPen(QPen(QColor(T('grid')),1,Qt.SolidLine))
-            p.drawLine(int(fx),pt,int(fx),H-pb)
-            if fx-last_lx<36: continue
-            last_lx=fx
-            lf=int(f) if f==int(f) else f
-            txt=f'{int(f//1000)}k' if f>=1000 else str(lf)
-            tw=p.fontMetrics().horizontalAdvance(txt)
-            tx=max(pl,min(int(fx-tw/2),W-pr-tw))
-            p.setPen(QColor(T('text'))); p.drawText(tx,H-5,txt)
 
         if self._ds_f is None or len(self._ds_f)<2:
             p.end(); return
@@ -459,9 +490,7 @@ class FFTCanvas(QWidget):
         path.moveTo(float(xs[0]),float(H-pb))
         for x,y in zip(xs,ys): path.lineTo(float(x),float(y))
         path.lineTo(float(xs[-1]),float(H-pb)); path.closeSubpath()
-        grad=QLinearGradient(0,pt,0,H-pb)
-        grad.setColorAt(0.0,top_col); grad.setColorAt(1.0,bot_col)
-        p.fillPath(path,QBrush(grad))
+        p.fillPath(path,QBrush(top_col))
 
         # 스펙트럼 선 A
         stroke=QPainterPath()
@@ -469,13 +498,18 @@ class FFTCanvas(QWidget):
         for x,y in zip(xs[1:],ys[1:]): stroke.lineTo(float(x),float(y))
         p.setPen(QPen(line_col,2.0)); p.drawPath(stroke)
 
-        # 피크 홀드 A
+        # 피크 홀드 A — 메인 그래프보다 1.5dB 이상 높을 때만 표시
         if self.peak_hold and self._ds_pk is not None:
             py_arr=pt+np.clip(((self.db_max-self._ds_pk)/(self.db_max-self.db_min)*dh).astype(int),0,dh)
-            pk_path=QPainterPath()
-            pk_path.moveTo(float(xs[0]),float(py_arr[0]))
-            for x,y in zip(xs[1:],py_arr[1:]): pk_path.lineTo(float(x),float(y))
-            p.setPen(QPen(pk_col,1)); p.drawPath(pk_path)
+            visible=self._ds_pk>self._ds_avg+1.5
+            if visible.any():
+                pk_path=QPainterPath(); in_seg=False
+                for i in range(len(xs)):
+                    if visible[i]:
+                        if not in_seg: pk_path.moveTo(float(xs[i]),float(py_arr[i])); in_seg=True
+                        else: pk_path.lineTo(float(xs[i]),float(py_arr[i]))
+                    else: in_seg=False
+                p.setPen(QPen(pk_col,2.0)); p.drawPath(pk_path)
 
         # ── 채널 B 오버레이 (compare_mode)
         if self.compare_mode and self._ds_f_b is not None and self._ds_avg_b is not None and len(self._ds_f_b)>=2:
@@ -490,9 +524,7 @@ class FFTCanvas(QWidget):
             path_b.moveTo(float(xs_b[0]),float(H-pb))
             for x,y in zip(xs_b,ys_b): path_b.lineTo(float(x),float(y))
             path_b.lineTo(float(xs_b[-1]),float(H-pb)); path_b.closeSubpath()
-            grad_b=QLinearGradient(0,pt,0,H-pb)
-            grad_b.setColorAt(0.0,QColor(*CH_B_FILL_TOP)); grad_b.setColorAt(1.0,QColor(*CH_B_FILL_BOT))
-            p.fillPath(path_b,QBrush(grad_b))
+            p.fillPath(path_b,QBrush(QColor(*CH_B_FILL_TOP)))
 
             stroke_b=QPainterPath()
             stroke_b.moveTo(float(xs_b[0]),float(ys_b[0]))
@@ -501,10 +533,15 @@ class FFTCanvas(QWidget):
 
             if self.peak_hold and self._ds_pk_b is not None:
                 py_b=pt+np.clip(((self.db_max-self._ds_pk_b)/(self.db_max-self.db_min)*dh).astype(int),0,dh)
-                pk_b=QPainterPath()
-                pk_b.moveTo(float(xs_b[0]),float(py_b[0]))
-                for x,y in zip(xs_b[1:],py_b[1:]): pk_b.lineTo(float(x),float(y))
-                p.setPen(QPen(QColor(CH_B_PEAK),1)); p.drawPath(pk_b)
+                vis_b=self._ds_pk_b>self._ds_avg_b+1.5
+                if vis_b.any():
+                    pk_b=QPainterPath(); in_seg_b=False
+                    for i in range(len(xs_b)):
+                        if vis_b[i]:
+                            if not in_seg_b: pk_b.moveTo(float(xs_b[i]),float(py_b[i])); in_seg_b=True
+                            else: pk_b.lineTo(float(xs_b[i]),float(py_b[i]))
+                        else: in_seg_b=False
+                    p.setPen(QPen(QColor(CH_B_PEAK),2.0)); p.drawPath(pk_b)
 
             # diff 곡선
             if self.show_diff and self._ds_diff is not None and len(self._ds_diff)==len(f_arr):
@@ -558,20 +595,30 @@ class OctaveCanvas(QWidget):
         self.peaks ={k:np.full(len(v),-96.0) for k,v in BANDS.items()}
         self.db_min=-96; self.db_max=MAX_DB
         self.peak_hold=True; self.alpha=1.0-SPEED_LEVELS[2][1]; self.decay=0.08
+        self.peak_hold_frames=0
+        self.peak_decay_rate_pk=1.0
+        self._peak_age ={k:np.zeros(len(v),dtype=np.int32) for k,v in BANDS.items()}
+        self._peak_age_b={k:np.zeros(len(v),dtype=np.int32) for k,v in BANDS.items()}
+        self._cache=None
         self._mx=-1; self._my=-1
         # ── 채널 B
         self.compare_mode=False
         self.smooth_b={k:np.full(len(v),-96.0) for k,v in BANDS.items()}
         self.peaks_b ={k:np.full(len(v),-96.0) for k,v in BANDS.items()}
     def set_mode(self,m):
-        self.mode=m; self.peaks[m][:]=self.db_min; self.peaks_b[m][:]=self.db_min; self.update()
+        self._cache=None
+        self.mode=m; self.peaks[m][:]=self.db_min; self.peaks_b[m][:]=self.db_min
+        self._peak_age[m][:]=0; self._peak_age_b[m][:]=0; self.update()
     def update_data(self,mode,values):
         if mode!=self.mode: return
         sm=self.smooth[mode]; pk=self.peaks[mode]
         vals=np.array(values,dtype=np.float64)
         sm+=(vals-sm)*self.alpha
         if self.peak_hold:
-            mask=sm>pk; pk[mask]=sm[mask]; pk[~mask]-=self.decay*0.5
+            age=self._peak_age[mode]
+            mask=sm>pk; pk[mask]=sm[mask]; age[mask]=0; age[~mask]+=1
+            pk[age>self.peak_hold_frames]-=self.peak_decay_rate_pk
+            np.maximum(pk, self.db_min, out=pk)
         self.update()
     def update_data_b(self,mode,values):
         if mode!=self.mode: return
@@ -579,7 +626,10 @@ class OctaveCanvas(QWidget):
         vals=np.array(values,dtype=np.float64)
         sm+=(vals-sm)*self.alpha
         if self.peak_hold:
-            mask=sm>pk; pk[mask]=sm[mask]; pk[~mask]-=self.decay*0.5
+            age=self._peak_age_b[mode]
+            mask=sm>pk; pk[mask]=sm[mask]; age[mask]=0; age[~mask]+=1
+            pk[age>self.peak_hold_frames]-=self.peak_decay_rate_pk
+            np.maximum(pk, self.db_min, out=pk)
         self.update()
     def clear(self):
         for k in self.smooth: self.smooth[k][:]=self.db_min
@@ -588,13 +638,46 @@ class OctaveCanvas(QWidget):
         for k in self.peaks_b:  self.peaks_b[k][:]=self.db_min
         self.update()
 
+    def resizeEvent(self,e): self._cache=None; self.update()
+
+    def _build_cache(self,W,H):
+        from PyQt5.QtGui import QPixmap
+        px=QPixmap(W,H); px.fill(QColor(T('bg')))
+        p=QPainter(px)
+        pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
+        dh=H-pt-pb; uw=W-pl-pr; ny=20000
+        p.setFont(QFont('Arial',9))
+        for db in range(int(self.db_min),int(self.db_max)+1,12):
+            y=pt+db_to_y(db,dh,self.db_min,self.db_max)
+            if not pt<=y<=H-pb: continue
+            is0=(db==0)
+            p.setPen(QPen(QColor(T('accent')),1.5 if is0 else 0.7,Qt.SolidLine))
+            p.drawLine(pl,y,W-pr,y)
+            p.setPen(QColor(T('text_dim'))); p.drawText(2,y+4,f'{db:+d}')
+        p.setFont(QFont('Arial',10,QFont.Bold)); last_x=-999
+        for f in FREQ_MARKS:
+            if f<20 or f>ny: continue
+            fx=freq_to_x(f,pl,uw,ny)
+            if not pl<=fx<=W-pr: continue
+            p.setPen(QPen(QColor(T('grid')),1,Qt.SolidLine))
+            p.drawLine(int(fx),pt,int(fx),H-pb)
+            if fx-last_x<36: continue
+            last_x=fx
+            lf=int(f) if f==int(f) else f
+            txt=f'{int(f//1000)}k' if f>=1000 else str(lf)
+            tw=p.fontMetrics().horizontalAdvance(txt)
+            tx=max(pl,min(int(fx-tw/2),W-pr-tw))
+            p.setPen(QColor(T('text'))); p.drawText(tx,H-5,txt)
+        p.end(); self._cache=px
+
     def reset_peak(self):
-        for k in self.peaks: self.peaks[k][:]=self.db_min
-        for k in self.peaks_b: self.peaks_b[k][:]=self.db_min
+        for k in self.peaks: self.peaks[k][:]=self.db_min; self._peak_age[k][:]=0
+        for k in self.peaks_b: self.peaks_b[k][:]=self.db_min; self._peak_age_b[k][:]=0
     def set_peak_hold(self,v):
         self.peak_hold=v
         if not v: self.reset_peak()
-    def set_db_range(self,lo,hi): self.db_min=lo; self.db_max=hi; self.update()
+    def set_peak_hold_time(self,rate): self.peak_decay_rate_pk=rate
+    def set_db_range(self,lo,hi): self._cache=None; self.db_min=lo; self.db_max=hi; self.update()
     def set_speed(self,a,d): self.alpha=a; self.decay=d
     def mouseMoveEvent(self,e): self._mx=e.x(); self._my=e.y(); self.update()
     def leaveEvent(self,e): self._mx=-1; self.update()
@@ -620,20 +703,14 @@ class OctaveCanvas(QWidget):
         self.update()
 
     def paintEvent(self,ev):
-        p=QPainter(self); p.setRenderHint(QPainter.Antialiasing,True)
         W=self.width(); H=self.height()
+        if self._cache is None or self._cache.size()!=self.size():
+            self._build_cache(W,H)
+        p=QPainter(self); p.setRenderHint(QPainter.Antialiasing,True)
+        p.drawPixmap(0,0,self._cache)
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
-        dh=H-pt-pb; uw=W-pl-pr; ny=20000
+        dh=H-pt-pb; uw=W-pl-pr
         db_range=self.db_max-self.db_min
-        p.fillRect(0,0,W,H,QColor(T('bg')))
-        p.setFont(QFont('Arial',9))
-        for db in range(int(self.db_min),int(self.db_max)+1,12):
-            y=pt+db_to_y(db,dh,self.db_min,self.db_max)
-            if not pt<=y<=H-pb: continue
-            is0=(db==0)
-            p.setPen(QPen(QColor(T('accent')),1.5 if is0 else 0.7, Qt.SolidLine))
-            p.drawLine(pl,y,W-pr,y)
-            p.setPen(QColor(T('text_dim'))); p.drawText(2,y+4,f'{db:+d}')
         bands=BANDS[self.mode]; sm=self.smooth[self.mode]; pk=self.peaks[self.mode]
         sm_b=self.smooth_b[self.mode]; pk_b=self.peaks_b[self.mode]
         n=len(bands)
@@ -641,53 +718,34 @@ class OctaveCanvas(QWidget):
         bar_w=uw/n
         gap_r=0.06 if self.mode=='oct24' else 0.08 if self.mode=='oct12' else 0.12
         gap=max(1.0,bar_w*gap_r)
-        for i,fc in enumerate(bands):
+        col_a=QColor(*bar_top()); col_b=QColor(*CH_B_FILL_TOP[:3],160)
+        for i in range(n):
             db=float(np.clip(sm[i],self.db_min,self.db_max))
             lp=(db-self.db_min)/db_range; bh=max(2,int(lp*dh))
             if self.compare_mode:
                 slot_inner=bar_w-gap
                 half_w=max(1,int((slot_inner-1)/2))
                 bx_a=int(pl+i*bar_w+gap/2); by_a=pt+dh-bh
-                grad=QLinearGradient(0,by_a,0,pt+dh)
-                grad.setColorAt(0.0,QColor(*bar_top())); grad.setColorAt(1.0,QColor(*bar_bot()))
-                p.fillRect(bx_a,by_a,half_w,bh,QBrush(grad))
-                if self.peak_hold and pk[i]>self.db_min+2:
+                p.fillRect(bx_a,by_a,half_w,bh,col_a)
+                if self.peak_hold and pk[i]>sm[i]+1.5 and pk[i]>self.db_min+2:
                     lp2=float(np.clip((pk[i]-self.db_min)/db_range,0,1))
                     py2=pt+dh-max(2,int(lp2*dh))
                     p.fillRect(bx_a,py2-1,half_w,2,QColor(T('peak_line')))
                 db_b=float(np.clip(sm_b[i],self.db_min,self.db_max))
                 lp_b=(db_b-self.db_min)/db_range; bh_b=max(2,int(lp_b*dh))
                 bx_b=bx_a+half_w+1; by_b=pt+dh-bh_b
-                grad_b=QLinearGradient(0,by_b,0,pt+dh)
-                grad_b.setColorAt(0.0,QColor(*CH_B_FILL_TOP[:3],180)); grad_b.setColorAt(1.0,QColor(*CH_B_FILL_BOT[:3],0))
-                p.fillRect(bx_b,by_b,half_w,bh_b,QBrush(grad_b))
-                if self.peak_hold and pk_b[i]>self.db_min+2:
+                p.fillRect(bx_b,by_b,half_w,bh_b,col_b)
+                if self.peak_hold and pk_b[i]>sm_b[i]+1.5 and pk_b[i]>self.db_min+2:
                     lp2b=float(np.clip((pk_b[i]-self.db_min)/db_range,0,1))
                     py2b=pt+dh-max(2,int(lp2b*dh))
                     p.fillRect(bx_b,py2b-1,half_w,2,QColor(CH_B_PEAK))
             else:
                 bx=int(pl+i*bar_w+gap/2); bw=max(1,int(bar_w-gap)); by=pt+dh-bh
-                grad=QLinearGradient(0,by,0,pt+dh)
-                grad.setColorAt(0.0,QColor(*bar_top())); grad.setColorAt(1.0,QColor(*bar_bot()))
-                p.fillRect(bx,by,bw,bh,QBrush(grad))
-                if self.peak_hold and pk[i]>self.db_min+2:
+                p.fillRect(bx,by,bw,bh,col_a)
+                if self.peak_hold and pk[i]>sm[i]+1.5 and pk[i]>self.db_min+2:
                     lp2=float(np.clip((pk[i]-self.db_min)/db_range,0,1))
                     py2=pt+dh-max(2,int(lp2*dh))
                     p.fillRect(bx,py2-1,bw,2,QColor(T('peak_line')))
-        p.setFont(QFont('Arial',10,QFont.Bold)); last_x=-999
-        for f in FREQ_MARKS:
-            if f<20 or f>ny: continue
-            fx=freq_to_x(f,pl,uw,ny)
-            if not pl<=fx<=W-pr: continue
-            p.setPen(QPen(QColor(T('grid')),1,Qt.SolidLine))
-            p.drawLine(int(fx),pt,int(fx),H-pb)
-            if fx-last_x<36: continue
-            last_x=fx
-            lf=int(f) if f==int(f) else f
-            txt=f'{int(f//1000)}k' if f>=1000 else str(lf)
-            tw=p.fontMetrics().horizontalAdvance(txt)
-            tx=max(pl,min(int(fx-tw/2),W-pr-tw))
-            p.setPen(QColor(T('text'))); p.drawText(tx,H-5,txt)
         if pl<=self._mx<=W-pr:
             cx,cy=self._mx,self._my
             bi=max(0,min(int((cx-pl)/bar_w),n-1)); fc=bands[bi]
@@ -1851,10 +1909,13 @@ class TFDuplexThread(QThread):
 class TransferFunctionWindow(QWidget):
     _find_result_sig = pyqtSignal(float)   # 백그라운드 xcorr 결과 → 메인 스레드
 
-    def __init__(self, parent=None, settings=None):
-        super().__init__(parent, Qt.Window)
-        self.setWindowTitle('WAYAUDIO — Transfer Function')
-        self.setMinimumSize(1020, 570)
+    def __init__(self, parent=None, settings=None, embedded=False):
+        if embedded:
+            super().__init__(parent)
+        else:
+            super().__init__(parent, Qt.Window)
+            self.setWindowTitle('WAYAUDIO — Transfer Function')
+            self.setMinimumSize(1020, 570)
         self._settings = settings or {}
         self.sample_rate = 48000; self.fft_size = 16384
         self.smooth_bpo = 3; self.averaging_sec = 2.0
@@ -2527,180 +2588,190 @@ class MainWindow(QMainWindow):
         c=QWidget(); self.setCentralWidget(c)
         root=QVBoxLayout(c); root.setSpacing(0); root.setContentsMargins(0,0,0,0)
 
-        # 헤더
-        self.hdr=QWidget(); self.hdr.setFixedHeight(44)
-        hl=QHBoxLayout(self.hdr); hl.setContentsMargins(16,0,16,0)
+        # ── Layer 1: 32px 슬림 헤더 (logo | stretch | status | theme | calib)
+        self.hdr=QWidget(); self.hdr.setFixedHeight(32)
+        hl=QHBoxLayout(self.hdr); hl.setContentsMargins(16,0,16,0); hl.setSpacing(8)
         self.logo_lbl=QLabel(); self.logo_lbl.setTextFormat(Qt.RichText)
-        hl.addWidget(self.logo_lbl); hl.addStretch()
-        self.status_lbl=QLabel('● Standby'); hl.addWidget(self.status_lbl)
-
-        # 테마 + 캘리브레이션 버튼
-        self.theme_btn=QPushButton('☀ Light Mode'); self.theme_btn.clicked.connect(self._toggle_theme)
+        hl.addWidget(self.logo_lbl)
+        hl.addStretch()
+        self.status_lbl=QLabel('● Standby')
+        hl.addWidget(self.status_lbl)
+        self.theme_btn=QPushButton('☀ Light Mode')
+        self.theme_btn.setFixedWidth(90); self.theme_btn.setFixedHeight(24)
+        self.theme_btn.clicked.connect(self._toggle_theme)
         hl.addWidget(self.theme_btn)
-        self.calib_btn=QPushButton('🎙 Calibration'); self.calib_btn.clicked.connect(self._open_calib)
+        self.calib_btn=QPushButton('🎙 Calibration')
+        self.calib_btn.setFixedWidth(100); self.calib_btn.setFixedHeight(24)
+        self.calib_btn.clicked.connect(self._open_calib)
         hl.addWidget(self.calib_btn)
         root.addWidget(self.hdr)
 
-        # 마이크 바
-        self.mic_bar=QWidget(); self.mic_bar.setFixedHeight(38)
-        ml=QHBoxLayout(self.mic_bar); ml.setContentsMargins(16,3,16,3); ml.setSpacing(8)
-        ml.addWidget(QLabel('🎤 Input Device'))
-        self.dev_cb=RoundComboBox(); self.dev_cb.setMinimumWidth(320); self.dev_cb.setMaximumWidth(500)
-        ml.addWidget(self.dev_cb)
-        rb=QPushButton('↺ Refresh'); rb.setFixedWidth(90); rb.clicked.connect(self._load_devices)
-        ml.addWidget(rb)
-        self.mic_st=QLabel('Disconnected'); ml.addWidget(self.mic_st); ml.addStretch()
-        root.addWidget(self.mic_bar)
+        # ── Layer 2: 38px 컨트롤바 (Start | sep | Input Device | Refresh | status)
+        self.ctrl_bar=QWidget(); self.ctrl_bar.setFixedHeight(38)
+        cl=QHBoxLayout(self.ctrl_bar); cl.setContentsMargins(16,3,16,3); cl.setSpacing(8)
+        self.start_btn=QPushButton('▶  Start')
+        self.start_btn.setFixedWidth(84); self.start_btn.setFixedHeight(28)
+        self.start_btn.clicked.connect(self._toggle)
+        cl.addWidget(self.start_btn)
+        cl.addSpacing(4); cl.addWidget(self._vsep()); cl.addSpacing(4)
+        cl.addWidget(QLabel('🎤 Input Device'))
+        self.dev_cb=RoundComboBox(); self.dev_cb.setMinimumWidth(300); self.dev_cb.setMaximumWidth(480)
+        cl.addWidget(self.dev_cb)
+        rb=QPushButton('↺ Refresh'); rb.setFixedWidth(76); rb.setFixedHeight(28)
+        rb.clicked.connect(self._load_devices)
+        cl.addWidget(rb)
+        self.mic_st=QLabel('Disconnected')
+        cl.addWidget(self.mic_st)
+        cl.addStretch()
+        root.addWidget(self.ctrl_bar)
 
-        # ── Toolbar row 1: Start / View / Scale / Speed
-        self.tb=QWidget(); self.tb.setFixedHeight(40)
-        tl=QHBoxLayout(self.tb); tl.setContentsMargins(16,4,16,4); tl.setSpacing(5)
+        # ── Layer 3: 30px 탭바 (Spectrum | Transfer | Compare)
+        self.tab_bar=QWidget(); self.tab_bar.setFixedHeight(30)
+        tbl=QHBoxLayout(self.tab_bar); tbl.setContentsMargins(8,0,0,0); tbl.setSpacing(0)
+        self._tab_btns={}
+        for idx,(key,label) in enumerate([('spectrum','📊  Spectrum'),('transfer','⇄  Transfer'),('compare','📈  Compare')]):
+            b=QPushButton(label); b.setCheckable(True); b.setChecked(idx==0)
+            b.setFixedHeight(30)
+            b.clicked.connect(lambda _,i=idx: self._switch_tab(i))
+            tbl.addWidget(b); self._tab_btns[key]=b
+        tbl.addStretch()
+        root.addWidget(self.tab_bar)
 
-        self.start_btn=QPushButton('▶  Start'); self.start_btn.clicked.connect(self._toggle)
-        self.start_btn.setFixedWidth(84)
-        tl.addWidget(self.start_btn)
-        tl.addSpacing(6); tl.addWidget(self._vsep()); tl.addSpacing(6)
+        # ── Sub-controls stack (34px): 탭별 전용 컨트롤
+        self.sub_stack=QStackedWidget(); self.sub_stack.setFixedHeight(34)
 
-        tl.addWidget(self._lbl('View:'))
-        tl.addSpacing(2)
+        # Sub-page 0: Spectrum 컨트롤
+        sp0=QWidget(); sl0=QHBoxLayout(sp0)
+        sl0.setContentsMargins(12,2,12,2); sl0.setSpacing(4)
+        sl0.addWidget(self._lbl('View:'))
         self.view_btns={}
-        for m,t in [('fft','FFT'),('oct3','Oct ⅓'),('oct12','Oct ¹²'),('oct24','Oct ²⁴')]:
+        for m,t in [('fft','FFT'),('oct3','⅓ Oct'),('oct12','¹² Oct'),('oct24','²⁴ Oct')]:
             b=QPushButton(t); b.setCheckable(True); b.setChecked(m=='fft')
-            b.setFixedWidth(62)
+            b.setFixedWidth(56); b.setFixedHeight(26)
             b.clicked.connect(lambda _,mode=m: self._set_view(mode))
-            tl.addWidget(b); self.view_btns[m]=b
-        tl.addSpacing(6); tl.addWidget(self._vsep()); tl.addSpacing(6)
-
-        tl.addWidget(self._lbl('Scale:'))
-        tl.addSpacing(2)
+            sl0.addWidget(b); self.view_btns[m]=b
+        sl0.addSpacing(3); sl0.addWidget(self._vsep()); sl0.addSpacing(3)
+        sl0.addWidget(self._lbl('Scale:'))
         self.log_btn=QPushButton('Log'); self.log_btn.setCheckable(True); self.log_btn.setChecked(True)
         self.lin_btn=QPushButton('Lin'); self.lin_btn.setCheckable(True)
-        self.log_btn.setFixedWidth(46); self.lin_btn.setFixedWidth(42)
+        self.log_btn.setFixedWidth(44); self.lin_btn.setFixedWidth(40)
+        self.log_btn.setFixedHeight(26); self.lin_btn.setFixedHeight(26)
         self.log_btn.clicked.connect(lambda: self._set_scale(True))
         self.lin_btn.clicked.connect(lambda: self._set_scale(False))
-        tl.addWidget(self.log_btn); tl.addWidget(self.lin_btn)
-        tl.addSpacing(6); tl.addWidget(self._vsep()); tl.addSpacing(6)
-
-        tl.addWidget(self._lbl('⚡ Speed:'))
-        tl.addSpacing(2)
+        sl0.addWidget(self.log_btn); sl0.addWidget(self.lin_btn)
+        sl0.addSpacing(3); sl0.addWidget(self._vsep()); sl0.addSpacing(3)
+        sl0.addWidget(self._lbl('FFT:'))
+        fft_lbl=QLabel('16k'); fft_lbl.setStyleSheet('font-size:11px;font-weight:bold;padding:0 3px;')
+        sl0.addWidget(fft_lbl)
+        sl0.addSpacing(3); sl0.addWidget(self._vsep()); sl0.addSpacing(3)
+        sl0.addWidget(self._lbl('SR:'))
+        self.sr_cb=RoundComboBox(); self.sr_cb.addItems(['44.1 kHz','48 kHz'])
+        self.sr_cb.setCurrentIndex(1); self.sr_cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.sr_cb.setMinimumWidth(68); self.sr_cb.setFixedHeight(26)
+        self.sr_cb.currentIndexChanged.connect(self._sr_changed)
+        sl0.addWidget(self.sr_cb)
+        sl0.addSpacing(3); sl0.addWidget(self._vsep()); sl0.addSpacing(3)
+        sl0.addWidget(self._lbl('Avg:'))
+        self.avg_cb=RoundComboBox(); self.avg_cb.addItems(['None','4x','8x','16x'])
+        self.avg_cb.setCurrentIndex(1); self.avg_cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.avg_cb.setMinimumWidth(50); self.avg_cb.setFixedHeight(26)
+        self.avg_cb.currentIndexChanged.connect(self._avg_changed)
+        sl0.addWidget(self.avg_cb)
+        sl0.addSpacing(3); sl0.addWidget(self._vsep()); sl0.addSpacing(3)
+        sl0.addWidget(self._lbl('Peak:'))
+        self.peak_btn=QPushButton('ON'); self.peak_btn.setCheckable(True); self.peak_btn.setChecked(True)
+        self.peak_btn.setFixedWidth(42); self.peak_btn.setFixedHeight(26)
+        self.peak_btn.clicked.connect(self._toggle_peak)
+        rst=QPushButton('Reset'); rst.setFixedWidth(52); rst.setFixedHeight(26)
+        rst.clicked.connect(self._reset_peak)
+        sl0.addWidget(self.peak_btn); sl0.addWidget(rst)
+        sl0.addSpacing(3)
+        sl0.addWidget(self._lbl('Hold:'))
+        self.hold_cb=RoundComboBox()
+        self.hold_cb.addItems(['1s','2s','3s','5s','10s'])
+        self.hold_cb.setCurrentIndex(0)   # 기본값 1s (제일 빠름)
+        self.hold_cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.hold_cb.setMinimumWidth(50); self.hold_cb.setFixedHeight(26)
+        self.hold_cb.currentIndexChanged.connect(self._set_peak_hold_time)
+        sl0.addWidget(self.hold_cb)
+        sl0.addSpacing(3); sl0.addWidget(self._vsep()); sl0.addSpacing(3)
+        sl0.addWidget(self._lbl('dB:'))
+        self.db_cb=RoundComboBox(); self.db_cb.addItems(['72 dB','96 dB','120 dB'])
+        self.db_cb.setCurrentIndex(1); self.db_cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.db_cb.setMinimumWidth(58); self.db_cb.setFixedHeight(26)
+        self.db_cb.currentIndexChanged.connect(self._db_changed)
+        sl0.addWidget(self.db_cb)
+        sl0.addSpacing(3); sl0.addWidget(self._vsep()); sl0.addSpacing(3)
+        sl0.addWidget(self._lbl('⚡ Speed:'))
         self.spd_cb=RoundComboBox()
         self.spd_cb.addItems([lb for lb,*_ in SPEED_LEVELS])
         self.spd_cb.setCurrentIndex(self.speed_idx)
         self.spd_cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
-        self.spd_cb.setMinimumWidth(70)
+        self.spd_cb.setMinimumWidth(70); self.spd_cb.setFixedHeight(26)
         self.spd_cb.currentIndexChanged.connect(self._set_speed)
-        tl.addWidget(self.spd_cb)
-        tl.addSpacing(6); tl.addWidget(self._vsep()); tl.addSpacing(6)
-
+        sl0.addWidget(self.spd_cb)
+        sl0.addSpacing(3); sl0.addWidget(self._vsep()); sl0.addSpacing(3)
         self.color_btn=QPushButton('◉ Color')
-        self.color_btn.setFixedWidth(72)
+        self.color_btn.setFixedWidth(66); self.color_btn.setFixedHeight(26)
         self.color_btn.clicked.connect(self._open_color_picker)
-        tl.addWidget(self.color_btn)
-        tl.addSpacing(6); tl.addWidget(self._vsep()); tl.addSpacing(6)
+        sl0.addWidget(self.color_btn)
+        sl0.addStretch()
+        self.sub_stack.addWidget(sp0)  # index 0
 
-        self.tf_btn=QPushButton('🔀 Transfer Fn')
-        self.tf_btn.setFixedWidth(110)
-        self.tf_btn.clicked.connect(self._open_tf_window)
-        tl.addWidget(self.tf_btn)
+        # Sub-page 1: Transfer 컨트롤 (TF 위젯이 자체 UI 보유)
+        sp1=QWidget(); sl1=QHBoxLayout(sp1)
+        sl1.setContentsMargins(16,2,16,2)
+        _tf_hint=QLabel('Transfer Function — use controls inside the panel')
+        _tf_hint.setStyleSheet('font-size:10px;font-style:italic;')
+        sl1.addWidget(_tf_hint); sl1.addStretch()
+        self.sub_stack.addWidget(sp1)  # index 1
 
-        tl.addStretch()
-        root.addWidget(self.tb)
-
-        # ── Toolbar row 2: FFT / Sample Rate / Average / Peak / Reset / dB Range
-        self.tb2=QWidget(); self.tb2.setFixedHeight(40)
-        tl2=QHBoxLayout(self.tb2); tl2.setContentsMargins(16,4,16,4); tl2.setSpacing(5)
-
-        tl2.addWidget(self._lbl('FFT:'))
-        fft_lbl=QLabel('16k'); fft_lbl.setStyleSheet('font-size:11px;font-weight:bold;padding:0 4px;')
-        tl2.addWidget(fft_lbl)
-        tl2.addSpacing(6); tl2.addWidget(self._vsep()); tl2.addSpacing(6)
-
-        tl2.addWidget(self._lbl('Sample Rate:'))
-        tl2.addSpacing(2)
-        self.sr_cb=RoundComboBox(); self.sr_cb.addItems(['44.1 kHz','48 kHz'])
-        self.sr_cb.setCurrentIndex(1)
-        self.sr_cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
-        self.sr_cb.setMinimumWidth(72)
-        self.sr_cb.currentIndexChanged.connect(self._sr_changed)
-        tl2.addWidget(self.sr_cb)
-        tl2.addSpacing(6); tl2.addWidget(self._vsep()); tl2.addSpacing(6)
-
-        tl2.addWidget(self._lbl('Average:'))
-        tl2.addSpacing(2)
-        self.avg_cb=RoundComboBox(); self.avg_cb.addItems(['None','4x','8x','16x'])
-        self.avg_cb.setCurrentIndex(1)
-        self.avg_cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
-        self.avg_cb.setMinimumWidth(50)
-        self.avg_cb.currentIndexChanged.connect(self._avg_changed)
-        tl2.addWidget(self.avg_cb)
-        tl2.addSpacing(6); tl2.addWidget(self._vsep()); tl2.addSpacing(6)
-
-        tl2.addWidget(self._lbl('Peak:'))
-        tl2.addSpacing(2)
-        self.peak_btn=QPushButton('ON'); self.peak_btn.setCheckable(True); self.peak_btn.setChecked(True)
-        self.peak_btn.setFixedWidth(44)
-        self.peak_btn.clicked.connect(self._toggle_peak)
-        rst=QPushButton('Reset'); rst.setFixedWidth(58); rst.clicked.connect(self._reset_peak)
-        tl2.addWidget(self.peak_btn); tl2.addWidget(rst)
-        tl2.addSpacing(6); tl2.addWidget(self._vsep()); tl2.addSpacing(6)
-
-        tl2.addWidget(self._lbl('dB Range:'))
-        tl2.addSpacing(2)
-        self.db_cb=RoundComboBox(); self.db_cb.addItems(['72 dB','96 dB','120 dB'])
-        self.db_cb.setCurrentIndex(1)
-        self.db_cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
-        self.db_cb.setMinimumWidth(60)
-        self.db_cb.currentIndexChanged.connect(self._db_changed)
-        tl2.addWidget(self.db_cb)
-
-        tl2.addStretch()
-        root.addWidget(self.tb2)
-
-        # ── 비교 모드 툴바 (tb3)
-        self.tb3=QWidget(); self.tb3.setFixedHeight(40)
-        tl3=QHBoxLayout(self.tb3); tl3.setContentsMargins(16,4,16,4); tl3.setSpacing(5)
+        # Sub-page 2: Compare 컨트롤
+        sp2=QWidget(); sl2=QHBoxLayout(sp2)
+        sl2.setContentsMargins(12,2,12,2); sl2.setSpacing(4)
         self.compare_btn=QPushButton('▶◀  Compare')
         self.compare_btn.setCheckable(True); self.compare_btn.setChecked(False)
-        self.compare_btn.setFixedWidth(100)
+        self.compare_btn.setFixedWidth(96); self.compare_btn.setFixedHeight(26)
         self.compare_btn.clicked.connect(self._toggle_compare)
-        tl3.addWidget(self.compare_btn)
-        tl3.addSpacing(6); tl3.addWidget(self._vsep()); tl3.addSpacing(6)
-
+        sl2.addWidget(self.compare_btn)
+        sl2.addSpacing(3); sl2.addWidget(self._vsep()); sl2.addSpacing(3)
         self._cmp_lbl=QLabel('🎤 Input B:'); self._cmp_lbl.hide()
-        tl3.addWidget(self._cmp_lbl)
-        self.dev_cb_b=RoundComboBox(); self.dev_cb_b.setMinimumWidth(320); self.dev_cb_b.setMaximumWidth(500)
+        sl2.addWidget(self._cmp_lbl)
+        self.dev_cb_b=RoundComboBox()
+        self.dev_cb_b.setMinimumWidth(280); self.dev_cb_b.setMaximumWidth(440)
         self.dev_cb_b.hide()
-        tl3.addWidget(self.dev_cb_b)
-        self.calib_btn_b=QPushButton('🎙 Calib B'); self.calib_btn_b.setFixedWidth(80)
+        sl2.addWidget(self.dev_cb_b)
+        self.calib_btn_b=QPushButton('🎙 Calib B')
+        self.calib_btn_b.setFixedWidth(78); self.calib_btn_b.setFixedHeight(26)
         self.calib_btn_b.clicked.connect(self._open_calib_b); self.calib_btn_b.hide()
-        tl3.addWidget(self.calib_btn_b)
-        tl3.addSpacing(6)
+        sl2.addWidget(self.calib_btn_b)
+        sl2.addSpacing(3)
         self.diff_btn=QPushButton('Δ Diff'); self.diff_btn.setCheckable(True)
-        self.diff_btn.setFixedWidth(58); self.diff_btn.hide()
+        self.diff_btn.setFixedWidth(56); self.diff_btn.setFixedHeight(26); self.diff_btn.hide()
         self.diff_btn.clicked.connect(self._toggle_diff)
-        tl3.addWidget(self.diff_btn)
-        tl3.addSpacing(10)
-
-        self._chip_a=QLabel(); self._chip_a.setFixedSize(24,10)
-        self._chip_a.setStyleSheet('background:#00e5ff;border-radius:3px;')
-        self._chip_a.hide()
-        self._lbl_a=QLabel('A'); self._lbl_a.setStyleSheet('color:#00e5ff;font-weight:bold;font-size:11px;')
-        self._lbl_a.hide()
-        self._chip_b=QLabel(); self._chip_b.setFixedSize(24,10)
-        self._chip_b.setStyleSheet('background:#ff8c28;border-radius:3px;')
-        self._chip_b.hide()
-        self._lbl_b=QLabel('B'); self._lbl_b.setStyleSheet('color:#ff8c28;font-weight:bold;font-size:11px;')
-        self._lbl_b.hide()
-        for w in [self._chip_a,self._lbl_a,self._chip_b,self._lbl_b]: tl3.addWidget(w)
+        sl2.addWidget(self.diff_btn)
+        sl2.addSpacing(8)
+        self._chip_a=QLabel(); self._chip_a.setFixedSize(20,8)
+        self._chip_a.setStyleSheet('background:#00e5ff;border-radius:3px;'); self._chip_a.hide()
+        self._lbl_a=QLabel('A')
+        self._lbl_a.setStyleSheet('color:#00e5ff;font-weight:bold;font-size:11px;'); self._lbl_a.hide()
+        self._chip_b=QLabel(); self._chip_b.setFixedSize(20,8)
+        self._chip_b.setStyleSheet('background:#ff8c28;border-radius:3px;'); self._chip_b.hide()
+        self._lbl_b=QLabel('B')
+        self._lbl_b.setStyleSheet('color:#ff8c28;font-weight:bold;font-size:11px;'); self._lbl_b.hide()
+        for w in [self._chip_a,self._lbl_a,self._chip_b,self._lbl_b]: sl2.addWidget(w)
         self._compare_legend_widgets=[self._chip_a,self._lbl_a,self._chip_b,self._lbl_b]
+        sl2.addStretch()
+        self.sub_stack.addWidget(sp2)  # index 2
 
-        tl3.addStretch()
-        root.addWidget(self.tb3)
+        root.addWidget(self.sub_stack)
 
-        # 메인
-        mw=QWidget(); ml2=QHBoxLayout(mw); ml2.setSpacing(0); ml2.setContentsMargins(0,0,0,0)
+        # ── 메인 스택: Spectrum(0) | Transfer(1)
+        self.main_stack=QStackedWidget()
 
-        # VU 컨테이너 (A + B)
+        # Page 0: Spectrum (VU + 캔버스 + 정보 패널)
+        page0=QWidget(); pl0=QHBoxLayout(page0)
+        pl0.setSpacing(0); pl0.setContentsMargins(0,0,0,0)
         vu_cont=QWidget(); vc_lay=QVBoxLayout(vu_cont)
         vc_lay.setContentsMargins(0,0,0,0); vc_lay.setSpacing(0)
         self._lbl_vu_a=QLabel('A'); self._lbl_vu_a.setAlignment(Qt.AlignHCenter)
@@ -2713,17 +2784,22 @@ class MainWindow(QMainWindow):
         self._lbl_vu_b.hide()
         vc_lay.addWidget(self._lbl_vu_b)
         self.vu_b=VUMeter(); self.vu_b.hide(); vc_lay.addWidget(self.vu_b)
-        ml2.addWidget(vu_cont)
-
+        pl0.addWidget(vu_cont)
         self.fft_cvs=FFTCanvas()
         self.oct_cvs=OctaveCanvas(); self.oct_cvs.hide()
         stk=QWidget(); sl=QVBoxLayout(stk); sl.setContentsMargins(0,0,0,0); sl.setSpacing(0)
         sl.addWidget(self.fft_cvs); sl.addWidget(self.oct_cvs)
-        ml2.addWidget(stk)
-        ml2.addWidget(self._build_info())
-        root.addWidget(mw)
+        pl0.addWidget(stk)
+        pl0.addWidget(self._build_info())
+        self.main_stack.addWidget(page0)  # index 0
 
-        # 푸터
+        # Page 1: Transfer Function (임베드)
+        self.tf_win=TransferFunctionWindow(self, self._settings, embedded=True)
+        self.main_stack.addWidget(self.tf_win)  # index 1
+
+        root.addWidget(self.main_stack)
+
+        # ── 푸터
         self.ft=QWidget(); self.ft.setFixedHeight(22)
         fl=QHBoxLayout(self.ft); fl.setContentsMargins(16,0,16,0)
         fl.addWidget(QLabel('WSA Spectrum Analyzer 2  |  v2.0'))
@@ -2732,6 +2808,28 @@ class MainWindow(QMainWindow):
         jordan_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:10px;font-style:italic;')
         fl.addWidget(jordan_lbl)
         root.addWidget(self.ft)
+
+    def _switch_tab(self, i):
+        keys=['spectrum','transfer','compare']
+        for k,b in self._tab_btns.items():
+            b.setChecked(k==keys[i])
+        self.sub_stack.setCurrentIndex(i)
+        self.main_stack.setCurrentIndex(1 if i==1 else 0)
+        self._apply_tab_styles()
+
+    def _apply_tab_styles(self):
+        bg=T('bg'); panel=T('panel'); accent=T('accent'); text=T('text'); text_dim=T('text_dim')
+        for b in self._tab_btns.values():
+            if b.isChecked():
+                b.setStyleSheet(
+                    f'border:none;border-top:2px solid {accent};background:{panel};'
+                    f'color:{text};font-size:11px;font-weight:bold;'
+                    f'padding:0 14px;border-radius:0;min-height:28px;')
+            else:
+                b.setStyleSheet(
+                    f'border:none;border-top:2px solid transparent;background:{bg};'
+                    f'color:{text_dim};font-size:11px;'
+                    f'padding:0 14px;border-radius:0;min-height:28px;')
 
     def _sep(self):
         w = QWidget(); w.setFixedWidth(6); return w
@@ -2849,12 +2947,12 @@ class MainWindow(QMainWindow):
             QGroupBox::title {{ subcontrol-origin:margin; left:8px; padding:0 4px; color:{text_dim}; }}
             QFrame[frameShape="4"] {{ color:{border}; }}
         """)
-        # 헤더 스타일
-        self.hdr.setStyleSheet(f'background:{bg2};')
-        self.mic_bar.setStyleSheet(f'background:{bg3};margin-top:2px;')
-        self.tb.setStyleSheet(f'background:{bg3};margin-top:2px;')
-        self.tb2.setStyleSheet(f'background:{bg2};margin-top:2px;margin-bottom:2px;')
-        self.tb3.setStyleSheet(f'background:{bg3};margin-top:2px;')
+        # 헤더/컨트롤바/탭바 스타일
+        self.hdr.setStyleSheet(f'background:{bg2};border-bottom:1px solid {border};')
+        self.ctrl_bar.setStyleSheet(f'background:{bg3};')
+        self.tab_bar.setStyleSheet(f'background:{bg};border-bottom:1px solid {border};')
+        self.sub_stack.setStyleSheet(f'background:{bg3};border-bottom:1px solid {border};')
+        self._apply_tab_styles()
         self.ft.setStyleSheet(f'background:{bg2};border-top:1px solid {border};')
         self.logo_lbl.setText(
             f'<span style="font-size:14px;font-weight:700;color:{accent};letter-spacing:2px;">WAYAUDIO</span>'
@@ -2869,7 +2967,8 @@ class MainWindow(QMainWindow):
         self.theme_btn.setText(lbl)
         self.theme_btn.setStyleSheet(f'background:{panel};color:{accent};border:1px solid {border};padding:3px 10px;border-radius:4px;')
         self.calib_btn.setStyleSheet(f'background:{panel};color:{text_dim};border:1px solid {border};padding:3px 10px;border-radius:4px;')
-        # 캔버스 리페인트
+        # 캔버스 캐시 무효화 + 리페인트
+        self.fft_cvs._cache=None; self.oct_cvs._cache=None
         for w in [self.fft_cvs,self.oct_cvs,self.vu_a,self.vu_b]: w.update()
 
     def _go_style(self,b):
@@ -2931,10 +3030,7 @@ class MainWindow(QMainWindow):
         self.leq_win.show(); self.leq_win.raise_()
 
     def _open_tf_window(self):
-        if self.tf_win is None:
-            self.tf_win=TransferFunctionWindow(self,self._settings)
-            self.tf_win.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
-        self.tf_win.show(); self.tf_win.raise_()
+        self._switch_tab(1)
 
     # ─────────────────────────────────────
     def _load_devices(self):
@@ -3337,7 +3433,7 @@ class MainWindow(QMainWindow):
 
     def _set_scale(self,log):
         self.log_btn.setChecked(log); self.lin_btn.setChecked(not log)
-        self.fft_cvs.scale_log=log; self.fft_cvs.update()
+        self.fft_cvs.scale_log=log; self.fft_cvs._cache=None; self.fft_cvs.update()
 
     def _set_speed(self,idx):
         self.speed_idx=idx; s=SPEED_LEVELS[idx][1]; self.smoothing=s
@@ -3361,6 +3457,12 @@ class MainWindow(QMainWindow):
     def _reset_peak(self):
         self.fft_cvs.reset_peak(); self.oct_cvs.reset_peak()
 
+    def _set_peak_hold_time(self, idx):
+        # dB/frame: 30dB 낙하 기준 (1s=빠름 ~ 10s=느림, @~30fps)
+        rate = [1.0, 0.5, 0.33, 0.2, 0.1][idx]
+        self.fft_cvs.set_peak_hold_time(rate)
+        self.oct_cvs.set_peak_hold_time(rate)
+
     def _db_changed(self,idx):
         self.db_range=[72,96,120][idx]; self.db_min=self.db_max-self.db_range
         self._apply_db_range()
@@ -3374,14 +3476,14 @@ class MainWindow(QMainWindow):
             super().keyPressEvent(e)
 
     def _open_color_picker(self):
-        dlg = ColorPickerDialog(self)
-        dlg.preset_chosen.connect(self._on_color_chosen)
-        btn_pos = self.color_btn.mapToGlobal(self.color_btn.rect().bottomLeft())
-        dlg.move(btn_pos)
-        dlg.exec()
-
-    def _on_color_chosen(self, idx):
-        for w in [self.fft_cvs, self.oct_cvs]: w.update()
+        global _custom_color, _bar_preset_idx
+        init = QColor(*_custom_color) if _custom_color else QColor(*bar_top()[:3])
+        color = QColorDialog.getColor(init, self, '그래프 색상 선택')
+        if color.isValid():
+            _custom_color = (color.red(), color.green(), color.blue())
+            _bar_preset_idx = 0
+            self.fft_cvs._cache = None; self.oct_cvs._cache = None
+            self.fft_cvs.update(); self.oct_cvs.update()
 
     def closeEvent(self,e): self._render_t.stop(); self._stop_b(); self._stop(); e.accept()
 
