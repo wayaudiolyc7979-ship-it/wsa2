@@ -102,14 +102,14 @@ THEMES = {
         'bg3':      '#161b22',
         'panel':    '#1a2030',
         'border':   '#2a3545',
-        'text':     '#d0dde8',
-        'text_dim': '#5a7080',
+        'text':     '#e0eaf4',
+        'text_dim': '#6a8898',
         'accent':   '#00e5ff',
         'accent2':  '#ff6b35',
         'green':    '#39ff14',
         'yellow':   '#ffcc00',
         'red':      '#ff3333',
-        'grid':     '#2a3545',
+        'grid':     '#2e3f52',
         'spec_fill_top': (0,229,255,130),
         'spec_fill_bot': (0,229,255,5),
         'spec_line':     '#00e5ff',
@@ -411,7 +411,7 @@ class FFTCanvas(QWidget):
             y=pt+db_to_y(db,dh,self.db_min,self.db_max)
             if not pt<=y<=H-pb: continue
             is0=(db==0)
-            p.setPen(QPen(QColor(T('accent')),1.2 if is0 else 1, Qt.SolidLine))
+            p.setPen(QPen(QColor(T('accent')),1.5 if is0 else 0.7, Qt.SolidLine))
             p.drawLine(pl,y,W-pr,y)
             p.setPen(QColor(T('text_dim')))
             p.drawText(2,y+4,f'{db:+d}')
@@ -467,7 +467,7 @@ class FFTCanvas(QWidget):
         stroke=QPainterPath()
         stroke.moveTo(float(xs[0]),float(ys[0]))
         for x,y in zip(xs[1:],ys[1:]): stroke.lineTo(float(x),float(y))
-        p.setPen(QPen(line_col,1.5)); p.drawPath(stroke)
+        p.setPen(QPen(line_col,2.0)); p.drawPath(stroke)
 
         # 피크 홀드 A
         if self.peak_hold and self._ds_pk is not None:
@@ -497,7 +497,7 @@ class FFTCanvas(QWidget):
             stroke_b=QPainterPath()
             stroke_b.moveTo(float(xs_b[0]),float(ys_b[0]))
             for x,y in zip(xs_b[1:],ys_b[1:]): stroke_b.lineTo(float(x),float(y))
-            p.setPen(QPen(QColor(CH_B_LINE),1.5)); p.drawPath(stroke_b)
+            p.setPen(QPen(QColor(CH_B_LINE),2.0)); p.drawPath(stroke_b)
 
             if self.peak_hold and self._ds_pk_b is not None:
                 py_b=pt+np.clip(((self.db_max-self._ds_pk_b)/(self.db_max-self.db_min)*dh).astype(int),0,dh)
@@ -513,7 +513,7 @@ class FFTCanvas(QWidget):
                 diff_p=QPainterPath()
                 diff_p.moveTo(float(xs[0]),float(ys_d[0]))
                 for x,y in zip(xs[1:],ys_d[1:]): diff_p.lineTo(float(x),float(y))
-                p.setPen(QPen(QColor(DIFF_LINE),1.5,Qt.DashLine)); p.drawPath(diff_p)
+                p.setPen(QPen(QColor(DIFF_LINE),2.0,Qt.DashLine)); p.drawPath(diff_p)
                 p.setPen(QPen(QColor(DIFF_LINE).lighter(130),1,Qt.DotLine))
                 p.drawLine(pl,zero_y,W-pr,zero_y)
 
@@ -631,7 +631,7 @@ class OctaveCanvas(QWidget):
             y=pt+db_to_y(db,dh,self.db_min,self.db_max)
             if not pt<=y<=H-pb: continue
             is0=(db==0)
-            p.setPen(QPen(QColor(T('accent')),1.2 if is0 else 1, Qt.SolidLine))
+            p.setPen(QPen(QColor(T('accent')),1.5 if is0 else 0.7, Qt.SolidLine))
             p.drawLine(pl,y,W-pr,y)
             p.setPen(QColor(T('text_dim'))); p.drawText(2,y+4,f'{db:+d}')
         bands=BANDS[self.mode]; sm=self.smooth[self.mode]; pk=self.peaks[self.mode]
@@ -1317,7 +1317,7 @@ class TFPhaseCanvas(QWidget):
         dh=H-pt-pb; uw=W-pl-pr; ny=20000
         rng=self.ph_max-self.ph_min if self.ph_max!=self.ph_min else 1.0
         is_grp=(self.phase_mode==2); unit=' ms' if is_grp else '°'
-        p.setFont(QFont('Arial',8))
+        p.setFont(QFont('Arial',9))
         if is_grp:
             gs=[v for v in [-2,0,2,5,10,15,20,25,30] if self.ph_min<=v<=self.ph_max]
         else:
@@ -1332,7 +1332,7 @@ class TFPhaseCanvas(QWidget):
         for deg in gs:
             y=int(pt+(self.ph_max-deg)/rng*dh)
             is0=(deg==0)
-            p.setPen(QPen(QColor(T('accent')),1.3 if is0 else 0.6,Qt.SolidLine if is0 else Qt.DotLine))
+            p.setPen(QPen(QColor(T('accent')),1.5 if is0 else 0.7,Qt.SolidLine if is0 else Qt.DotLine))
             p.drawLine(pl,y,W-pr,y)
             p.setPen(QColor(T('text_dim')))
             lbl=f'{deg}{unit}' if is_grp else f'{int(deg)}°'
@@ -1379,7 +1379,7 @@ class TFPhaseCanvas(QWidget):
             else:
                 path.moveTo(float(xs[i]),float(ys[i])); in_path=True
         p.setRenderHint(QPainter.Antialiasing, True)
-        p.setPen(QPen(QColor('#39ff14'),1.8)); p.setBrush(Qt.NoBrush); p.drawPath(path)
+        p.setPen(QPen(QColor('#39ff14'),2.0)); p.setBrush(Qt.NoBrush); p.drawPath(path)
 
     def paintEvent(self,ev):
         W=self.width(); H=self.height()
@@ -1469,13 +1469,13 @@ class TFMagCanvas(QWidget):
         dh=H-pt-pb; uw=W-pl-pr; ny=20000
         rng=self.db_max-self.db_min if self.db_max!=self.db_min else 1.0
         step_db=3 if rng<=24 else 6 if rng<=48 else 12
-        p.setFont(QFont('Arial',8))
+        p.setFont(QFont('Arial',9))
         for db in range(int(self.db_min)-step_db,int(self.db_max)+step_db+1,step_db):
             if db<self.db_min or db>self.db_max: continue
             y=int(pt+(self.db_max-db)/rng*dh)
             if not pt<=y<=H-pb: continue
             is0=(db==0)
-            p.setPen(QPen(QColor(T('accent')),1.4 if is0 else 0.6,Qt.SolidLine if is0 else Qt.DotLine))
+            p.setPen(QPen(QColor(T('accent')),1.5 if is0 else 0.7,Qt.SolidLine if is0 else Qt.DotLine))
             p.drawLine(pl,y,W-pr,y)
             p.setPen(QColor(T('text_dim'))); p.drawText(2,y+4,f'{db:+d}')
         p.setFont(QFont('Arial',9,QFont.Bold)); last_lx=-999
@@ -1501,11 +1501,11 @@ class TFMagCanvas(QWidget):
                     cv=float(self.coh[i])
                     alpha=255 if cv>=self.coh_blank else int(30+225*(cv/max(self.coh_blank,0.01)))
                     c=QColor(T('accent')); c.setAlpha(alpha)
-                    p.setPen(QPen(c,1.8)); p.drawLine(int(xs[i]),int(ys_m[i]),int(xs[i+1]),int(ys_m[i+1]))
+                    p.setPen(QPen(c,2.0)); p.drawLine(int(xs[i]),int(ys_m[i]),int(xs[i+1]),int(ys_m[i+1]))
             else:
                 path=QPainterPath(); path.moveTo(xs[0],ys_m[0])
                 for x,y in zip(xs[1:],ys_m[1:]): path.lineTo(x,y)
-                p.setPen(QPen(QColor(T('accent')),1.8)); p.setBrush(Qt.NoBrush); p.drawPath(path)
+                p.setPen(QPen(QColor(T('accent')),2.0)); p.setBrush(Qt.NoBrush); p.drawPath(path)
             if self.coh is not None and len(self.coh)==len(f_arr):
                 coh_h=dh*0.25; cr,cg,cb_=self._COH_COLOR
                 ys_c=(pt+np.clip((1.0-self.coh)*coh_h,0,coh_h)).astype(float)
@@ -1661,22 +1661,22 @@ class TFIRCanvas(QWidget):
             x = int(pl + (t - self.t_min) / t_range * uw)
             if pl <= x <= W - pr:
                 p.setPen(QPen(QColor(T('grid')), 1)); p.drawLine(x, pt, x, H - pb)
-                p.setPen(QColor(T('text_dim'))); p.setFont(QFont('Arial', 8))
+                p.setPen(QColor(T('text_dim'))); p.setFont(QFont('Arial', 9))
                 lbl = f'{t:.0f}ms'; tw = p.fontMetrics().horizontalAdvance(lbl)
                 p.drawText(x - tw // 2, H - 2, lbl)
             t += step_ms
 
         if self.ir_mode == 0:  # ── Lin ───────────────────────────────────
-            p.setFont(QFont('Arial', 8))
+            p.setFont(QFont('Arial', 9))
             for amp in [1.0, 0.5, 0.0, -0.5, -1.0]:
                 y = int(pt + (1.0 - amp) / 2.0 * dh)
                 if not pt <= y <= H - pb: continue
                 is0 = (amp == 0.0)
-                p.setPen(QPen(QColor(T('accent')), 1.3 if is0 else 0.6,
+                p.setPen(QPen(QColor(T('accent')), 1.5 if is0 else 0.7,
                              Qt.SolidLine if is0 else Qt.DotLine))
                 p.drawLine(pl, y, W - pr, y)
                 p.setPen(QColor(T('text_dim'))); p.drawText(2, y + 4, f'{amp:+.1f}')
-            p.setFont(QFont('Arial', 8, QFont.Bold)); p.setPen(QColor(T('text_dim')))
+            p.setFont(QFont('Arial', 9, QFont.Bold)); p.setPen(QColor(T('text_dim')))
             p.drawText(pl + 4, pt + 12, 'Live IR  (Linear)')
             if self.t_ms is not None and self.h_raw is not None and len(self.t_ms) >= 2:
                 peak_lin = max(float(np.max(np.abs(self.h_raw))), 1e-10)
@@ -1692,10 +1692,10 @@ class TFIRCanvas(QWidget):
                     lpath = QPainterPath(); lpath.moveTo(xs[0], ys[0])
                     for x, y in zip(xs[1:], ys[1:]): lpath.lineTo(x, y)
                     lc = QColor(T('accent')); lc.setAlpha(230)
-                    p.setPen(QPen(lc, 1.5)); p.setBrush(Qt.NoBrush); p.drawPath(lpath)
+                    p.setPen(QPen(lc, 2.0)); p.setBrush(Qt.NoBrush); p.drawPath(lpath)
                 if self.t_min <= self.peak_ms <= self.t_max:
                     pkx = int(pl + (self.peak_ms - self.t_min) / t_range * uw)
-                    p.setPen(QPen(QColor(T('accent2')), 1.5, Qt.DashLine))
+                    p.setPen(QPen(QColor(T('accent2')), 2.0, Qt.DashLine))
                     p.drawLine(pkx, pt, pkx, H - pb)
                     p.setFont(QFont('Arial', 8, QFont.Bold)); p.setPen(QColor(T('accent2')))
                     p.drawText(pkx + 4, pt + 12, f'▶ {self.peak_ms:.1f} ms')
@@ -1756,7 +1756,7 @@ class TFIRCanvas(QWidget):
                             p.setPen(QPen(lc, 1.2)); p.setBrush(Qt.NoBrush); p.drawPath(lp)
                     if self.t_min <= self.peak_ms <= self.t_max:
                         pkx = int(pl + (self.peak_ms - self.t_min) / t_range * uw)
-                        p.setPen(QPen(QColor(T('accent2')), 1.5, Qt.DashLine))
+                        p.setPen(QPen(QColor(T('accent2')), 2.0, Qt.DashLine))
                         p.drawLine(pkx, pt, pkx, H - pb)
                         p.setFont(QFont('Arial', 8, QFont.Bold)); p.setPen(QColor(T('accent2')))
                         p.drawText(pkx + 4, pt + 12, f'▶ {self.peak_ms:.1f} ms')
@@ -2750,11 +2750,11 @@ class MainWindow(QMainWindow):
         layout=QVBoxLayout(panel); layout.setContentsMargins(10,10,10,10); layout.setSpacing(8)
 
         def sec(title,rows):
-            g=QGroupBox(title); gl=QVBoxLayout(g); gl.setSpacing(2); labels={}
+            g=QGroupBox(title); gl=QVBoxLayout(g); gl.setSpacing(3); labels={}
             for k,v in rows:
                 row=QHBoxLayout()
-                kl=QLabel(k); kl.setStyleSheet('font-size:10px;font-family:Arial;')
-                vl=QLabel(v); vl.setStyleSheet('font-size:11px;font-family:Arial;font-weight:bold;')
+                kl=QLabel(k); kl.setStyleSheet(f'font-size:9px;font-family:Arial;color:{T("text_dim")};')
+                vl=QLabel(v); vl.setStyleSheet(f'font-size:11px;font-family:Arial;font-weight:bold;color:{T("accent")};')
                 vl.setAlignment(Qt.AlignRight)
                 row.addWidget(kl); row.addWidget(vl); gl.addLayout(row); labels[k]=vl
             return g,labels
@@ -2770,24 +2770,24 @@ class MainWindow(QMainWindow):
             box.setStyleSheet(f'QGroupBox{{border:2px solid {accent_color};border-radius:8px;'
                               f'margin-top:8px;color:{accent_color};font-size:10px;font-weight:bold;}}'
                               f'QGroupBox::title{{subcontrol-origin:margin;left:8px;padding:0 4px;}}')
-            bl=QVBoxLayout(box); bl.setSpacing(2)
+            bl=QVBoxLayout(box); bl.setSpacing(3)
             refs={}
             for k,init in [('SPL','—'),('Peak Hold','—'),('Dominant','—')]:
                 row=QHBoxLayout()
-                kl=QLabel(k); kl.setStyleSheet('font-size:10px;font-family:Arial;')
-                vl=QLabel(init); vl.setStyleSheet('font-size:11px;font-family:Arial;font-weight:bold;')
+                kl=QLabel(k); kl.setStyleSheet(f'font-size:9px;font-family:Arial;color:{T("text_dim")};')
+                vl=QLabel(init); vl.setStyleSheet(f'font-size:11px;font-family:Arial;font-weight:bold;color:{accent_color};')
                 vl.setAlignment(Qt.AlignRight)
                 row.addWidget(kl); row.addWidget(vl); bl.addLayout(row); refs[k]=vl
             dba_row=QHBoxLayout()
-            dba_lbl=QLabel('dBA'); dba_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:10px;')
+            dba_lbl=QLabel('dBA'); dba_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:9px;')
             dba_val=QLabel('—')
-            dba_val.setStyleSheet(f'color:{T("green")};font-size:15px;font-weight:bold;font-family:Arial;')
+            dba_val.setStyleSheet(f'color:{T("green")};font-size:18px;font-weight:bold;font-family:Arial;')
             dba_val.setAlignment(Qt.AlignRight)
             dba_row.addWidget(dba_lbl); dba_row.addWidget(dba_val); bl.addLayout(dba_row)
             dbc_row=QHBoxLayout()
-            dbc_lbl=QLabel('dBC'); dbc_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:10px;')
+            dbc_lbl=QLabel('dBC'); dbc_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:9px;')
             dbc_val=QLabel('—')
-            dbc_val.setStyleSheet(f'color:{T("accent2")};font-size:15px;font-weight:bold;font-family:Arial;')
+            dbc_val.setStyleSheet(f'color:{T("accent2")};font-size:18px;font-weight:bold;font-family:Arial;')
             dbc_val.setAlignment(Qt.AlignRight)
             dbc_row.addWidget(dbc_lbl); dbc_row.addWidget(dbc_val); bl.addLayout(dbc_row)
             refs['dBA']=dba_val; refs['dBC']=dbc_val
@@ -2819,30 +2819,31 @@ class MainWindow(QMainWindow):
             QWidget       {{ background:{bg}; color:{text}; font-family:Arial; }}
             QLabel        {{ color:{text_dim}; font-size:11px; }}
             QComboBox     {{ background:{panel}; color:{text}; border:1px solid {border};
-                             border-radius:8px; padding:2px 8px; font-size:11px;
-                             min-height:24px; combobox-popup:0; }}
+                             border-radius:6px; padding:2px 8px; font-size:11px;
+                             min-height:26px; combobox-popup:0; }}
             QComboBox:hover {{ border-color:{accent}; color:{text}; }}
             QComboBox::drop-down {{ width:0; border:none; }}
             QComboBox::down-arrow {{ width:0; height:0; image:none; }}
             QComboBox QAbstractItemView {{ background:{bg2}; color:{text}; border:1px solid {accent};
-                             border-radius:8px;
-                             selection-background-color:rgba(0,150,255,80);
+                             border-radius:6px;
+                             selection-background-color:rgba(0,229,255,60);
                              selection-color:{accent}; outline:none; font-size:11px; }}
-            QComboBox QAbstractItemView::item {{ padding:5px 10px; min-height:24px;
+            QComboBox QAbstractItemView::item {{ padding:5px 10px; min-height:26px;
                              background:{bg2}; color:{text}; border:none; }}
-            QComboBox QAbstractItemView::item:hover {{ background:rgba(0,150,255,40); color:{text}; }}
-            QComboBox QAbstractItemView::item:selected {{ background:rgba(0,150,255,80); color:{accent}; }}
+            QComboBox QAbstractItemView::item:hover {{ background:rgba(0,229,255,25); color:{text}; }}
+            QComboBox QAbstractItemView::item:selected {{ background:rgba(0,229,255,60); color:{accent}; }}
             QScrollBar:vertical {{ background:{bg2}; width:6px; margin:0; border:none; }}
             QScrollBar::handle:vertical {{ background:{border}; border-radius:3px; min-height:20px; }}
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height:0; }}
             QScrollBar:horizontal {{ background:{bg2}; height:6px; margin:0; border:none; }}
             QScrollBar::handle:horizontal {{ background:{border}; border-radius:3px; min-width:20px; }}
             QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width:0; }}
-            QPushButton   {{ background:{panel}; color:{text_dim}; border:1px solid {border};
-                             border-radius:8px; padding:3px 12px; font-size:11px; min-height:24px; }}
-            QPushButton:hover   {{ background:rgba(0,180,255,18); border-color:{accent}; color:{text}; }}
-            QPushButton:pressed {{ background:rgba(0,180,255,35); }}
-            QPushButton:checked {{ background:rgba(0,150,255,55); color:{accent}; border-color:{accent}; border-width:2px; }}
+            QPushButton   {{ background:{panel}; color:{text}; border:1px solid {border};
+                             border-radius:6px; padding:3px 12px; font-size:11px; min-height:26px; }}
+            QPushButton:hover   {{ background:rgba(0,229,255,15); border-color:{accent}; color:{accent}; }}
+            QPushButton:pressed {{ background:rgba(0,229,255,30); }}
+            QPushButton:checked {{ background:rgba(0,229,255,20); color:{accent}; border:1.5px solid {accent}; }}
+            QPushButton:disabled {{ color:{text_dim}; background:{bg3}; border-color:{border}; }}
             QGroupBox     {{ border:1px solid {border}; border-radius:6px; margin-top:8px;
                              font-size:9px; color:{text_dim}; padding-top:4px; }}
             QGroupBox::title {{ subcontrol-origin:margin; left:8px; padding:0 4px; color:{text_dim}; }}
@@ -2856,8 +2857,8 @@ class MainWindow(QMainWindow):
         self.tb3.setStyleSheet(f'background:{bg3};margin-top:2px;')
         self.ft.setStyleSheet(f'background:{bg2};border-top:1px solid {border};')
         self.logo_lbl.setText(
-            f'<span style="font-size:16px;font-weight:700;color:{accent};letter-spacing:3px;">WAYAUDIO</span>'
-            f'&nbsp;&nbsp;<span style="font-size:11px;color:{text_dim};">Spectrum Analyzer 2</span>'
+            f'<span style="font-size:14px;font-weight:700;color:{accent};letter-spacing:2px;">WAYAUDIO</span>'
+            f'&nbsp;<span style="font-size:10px;color:{text_dim};">Spectrum Analyzer 2</span>'
         )
         self.status_lbl.setStyleSheet(f'color:{text_dim};font-family:Arial;font-size:11px;')
         self.mic_st.setStyleSheet(f'color:{text_dim};font-size:10px;font-family:Arial;')
