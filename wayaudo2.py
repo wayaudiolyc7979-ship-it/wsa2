@@ -4077,7 +4077,7 @@ class TFPhaseCanvas(QWidget):
         self.setMouseTracking(True); self.setAttribute(Qt.WA_OpaquePaintEvent,True)
         self.setFocusPolicy(Qt.StrongFocus)
         self.freqs=None; self.ph_wrap=None; self.ph_unwr=None; self.grp_ms=None
-        self.coherence=None; self.mag=None; self.coh_blank=0.0
+        self.coherence=None; self.mag=None; self.coh_blank=0.5
         self.phase_mode=0
         self.ph_min=-150.0; self.ph_max=150.0  # Smaart 기본값: -150~150° (중심 0°)
         self._mx=-1; self._peer_mx=-1; self._cache=None
@@ -4173,22 +4173,18 @@ class TFPhaseCanvas(QWidget):
             else:
                 data_plot=data
             ys=pt+np.clip(((self.ph_max-data_plot)/rng*dh).astype(float),0,dh)
-            coh=cap['coh']; cb=self.coh_blank
             if len(xs)>max_pts:
                 _ids=np.linspace(0,len(xs)-1,max_pts,dtype=int)
                 xs=xs[_ids]; ys=ys[_ids]; data_plot=data_plot[_ids]
-                if coh is not None: coh=coh[_ids]
             is_wrap=(self.phase_mode==0)
             path=QPainterPath(); seg_x=[]; seg_y=[]
             def _flush():
                 if len(seg_x)>=2: path.addPath(_catmull_seg(seg_x,seg_y))
                 seg_x.clear(); seg_y.clear()
             for i in range(len(xs)):
-                coh_ok=(coh is None or cb<=0.0 or float(coh[i])>=cb)
                 brk=(i>0 and is_wrap and abs(data_plot[i]-data_plot[i-1])>270.0)
-                if brk or not coh_ok:
+                if brk:
                     _flush()
-                    if coh_ok and not brk: seg_x.append(float(xs[i])); seg_y.append(float(ys[i]))
                 else:
                     seg_x.append(float(xs[i])); seg_y.append(float(ys[i]))
             _flush()
@@ -4408,13 +4404,11 @@ class TFPhaseCanvas(QWidget):
         else:
             data_plot=data
         ys=pt+np.clip(((self.ph_max-data_plot)/rng*dh).astype(float),0,dh)
-        coh=self.coherence; cb=self.coh_blank
         # 화면 너비에 맞춰 다운샘플: Python 루프 반복 수 축소 → GIL 점유 시간 감소
         max_pts=max(int(uw),200)
         if len(xs)>max_pts:
             _ids=np.linspace(0,len(xs)-1,max_pts,dtype=int)
             xs=xs[_ids]; ys=ys[_ids]; data_plot=data_plot[_ids]
-            if coh is not None: coh=coh[_ids]
         is_wrap=(self.phase_mode==0)
         # Catmull-Rom 스플라인: 연속 구간별로 부드러운 곡선 생성
         path=QPainterPath(); seg_x=[]; seg_y=[]
@@ -4423,12 +4417,9 @@ class TFPhaseCanvas(QWidget):
                 path.addPath(_catmull_seg(seg_x, seg_y))
             seg_x.clear(); seg_y.clear()
         for i in range(len(xs)):
-            coh_ok=(coh is None or cb<=0.0 or float(coh[i])>=cb)
             break_here=(i>0 and is_wrap and abs(data_plot[i]-data_plot[i-1])>270.0)
-            if break_here or not coh_ok:
+            if break_here:
                 _flush()
-                if coh_ok and not break_here:
-                    seg_x.append(float(xs[i])); seg_y.append(float(ys[i]))
             else:
                 seg_x.append(float(xs[i])); seg_y.append(float(ys[i]))
         _flush()
@@ -4559,10 +4550,7 @@ class TFPhaseCanvas(QWidget):
                     ph_str=f'  {int(val_plot)}°'
                 else:
                     ph_str=f'  {val_plot:+.1f}°'
-                coh_str=''
-                if self.coherence is not None and len(self.coherence)==len(self.freqs):
-                    coh_str=f'  {self.coherence[idx]*100:.0f}%'
-                draw_info_box(p,W,fs,f'{mag_str}{ph_str}{coh_str}')
+                draw_info_box(p,W,fs,f'{mag_str}{ph_str}')
         p.end()
 
 # ───────────────────────────────────────────
@@ -4571,6 +4559,7 @@ class TFPhaseCanvas(QWidget):
 class TFMagCanvas(QWidget):
     PAD_L=60; PAD_R=15; PAD_T=10; PAD_B=28
     _COH_COLOR=(255,107,53)
+    _COH_BAND=0.5   # γ² 트레이스가 차지하는 플롯 높이 비율 (위=1.0, 아래=0) — Smaart식 디테일
     cursor_x_changed = pyqtSignal(int)
     cursor_left      = pyqtSignal()
     _cap_built       = pyqtSignal()
@@ -4858,6 +4847,15 @@ class TFMagCanvas(QWidget):
             fx=freq_to_x(f,pl,uw,ny)
             if not pl<=fx<=W-pr: continue
             p.setPen(QPen(QColor(T('grid')),1)); p.drawLine(int(fx),pt,int(fx),H-pb)
+        # γ² 코히어런스 밴드 기준선 (1.0 / 0.5 / 0) — Smaart 식 전용 스케일
+        cr,cg,cb_=self._COH_COLOR
+        coh_h=dh*self._COH_BAND
+        p.setFont(_qfont(CF_AXIS))
+        for gv in (1.0, 0.5, 0.0):
+            y=int(pt+(1.0-gv)*coh_h)
+            p.setPen(QPen(QColor(cr,cg,cb_,70),0.8,Qt.DotLine)); p.drawLine(pl,y,W-pr,y)
+            p.setPen(QColor(cr,cg,cb_,170))
+            p.drawText(W-pr-26,y-7,24,14,Qt.AlignRight|Qt.AlignVCenter,f'{gv:.1f}')
 
     def _draw_live_curve(self, p, W, H):
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
@@ -4887,9 +4885,9 @@ class TFMagCanvas(QWidget):
             p.drawPath(_catmull_seg(xs_d, ys_ms))
             if self.coh is not None and len(self.coh)==len(f_arr):
                 cr,cg,cb_=self._COH_COLOR
-                coh_h=dh*0.22
+                coh_h=dh*self._COH_BAND
                 ys_c_raw=(pt+np.clip((1.0-self.coh)*coh_h,0,coh_h)).astype(float)
-                ys_cs=_vis_smooth(ys_c_raw,13)
+                ys_cs=_vis_smooth(ys_c_raw,3)   # 디테일 유지 (과도한 평탄화 방지)
                 if len(xs)>max_pts: ys_cs=ys_cs[_ids]
                 p.setPen(QPen(QColor(cr,cg,cb_,230),1.8)); p.setBrush(Qt.NoBrush)
                 p.drawPath(_catmull_seg(xs_d, ys_cs))
@@ -7067,18 +7065,7 @@ class TransferFunctionWindow(QWidget):
         self.phase_cb._align_center = True
         self.phase_cb.setFixedWidth(96); self.phase_cb.setFixedHeight(30)
         self.phase_cb.currentIndexChanged.connect(self._phase_mode_changed)
-        tl.addWidget(self.phase_cb); tl.addWidget(_vs())
-
-        tl.addWidget(_lb('Coh:'))
-        self.coh_slider = QSlider(Qt.Horizontal); self.coh_slider.setRange(0,100)
-        self.coh_slider.setValue(50); self.coh_slider.setFixedWidth(80)
-        self.coh_slider.setStyleSheet(
-            f'QSlider::groove:horizontal{{height:4px;background:{T("border")};border-radius:2px;}}'
-            f'QSlider::handle:horizontal{{background:{T("accent")};width:12px;height:12px;margin:-4px 0;border-radius:6px;}}'
-            f'QSlider::sub-page:horizontal{{background:{T("accent")};border-radius:2px;}}')
-        self.coh_lbl = QLabel('50%'); self.coh_lbl.setStyleSheet(ss_text(FS_SM) + 'min-width:28px;')
-        self.coh_slider.valueChanged.connect(self._coh_blank_changed)
-        tl.addWidget(self.coh_slider); tl.addWidget(self.coh_lbl)
+        tl.addWidget(self.phase_cb)
         tl.addStretch()
         self.tb = tb   # MainWindow가 embedded 시 sub_stack에 넣을 수 있도록 저장
         if not self.embedded:
@@ -8791,14 +8778,6 @@ class TransferFunctionWindow(QWidget):
 
     def _phase_mode_changed(self, idx):
         self.phase_mode = idx; self.phase_cvs.set_mode(idx)
-
-    def _coh_blank_changed(self, val):
-        self.coh_blank = val / 100.0
-        self.mag_cvs.coh_blank = self.coh_blank
-        self.phase_cvs.coh_blank = self.coh_blank
-        self.coh_lbl.setText(f'{val}%')
-        self.mag_cvs.update()
-        self.phase_cvs._cache = None; self.phase_cvs.update()
 
     def _sig_level_changed(self, db_val):
         self._sig_level_lin = 10 ** (db_val / 20)
