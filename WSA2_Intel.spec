@@ -1,17 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
 
-SITE = os.path.expanduser('~/Library/Python/3.9/lib/python/site-packages')
+SITE = '/private/tmp/intel_venv/lib/python3.9/site-packages'
 
 a = Analysis(
     ['wayaudo2.py'],
     pathex=[],
     binaries=[
-        # PortAudio (universal2) — sounddevice 런타임
         (os.path.join(SITE, '_sounddevice_data/portaudio-binaries/libportaudio.dylib'),
          '_sounddevice_data/portaudio-binaries'),
-        # libsndfile (arm64) — soundfile 런타임
-        (os.path.join(SITE, '_soundfile_data/libsndfile_arm64.dylib'),
+        (os.path.join(SITE, '_soundfile_data/libsndfile_x86_64.dylib'),
          '_soundfile_data'),
     ],
     datas=[
@@ -24,12 +22,10 @@ a = Analysis(
         'soundfile', '_soundfile', 'cffi', '_cffi_backend',
         'scipy', 'scipy.io', 'scipy.io.wavfile', 'scipy.signal',
         'scipy.fft', 'scipy.fftpack',
-        'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets',
-        'PyQt5.sip',
+        'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets', 'PyQt5.sip',
         'numpy', 'numpy.core', 'numpy.fft',
         'collections', 'collections.abc',
         'importlib.resources', 'importlib.metadata',
-        'pkg_resources.py2_warn',
     ],
     hookspath=[],
     hooksconfig={},
@@ -42,38 +38,27 @@ a = Analysis(
 pyz = PYZ(a.pure)
 
 exe = EXE(
-    pyz,
-    a.scripts,
-    [],
+    pyz, a.scripts, [],
     exclude_binaries=True,
     name='WSA2',
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    upx_exclude=['libportaudio.dylib', 'libsndfile_arm64.dylib'],
-    console=False,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch='arm64',
+    debug=False, strip=False, upx=True,
+    upx_exclude=['libportaudio.dylib', 'libsndfile_x86_64.dylib'],
+    console=False, argv_emulation=False,
+    target_arch='x86_64',
     codesign_identity=None,
     entitlements_file='entitlements.plist',
 )
 
 coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=['libportaudio.dylib', 'libsndfile_arm64.dylib'],
-    name='WSA2',
+    exe, a.binaries, a.zipfiles, a.datas,
+    strip=False, upx=True,
+    upx_exclude=['libportaudio.dylib', 'libsndfile_x86_64.dylib'],
+    name='WSA2_Intel',
 )
 
 app = BUNDLE(
     coll,
-    name='WSA2.app',
+    name='WSA2_Intel.app',
     icon='icon.icns',
     bundle_identifier='com.wayaudio.wsa2',
     info_plist={
@@ -82,7 +67,7 @@ app = BUNDLE(
         'NSAudioInputUsageDescription':
             'WSA2 uses audio input for acoustic measurement.',
         'NSHighResolutionCapable': True,
-        'LSMinimumSystemVersion': '12.0',
+        'LSMinimumSystemVersion': '10.15',
         'CFBundleShortVersionString': '2.1',
         'CFBundleVersion': '2.1.0',
         'CFBundleName': 'WSA2',

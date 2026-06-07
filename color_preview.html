@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#000; font-family:-apple-system,Arial,sans-serif; padding:32px; }
+  h1 { color:#8E8E93; font-size:11px; letter-spacing:2px; text-transform:uppercase; margin-bottom:24px; }
+  .row { display:flex; gap:12px; align-items:stretch; flex-wrap:wrap; }
+  .card {
+    background:#111; border:1px solid #282828; border-radius:12px;
+    padding:16px; width:160px; cursor:pointer;
+    transition:transform 0.1s, border-color 0.15s;
+  }
+  .card:hover { transform:translateY(-2px); }
+  .swatch { height:80px; border-radius:8px; margin-bottom:12px; }
+  .name { font-size:13px; font-weight:700; margin-bottom:3px; }
+  .hex  { font-size:11px; font-family:monospace; color:#636366; margin-bottom:10px; }
+
+  /* 미니 바 차트 */
+  .bars { display:flex; align-items:flex-end; gap:3px; height:50px; }
+  .bar { flex:1; border-radius:2px 2px 0 0; }
+</style>
+</head>
+<body>
+<h1>Pick the exact green</h1>
+<div class="row" id="cards"></div>
+
+<script>
+const greens = [
+  { name:'① Current',   hex:'#30D158' },
+  { name:'② Bright',    hex:'#3DCC52' },
+  { name:'③ Vivid',     hex:'#2ECC40' },
+  { name:'④ Lime',      hex:'#39E244' },
+  { name:'⑤ Classic',   hex:'#33CC55' },
+  { name:'⑥ Neon',      hex:'#39FF14' },
+  { name:'⑦ iOS',       hex:'#34C759' },
+  { name:'⑧ Pure',      hex:'#00D844' },
+];
+
+const heights = [40,65,55,80,45,70,60,50];
+
+greens.forEach(c => {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.style.borderColor = c.hex + '55';
+  const barsHTML = heights
+    .map(h => `<div class="bar" style="height:${h}%;background:${c.hex};"></div>`)
+    .join('');
+  card.innerHTML = `
+    <div class="swatch" style="background:${c.hex};"></div>
+    <div class="name" style="color:${c.hex};">${c.name}</div>
+    <div class="hex">${c.hex}</div>
+    <div class="bars">${barsHTML}</div>`;
+  document.getElementById('cards').appendChild(card);
+});
+</script>
+</body>
+</html>

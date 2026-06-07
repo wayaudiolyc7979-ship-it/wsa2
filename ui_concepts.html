@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Stereo Loudness UI Concepts</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0a0a0f; font-family:'Courier New',monospace; color:#fff; padding:20px; }
+  h1 { text-align:center; color:#00fff5; font-size:14px; letter-spacing:6px; margin-bottom:30px;
+       text-shadow:0 0 20px #00fff5; }
+  .concepts { display:flex; flex-direction:column; gap:40px; }
+  .concept { border:1px solid rgba(255,255,255,0.1); border-radius:4px; overflow:hidden; }
+  .concept-title { padding:10px 16px; font-size:11px; letter-spacing:3px; }
+  canvas { display:block; }
+</style>
+</head>
+<body>
+<h1>◈ STEREO LOUDNESS — UI CONCEPTS ◈</h1>
+<div class="concepts">
+
+  <!-- CONCEPT A -->
+  <div class="concept">
+    <div class="concept-title" style="background:#001020;color:#00e5ff;">
+      CONCEPT A — NEON NOIR &nbsp;|&nbsp; 시안/마젠타 네온 + HUD 오버레이
+    </div>
+    <canvas id="ca" width="960" height="360"></canvas>
+  </div>
+
+  <!-- CONCEPT B -->
+  <div class="concept">
+    <div class="concept-title" style="background:#000818;color:#a78bfa;">
+      CONCEPT B — HOLOGRAPHIC VIOLET &nbsp;|&nbsp; 보라/파랑 홀로그래픽 + 헥사 그리드
+    </div>
+    <canvas id="cb" width="960" height="360"></canvas>
+  </div>
+
+  <!-- CONCEPT C -->
+  <div class="concept">
+    <div class="concept-title" style="background:#001400;color:#39ff14;">
+      CONCEPT C — PHOSPHOR MATRIX &nbsp;|&nbsp; 녹색 포스포 CRT + 스캔라인
+    </div>
+    <canvas id="cc" width="960" height="360"></canvas>
+  </div>
+
+</div>
+<script>
+// ─── HELPERS ────────────────────────────────────────────────────────────────
+function polarToXY(cx, cy, r, angleDeg) {
+  const rad = (angleDeg - 90) * Math.PI / 180;
+  return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
+}
+
+// ─── CONCEPT A: NEON NOIR ────────────────────────────────────────────────────
+(function(){
+  const cv = document.getElementById('ca');
+  const g = cv.getContext('2d');
+  const W=960, H=360;
+
+  // BG
+  g.fillStyle='#030912';
+  g.fillRect(0,0,W,H);
+
+  // Scanlines overlay
+  for(let y=0;y<H;y+=3){
+    g.fillStyle='rgba(0,0,0,0.18)';
+    g.fillRect(0,y,W,1);
+  }
+
+  // ── LEFT: VECTORSCOPE ──────────────────────────────────────────────────
+  const vcx=220, vcy=170, vr=130;
+
+  // Outer glow ring
+  const glow = g.createRadialGradient(vcx,vcy,vr-2,vcx,vcy,vr+16);
+  glow.addColorStop(0,'rgba(0,230,255,0.5)');
+  glow.addColorStop(1,'rgba(0,230,255,0)');
+  g.beginPath(); g.arc(vcx,vcy,vr+8,0,Math.PI*2);
+  g.fillStyle=glow; g.fill();
+
+  // BG circle
+  g.beginPath(); g.arc(vcx,vcy,vr,0,Math.PI*2);
+  g.fillStyle='#020b14'; g.fill();
+  g.strokeStyle='#00e5ff'; g.lineWidth=1.5;
+  g.shadowColor='#00e5ff'; g.shadowBlur=12; g.stroke(); g.shadowBlur=0;
+
+  // Grid circles
+  [0.33,0.67,1.0].forEach(f=>{
+    g.beginPath(); g.arc(vcx,vcy,vr*f,0,Math.PI*2);
+    g.strokeStyle=`rgba(0,229,255,${f===1?0.15:0.08})`; g.lineWidth=0.8; g.stroke();
+  });
+
+  // Diagonal + main axes (cyan dim)
+  g.setLineDash([4,4]);
+  g.strokeStyle='rgba(0,229,255,0.18)'; g.lineWidth=0.8;
+  let d=vr*0.707;
+  g.beginPath(); g.moveTo(vcx-d,vcy-d); g.lineTo(vcx+d,vcy+d); g.stroke();
+  g.beginPath(); g.moveTo(vcx-d,vcy+d); g.lineTo(vcx+d,vcy-d); g.stroke();
+  g.setLineDash([]);
+  g.strokeStyle='rgba(0,229,255,0.25)'; g.lineWidth=1;
+  g.beginPath(); g.moveTo(vcx-vr,vcy); g.lineTo(vcx+vr,vcy); g.stroke();
+  g.beginPath(); g.moveTo(vcx,vcy-vr); g.lineTo(vcx,vcy+vr); g.stroke();
+
+  // HUD corner brackets
+  function bracket(x,y,size,flip){
+    const s=flip?-1:1;
+    g.beginPath();
+    g.moveTo(x,y+s*size); g.lineTo(x,y); g.lineTo(x+size,y);
+    g.strokeStyle='#00e5ff'; g.lineWidth=1.5;
+    g.shadowColor='#00e5ff'; g.shadowBlur=8; g.stroke(); g.shadowBlur=0;
+  }
+  bracket(vcx-vr-12,vcy-vr-12,14,false);
+  bracket(vcx+vr-2,vcy-vr-12,14,false); // needs mirror
+  // all 4 corners
+  const corners=[
+    [vcx-vr-12,vcy-vr-12,1,1],[vcx+vr+12,vcy-vr-12,-1,1],
+    [vcx-vr-12,vcy+vr+12,1,-1],[vcx+vr+12,vcy+vr+12,-1,-1]
+  ];
+  g.shadowColor='#00e5ff'; g.shadowBlur=8;
+  corners.forEach(([x,y,sx,sy])=>{
+    g.beginPath();
+    g.moveTo(x,y+sy*14); g.lineTo(x,y); g.lineTo(x+sx*14,y);
+    g.strokeStyle='#00e5ff'; g.lineWidth=1.5; g.stroke();
+  });
+  g.shadowBlur=0;
+
+  // Lissajous dots (simulated)
+  for(let i=0;i<1200;i++){
+    const t=i/1200*Math.PI*8;
+    const lv=Math.sin(t)*0.6+Math.sin(t*0.7)*0.3;
+    const rv=Math.sin(t*1.03+0.3)*0.55+Math.cos(t*0.4)*0.35;
+    const px=vcx+lv*vr*0.85;
+    const py=vcy-rv*vr*0.85;
+    const age=i/1200;
+    const alpha=Math.floor(age*200);
+    // cyan to magenta gradient along time
+    const r2=Math.floor(age*255);
+    const b2=Math.floor((1-age)*255);
+    g.fillStyle=`rgba(${r2},220,${b2},${age*0.8})`;
+    g.fillRect(px,py,1.5,1.5);
+  }
+
+  // Phase bar
+  const bw=200,bh=6,bx=vcx-100,by=vcy+vr+18;
+  g.fillStyle='#061520'; g.fillRect(bx,by,bw,bh);
+  g.strokeStyle='rgba(0,229,255,0.3)'; g.lineWidth=0.5; g.strokeRect(bx,by,bw,bh);
+  const corr=0.72;
+  const grad=g.createLinearGradient(bx+bw/2,by,bx+bw/2+corr*bw/2,by);
+  grad.addColorStop(0,'rgba(0,229,255,0.9)'); grad.addColorStop(1,'rgba(0,255,180,0.5)');
+  g.fillStyle=grad;
+  g.fillRect(bx+bw/2,by,corr*(bw/2),bh);
+  // center tick
+  g.strokeStyle='#ffffff'; g.lineWidth=1;
+  g.beginPath(); g.moveTo(bx+bw/2,by-3); g.lineTo(bx+bw/2,by+bh+3); g.stroke();
+
+  // Labels
+  g.font='bold 9px "Courier New"';
+  g.fillStyle='rgba(0,229,255,0.7)';
+  g.fillText('VECTORSCOPE',vcx-46,vcy-vr-20);
+  g.font='8px "Courier New"'; g.fillStyle='rgba(0,229,255,0.45)';
+  g.fillText('-1',bx-2,by+bh+12); g.fillText('0',bx+bw/2-3,by+bh+12); g.fillText('+1',bx+bw-12,by+bh+12);
+  g.font='bold 10px "Courier New"'; g.fillStyle='#00ffcc';
+  g.shadowColor='#00ffcc'; g.shadowBlur=6;
+  g.fillText('+0.72',bx+bw/2+4,by-5); g.shadowBlur=0;
+
+  // Axis labels with glow
+  g.font='bold 9px "Courier New"'; g.shadowColor='#00e5ff'; g.shadowBlur=8;
+  g.fillStyle='#00e5ff';
+  g.fillText('L',vcx+vr+5,vcy+4); g.fillText('L',vcx-vr-14,vcy+4);
+  g.fillText('R',vcx-4,vcy-vr-8); g.fillText('R',vcx-4,vcy+vr+14);
+  g.shadowBlur=0;
+
+  // ── RIGHT: LOUDNESS RADAR ──────────────────────────────────────────────
+  const rcx=640, rcy=168, rr=130, arcW=14;
+  const Rin=18, Rout=rr-arcW-4;
+
+  // Outer glow
+  const rglow = g.createRadialGradient(rcx,rcy,rr-2,rcx,rcy,rr+16);
+  rglow.addColorStop(0,'rgba(255,60,200,0.4)');
+  rglow.addColorStop(1,'rgba(255,60,200,0)');
+  g.beginPath(); g.arc(rcx,rcy,rr+8,0,Math.PI*2);
+  g.fillStyle=rglow; g.fill();
+
+  // Rose BG
+  g.beginPath(); g.arc(rcx,rcy,Rout,0,Math.PI*2);
+  g.fillStyle='#07050f'; g.fill();
+
+  // Grid lines (radial, every 30°)
+  for(let deg=0;deg<360;deg+=30){
+    const a=deg*Math.PI/180;
+    g.beginPath();
+    g.moveTo(rcx+Rin*Math.cos(a),rcy+Rin*Math.sin(a));
+    g.lineTo(rcx+Rout*Math.cos(a),rcy+Rout*Math.sin(a));
+    g.strokeStyle='rgba(255,60,200,0.12)'; g.lineWidth=0.7; g.stroke();
+  }
+  // Concentric rings
+  [0.33,0.67,1.0].forEach(f=>{
+    g.beginPath(); g.arc(rcx,rcy,Rin+(Rout-Rin)*f,0,Math.PI*2);
+    g.strokeStyle=`rgba(255,60,200,${f===1?0.2:0.07})`; g.lineWidth=0.6; g.stroke();
+  });
+
+  // Rose fill (simulated data)
+  const roseGrad=g.createRadialGradient(rcx,rcy,Rin,rcx,rcy,Rout);
+  roseGrad.addColorStop(0,'rgba(0,60,255,0)');
+  roseGrad.addColorStop(0.3,'rgba(0,60,255,0.6)');
+  roseGrad.addColorStop(0.6,'rgba(255,220,0,0.7)');
+  roseGrad.addColorStop(0.85,'rgba(255,60,20,0.8)');
+  roseGrad.addColorStop(1,'rgba(200,20,20,0.9)');
+
+  // Draw rose polygon
+  g.beginPath();
+  const Nseg=120;
+  for(let i=0;i<=Nseg;i++){
+    const angle=(i/Nseg)*Math.PI*2-(Math.PI/2);
+    const noise=0.7+0.3*Math.sin(i*0.18)*Math.cos(i*0.07+1.2);
+    const r2=Rin+(Rout-Rin)*0.55*noise;
+    if(i===0) g.moveTo(rcx+r2*Math.cos(angle),rcy+r2*Math.sin(angle));
+    else g.lineTo(rcx+r2*Math.cos(angle),rcy+r2*Math.sin(angle));
+  }
+  g.closePath(); g.fillStyle=roseGrad; g.fill();
+
+  // Center hole
+  g.beginPath(); g.arc(rcx,rcy,Rin,0,Math.PI*2);
+  g.fillStyle='#07050f'; g.fill();
+
+  // Outer arc meter (72 segments, 225°→-75° clockwise)
+  const MstartDeg=225, Mspan=300, Nticks=72;
+  for(let i=0;i<Nticks;i++){
+    const frac=i/Nticks;
+    const startDeg=MstartDeg-i*(Mspan/Nticks);
+    const spanDeg=-(Mspan/Nticks)*0.75;
+    const lit=frac<0.65;
+    // Color: cyan for low, magenta for high
+    let fillColor;
+    if(!lit){ fillColor='rgba(255,60,200,0.08)'; }
+    else if(frac<0.45){ fillColor=`rgba(0,${Math.floor(180+75*frac/0.45)},255,0.85)`; }
+    else if(frac<0.7){ fillColor=`rgba(${Math.floor((frac-0.45)/0.25*255)},0,255,0.9)`; }
+    else { fillColor=`rgba(255,60,${Math.floor(200*(1-frac/1))},0.95)`; }
+
+    g.beginPath();
+    const a1=(startDeg)*Math.PI/180, a2=(startDeg+spanDeg)*Math.PI/180;
+    g.arc(rcx,rcy,rr,a1,a2,true);
+    g.arc(rcx,rcy,rr-arcW,a2,a1,false);
+    g.closePath(); g.fillStyle=fillColor; g.fill();
+  }
+
+  // Outer ring border glow
+  g.beginPath(); g.arc(rcx,rcy,rr,0,Math.PI*2);
+  g.strokeStyle='rgba(255,60,200,0.5)'; g.lineWidth=1.2;
+  g.shadowColor='#ff3cc8'; g.shadowBlur=10; g.stroke(); g.shadowBlur=0;
+
+  // Target line (-23 LUFS) — white sweep
+  const targetFrac=((-23)-(-52))/(2-(-52));
+  const targetDeg=(MstartDeg-targetFrac*Mspan)*Math.PI/180;
+  g.beginPath();
+  g.moveTo(rcx+(rr-arcW)*Math.cos(targetDeg),rcy+(rr-arcW)*Math.sin(targetDeg));
+  g.lineTo(rcx+(rr+4)*Math.cos(targetDeg),rcy+(rr+4)*Math.sin(targetDeg));
+  g.strokeStyle='#ffffff'; g.lineWidth=2;
+  g.shadowColor='#ffffff'; g.shadowBlur=6; g.stroke(); g.shadowBlur=0;
+
+  // HUD corners for radar
+  const rcorners=[
+    [rcx-rr-14,rcy-rr-14,1,1],[rcx+rr+14,rcy-rr-14,-1,1],
+    [rcx-rr-14,rcy+rr+14,1,-1],[rcx+rr+14,rcy+rr+14,-1,-1]
+  ];
+  g.shadowColor='#ff3cc8'; g.shadowBlur=8;
+  rcorners.forEach(([x,y,sx,sy])=>{
+    g.beginPath();
+    g.moveTo(x,y+sy*14); g.lineTo(x,y); g.lineTo(x+sx*14,y);
+    g.strokeStyle='rgba(255,60,200,0.7)'; g.lineWidth=1.5; g.stroke();
+  });
+  g.shadowBlur=0;
+
+  // Radar label
+  g.font='bold 9px "Courier New"'; g.fillStyle='rgba(255,60,200,0.8)';
+  g.shadowColor='#ff3cc8'; g.shadowBlur=6;
+  g.fillText('LOUDNESS RADAR',rcx-52,rcy-rr-22); g.shadowBlur=0;
+
+  // ── BOTTOM PANEL ──────────────────────────────────────────────────────
+  const py=300, ph=60;
+  // Panel bg with top border glow
+  const panGrad=g.createLinearGradient(0,py,0,py+ph);
+  panGrad.addColorStop(0,'#0a0d1a'); panGrad.addColorStop(1,'#050710');
+  g.fillStyle=panGrad; g.fillRect(0,py,W,ph);
+  // Top border glow
+  const panLine=g.createLinearGradient(0,py,W,py);
+  panLine.addColorStop(0,'rgba(0,229,255,0)');
+  panLine.addColorStop(0.3,'rgba(0,229,255,0.6)');
+  panLine.addColorStop(0.5,'rgba(255,60,200,0.8)');
+  panLine.addColorStop(0.7,'rgba(0,229,255,0.6)');
+  panLine.addColorStop(1,'rgba(0,229,255,0)');
+  g.fillStyle=panLine; g.fillRect(0,py,W,1.5);
+
+  // Metrics
+  const metrics=[
+    {label:'M  MOMENTARY',val:'-18.4',unit:'LUFS',col:'#00e5ff',big:false,x:96},
+    {label:'S  SHORT-TERM',val:'-19.1',unit:'LUFS',col:'#00e5ff',big:false,x:240},
+    {label:'PROGRAM LOUDNESS',val:'-18.7',unit:'LUFS',col:'#ff3cc8',big:true,x:415},
+    {label:'TRUE-PEAK MAX',val:'-1.2',unit:'dBTP',col:'#ff3cc8',big:true,x:610},
+    {label:'LOUDNESS RANGE',val:'8.3',unit:'LU',col:'#a0e0ff',big:false,x:800},
+  ];
+  const seps=[168,330,510,710];
+  seps.forEach(sx=>{
+    g.beginPath(); g.moveTo(sx,py+8); g.lineTo(sx,py+ph-8);
+    g.strokeStyle='rgba(255,255,255,0.07)'; g.lineWidth=1; g.stroke();
+  });
+
+  metrics.forEach(m=>{
+    // label
+    g.font='9px "Courier New"'; g.fillStyle='rgba(200,220,255,0.4)';
+    g.textAlign='center'; g.fillText(m.label,m.x,py+14);
+    // value
+    const fs=m.big?28:22;
+    g.font=`bold ${fs}px "Courier New"`;
+    g.fillStyle=m.col;
+    g.shadowColor=m.col; g.shadowBlur=12;
+    g.fillText(m.val,m.x,py+42); g.shadowBlur=0;
+    // unit
+    g.font='9px "Courier New"'; g.fillStyle='rgba(200,220,255,0.35)';
+    g.fillText(m.unit,m.x,py+57);
+  });
+  g.textAlign='left';
+
+})();
+
+// ─── CONCEPT B: HOLOGRAPHIC VIOLET ──────────────────────────────────────────
+(function(){
+  const cv=document.getElementById('cb');
+  const g=cv.getContext('2d');
+  const W=960,H=360;
+
+  // BG gradient
+  const bgGrad=g.createLinearGradient(0,0,0,H);
+  bgGrad.addColorStop(0,'#030310'); bgGrad.addColorStop(1,'#060218');
+  g.fillStyle=bgGrad; g.fillRect(0,0,W,H);
+
+  // Hex grid pattern
+  function hexGrid(gctx,color){
+    const size=18, h=size*Math.sqrt(3);
+    gctx.strokeStyle=color; gctx.lineWidth=0.4;
+    for(let row=-1;row<H/h+1;row++){
+      for(let col=-1;col<W/(size*3)+1;col++){
+        const x=col*size*3; const y=row*h+(col%2===0?0:h/2);
+        gctx.beginPath();
+        for(let i=0;i<6;i++){
+          const a=i*Math.PI/3;
+          const px=x+size*Math.cos(a), py=y+size*Math.sin(a);
+          i===0?gctx.moveTo(px,py):gctx.lineTo(px,py);
+        }
+        gctx.closePath(); gctx.stroke();
+      }
+    }
+  }
+  hexGrid(g,'rgba(120,60,255,0.06)');
+
+  // ── LEFT: VECTORSCOPE ──────────────────────────────────────────────────
+  const vcx=220,vcy=165,vr=128;
+
+  // Outer hex ring (simulated)
+  const glow=g.createRadialGradient(vcx,vcy,vr,vcx,vcy,vr+20);
+  glow.addColorStop(0,'rgba(140,80,255,0.5)'); glow.addColorStop(1,'rgba(140,80,255,0)');
+  g.beginPath(); g.arc(vcx,vcy,vr+10,0,Math.PI*2); g.fillStyle=glow; g.fill();
+
+  // BG
+  g.beginPath(); g.arc(vcx,vcy,vr,0,Math.PI*2);
+  g.fillStyle='#05020e'; g.fill();
+  g.strokeStyle='#7c3aed'; g.lineWidth=1.5;
+  g.shadowColor='#7c3aed'; g.shadowBlur=15; g.stroke(); g.shadowBlur=0;
+
+  // Concentric rings
+  [0.33,0.67,1.0].forEach(f=>{
+    g.beginPath(); g.arc(vcx,vcy,vr*f,0,Math.PI*2);
+    g.strokeStyle=`rgba(124,58,237,${f===1?0.2:0.07})`; g.lineWidth=0.7; g.stroke();
+  });
+
+  // Axes
+  g.setLineDash([4,6]);
+  g.strokeStyle='rgba(124,58,237,0.2)'; g.lineWidth=0.8;
+  const d2=vr*0.707;
+  g.beginPath(); g.moveTo(vcx-d2,vcy-d2); g.lineTo(vcx+d2,vcy+d2); g.stroke();
+  g.beginPath(); g.moveTo(vcx-d2,vcy+d2); g.lineTo(vcx+d2,vcy-d2); g.stroke();
+  g.setLineDash([]);
+  g.strokeStyle='rgba(124,58,237,0.3)'; g.lineWidth=1;
+  g.beginPath(); g.moveTo(vcx-vr,vcy); g.lineTo(vcx+vr,vcy); g.stroke();
+  g.beginPath(); g.moveTo(vcx,vcy-vr); g.lineTo(vcx,vcy+vr); g.stroke();
+
+  // Lissajous (violet→blue gradient)
+  for(let i=0;i<1200;i++){
+    const t=i/1200*Math.PI*7+0.5;
+    const lv=Math.sin(t)*0.65+Math.sin(t*0.8)*0.25;
+    const rv=Math.sin(t*1.05+0.5)*0.5+Math.cos(t*0.45)*0.4;
+    const px=vcx+lv*vr*0.82;
+    const py=vcy-rv*vr*0.82;
+    const age=i/1200;
+    const r2=Math.floor(100+age*155);
+    const b2=Math.floor(200+age*55);
+    g.fillStyle=`rgba(${r2},${Math.floor(age*120)},${b2},${age*0.85})`;
+    g.fillRect(px,py,1.5,1.5);
+  }
+
+  // Holographic data labels floating
+  const dataLabels=[
+    {x:vcx+vr*0.55,y:vcy-vr*0.65,text:'L:+0.34',color:'rgba(180,120,255,0.7)'},
+    {x:vcx-vr*0.7,y:vcy+vr*0.4,text:'R:+0.28',color:'rgba(180,120,255,0.7)'},
+  ];
+  g.font='7px "Courier New"';
+  dataLabels.forEach(dl=>{
+    g.fillStyle=dl.color;
+    g.fillText(dl.text,dl.x,dl.y);
+    // small dot
+    g.beginPath(); g.arc(dl.x-3,dl.y-3,1.5,0,Math.PI*2);
+    g.fillStyle='rgba(200,150,255,0.6)'; g.fill();
+  });
+
+  // Phase bar (violet style)
+  const bw=200,bh=6,bx=vcx-100,by=vcy+vr+16;
+  const bBg=g.createLinearGradient(bx,by,bx+bw,by);
+  bBg.addColorStop(0,'rgba(255,60,60,0.2)'); bBg.addColorStop(0.5,'rgba(124,58,237,0.1)');
+  bBg.addColorStop(1,'rgba(60,200,120,0.2)');
+  g.fillStyle=bBg; g.fillRect(bx,by,bw,bh);
+  g.strokeStyle='rgba(124,58,237,0.3)'; g.lineWidth=0.5; g.strokeRect(bx,by,bw,bh);
+  const bFill=g.createLinearGradient(bx+bw/2,by,bx+bw/2+70,by);
+  bFill.addColorStop(0,'rgba(140,80,255,1)'); bFill.addColorStop(1,'rgba(200,140,255,0.4)');
+  g.fillStyle=bFill; g.fillRect(bx+bw/2,by,70,bh);
+  g.strokeStyle='rgba(255,255,255,0.6)'; g.lineWidth=1;
+  g.beginPath(); g.moveTo(bx+bw/2,by-3); g.lineTo(bx+bw/2,by+bh+3); g.stroke();
+
+  g.font='bold 9px "Courier New"'; g.fillStyle='rgba(200,160,255,0.9)';
+  g.shadowColor='#a855f7'; g.shadowBlur=8;
+  g.textAlign='center'; g.fillText('+0.72',bx+bw/2+35,by-5); g.shadowBlur=0;
+
+  g.font='bold 9px "Courier New"'; g.fillStyle='rgba(180,120,255,0.7)';
+  g.fillText('VECTORSCOPE',vcx,vcy-vr-22);
+
+  g.font='bold 9px "Courier New"'; g.fillStyle='rgba(160,100,255,0.8)';
+  g.shadowColor='#9f6fff'; g.shadowBlur=6;
+  g.fillText('L',vcx+vr+7,vcy+4); g.fillText('L',vcx-vr-14,vcy+4);
+  g.fillText('R',vcx,vcy-vr-9); g.fillText('R',vcx,vcy+vr+15);
+  g.shadowBlur=0; g.textAlign='left';
+
+  // ── RIGHT: LOUDNESS RADAR ──────────────────────────────────────────────
+  const rcx=645,rcy=165,rr=128,arcW=13;
+  const Rin=16,Rout=rr-arcW-4;
+
+  // Holographic glow
+  const hglow=g.createRadialGradient(rcx,rcy,rr,rcx,rcy,rr+22);
+  hglow.addColorStop(0,'rgba(100,40,255,0.4)'); hglow.addColorStop(1,'rgba(100,40,255,0)');
+  g.beginPath(); g.arc(rcx,rcy,rr+10,0,Math.PI*2); g.fillStyle=hglow; g.fill();
+
+  // Rose BG
+  g.beginPath(); g.arc(rcx,rcy,Rout,0,Math.PI*2);
+  g.fillStyle='#04020d'; g.fill();
+
+  // Grid (radial)
+  for(let deg=0;deg<360;deg+=30){
+    const a=deg*Math.PI/180;
+    g.beginPath(); g.moveTo(rcx+Rin*Math.cos(a),rcy+Rin*Math.sin(a));
+    g.lineTo(rcx+Rout*Math.cos(a),rcy+Rout*Math.sin(a));
+    g.strokeStyle='rgba(120,60,255,0.12)'; g.lineWidth=0.6; g.stroke();
+  }
+  // Rings
+  [0.33,0.67,1.0].forEach(f=>{
+    g.beginPath(); g.arc(rcx,rcy,Rin+(Rout-Rin)*f,0,Math.PI*2);
+    g.strokeStyle=`rgba(120,60,255,${f===1?0.18:0.06})`; g.lineWidth=0.6; g.stroke();
+  });
+
+  // Rose fill (violet→blue→teal gradient)
+  const rGrad=g.createRadialGradient(rcx,rcy,Rin,rcx,rcy,Rout);
+  rGrad.addColorStop(0,'rgba(80,20,255,0)');
+  rGrad.addColorStop(0.25,'rgba(80,20,255,0.5)');
+  rGrad.addColorStop(0.55,'rgba(40,150,255,0.65)');
+  rGrad.addColorStop(0.8,'rgba(0,220,180,0.7)');
+  rGrad.addColorStop(1,'rgba(100,255,200,0.6)');
+
+  g.beginPath();
+  const Nseg=120;
+  for(let i=0;i<=Nseg;i++){
+    const angle=(i/Nseg)*Math.PI*2-(Math.PI/2);
+    const noise=0.65+0.35*Math.sin(i*0.15+0.5)*Math.cos(i*0.09+2);
+    const r2=Rin+(Rout-Rin)*0.52*noise;
+    if(i===0) g.moveTo(rcx+r2*Math.cos(angle),rcy+r2*Math.sin(angle));
+    else g.lineTo(rcx+r2*Math.cos(angle),rcy+r2*Math.sin(angle));
+  }
+  g.closePath(); g.fillStyle=rGrad; g.fill();
+
+  // Center
+  g.beginPath(); g.arc(rcx,rcy,Rin,0,Math.PI*2);
+  g.fillStyle='#04020d'; g.fill();
+
+  // Outer arc segments (violet style)
+  const MstartDeg=225, Mspan=300, Nticks=72;
+  for(let i=0;i<Nticks;i++){
+    const frac=i/Nticks;
+    const startDeg=MstartDeg-i*(Mspan/Nticks);
+    const spanDeg=-(Mspan/Nticks)*0.72;
+    const lit=frac<0.62;
+    let fillColor;
+    if(!lit){ fillColor='rgba(100,40,255,0.07)'; }
+    else if(frac<0.4){ fillColor=`rgba(80,${Math.floor(120+frac/0.4*100)},255,0.85)`; }
+    else if(frac<0.7){ fillColor=`rgba(${Math.floor(80+(frac-0.4)/0.3*170)},80,255,0.9)`; }
+    else { fillColor=`rgba(255,${Math.floor(80*(1-frac))},200,0.85)`; }
+
+    g.beginPath();
+    const a1=startDeg*Math.PI/180, a2=(startDeg+spanDeg)*Math.PI/180;
+    g.arc(rcx,rcy,rr,a1,a2,true);
+    g.arc(rcx,rcy,rr-arcW,a2,a1,false);
+    g.closePath(); g.fillStyle=fillColor; g.fill();
+  }
+
+  // Outer border
+  g.beginPath(); g.arc(rcx,rcy,rr,0,Math.PI*2);
+  g.strokeStyle='rgba(120,60,255,0.6)'; g.lineWidth=1.2;
+  g.shadowColor='#7c3aed'; g.shadowBlur=12; g.stroke(); g.shadowBlur=0;
+
+  // Target marker
+  const targetFrac=((-23)-(-52))/(2-(-52));
+  const targetDeg=(MstartDeg-targetFrac*Mspan)*Math.PI/180;
+  g.beginPath();
+  g.moveTo(rcx+(rr-arcW)*Math.cos(targetDeg),rcy+(rr-arcW)*Math.sin(targetDeg));
+  g.lineTo(rcx+(rr+5)*Math.cos(targetDeg),rcy+(rr+5)*Math.sin(targetDeg));
+  g.strokeStyle='rgba(200,160,255,0.9)'; g.lineWidth=2;
+  g.shadowColor='#c084fc'; g.shadowBlur=8; g.stroke(); g.shadowBlur=0;
+
+  g.font='bold 9px "Courier New"'; g.fillStyle='rgba(180,120,255,0.75)';
+  g.shadowColor='#a855f7'; g.shadowBlur=6; g.textAlign='center';
+  g.fillText('LOUDNESS RADAR',rcx,rcy-rr-22); g.shadowBlur=0; g.textAlign='left';
+
+  // ── BOTTOM PANEL ──────────────────────────────────────────────────────
+  const py=298,ph=62;
+  const panGrad=g.createLinearGradient(0,py,0,py+ph);
+  panGrad.addColorStop(0,'#070214'); panGrad.addColorStop(1,'#030110');
+  g.fillStyle=panGrad; g.fillRect(0,py,W,ph);
+
+  // Border line (violet glow)
+  const pLine=g.createLinearGradient(0,py,W,py);
+  pLine.addColorStop(0,'rgba(120,40,255,0)');
+  pLine.addColorStop(0.5,'rgba(160,80,255,0.9)');
+  pLine.addColorStop(1,'rgba(120,40,255,0)');
+  g.fillStyle=pLine; g.fillRect(0,py,W,1.5);
+
+  const metrics=[
+    {label:'M  MOMENTARY',val:'-18.4',unit:'LUFS',col:'#a78bfa',big:false,x:96},
+    {label:'S  SHORT-TERM',val:'-19.1',unit:'LUFS',col:'#a78bfa',big:false,x:240},
+    {label:'PROGRAM LOUDNESS',val:'-18.7',unit:'LUFS',col:'#e879f9',big:true,x:415},
+    {label:'TRUE-PEAK MAX',val:'-1.2',unit:'dBTP',col:'#f472b6',big:true,x:610},
+    {label:'LOUDNESS RANGE',val:'8.3',unit:'LU',col:'#818cf8',big:false,x:800},
+  ];
+  const seps2=[168,330,510,710];
+  seps2.forEach(sx=>{
+    g.beginPath(); g.moveTo(sx,py+8); g.lineTo(sx,py+ph-8);
+    g.strokeStyle='rgba(130,60,255,0.12)'; g.lineWidth=1; g.stroke();
+  });
+  metrics.forEach(m=>{
+    g.font='9px "Courier New"'; g.fillStyle='rgba(170,140,255,0.4)';
+    g.textAlign='center'; g.fillText(m.label,m.x,py+14);
+    const fs=m.big?28:22;
+    g.font=`bold ${fs}px "Courier New"`;
+    g.fillStyle=m.col;
+    g.shadowColor=m.col; g.shadowBlur=14;
+    g.fillText(m.val,m.x,py+42); g.shadowBlur=0;
+    g.font='9px "Courier New"'; g.fillStyle='rgba(160,120,255,0.35)';
+    g.fillText(m.unit,m.x,py+57);
+  });
+  g.textAlign='left';
+
+})();
+
+// ─── CONCEPT C: PHOSPHOR MATRIX ─────────────────────────────────────────────
+(function(){
+  const cv=document.getElementById('cc');
+  const g=cv.getContext('2d');
+  const W=960,H=360;
+
+  // Deep black BG
+  g.fillStyle='#000300'; g.fillRect(0,0,W,H);
+
+  // CRT scanlines
+  for(let y=0;y<H;y+=2){
+    g.fillStyle='rgba(0,0,0,0.28)';
+    g.fillRect(0,y,W,1);
+  }
+
+  // Subtle vignette
+  const vign=g.createRadialGradient(W/2,H/2,H*0.3,W/2,H/2,H*0.85);
+  vign.addColorStop(0,'rgba(0,0,0,0)'); vign.addColorStop(1,'rgba(0,0,0,0.6)');
+  g.fillStyle=vign; g.fillRect(0,0,W,H);
+
+  // ── LEFT: VECTORSCOPE ──────────────────────────────────────────────────
+  const vcx=220,vcy=165,vr=128;
+
+  // Phosphor glow behind circle
+  const pglow=g.createRadialGradient(vcx,vcy,vr*0.5,vcx,vcy,vr+25);
+  pglow.addColorStop(0,'rgba(0,255,60,0.04)');
+  pglow.addColorStop(0.7,'rgba(0,255,60,0.08)');
+  pglow.addColorStop(1,'rgba(0,255,60,0)');
+  g.fillStyle=pglow; g.beginPath(); g.arc(vcx,vcy,vr+15,0,Math.PI*2); g.fill();
+
+  // CRT-style circle border (slightly blurred with multiple strokes)
+  [3,2,1].forEach((w,i)=>{
+    const alpha=[0.1,0.2,0.6][i];
+    g.beginPath(); g.arc(vcx,vcy,vr,0,Math.PI*2);
+    g.strokeStyle=`rgba(0,255,60,${alpha})`; g.lineWidth=w; g.stroke();
+  });
+
+  // BG inside
+  g.beginPath(); g.arc(vcx,vcy,vr-1,0,Math.PI*2);
+  g.fillStyle='rgba(0,8,0,0.95)'; g.fill();
+
+  // Phosphor reference rings (very faint green)
+  [0.33,0.67,1.0].forEach(f=>{
+    g.beginPath(); g.arc(vcx,vcy,vr*f,0,Math.PI*2);
+    g.strokeStyle=`rgba(0,255,60,${f===1?0.15:0.06})`; g.lineWidth=0.6; g.stroke();
+  });
+
+  // Crosshairs
+  g.setLineDash([4,6]);
+  g.strokeStyle='rgba(0,200,40,0.15)'; g.lineWidth=0.7;
+  const d3=vr*0.707;
+  g.beginPath(); g.moveTo(vcx-d3,vcy-d3); g.lineTo(vcx+d3,vcy+d3); g.stroke();
+  g.beginPath(); g.moveTo(vcx-d3,vcy+d3); g.lineTo(vcx+d3,vcy-d3); g.stroke();
+  g.setLineDash([]);
+  g.strokeStyle='rgba(0,220,50,0.2)'; g.lineWidth=0.8;
+  g.beginPath(); g.moveTo(vcx-vr,vcy); g.lineTo(vcx+vr,vcy); g.stroke();
+  g.beginPath(); g.moveTo(vcx,vcy-vr); g.lineTo(vcx,vcy+vr); g.stroke();
+
+  // Classic green phosphor Lissajous with decay (bright→dim trail)
+  for(let i=0;i<1400;i++){
+    const t=i/1400*Math.PI*9;
+    const lv=Math.sin(t)*0.7+Math.sin(t*0.65)*0.25;
+    const rv=Math.sin(t*1.02+0.4)*0.6+Math.cos(t*0.38)*0.35;
+    const px=vcx+lv*vr*0.85;
+    const py=vcy-rv*vr*0.85;
+    const age=i/1400;
+    // Phosphor phosphorescence: bright core + glow
+    const a=Math.floor(40+200*age*age);
+    const brightness=Math.floor(180+75*age);
+    g.fillStyle=`rgba(0,${brightness},${Math.floor(age*60)},${age*0.9})`;
+    g.fillRect(px,py,age>0.7?2:1,age>0.7?2:1);
+  }
+
+  // Phase bar (green)
+  const bw=200,bh=5,bx=vcx-100,by=vcy+vr+18;
+  g.fillStyle='rgba(0,30,0,0.8)'; g.fillRect(bx,by,bw,bh);
+  g.strokeStyle='rgba(0,180,40,0.2)'; g.lineWidth=0.5; g.strokeRect(bx,by,bw,bh);
+  // Glow fill
+  const phFill=g.createLinearGradient(bx+bw/2,by,bx+bw/2+70,by);
+  phFill.addColorStop(0,'rgba(0,255,60,0.95)'); phFill.addColorStop(1,'rgba(0,200,40,0.4)');
+  g.fillStyle=phFill; g.fillRect(bx+bw/2,by,70,bh);
+  g.strokeStyle='rgba(0,255,60,0.6)'; g.lineWidth=1;
+  g.beginPath(); g.moveTo(bx+bw/2,by-3); g.lineTo(bx+bw/2,by+bh+3); g.stroke();
+
+  g.font='bold 9px "Courier New"'; g.fillStyle='rgba(0,255,60,0.85)';
+  g.shadowColor='#00ff3c'; g.shadowBlur=6; g.textAlign='center';
+  g.fillText('+0.72',bx+bw/2+35,by-5); g.shadowBlur=0;
+
+  // Labels
+  g.font='bold 8px "Courier New"'; g.fillStyle='rgba(0,210,50,0.55)';
+  g.fillText('VECTORSCOPE',vcx,vcy-vr-22);
+  g.font='bold 9px "Courier New"'; g.fillStyle='rgba(0,230,50,0.75)';
+  g.shadowColor='#00e032'; g.shadowBlur=5;
+  g.fillText('L',vcx+vr+7,vcy+4); g.fillText('L',vcx-vr-14,vcy+4);
+  g.fillText('R',vcx,vcy-vr-9); g.fillText('R',vcx,vcy+vr+15);
+  g.shadowBlur=0;
+  g.font='8px "Courier New"'; g.fillStyle='rgba(0,180,40,0.45)';
+  g.fillText('-1',bx-2,by+bh+12); g.fillText('0',bx+bw/2-3,by+bh+12); g.fillText('+1',bx+bw-12,by+bh+12);
+  g.textAlign='left';
+
+  // ── RIGHT: LOUDNESS RADAR ──────────────────────────────────────────────
+  const rcx=645,rcy=165,rr=128,arcW=13;
+  const Rin=16,Rout=rr-arcW-4;
+
+  // Phosphor glow (green)
+  const rpglow=g.createRadialGradient(rcx,rcy,rr*0.5,rcx,rcy,rr+25);
+  rpglow.addColorStop(0,'rgba(0,255,60,0.03)');
+  rpglow.addColorStop(0.8,'rgba(0,255,60,0.07)');
+  rpglow.addColorStop(1,'rgba(0,255,60,0)');
+  g.beginPath(); g.arc(rcx,rcy,rr+12,0,Math.PI*2); g.fillStyle=rpglow; g.fill();
+
+  // Rose BG
+  g.beginPath(); g.arc(rcx,rcy,Rout,0,Math.PI*2);
+  g.fillStyle='rgba(0,4,0,0.97)'; g.fill();
+
+  // Grid
+  for(let deg=0;deg<360;deg+=30){
+    const a=deg*Math.PI/180;
+    g.beginPath(); g.moveTo(rcx+Rin*Math.cos(a),rcy+Rin*Math.sin(a));
+    g.lineTo(rcx+Rout*Math.cos(a),rcy+Rout*Math.sin(a));
+    g.strokeStyle='rgba(0,200,40,0.1)'; g.lineWidth=0.6; g.stroke();
+  }
+  [0.33,0.67,1.0].forEach(f=>{
+    g.beginPath(); g.arc(rcx,rcy,Rin+(Rout-Rin)*f,0,Math.PI*2);
+    g.strokeStyle=`rgba(0,200,40,${f===1?0.15:0.05})`; g.lineWidth=0.6; g.stroke();
+  });
+
+  // Rose fill (green phosphor gradient)
+  const rGrad=g.createRadialGradient(rcx,rcy,Rin,rcx,rcy,Rout);
+  rGrad.addColorStop(0,'rgba(0,255,60,0)');
+  rGrad.addColorStop(0.2,'rgba(0,200,40,0.4)');
+  rGrad.addColorStop(0.55,'rgba(60,255,100,0.55)');
+  rGrad.addColorStop(0.8,'rgba(180,255,60,0.6)');
+  rGrad.addColorStop(1,'rgba(255,255,0,0.5)');
+
+  g.beginPath();
+  const Nseg2=120;
+  for(let i=0;i<=Nseg2;i++){
+    const angle=(i/Nseg2)*Math.PI*2-(Math.PI/2);
+    const noise=0.65+0.35*Math.sin(i*0.16)*Math.cos(i*0.08+1.8);
+    const r2=Rin+(Rout-Rin)*0.52*noise;
+    if(i===0) g.moveTo(rcx+r2*Math.cos(angle),rcy+r2*Math.sin(angle));
+    else g.lineTo(rcx+r2*Math.cos(angle),rcy+r2*Math.sin(angle));
+  }
+  g.closePath(); g.fillStyle=rGrad; g.fill();
+
+  // Center
+  g.beginPath(); g.arc(rcx,rcy,Rin,0,Math.PI*2);
+  g.fillStyle='rgba(0,4,0,0.97)'; g.fill();
+
+  // Outer arc: green-only segmented (phosphor style)
+  const MstartDeg=225, Mspan=300, Nticks=72;
+  for(let i=0;i<Nticks;i++){
+    const frac=i/Nticks;
+    const startDeg=MstartDeg-i*(Mspan/Nticks);
+    const spanDeg=-(Mspan/Nticks)*0.72;
+    const lit=frac<0.62;
+    let fillColor;
+    if(!lit){ fillColor='rgba(0,180,40,0.06)'; }
+    else if(frac<0.5){ fillColor=`rgba(0,${Math.floor(200+55*frac/0.5)},${Math.floor(frac/0.5*80)},0.85)`; }
+    else if(frac<0.75){ fillColor=`rgba(${Math.floor((frac-0.5)/0.25*220)},255,0,0.9)`; }
+    else { fillColor=`rgba(255,${Math.floor(200*(1-(frac-0.75)/0.25))},0,0.85)`; }
+
+    g.beginPath();
+    const a1=startDeg*Math.PI/180, a2=(startDeg+spanDeg)*Math.PI/180;
+    g.arc(rcx,rcy,rr,a1,a2,true);
+    g.arc(rcx,rcy,rr-arcW,a2,a1,false);
+    g.closePath(); g.fillStyle=fillColor; g.fill();
+  }
+
+  // Arc border
+  [2,1].forEach((w,i)=>{
+    g.beginPath(); g.arc(rcx,rcy,rr,0,Math.PI*2);
+    g.strokeStyle=`rgba(0,255,60,${[0.15,0.5][i]})`; g.lineWidth=w; g.stroke();
+  });
+
+  // Target marker
+  const targetFrac=((-23)-(-52))/(2-(-52));
+  const targetDeg=(MstartDeg-targetFrac*Mspan)*Math.PI/180;
+  g.beginPath();
+  g.moveTo(rcx+(rr-arcW)*Math.cos(targetDeg),rcy+(rr-arcW)*Math.sin(targetDeg));
+  g.lineTo(rcx+(rr+5)*Math.cos(targetDeg),rcy+(rr+5)*Math.sin(targetDeg));
+  g.strokeStyle='rgba(0,255,60,0.9)'; g.lineWidth=2;
+  g.shadowColor='#00ff3c'; g.shadowBlur=8; g.stroke(); g.shadowBlur=0;
+
+  // Scanning sweep line (simulation)
+  const sweepAngle=(120)*Math.PI/180;
+  const sweepGrad=g.createConicalGradient?null:null; // fallback
+  g.beginPath();
+  g.moveTo(rcx+Rin*Math.cos(sweepAngle),rcy+Rin*Math.sin(sweepAngle));
+  g.lineTo(rcx+Rout*Math.cos(sweepAngle),rcy+Rout*Math.sin(sweepAngle));
+  g.strokeStyle='rgba(0,255,80,0.5)'; g.lineWidth=1.5;
+  g.shadowColor='#00ff50'; g.shadowBlur=6; g.stroke(); g.shadowBlur=0;
+
+  g.font='bold 8px "Courier New"'; g.fillStyle='rgba(0,200,40,0.6)';
+  g.shadowColor='#00c828'; g.shadowBlur=4; g.textAlign='center';
+  g.fillText('LOUDNESS RADAR',rcx,rcy-rr-22); g.shadowBlur=0; g.textAlign='left';
+
+  // ── BOTTOM PANEL ──────────────────────────────────────────────────────
+  const py=298,ph=62;
+  // Panel BG
+  g.fillStyle='rgba(0,5,0,0.95)'; g.fillRect(0,py,W,ph);
+  // CRT scanlines on panel
+  for(let y=py;y<py+ph;y+=2){
+    g.fillStyle='rgba(0,0,0,0.2)'; g.fillRect(0,y,W,1);
+  }
+
+  // Top separator (green glow)
+  const pLine=g.createLinearGradient(0,py,W,py);
+  pLine.addColorStop(0,'rgba(0,255,60,0)');
+  pLine.addColorStop(0.15,'rgba(0,255,60,0.3)');
+  pLine.addColorStop(0.5,'rgba(0,255,60,0.7)');
+  pLine.addColorStop(0.85,'rgba(0,255,60,0.3)');
+  pLine.addColorStop(1,'rgba(0,255,60,0)');
+  g.fillStyle=pLine; g.fillRect(0,py,W,1);
+
+  const metrics=[
+    {label:'M  MOMENTARY',val:'-18.4',unit:'LUFS',col:'#00e040',big:false,x:96},
+    {label:'S  SHORT-TERM',val:'-19.1',unit:'LUFS',col:'#00d838',big:false,x:240},
+    {label:'PROGRAM LOUDNESS',val:'-18.7',unit:'LUFS',col:'#00ff50',big:true,x:415},
+    {label:'TRUE-PEAK MAX',val:'-1.2',unit:'dBTP',col:'#ffff00',big:true,x:610},
+    {label:'LOUDNESS RANGE',val:'8.3',unit:'LU',col:'#80ff80',big:false,x:800},
+  ];
+  const seps3=[168,330,510,710];
+  seps3.forEach(sx=>{
+    g.beginPath(); g.moveTo(sx,py+8); g.lineTo(sx,py+ph-8);
+    g.strokeStyle='rgba(0,200,40,0.15)'; g.lineWidth=1; g.stroke();
+  });
+  metrics.forEach(m=>{
+    g.font='8px "Courier New"'; g.fillStyle='rgba(0,180,40,0.45)';
+    g.textAlign='center'; g.fillText(m.label,m.x,py+13);
+    const fs=m.big?27:21;
+    g.font=`bold ${fs}px "Courier New"`;
+    g.fillStyle=m.col;
+    g.shadowColor=m.col; g.shadowBlur=12;
+    g.fillText(m.val,m.x,py+41); g.shadowBlur=0;
+    g.font='8px "Courier New"'; g.fillStyle='rgba(0,160,40,0.4)';
+    g.fillText(m.unit,m.x,py+56);
+  });
+  g.textAlign='left';
+
+})();
+</script>
+</body>
+</html>
