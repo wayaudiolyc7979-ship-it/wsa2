@@ -299,6 +299,7 @@ FREQ_MARKS = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
 # ───────────────────────────────────────────
 _SETTINGS_PATH = os.path.expanduser('~/Library/Application Support/WSA2/settings.json')
 _CAPTURES_PATH = os.path.expanduser('~/Library/Application Support/WSA2/captures.json')
+_CAPTURES_LOCK = threading.Lock()   # captures.json 동시 읽기-수정-쓰기 보호 (백그라운드 저장용)
 
 def _load_settings():
     try:
@@ -576,10 +577,11 @@ class AudioThread(QThread):
         ch_idx=self.channel; n_ch=ch_idx+1
         _last_emit=[0.0]
         _last_cb=[time.monotonic()]   # watchdog: USB 제거 감지용
+        _got_cb=[False]   # 첫 콜백 수신 여부 — 시작 지연(같은장치 in/out churn)을 끊김으로 오판 방지
         def cb(indata,frames,ti,status):
             if not self.running: return
             try:
-                _last_cb[0]=time.monotonic()   # 콜백 살아있음 갱신
+                _last_cb[0]=time.monotonic(); _got_cb[0]=True   # 콜백 살아있음 갱신
                 if indata.shape[1] == 0: return
                 src_ch=min(ch_idx, indata.shape[1]-1)
                 chunk=indata[:,src_ch].astype(np.float32); n=min(len(chunk),len(buf))
@@ -605,8 +607,9 @@ class AudioThread(QThread):
                     while self.running:
                         self.msleep(500)
                         # macOS AUHAL은 USB 제거 후에도 _s.active=True 유지.
-                        # 콜백이 2초 이상 호출 안 되면 물리적 연결 끊김으로 판단.
-                        if time.monotonic()-_last_cb[0] > 2.0:
+                        # 콜백이 흐르다가 2초 이상 끊기면 물리적 연결 끊김으로 판단.
+                        # (첫 콜백 받은 뒤에만 — 시작 지연을 끊김으로 오판하지 않도록)
+                        if _got_cb[0] and time.monotonic()-_last_cb[0] > 2.0:
                             self.disconnected_signal.emit('device removed')
                             return True
                 return False  # self.running=False → 정상 Stop
@@ -677,11 +680,12 @@ class MultiChannelAudioThread(QThread):
         bufs  = {ch: np.zeros(self.fft_size, dtype=np.float32) for ch in self.channels}
         _last_emit = [0.0]
         _last_cb   = [time.monotonic()]
+        _got_cb    = [False]   # 첫 콜백 수신 여부 — 시작 지연을 끊김으로 오판 방지
 
         def cb(indata, frames, ti, status):
             if not self.running: return
             try:
-                _last_cb[0] = time.monotonic()
+                _last_cb[0] = time.monotonic(); _got_cb[0] = True
                 if indata.shape[1] == 0: return
                 for ch in self.channels:
                     src = min(ch, indata.shape[1] - 1)
@@ -708,7 +712,7 @@ class MultiChannelAudioThread(QThread):
                     _last_cb[0] = time.monotonic()
                     while self.running:
                         self.msleep(500)
-                        if time.monotonic() - _last_cb[0] > 2.0:
+                        if _got_cb[0] and time.monotonic() - _last_cb[0] > 2.0:
                             self.disconnected_signal.emit('device removed')
                             return True
                 return False
@@ -878,6 +882,7 @@ class TFSyncThread(QThread):
     frame_ready(ref_buf, meas_buf)로 두 버퍼를 원자적으로 전달."""
     frame_ready  = pyqtSignal(object, object)   # (ref_buf, meas_buf) — 단일 이벤트
     error_signal = pyqtSignal(str)
+    disconnected_signal = pyqtSignal(str)   # 작동 중 물리적 연결 끊김
 
     def __init__(self, device_idx, sample_rate, fft_size, ref_ch, meas_ch):
         super().__init__()
@@ -894,10 +899,13 @@ class TFSyncThread(QThread):
         ref_buf  = np.zeros(self.fft_size, dtype=np.float32)
         meas_buf = np.zeros(self.fft_size, dtype=np.float32)
         r_ch = self.ref_ch; m_ch = self.meas_ch
+        _last_cb = [time.monotonic()]   # watchdog: USB 제거 감지
+        _got_cb = [False]   # 첫 콜백 수신 여부 — 시작 지연을 끊김으로 오판 방지
 
         def cb(indata, frames, ti, status):
             try:
                 if not self.running: return
+                _last_cb[0] = time.monotonic(); _got_cb[0] = True   # 콜백 살아있음 갱신
                 nc = indata.shape[1]
                 rc = min(r_ch, nc - 1); mc = min(m_ch, nc - 1)
                 ref_buf[:-frames]  = ref_buf[frames:];  ref_buf[-frames:]  = indata[:frames, rc]
@@ -914,8 +922,16 @@ class TFSyncThread(QThread):
                                             channels=n_ch, blocksize=bs,
                                             callback=cb, latency='high', dtype='float32') as _s:
                             self._active_stream = _s
+                            _last_cb[0] = time.monotonic()
                             try:
-                                while self.running: self.msleep(10)
+                                while self.running:
+                                    self.msleep(10)
+                                    # macOS AUHAL은 USB 제거 후에도 active=True 유지 →
+                                    # 콜백이 흐르다 2초 이상 끊기면 물리적 끊김으로 판단
+                                    # (첫 콜백 받은 뒤에만 — 같은장치 in/out 시작 지연 오판 방지)
+                                    if _got_cb[0] and time.monotonic() - _last_cb[0] > 2.0:
+                                        self.disconnected_signal.emit('device removed')
+                                        return
                             finally:
                                 self._active_stream = None
                     return  # 정상 종료
@@ -4384,48 +4400,53 @@ class TFPhaseCanvas(QWidget):
             p.setPen(QPen(QColor(T('grid')),1)); p.drawLine(int(fx),pt,int(fx),H-pb)
 
     def _draw_curve(self, p, W, H):
-        if self.freqs is None: return
-        data=[self.ph_wrap,self.ph_unwr,self.grp_ms][self.phase_mode]
-        if data is None: return
         refmode = self._delta and self._ref_f is not None
-        if self._delta and not refmode:
-            return  # 델타 모드인데 기준 없음
-        if refmode:
-            ref_data=[self._ref_pw,self._ref_pu,self._ref_gm][self.phase_mode]
-            if ref_data is None: return
-            data = data - np.interp(self.freqs, self._ref_f, ref_data)
-        pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
-        dh=H-pt-pb; uw=W-pl-pr; ny=20000
-        rng=self.ph_max-self.ph_min if self.ph_max!=self.ph_min else 1.0
-        xs=pl+(np.log10(np.maximum(self.freqs,1)/20)/math.log10(ny/20))*uw
-        if self.phase_mode==0:
-            mid=(self.ph_min+self.ph_max)/2
-            data_plot=data-360.0*np.round((data-mid)/360.0)
-        else:
-            data_plot=data
-        ys=pt+np.clip(((self.ph_max-data_plot)/rng*dh).astype(float),0,dh)
-        # 화면 너비에 맞춰 다운샘플: Python 루프 반복 수 축소 → GIL 점유 시간 감소
-        max_pts=max(int(uw),200)
-        if len(xs)>max_pts:
-            _ids=np.linspace(0,len(xs)-1,max_pts,dtype=int)
-            xs=xs[_ids]; ys=ys[_ids]; data_plot=data_plot[_ids]
-        is_wrap=(self.phase_mode==0)
-        # Catmull-Rom 스플라인: 연속 구간별로 부드러운 곡선 생성
-        path=QPainterPath(); seg_x=[]; seg_y=[]
-        def _flush():
-            if len(seg_x) >= 2:
-                path.addPath(_catmull_seg(seg_x, seg_y))
-            seg_x.clear(); seg_y.clear()
-        for i in range(len(xs)):
-            break_here=(i>0 and is_wrap and abs(data_plot[i]-data_plot[i-1])>270.0)
-            if break_here:
-                _flush()
-            else:
-                seg_x.append(float(xs[i])); seg_y.append(float(ys[i]))
-        _flush()
+        delta_no_ref = self._delta and not refmode  # 델타 모드인데 기준 없음 → 전부 숨김
+        if delta_no_ref:
+            return
         p.setRenderHint(QPainter.Antialiasing, True)
-        p.setPen(QPen(QColor('#33FF66'),2.0)); p.setBrush(Qt.NoBrush); p.drawPath(path)
-        # 추가 채널 곡선 (front 는 마지막에 굵게)
+        # ── primary 곡선 (데이터 있을 때만; 없으면 extra만 그림 — primary 숨김 시 카드2 위상 유지) ──
+        path = None
+        data = None if self.freqs is None else [self.ph_wrap,self.ph_unwr,self.grp_ms][self.phase_mode]
+        if data is not None:
+            if refmode:
+                ref_data=[self._ref_pw,self._ref_pu,self._ref_gm][self.phase_mode]
+                if ref_data is None:
+                    data = None
+                else:
+                    data = data - np.interp(self.freqs, self._ref_f, ref_data)
+        if data is not None:
+            pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
+            dh=H-pt-pb; uw=W-pl-pr; ny=20000
+            rng=self.ph_max-self.ph_min if self.ph_max!=self.ph_min else 1.0
+            xs=pl+(np.log10(np.maximum(self.freqs,1)/20)/math.log10(ny/20))*uw
+            if self.phase_mode==0:
+                mid=(self.ph_min+self.ph_max)/2
+                data_plot=data-360.0*np.round((data-mid)/360.0)
+            else:
+                data_plot=data
+            ys=pt+np.clip(((self.ph_max-data_plot)/rng*dh).astype(float),0,dh)
+            # 화면 너비에 맞춰 다운샘플: Python 루프 반복 수 축소 → GIL 점유 시간 감소
+            max_pts=max(int(uw),200)
+            if len(xs)>max_pts:
+                _ids=np.linspace(0,len(xs)-1,max_pts,dtype=int)
+                xs=xs[_ids]; ys=ys[_ids]; data_plot=data_plot[_ids]
+            is_wrap=(self.phase_mode==0)
+            # Catmull-Rom 스플라인: 연속 구간별로 부드러운 곡선 생성
+            path=QPainterPath(); seg_x=[]; seg_y=[]
+            def _flush():
+                if len(seg_x) >= 2:
+                    path.addPath(_catmull_seg(seg_x, seg_y))
+                seg_x.clear(); seg_y.clear()
+            for i in range(len(xs)):
+                break_here=(i>0 and is_wrap and abs(data_plot[i]-data_plot[i-1])>270.0)
+                if break_here:
+                    _flush()
+                else:
+                    seg_x.append(float(xs[i])); seg_y.append(float(ys[i]))
+            _flush()
+            p.setPen(QPen(QColor('#33FF66'),2.0)); p.setBrush(Qt.NoBrush); p.drawPath(path)
+        # ── 추가 채널 곡선 (primary 유무와 무관하게 그림; front 는 마지막에 굵게) ──
         fk=self._front_extra
         for key, ex in self._tf_extra_phase.items():
             if key==fk: continue
@@ -4433,7 +4454,8 @@ class TFPhaseCanvas(QWidget):
         # front 맨 앞 재드로우 (멀티카드일 때만)
         if self._tf_extra_phase:
             if fk is None or fk==-1:
-                p.setPen(QPen(QColor('#33FF66'),3.4)); p.setBrush(Qt.NoBrush); p.drawPath(path)
+                if path is not None:
+                    p.setPen(QPen(QColor('#33FF66'),3.4)); p.setBrush(Qt.NoBrush); p.drawPath(path)
             elif fk in self._tf_extra_phase:
                 self._draw_extra_phase_curve(p, W, H, self._tf_extra_phase[fk], width=3.4)
 
@@ -4518,15 +4540,29 @@ class TFPhaseCanvas(QWidget):
                         pval=float(data[pidx])
                     pcy=int(pt+np.clip((self.ph_max-pval)/rng*dh,0,dh))
                     p.drawLine(pl,pcy,W-pr,pcy)
-        # 자체 커서: 십자 + info box
-        if pl<=self._mx<=W-pr and self.freqs is not None:
-            data=[self.ph_wrap,self.ph_unwr,self.grp_ms][self.phase_mode]
+        # 자체 커서: 십자 + info box — 선택(front) 카드 우선 → primary → 아무 extra
+        _fk = self._front_extra
+        if isinstance(_fk, int) and _fk != -1 and _fk in self._tf_extra_phase:
+            _ex = self._tf_extra_phase[_fk]
+            _cf = _ex.get('f')
+            data = [_ex.get('ph_wrap'), _ex.get('ph_unwr'), _ex.get('grp_ms')][self.phase_mode]
+            _cmag = None
+        else:
+            _cf = self.freqs
+            data = None if self.freqs is None else [self.ph_wrap,self.ph_unwr,self.grp_ms][self.phase_mode]
+            _cmag = self.mag
+            if (_cf is None or data is None) and self._tf_extra_phase:
+                _ex = next(iter(self._tf_extra_phase.values()))
+                _cf = _ex.get('f')
+                data = [_ex.get('ph_wrap'), _ex.get('ph_unwr'), _ex.get('grp_ms')][self.phase_mode]
+                _cmag = None
+        if pl<=self._mx<=W-pr and _cf is not None:
             if data is not None:
                 is_grp=(self.phase_mode==2)
                 cx=self._mx
                 freq=x_to_freq(cx,pl,uw,ny)
-                _oi=np.searchsorted(self.freqs,freq)
-                if _oi>0 and (_oi>=len(self.freqs) or self.freqs[_oi]-freq>freq-self.freqs[_oi-1]): _oi-=1
+                _oi=np.searchsorted(_cf,freq)
+                if _oi>0 and (_oi>=len(_cf) or _cf[_oi]-freq>freq-_cf[_oi-1]): _oi-=1
                 idx=int(np.clip(_oi,0,len(data)-1))
                 # 수평선 y: 실제 데이터값 위치
                 if is_grp:
@@ -4542,8 +4578,8 @@ class TFPhaseCanvas(QWidget):
                 p.drawLine(pl,cy,W-pr,cy)           # 수평선
                 fs=f'{freq/1000:.2f}kHz' if freq>=1000 else f'{freq:.0f}Hz'
                 mag_str=''
-                if self.mag is not None and len(self.mag)==len(self.freqs):
-                    mag_str=f'{self.mag[idx]:+.1f} dB'
+                if _cmag is not None and len(_cmag)==len(_cf):
+                    mag_str=f'{_cmag[idx]:+.1f} dB'
                 if is_grp:
                     ph_str=f'  {data[idx]:.2f} ms'
                 elif self.phase_mode==0:
@@ -4764,6 +4800,12 @@ class TFMagCanvas(QWidget):
                 m = m[mask] if np.any(mask) else m
             m = m[np.isfinite(m)]
             if len(m): all_vals.append(m)
+        # extra 카드 곡선들도 포함 — 카드2만 분석 중이어도 더블클릭 Y맞춤 동작
+        for ex in self._tf_extra.values():
+            em = ex.get('mag')
+            if em is None: continue
+            em = np.asarray(em, dtype=float); em = em[np.isfinite(em)]
+            if len(em): all_vals.append(em)
         if not all_vals: return
         combined = np.concatenate(all_vals)
         lo = float(np.percentile(combined, 2)); hi = float(np.percentile(combined, 98))
@@ -4962,25 +5004,35 @@ class TFMagCanvas(QWidget):
                 pcy=int(pt+np.clip((self.db_max-float(self.mag[pidx]))/rng*dh,0,dh))
                 p.drawLine(pl,pcy,W-pr,pcy)
         # 자체 커서: 십자 + info box
-        if pl<=self._mx<=W-pr and self.freqs is not None and self.mag is not None:
+        # 커서 데이터: 선택(front) 카드 우선 → primary → 아무 extra (선택 카드 값이 뜨도록)
+        _fk = self._front_extra
+        if isinstance(_fk, int) and _fk != -1 and _fk in self._tf_extra:
+            _ex = self._tf_extra[_fk]
+            _cf = _ex.get('f'); _cm = _ex.get('mag'); _cp = None; _cc = None
+        else:
+            _cf = self.freqs; _cm = self.mag; _cp = self.phase; _cc = self.coh
+            if (_cf is None or _cm is None) and self._tf_extra:
+                _ex = next(iter(self._tf_extra.values()))
+                _cf = _ex.get('f'); _cm = _ex.get('mag'); _cp = None; _cc = None
+        if pl<=self._mx<=W-pr and _cf is not None and _cm is not None:
             cx=self._mx
             freq=x_to_freq(cx,pl,uw,ny)
-            _oi=np.searchsorted(self.freqs,freq)
-            if _oi>0 and (_oi>=len(self.freqs) or self.freqs[_oi]-freq>freq-self.freqs[_oi-1]): _oi-=1
-            idx=int(np.clip(_oi,0,len(self.mag)-1))
+            _oi=np.searchsorted(_cf,freq)
+            if _oi>0 and (_oi>=len(_cf) or _cf[_oi]-freq>freq-_cf[_oi-1]): _oi-=1
+            idx=int(np.clip(_oi,0,len(_cm)-1))
             # 수평선 y: 실제 magnitude 값 위치
-            cy=int(pt+np.clip((self.db_max-float(self.mag[idx]))/rng*dh,0,dh))
+            cy=int(pt+np.clip((self.db_max-float(_cm[idx]))/rng*dh,0,dh))
             p.setPen(QPen(_CUR,1,Qt.DashLine))
             p.drawLine(cx,pt,cx,H-pb)          # 수직선
             p.drawLine(pl,cy,W-pr,cy)           # 수평선
             fs=f'{freq/1000:.2f}kHz' if freq>=1000 else f'{freq:.0f}Hz'
-            mag_str=f'{self.mag[idx]:+.1f} dB'
+            mag_str=f'{_cm[idx]:+.1f} dB'
             ph_str=''
-            if self.phase is not None and len(self.phase)==len(self.freqs):
-                ph_str=f'  {int(round(float(self.phase[idx])))}°'
+            if _cp is not None and len(_cp)==len(_cf):
+                ph_str=f'  {int(round(float(_cp[idx])))}°'
             coh_str=''
-            if self.coh is not None and len(self.coh)==len(self.freqs):
-                coh_str=f'  {self.coh[idx]*100:.0f}%'
+            if _cc is not None and len(_cc)==len(_cf):
+                coh_str=f'  {_cc[idx]*100:.0f}%'
             draw_info_box(p,W,fs,f'{mag_str}{ph_str}{coh_str}')
         p.end()
 
@@ -5299,9 +5351,11 @@ class _MeasCard(QFrame):
 
     def _apply_card_style(self):
         if self._is_selected:
+            _c = QColor(self._color); _r, _g, _b = _c.red(), _c.green(), _c.blue()
+            # 선택 카드: 카드 색으로 은은히 채워 "선택됨"을 확실히 표시 + 굵은 테두리
             self.setStyleSheet(
                 f'QFrame#measCard{{border:3px solid {self._color};border-radius:{RADIUS_SM}px;'
-                f'background:{T("bg3")};padding:0px;}}')
+                f'background:rgba({_r},{_g},{_b},45);padding:0px;}}')
         else:
             self.setStyleSheet(
                 f'QFrame#measCard{{border:2px solid {self._color};border-radius:{RADIUS_SM}px;'
@@ -5529,6 +5583,21 @@ class TFIRCanvas(QWidget):
             't': None, 'h': None, 'etc_db': None, 'color': color, 'label': label
         })
         self._cap_pix=None; self.update()
+
+    def add_capture_data(self, label, color, t, h, etc_db=None):
+        """extra 카드(멀티카드)의 live IR 캡쳐 — 카드별 _tf_extra 의 t/h 사용."""
+        if t is None or h is None:
+            self.add_capture_empty(label, color); return
+        h = np.asarray(h, dtype=np.float32)
+        if etc_db is None:
+            etc = _hilbert_env(h); pk = max(float(np.max(etc)), 1e-10)
+            etc_db = (20 * np.log10(np.maximum(etc / pk, 1e-10))).astype(np.float32)
+        self._captures.append({
+            't': np.asarray(t, dtype=np.float32).copy(), 'h': h.copy(),
+            'etc_db': np.asarray(etc_db, dtype=np.float32).copy(),
+            'color': color, 'label': label
+        })
+        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
 
     def remove_capture(self, idx):
         if 0 <= idx < len(self._captures):
@@ -5765,13 +5834,6 @@ class TFIRCanvas(QWidget):
                     lc = QColor(T('green')); lc.setAlpha(230)
                     p.setPen(QPen(lc, 2.0)); p.setBrush(Qt.NoBrush)
                     p.drawPolyline(QPolygonF([QPointF(x,y) for x,y in zip(xs.tolist(),ys.tolist())]))
-                # 딜레이 설정값 — 주황 대시 라인 (delay_spin 값, 움직이지 않음)
-                if self._delay_ms != 0.0 and self.t_min <= self._delay_ms <= self.t_max:
-                    dlx = int(pl + (self._delay_ms - self.t_min) / t_range * uw)
-                    p.setPen(QPen(QColor(T('accent2')), 2.0, Qt.DashLine))
-                    p.drawLine(dlx, pt, dlx, H - pb)
-                    p.setFont(_qfont(CF_ANNO, True)); p.setPen(QColor(T('accent2')))
-                    p.drawText(dlx + 4, pt + 26, f'▷ {self._delay_ms:.2f} ms')
         else:
             db_range = max(self.db_max - self.db_min, 1.0)
             if self.t_ms is not None and len(self.t_ms) >= 2:
@@ -5812,14 +5874,6 @@ class TFIRCanvas(QWidget):
                             lc = QColor(T('green')); lc.setAlpha(200)
                             p.setPen(QPen(lc, 1.2)); p.setBrush(Qt.NoBrush)
                             p.drawPolyline(QPolygonF(_poly_pts))
-                    # 라이브 IR 피크 — 작은 청록 틱 (대시 라인 없음)
-                    # 딜레이 설정값 — 주황 대시 라인
-                    if self._delay_ms != 0.0 and self.t_min <= self._delay_ms <= self.t_max:
-                        dlx = int(pl + (self._delay_ms - self.t_min) / t_range * uw)
-                        p.setPen(QPen(QColor(T('accent2')), 2.0, Qt.DashLine))
-                        p.drawLine(dlx, pt, dlx, H - pb)
-                        p.setFont(_qfont(CF_ANNO, True)); p.setPen(QColor(T('accent2')))
-                        p.drawText(dlx + 4, pt + 12, f'▷ {self._delay_ms:.2f} ms')
 
         # 카드별 추가 IR 곡선 + front 맨앞 재드로우 (멀티카드일 때만 — 단일카드는 기존 모습 유지)
         if self._tf_extra:
@@ -5857,23 +5911,43 @@ class TFIRCanvas(QWidget):
         self._draw_grid_lines(p, W, H)
 
         pl = self.PAD_L; pr = self.PAD_R; pt = self.PAD_T; pb = self.PAD_B; uw = W - pl - pr
-        if pl <= self._mx <= W - pr and self.t_ms is not None:
+        # 딜레이 마커 — 선택 카드 기준 점선 + 값(시간축 라벨 줄). 활성 IR 데이터 있을 때만(정지 시 숨김).
+        if (self._delay_ms != 0.0 and self.t_min <= self._delay_ms <= self.t_max
+                and (self.t_ms is not None or self._tf_extra)):
+            _tr = max(self.t_max - self.t_min, 1.0)
+            dlx = int(pl + (self._delay_ms - self.t_min) / _tr * uw)
+            _dly = QColor('#FF3DD8')   # 마젠타 — coherence(주황)/커서(노랑)/카드(녹·청)와 명확히 구분
+            p.setPen(QPen(_dly, 2.0, Qt.DashLine))
+            p.drawLine(dlx, pt, dlx, H - pb)
+            p.setFont(_qfont(CF_MODE, True)); p.setPen(_dly)
+            p.drawText(dlx + 5, H - pb + 14, f'▷ {self._delay_ms:.2f} ms')   # 0ms/5ms 시간축 라벨 줄
+        # 커서: 선택(front) 카드 우선 → primary → 아무 extra
+        _fk = self._front_extra
+        if isinstance(_fk, int) and _fk != -1 and _fk in self._tf_extra:
+            _ex = self._tf_extra[_fk]
+            _ct = _ex.get('t'); _ch = _ex.get('h'); _cetc = _ex.get('etc_db')
+        else:
+            _ct = self.t_ms; _ch = self.h_raw; _cetc = self.etc_db
+            if (_ct is None or _ch is None) and self._tf_extra:
+                _ex = next(iter(self._tf_extra.values()))
+                _ct = _ex.get('t'); _ch = _ex.get('h'); _cetc = _ex.get('etc_db')
+        if pl <= self._mx <= W - pr and _ct is not None:
             cx = self._mx; t_range = max(self.t_max - self.t_min, 1.0)
             p.setPen(QPen(QColor(0, 229, 255, 60), 1, Qt.DashLine))
             p.drawLine(cx, pt, cx, H - pb)
             t_cur = self.t_min + (cx - pl) / uw * t_range
-            t_arr = self.t_ms
-            if self.ir_mode == 0 and self.h_raw is not None:
-                pk = max(float(np.max(np.abs(self.h_raw))), 1e-10)
-                idx = int(np.clip(np.argmin(np.abs(t_arr - t_cur)), 0, len(self.h_raw) - 1))
-                draw_info_box(p, W, f'{t_cur:.1f} ms', f'{self.h_raw[idx]/pk:+.3f}')
-            elif self.ir_mode == 1 and self.etc_db is not None:
-                idx = int(np.clip(np.argmin(np.abs(t_arr - t_cur)), 0, len(self.etc_db) - 1))
-                draw_info_box(p, W, f'{t_cur:.1f} ms', f'{self.etc_db[idx]:+.1f} dB')
-            elif self.ir_mode == 2 and self.h_raw is not None:
-                pk = max(float(np.max(np.abs(self.h_raw))), 1e-10)
-                idx = int(np.clip(np.argmin(np.abs(t_arr - t_cur)), 0, len(self.h_raw) - 1))
-                db_val = 20 * math.log10(max(abs(float(self.h_raw[idx])) / pk, 1e-10))
+            t_arr = _ct
+            if self.ir_mode == 0 and _ch is not None:
+                pk = max(float(np.max(np.abs(_ch))), 1e-10)
+                idx = int(np.clip(np.argmin(np.abs(t_arr - t_cur)), 0, len(_ch) - 1))
+                draw_info_box(p, W, f'{t_cur:.1f} ms', f'{_ch[idx]/pk:+.3f}')
+            elif self.ir_mode == 1 and _cetc is not None:
+                idx = int(np.clip(np.argmin(np.abs(t_arr - t_cur)), 0, len(_cetc) - 1))
+                draw_info_box(p, W, f'{t_cur:.1f} ms', f'{_cetc[idx]:+.1f} dB')
+            elif self.ir_mode == 2 and _ch is not None:
+                pk = max(float(np.max(np.abs(_ch))), 1e-10)
+                idx = int(np.clip(np.argmin(np.abs(t_arr - t_cur)), 0, len(_ch) - 1))
+                db_val = 20 * math.log10(max(abs(float(_ch[idx])) / pk, 1e-10))
                 draw_info_box(p, W, f'{t_cur:.1f} ms', f'{db_val:+.1f} dB')
         p.end()
 
@@ -5886,6 +5960,7 @@ class TFDuplexThread(QThread):
     별도 스트림 2개로 인한 xrun/드롭아웃을 원천 제거."""
     frame_ready    = pyqtSignal(object, object)   # (ref_buf, meas_buf) — 단일 이벤트
     error_signal   = pyqtSignal(str)
+    disconnected_signal = pyqtSignal(str)         # 작동 중 물리적 연결 끊김 (입력 장치)
     fade_done      = pyqtSignal()                 # 페이드인 완료 시 1회 emit → _reset_avg 트리거
     sweep_captured = pyqtSignal(object, object)   # (ref_array, meas_array) — 1-shot 캡처 완료
 
@@ -5952,8 +6027,11 @@ class TFDuplexThread(QThread):
         _sc_armed = self._sc_armed; _sc_pos = self._sc_pos
 
         _xrun_cnt = [0]
+        _wd_last = [time.monotonic()]   # watchdog: 입력 장치 USB 제거 감지
+        _wd_got = [False]   # 첫 콜백 수신 여부 — 시작 지연을 끊김으로 오판 방지
         def cb(indata, outdata, frames, ti, status):
             try:
+                _wd_last[0] = time.monotonic(); _wd_got[0] = True   # 콜백 살아있음 갱신
                 if status: _xrun_cnt[0] += 1  # 콜백 내 I/O 금지 — xrun 카운트만
                 if not self.running:
                     outdata[:] = 0; return
@@ -6018,7 +6096,14 @@ class TFDuplexThread(QThread):
                                callback=cb, latency='high') as stream:
                     self._active_stream = stream
                     _alog.debug(f'TFDuplexThread sd.Stream opened OK  latency={stream.latency}')
-                    while self.running: self.msleep(10)
+                    _wd_last[0] = time.monotonic()
+                    while self.running:
+                        self.msleep(10)
+                        # USB 입력 제거 시 콜백 정지 → 흐르다 2초 끊기면 끊김 판단
+                        # (첫 콜백 받은 뒤에만 — 같은장치 in/out 시작 지연 오판 방지)
+                        if _wd_got[0] and time.monotonic() - _wd_last[0] > 2.0:
+                            self.disconnected_signal.emit('device removed')
+                            break
                     self.msleep(80)
         except Exception as e:
             _alog.error(f'TFDuplexThread sd.Stream FAILED: {e}')
@@ -6713,6 +6798,8 @@ class TransferFunctionWindow(QWidget):
         self._mon_ref_stream = None; self._mon_meas_stream = None
         self._mon_ref_rms = 0.0; self._mon_meas_rms = 0.0
         self._mon_lock = _thr2.Lock()
+        self._monitor_threads = {}   # 입력 레벨 모니터(분석 미실행 시) dev -> MultiChannelAudioThread
+        self._monitor_chmap = {}     # dev -> {ch: card}
         self._build_ui(); self._load_devices(); self._restore_tf_extra_pairs()
         self._find_result_sig.connect(self._apply_find_result)
         self._find_pair_result_sig.connect(self._apply_find_pair_result)
@@ -7043,13 +7130,21 @@ class TransferFunctionWindow(QWidget):
         self.tf_cap_btn = QPushButton('Capture'); self.tf_cap_btn.setFixedWidth(68); self.tf_cap_btn.setFixedHeight(30)
         self.tf_cap_btn.setToolTip('현재 TF 스냅샷 캡처 (Mag + Phase + IR)')
         self.tf_cap_btn.clicked.connect(lambda: self._do_tf_capture(prompt=True)); tl.addWidget(self.tf_cap_btn)
+        # 토글 버튼 전용 스타일 — ON 시 확실히 채워져 보이게 (버튼별 직접 지정 → 전역 스타일에 안 묻힘)
+        _toggle_ss = (
+            'QPushButton{background:#2C2C2E;color:#9A9AA0;border:1px solid #48484A;'
+            'border-radius:7px;font-size:14px;font-weight:bold;}'
+            'QPushButton:hover{border-color:#0A84FF;}'
+            'QPushButton:checked{background:#0A84FF;color:#FFFFFF;border:1px solid #0A84FF;}')
         self.delta_btn = QPushButton('Δ'); self.delta_btn.setFixedWidth(30); self.delta_btn.setFixedHeight(30)
         self.delta_btn.setCheckable(True)
+        self.delta_btn.setStyleSheet(_toggle_ss)
         self.delta_btn.setToolTip('Delta 비교 — 기준(R로 지정한 캡쳐) 대비 차이 표시')
         self.delta_btn.toggled.connect(self._set_delta)
         tl.addWidget(self.delta_btn)
         self.tf_stable_btn = QPushButton('⏳'); self.tf_stable_btn.setFixedWidth(30); self.tf_stable_btn.setFixedHeight(30)
         self.tf_stable_btn.setCheckable(True)
+        self.tf_stable_btn.setStyleSheet(_toggle_ss)
         self.tf_stable_btn.setToolTip('안정화 캡쳐 — 평균 수렴 + 코히런스 안정 후 자동 캡쳐')
         tl.addWidget(self.tf_stable_btn); tl.addWidget(_vs())
 
@@ -7353,6 +7448,35 @@ class TransferFunctionWindow(QWidget):
         if hasattr(self, '_level_cards') and self._level_cards:
             self._level_cards[0].reset()
 
+    # ── 입력 레벨 모니터 (분석 미실행 시에도 레벨미터 표시) ─────────────
+    def _stop_input_monitor(self):
+        for th in list(getattr(self, '_monitor_threads', {}).values()):
+            try: th.chunk_ready.disconnect(); th.error_signal.disconnect()
+            except Exception: pass
+            try: th.stop()
+            except Exception: pass
+        self._monitor_threads = {}; self._monitor_chmap = {}
+
+    def _refresh_input_monitor(self):
+        """[비활성화] 별도 모니터 입력 스트림은 같은 장치의 출력/분석 스트림과 CoreAudio 충돌
+        (스트림 닫힘 3초 지연 → 카드 Start 랙, 레벨 오독)을 일으켜 사용하지 않음.
+        '분석 중인 카드가 1개라도 있으면' 정지·가시 카드는 meter-only 로 레벨 표시됨.
+        전부 정지 상태의 모니터링은 공유 오디오 엔진(장치당 1스트림) 도입 후 가능."""
+        self._stop_input_monitor()
+
+    def _on_monitor_chunk(self, device_idx, chunk_dict):
+        chmap = self._monitor_chmap.get(device_idx)
+        if not chmap: return
+        for ch, card in chmap.items():
+            buf = chunk_dict.get(ch)
+            if buf is None: continue
+            try:
+                if not card.is_graph_visible(): continue
+                rms = float(np.sqrt(np.mean(buf ** 2)))
+                if rms > 1e-9: card.set_meas(20 * _math.log10(rms))
+            except RuntimeError:
+                pass  # 카드 삭제됨
+
     # ── 추가 측정 채널 관리 ─────────────────────
     # ── 추가 Ref+Meas 쌍 관리 (Smaart 방식) ────
     def _tf_delete_primary(self):
@@ -7440,9 +7564,11 @@ class TransferFunctionWindow(QWidget):
         self._save_tf_extra_pairs()
 
     def _on_primary_graph_toggle(self, visible):
-        """primary 카드 그래프 표시 ON/OFF — 분석은 그대로, 곡선만 숨김/표시."""
+        """primary 카드 그래프 표시 ON/OFF — 분석은 그대로, 곡선·레벨 숨김/표시."""
         if not visible:
             self.mag_cvs.clear(); self.phase_cvs.clear(); self.ir_cvs.clear()
+            if self._level_cards: self._level_cards[0].reset()   # 체크 해제 → 레벨도 숨김
+        self._refresh_input_monitor()   # 모니터 채널 갱신 (체크 ON/OFF 반영)
         # 표시 ON 이면 다음 렌더 프레임에서 다시 그려짐 (_render_inner 가 is_graph_visible 확인)
 
     def _on_extra_graph_toggle(self, card, visible):
@@ -7453,6 +7579,8 @@ class TransferFunctionWindow(QWidget):
             self.mag_cvs.clear_tf_extra(idx)
             self.phase_cvs.clear_tf_extra_phase(idx)
             self.ir_cvs.clear_tf_extra(idx)
+            card.reset()   # 체크 해제 → 레벨도 숨김
+        self._refresh_input_monitor()   # 모니터 채널 갱신 (체크 ON/OFF 반영)
 
     def _on_card_select(self, card):
         """카드 본문 클릭 → 해당 카드 곡선을 Mag/Phase/IR 분석 화면 맨 앞으로."""
@@ -7466,6 +7594,8 @@ class TransferFunctionWindow(QWidget):
         self.mag_cvs.set_front_curve(key)
         self.phase_cvs.set_front_curve(key)
         self.ir_cvs.set_front_curve(key)
+        # 선택한 카드의 딜레이로 IR 임펄스 센터 정렬 + ▷ 숫자 표기 (각 카드 클릭 시 그 카드 기준)
+        self._sync_ir_delay_marker()
 
     def _tf_remove_pair(self, idx):
         if idx < 0 or idx >= len(self._extra_pairs): return
@@ -7514,6 +7644,7 @@ class TransferFunctionWindow(QWidget):
 
     def _start(self):
         self._stop_mon_streams()   # TF 시작 전 모니터 스트림 해제 (장치 충돌 방지)
+        self._stop_input_monitor() # 분석 시작 전 입력 모니터 해제 (장치당 1스트림)
         if getattr(self, '_primary_deleted', False):
             # Primary 삭제 상태 — extra pairs만 시작 (공유 ref 사용)
             self._running = True
@@ -7540,25 +7671,31 @@ class TransferFunctionWindow(QWidget):
                     th = TFSyncThread(dev, self.sample_rate, self.fft_size, _rc, _mc)
                     th.frame_ready.connect(lambda r, m, xi=_i: self._on_extra_frame(xi, r, m), Qt.QueuedConnection)
                     th.error_signal.connect(self._on_err, Qt.QueuedConnection)
+                    th.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection)
                     th.start(); self._extra_pair_threads[_i] = (th, None, None)
                 else:
                     routing = [{'ref_ch': _rc, 'meas_ch': _mc,
                                 'callback': lambda r, m, xi=_i: self._on_extra_frame(xi, r, m)}
                                for _i, _rc, _mc in extras]
                     for _i, _, _ in extras: self._extra_pair_threads[_i] = (None, None, None)
-                    mc_th = MultiChannelAudioThread(dev, self.sample_rate, self.fft_size, list(all_chs))
+                    mc_th = MultiChannelAudioThread(dev, self.sample_rate, self.fft_size, list(all_chs),
+                                                    force_latency=('high' if (self._sig_stream is not None
+                                                                   and dev == self.sig_out_cb.currentData()) else None))
                     mc_th.chunk_ready.connect(lambda d, _dv=dev: self._on_mc_chunk(_dv, d), Qt.QueuedConnection)
                     mc_th.error_signal.connect(self._on_err, Qt.QueuedConnection)
+                    mc_th.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection)
                     mc_th.start(); self._mc_threads[dev] = (mc_th, routing)
             for _i, p_ref_idx2, p_ref_ch2, p_meas_idx, p_meas_ch in diff_dev:
                 if p_ref_idx2 is not None and p_ref_idx2 not in self._mc_threads:
                     r_th = AudioThread(p_ref_idx2, self.sample_rate, self.fft_size, p_ref_ch2)
                     r_th.chunk_ready.connect(lambda buf, xi=_i: self._on_extra_ref(xi, buf), Qt.QueuedConnection)
-                    r_th.error_signal.connect(self._on_err, Qt.QueuedConnection); r_th.start()
+                    r_th.error_signal.connect(self._on_err, Qt.QueuedConnection)
+                    r_th.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection); r_th.start()
                     self._extra_pair_threads[_i] = (None, r_th, None)
                 m_th = AudioThread(p_meas_idx, self.sample_rate, self.fft_size, p_meas_ch)
                 m_th.chunk_ready.connect(lambda buf, xi=_i: self._on_extra_meas(xi, buf), Qt.QueuedConnection)
-                m_th.error_signal.connect(self._on_err, Qt.QueuedConnection); m_th.start()
+                m_th.error_signal.connect(self._on_err, Qt.QueuedConnection)
+                m_th.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection); m_th.start()
                 sync_th, r_th2, _ = self._extra_pair_threads[_i]
                 self._extra_pair_threads[_i] = (sync_th, r_th2, m_th)
             return
@@ -7593,6 +7730,7 @@ class TransferFunctionWindow(QWidget):
                 self._meas_thread = AudioThread(meas_idx, self.sample_rate, self.fft_size, meas_ch, force_latency='high')
                 self._meas_thread.chunk_ready.connect(self._on_meas, Qt.QueuedConnection)
                 self._meas_thread.error_signal.connect(self._on_err, Qt.QueuedConnection)
+                self._meas_thread.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection)
                 self._meas_thread.start()
             else:
                 # SigGen 꺼져 있음: Play 버튼 시 _start_sig_gen() → TFDuplexThread(단일 스트림) 오픈
@@ -7648,7 +7786,8 @@ class TransferFunctionWindow(QWidget):
                         target_i = int(pair_id.split('_')[-1])
                         routing.append({'ref_ch': rc, 'meas_ch': None, '_ref_only_pair': target_i})
                     elif isinstance(pair_id, str) and pair_id == 'primary_ref_only':
-                        pass  # ref-only handled separately
+                        # primary cross-device: ref 채널을 MC에서 버퍼링 → _last_ref_fft
+                        routing.append({'ref_ch': rc, '_primary_ref_only': True})
                     elif isinstance(pair_id, int):
                         if mc is not None:
                             routing.append({'ref_ch': rc, 'meas_ch': mc, 'pair_idx': pair_id,
@@ -7675,12 +7814,16 @@ class TransferFunctionWindow(QWidget):
                                                    Qt.QueuedConnection)
                             self._extra_pair_threads[pair_id2] = (th, None, None)
                         th.error_signal.connect(self._on_err, Qt.QueuedConnection)
+                        th.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection)
                         th.start()
                         continue  # 다음 장치 처리
                 if routing or has_primary_ref_only:
-                    mc_th = MultiChannelAudioThread(dev, self.sample_rate, self.fft_size, list(all_chs))
+                    mc_th = MultiChannelAudioThread(dev, self.sample_rate, self.fft_size, list(all_chs),
+                                                    force_latency=('high' if (self._sig_stream is not None
+                                                                   and dev == self.sig_out_cb.currentData()) else None))
                     mc_th.chunk_ready.connect(lambda d, _dv=dev: self._on_mc_chunk(_dv, d), Qt.QueuedConnection)
                     mc_th.error_signal.connect(self._on_err, Qt.QueuedConnection)
+                    mc_th.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection)
                     mc_th.start()
                     self._mc_threads[dev] = (mc_th, routing)
                     for pair_id, _, mc2 in entries:
@@ -7693,11 +7836,13 @@ class TransferFunctionWindow(QWidget):
                     r_th = AudioThread(ref_idx, self.sample_rate, self.fft_size, ref_ch)
                     r_th.chunk_ready.connect(self._on_ref, Qt.QueuedConnection)
                     r_th.error_signal.connect(self._on_err, Qt.QueuedConnection)
+                    r_th.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection)
                     r_th.start(); self._ref_thread = r_th
                 if meas_idx not in self._mc_threads:
                     m_th = AudioThread(meas_idx, self.sample_rate, self.fft_size, meas_ch)
                     m_th.chunk_ready.connect(self._on_meas, Qt.QueuedConnection)
                     m_th.error_signal.connect(self._on_err, Qt.QueuedConnection)
+                    m_th.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection)
                     m_th.start(); self._meas_thread = m_th
 
             # extra pairs meas-only (다른 장치, MC 스레드에 없는 경우)
@@ -7717,6 +7862,7 @@ class TransferFunctionWindow(QWidget):
                 m_th = AudioThread(p_meas_idx, self.sample_rate, self.fft_size, p_meas_ch)
                 m_th.chunk_ready.connect(lambda buf, xi=i: self._on_extra_meas(xi, buf), Qt.QueuedConnection)
                 m_th.error_signal.connect(self._on_err, Qt.QueuedConnection)
+                m_th.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection)
                 m_th.start(); self._extra_pair_threads[i] = (None, None, m_th)
 
         self._running = True
@@ -7772,6 +7918,7 @@ class TransferFunctionWindow(QWidget):
             f'padding:3px 12px;border-radius:7px;font-weight:bold;')
         self.status_lbl.setText('● Standby')
         self.status_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:11px;')
+        self._refresh_input_monitor()   # 분석 정지 → 제너레이터 재생 중이면 입력 레벨 모니터 재개
 
     def _stop(self):
         """분석 + 제너레이터 모두 정지 (제너레이터 Stop 버튼 전용)."""
@@ -7806,6 +7953,9 @@ class TransferFunctionWindow(QWidget):
         fft = np.fft.rfft(buf * win).astype(complex)
         with QMutexLocker(self._mutex):
             self._last_meas_fft = fft; self._last_meas_rms = rms
+        # Primary 카드 M 레벨 즉시 업데이트 — 체크박스(가시) ON 이면 표시 (Start/Stop 무관)
+        if (self._level_cards and self._level_cards[0].is_graph_visible() and rms > 1e-9):
+            self._level_cards[0].set_meas(20 * _math.log10(rms))
 
     def _on_frame(self, ref_buf, meas_buf):
         # TFSyncThread/TFDuplexThread: 두 채널을 동일 콜백에서 수신 → ΔT=0 원자 처리
@@ -7821,8 +7971,8 @@ class TransferFunctionWindow(QWidget):
         with QMutexLocker(self._mutex):
             self._last_ref_fft = fft_r; self._last_ref_rms = rms_r
             self._last_meas_fft = fft_m; self._last_meas_rms = rms_m
-        # Primary 카드 레벨 직접 업데이트 (100ms 타이머 기다리지 않음 — extra pair와 동일 방식)
-        if hasattr(self, '_level_cards') and self._level_cards:
+        # Primary 카드 레벨 직접 업데이트 — 체크박스(가시) ON 이면 표시 (Start/Stop 무관)
+        if (hasattr(self, '_level_cards') and self._level_cards and self._level_cards[0].is_graph_visible()):
             pc = self._level_cards[0]
             if rms_r > 1e-9: pc.set_ref(20 * _math.log10(rms_r))
             if rms_m > 1e-9: pc.set_meas(20 * _math.log10(rms_m))
@@ -7831,7 +7981,7 @@ class TransferFunctionWindow(QWidget):
         """Extra 쌍 카드에 RMS 레벨 업데이트 (Qt 메인스레드에서 호출)."""
         pair = self._extra_pairs[pair_idx] if pair_idx < len(self._extra_pairs) else None
         card = pair.get('card') if pair else None
-        if card is None: return
+        if card is None or not card.is_graph_visible(): return   # 체크박스 OFF → 레벨 표시 안 함
         rms_r = float(np.sqrt(np.mean(ref_buf ** 2)))
         rms_m = float(np.sqrt(np.mean(meas_buf ** 2)))
         if rms_r > 1e-9: card.set_ref(20 * _math.log10(rms_r))
@@ -7877,6 +8027,13 @@ class TransferFunctionWindow(QWidget):
                     rms_r = float(np.sqrt(np.mean(ref_buf ** 2)))
                     if card and rms_r > 1e-9: card.set_ref(20 * _math.log10(rms_r))
                 continue
+            # primary cross-device ref 버퍼링 → _last_ref_fft (다른 장치 meas chunk와 결합)
+            if r.get('_primary_ref_only'):
+                if not primary_on: continue
+                ref_buf = chunk_dict.get(r['ref_ch'])
+                if ref_buf is not None:
+                    self._on_ref(ref_buf)
+                continue
             r_ch = r.get('ref_ch'); m_ch = r.get('meas_ch')
             meas_buf = chunk_dict.get(m_ch)
             if meas_buf is None: continue
@@ -7885,6 +8042,10 @@ class TransferFunctionWindow(QWidget):
                 if ref_buf is None: continue
             else:
                 # ref가 다른 장치에 있음 — _extra_ref_fft 에 버퍼링된 값 사용
+                if pair_idx == 'primary':
+                    # primary meas: ref는 다른 장치 MC가 _last_ref_fft 에 저장 → render가 결합
+                    self._on_meas(meas_buf)
+                    continue
                 if not isinstance(pair_idx, int): continue
                 fft_r = getattr(self, '_extra_ref_fft', {}).get(pair_idx)
                 if fft_r is None: continue
@@ -7949,6 +8110,34 @@ class TransferFunctionWindow(QWidget):
         from PyQt5.QtWidgets import QMessageBox
         QMessageBox.warning(self, '오디오 오류', f'오디오 장치 오류:\n{msg}')
 
+    def _on_tf_disconnect(self, msg=''):
+        """입력 장치(인터페이스) USB 끊김 감지 — 분석 + 제너레이터(출력) 모두 정지.
+        출력 스트림을 닫지 않으면 핑크노이즈가 macOS 기본(내장) 출력으로 새므로 함께 정지."""
+        if getattr(self, '_tf_disc_handling', False): return
+        self._tf_disc_handling = True
+        _alog.info(f'TF 장치 연결 끊김 감지 → 정지 + 자동 새로고침  msg={msg}')
+        self._stop_analysis()   # 분석 스트림 정지 (UI/카드/버튼 리셋 포함)
+        self._stop_sig_gen()    # 출력 스트림도 닫음 → 핑크 내장출력 누출 방지
+        try:
+            self.status_lbl.setText('● 연결 끊김')
+            self.status_lbl.setStyleSheet(f'color:{T("yellow")};font-size:11px;')
+        except Exception: pass
+        # 2초 후 장치 목록 갱신 (뽑힌 장치 제거 / 재연결 장치 등록)
+        QTimer.singleShot(2000, self._after_tf_disconnect)
+
+    def _after_tf_disconnect(self):
+        # 중앙(MainWindow) 재초기화로 위임 — PortAudio는 프로세스 1회 초기화라
+        # 탭별이 아닌 앱 전역에서 재초기화해야 재연결 장치가 인식됨 (모든 탭 동시 해결).
+        # 주의: QStackedWidget 에 addWidget 되며 parent()는 stack 으로 재지정됨 →
+        # 최상위 윈도우(MainWindow)는 self.window() 로 얻어야 함.
+        mw = self.window()
+        if mw is not None and hasattr(mw, 'reinit_audio_devices'):
+            mw.reinit_audio_devices('USB disconnect (TF)')
+            mw._begin_replug_watch()
+        else:
+            self._load_devices()
+        self._tf_disc_handling = False
+
     # ── 렌더 루프 ────────────────────────────
     def _render(self):
         try:
@@ -7999,72 +8188,96 @@ class TransferFunctionWindow(QWidget):
                     self._vu_ref._db = -80.0; self._vu_ref._pk = -80.0
                     self._vu_ref.update()
         if self._running:
+            # R 바는 공유 레퍼런스라 항상 / primary M 바는 primary 체크박스 ON 일 때만
+            _pvis = (not self._level_cards) or self._level_cards[0].is_graph_visible()
             if rr > 0: self._vu_ref.set_rms(20 * math.log10(max(rr, 1e-9)))
-            if mr > 0: self._vu_meas.set_rms(20 * math.log10(max(mr, 1e-9)))
+            if mr > 0 and _pvis: self._vu_meas.set_rms(20 * math.log10(max(mr, 1e-9)))
+
+        # 분석(카드 Start) 없이 제너레이터만 재생 중이어도 R(레퍼런스) 바 표시
+        # — 출력=루프백 레퍼런스 신호(_int_ref_buf)의 레벨로 갱신 (입력 스트림 불필요 → 충돌 없음).
+        if ((not self._running) and self._sig_stream is not None
+                and not getattr(self, '_standalone_muted', [False])[0]):
+            _pos = self._int_ref_pos[0]
+            _chunk = self._int_ref_buf[max(0, _pos - 2048):_pos]
+            if len(_chunk) > 0:
+                _rr2 = float(np.sqrt(np.mean(_chunk ** 2)))
+                if _rr2 > 1e-9: self._on_ref_vu(20 * math.log10(_rr2))
+        elif not self._running:
+            # 제너레이터 정지/뮤트 + 분석 없음 → R 바 비움 (마지막 값 frozen 방지)
+            if hasattr(self, '_ref_vu_bar') and self._ref_vu_bar._db > -79.0:
+                self._ref_vu_bar.reset()
+                self._vu_ref._db = -80.0; self._vu_ref._pk = -80.0
+                if hasattr(self, '_ref_db_lbl'): self._ref_db_lbl.setText('—')
 
         if not self._running: return
         if self._gen_freeze: return  # 제너레이터 OFF 후 동결 — 화면 유지, 누적 중단
-        if X is None or Y is None or len(X) != len(Y): return
-        if rr < 1e-6 or mr < 1e-6: return  # Ref/Meas 무음 — 누적 건너뜀 (xrun 침묵 구간 방지)
-        # 스윕 캡처 진행 중 → EMA 대신 진행률 표시만
+        # 스윕 캡처 진행 중 → EMA 대신 진행률 표시만 (primary duplex 전용)
         if self._duplex_thread and self._duplex_thread._sc_armed[0]:
             sc_len = self._duplex_thread._sc_len
             if sc_len > 0:
                 pct = min(int(self._duplex_thread._sc_pos[0] / sc_len * 100), 99)
                 self.avg_lbl.setText(f'Sweep: {pct}%')
             return
-        S_xy = Y * np.conj(X); S_xx = np.abs(X) ** 2; S_yy = np.abs(Y) ** 2
-        if self._cross_acc is None:
-            self._cross_acc = S_xy.copy(); self._auto_acc_x = S_xx.copy()
-            self._auto_acc_y = S_yy.copy(); self._n_avg = 1
-        else:
-            # 워밍업 구간: 선형 누적 (running mean) → 안정 후: EMA (리셋 없음)
-            self._n_avg = min(self._n_avg + 1, self._avg_target)
-            α = 1.0 / self._n_avg   # 1→1/N 으로 수렴, 이후 1/N 고정
-            β = 1.0 - α
-            self._cross_acc  = β * self._cross_acc  + α * S_xy
-            self._auto_acc_x = β * self._auto_acc_x + α * S_xx
-            self._auto_acc_y = β * self._auto_acc_y + α * S_yy
-        self.avg_lbl.setText(f'Avg: {self._n_avg} / {self._avg_target}')
-        if self._n_avg < 3:   # 초기 3프레임 미만: EMA 아직 수렴 전, 표시 생략
-            return
-        H_raw = self._cross_acc / np.maximum(self._auto_acc_x, 1e-30)
-        n_bins = len(X)
-        freqs = np.fft.rfftfreq((n_bins - 1) * 2, 1.0 / self.sample_rate)[:n_bins].astype(np.float32)
-        # Phase/Mag 표시용: 딜레이 위상 보정 적용
-        if self.delay_ms != 0.0:
-            H_disp = H_raw * np.exp(1j * 2 * np.pi * freqs * (self.delay_ms / 1000.0))
-        else:
-            H_disp = H_raw
-        gamma2 = np.clip(np.abs(self._cross_acc) ** 2 /
-                         np.maximum(self._auto_acc_x * self._auto_acc_y, 1e-60), 0.0, 1.0)
-        f_out, mag_out, ph_wrap, ph_unwr, grp_ms = _tf_smooth(freqs, H_disp, self.smooth_bpo)
-        mask = (freqs >= 18) & (freqs <= 22000)
-        f_m = freqs[mask]; g_m = gamma2[mask]
-        if len(f_m) > 1:
-            # 코히런스도 1/3 oct 스무딩 적용 (주황선 노이즈 제거)
-            bpo_c = max(self.smooth_bpo, 3)
-            half_c = 2 ** (0.5 / bpo_c)
-            g_cum = np.zeros(len(g_m) + 1); g_cum[1:] = np.cumsum(g_m)
-            lo_c = np.searchsorted(f_m, f_out / half_c, 'left')
-            hi_c = np.searchsorted(f_m, f_out * half_c, 'right')
-            cnt_c = hi_c - lo_c; val_c = cnt_c > 0
-            coh_out = np.interp(f_out, f_m, g_m)
-            coh_out[val_c] = (g_cum[hi_c[val_c]] - g_cum[lo_c[val_c]]) / cnt_c[val_c]
-            coh_out = coh_out.astype(np.float32)
-        else:
-            coh_out = None
+        # 주파수/시간 축 — fft_size 기준. primary 유무와 무관하게 extra 렌더에도 필요.
+        freqs = np.fft.rfftfreq(self.fft_size, 1.0 / self.sample_rate).astype(np.float32)
+        t_ms = np.arange(self.fft_size, dtype=np.float32) / self.sample_rate * 1000.0
         # primary 표시 여부: 분석중(_display_on)이고 그래프 표시 체크(is_graph_visible)일 때만
         _pc = self._level_cards[0] if (hasattr(self, '_level_cards') and self._level_cards) else None
         _primary_show = (_pc is None) or (_pc._display_on and _pc.is_graph_visible())
-        if not _primary_show:
-            pass  # primary hidden — skip canvas update
-        else:
-            self.phase_cvs.set_data(f_out, ph_wrap, ph_unwr, grp_ms, coh_out, mag_out)
-            self.mag_cvs.set_data(f_out, mag_out, coh_out, ph_wrap)
 
-        # 추가 Ref+Meas 쌍 H(f) 계산 및 캔버스 업데이트
-        t_ms = np.arange(self.fft_size, dtype=np.float32) / self.sample_rate * 1000.0
+        # ── Primary 누적·렌더 (Ref/Meas 데이터 충분할 때만; 없으면 extra 카드만 렌더) ──
+        H_raw = None
+        primary_ok = (X is not None and Y is not None and len(X) == len(Y)
+                      and rr >= 1e-6 and mr >= 1e-6)
+        if primary_ok:
+            S_xy = Y * np.conj(X); S_xx = np.abs(X) ** 2; S_yy = np.abs(Y) ** 2
+            if self._cross_acc is None:
+                self._cross_acc = S_xy.copy(); self._auto_acc_x = S_xx.copy()
+                self._auto_acc_y = S_yy.copy(); self._n_avg = 1
+            else:
+                # 워밍업 구간: 선형 누적 (running mean) → 안정 후: EMA (리셋 없음)
+                self._n_avg = min(self._n_avg + 1, self._avg_target)
+                α = 1.0 / self._n_avg   # 1→1/N 으로 수렴, 이후 1/N 고정
+                β = 1.0 - α
+                self._cross_acc  = β * self._cross_acc  + α * S_xy
+                self._auto_acc_x = β * self._auto_acc_x + α * S_xx
+                self._auto_acc_y = β * self._auto_acc_y + α * S_yy
+            self.avg_lbl.setText(f'Avg: {self._n_avg} / {self._avg_target}')
+            if self._n_avg >= 3:   # 초기 3프레임 미만: EMA 수렴 전, 표시 생략
+                H_raw = self._cross_acc / np.maximum(self._auto_acc_x, 1e-30)
+                # Phase/Mag 표시용: 딜레이 위상 보정 적용
+                if self.delay_ms != 0.0:
+                    H_disp = H_raw * np.exp(1j * 2 * np.pi * freqs * (self.delay_ms / 1000.0))
+                else:
+                    H_disp = H_raw
+                gamma2 = np.clip(np.abs(self._cross_acc) ** 2 /
+                                 np.maximum(self._auto_acc_x * self._auto_acc_y, 1e-60), 0.0, 1.0)
+                f_out, mag_out, ph_wrap, ph_unwr, grp_ms = _tf_smooth(freqs, H_disp, self.smooth_bpo)
+                mask = (freqs >= 18) & (freqs <= 22000)
+                f_m = freqs[mask]; g_m = gamma2[mask]
+                if len(f_m) > 1:
+                    # 코히런스도 1/3 oct 스무딩 적용 (주황선 노이즈 제거)
+                    bpo_c = max(self.smooth_bpo, 3)
+                    half_c = 2 ** (0.5 / bpo_c)
+                    g_cum = np.zeros(len(g_m) + 1); g_cum[1:] = np.cumsum(g_m)
+                    lo_c = np.searchsorted(f_m, f_out / half_c, 'left')
+                    hi_c = np.searchsorted(f_m, f_out * half_c, 'right')
+                    cnt_c = hi_c - lo_c; val_c = cnt_c > 0
+                    coh_out = np.interp(f_out, f_m, g_m)
+                    coh_out[val_c] = (g_cum[hi_c[val_c]] - g_cum[lo_c[val_c]]) / cnt_c[val_c]
+                    coh_out = coh_out.astype(np.float32)
+                else:
+                    coh_out = None
+                if _primary_show:
+                    self.phase_cvs.set_data(f_out, ph_wrap, ph_unwr, grp_ms, coh_out, mag_out)
+                    self.mag_cvs.set_data(f_out, mag_out, coh_out, ph_wrap)
+        else:
+            # primary 비활성(카드1 Stop 등) → avg 표시는 활성 extra 카드 기준
+            _ns = [a['n'] for a in self._extra_pair_acc if a is not None]
+            if _ns:
+                self.avg_lbl.setText(f'Avg: {min(max(_ns), self._avg_target)} / {self._avg_target}')
+
+        # 추가 Ref+Meas 쌍 H(f) 계산 및 캔버스 업데이트 (primary 유무와 무관)
         for i, acc in enumerate(self._extra_pair_acc):
             if acc is None or acc['n'] < 3: continue
             pair = self._extra_pairs[i] if i < len(self._extra_pairs) else None
@@ -8089,8 +8302,8 @@ class TransferFunctionWindow(QWidget):
             h_ex = np.fft.irfft(H_ex_raw, n=self.fft_size).astype(np.float32)
             self.ir_cvs.set_tf_extra(i, color, t_ms, h_ex)
 
-        # Live IR (primary): 그래프 표시 ON 일 때만
-        if _primary_show:
+        # Live IR (primary): 그래프 표시 ON 이고 primary 데이터 있을 때만
+        if _primary_show and H_raw is not None:
             h_full = np.fft.irfft(H_raw, n=self.fft_size).astype(np.float32)
             self.ir_cvs.set_data(t_ms, h_full)
 
@@ -8184,18 +8397,51 @@ class TransferFunctionWindow(QWidget):
 
     # ── 캡처 ────────────────────────────────
     def _save_tf_captures(self):
+        """캡쳐/삭제 시엔 dirty 표시만 — 실제 디스크 저장은 오디오 idle 일 때만 수행.
+        (큰 IR 배열 .tolist()+JSON 직렬화는 단일 C 호출로 GIL을 통째로 점유 → 측정/재생 중
+        파이썬 오디오 콜백이 굶어 '띡' 클릭·버벅임 발생. 캡쳐 수가 많을수록 심함.
+        → 측정/재생 중에는 저장을 미루고, 정지·종료 후 idle 일 때만 저장해 글리치 원천 차단.)"""
+        self._caps_dirty = True
+        if getattr(self, '_save_caps_timer', None) is None:
+            self._save_caps_timer = QTimer(self)
+            self._save_caps_timer.timeout.connect(self._caps_idle_flush)
+            self._save_caps_timer.start(2000)   # 2초마다 idle 체크
+
+    def _audio_busy(self):
+        playing = bool(getattr(self, 'sig_on_btn', None) and self.sig_on_btn.isChecked())
+        return bool(getattr(self, '_running', False) or playing)
+
+    def _caps_idle_flush(self):
+        if not getattr(self, '_caps_dirty', False): return
+        if self._audio_busy(): return   # 오디오 활성 → 보류 (글리치 방지)
+        self._flush_tf_captures(sync=True)   # idle → 동기 저장 (오디오 없어 글리치 없음)
+
+    def _flush_tf_captures(self, sync=True):
+        if not getattr(self, '_caps_dirty', False): return
+        self._caps_dirty = False
+        # GUI 스레드 스냅샷 (배열은 생성 후 불변이라 안전)
+        metas = list(self._tf_captures)
+        mag_caps = list(self.mag_cvs._captures)
+        phase_caps = list(self.phase_cvs._captures)
+        ir_caps = list(self.ir_cvs._captures)
+        if sync:
+            self._serialize_save_tf_captures(metas, mag_caps, phase_caps, ir_caps)
+        else:
+            threading.Thread(target=self._serialize_save_tf_captures,
+                             args=(metas, mag_caps, phase_caps, ir_caps), daemon=True).start()
+
+    def _serialize_save_tf_captures(self, metas, mag_caps, phase_caps, ir_caps):
         try:
-            data = _load_captures_file()
             tf_list = []
-            for i, meta in enumerate(self._tf_captures):
+            for i, meta in enumerate(metas):
                 entry = {'color': meta['color'], 'label': meta['label'], 'group': meta.get('group', ''),
                          'source': meta.get('source', 'primary'), 'is_ref': bool(meta.get('is_ref', False))}
-                if i < len(self.mag_cvs._captures):
-                    m = self.mag_cvs._captures[i]
+                if i < len(mag_caps):
+                    m = mag_caps[i]
                     entry['mag'] = {'f': m['f'].tolist(), 'mag': m['mag'].tolist(),
                                     'coh': m['coh'].tolist() if m.get('coh') is not None else None}
-                if i < len(self.phase_cvs._captures):
-                    p = self.phase_cvs._captures[i]
+                if i < len(phase_caps):
+                    p = phase_caps[i]
                     entry['phase'] = {
                         'f': p['f'].tolist(),
                         'ph_wrap': p['ph_wrap'].tolist() if p.get('ph_wrap') is not None else None,
@@ -8203,16 +8449,18 @@ class TransferFunctionWindow(QWidget):
                         'grp_ms':  p['grp_ms'].tolist()  if p.get('grp_ms')  is not None else None,
                         'coh':     p['coh'].tolist()     if p.get('coh')     is not None else None,
                     }
-                if i < len(self.ir_cvs._captures):
-                    r = self.ir_cvs._captures[i]
+                if i < len(ir_caps):
+                    r = ir_caps[i]
                     if r.get('t') is None or r.get('h') is None:
                         entry['ir'] = None  # extra 카드 빈 IR 캡쳐
                     else:
                         entry['ir'] = {'t': r['t'].tolist(), 'h': r['h'].tolist(),
                                        'etc_db': r['etc_db'].tolist() if r.get('etc_db') is not None else None}
                 tf_list.append(entry)
-            data['tf'] = tf_list
-            _save_captures_file(data)
+            with _CAPTURES_LOCK:   # spec 캡쳐와 같은 파일 공유 → 읽기-수정-쓰기 원자화(클로버 방지)
+                data = _load_captures_file()
+                data['tf'] = tf_list
+                _save_captures_file(data)
         except Exception as e:
             _alog.warning(f'TF 캡처 저장 실패: {e}')
 
@@ -8320,7 +8568,12 @@ class TransferFunctionWindow(QWidget):
                 ex_p.get('ph_wrap') if ex_p else None,
                 ex_p.get('ph_unwr') if ex_p else None,
                 ex_p.get('grp_ms') if ex_p else None)
-            self.ir_cvs.add_capture_empty(ex_label, ex_color)
+            ex_ir = self.ir_cvs._tf_extra.get(i)
+            if ex_ir and ex_ir.get('t') is not None and ex_ir.get('h') is not None:
+                self.ir_cvs.add_capture_data(ex_label, ex_color, ex_ir.get('t'),
+                                             ex_ir.get('h'), ex_ir.get('etc_db'))
+            else:
+                self.ir_cvs.add_capture_empty(ex_label, ex_color)
             self._tf_captures.append({'color': ex_color, 'label': ex_label,
                                       'group': group, 'source': f'card{i}'})
             added += 1
@@ -8419,7 +8672,15 @@ class TransferFunctionWindow(QWidget):
         if not self._tf_captures:
             QMessageBox.information(self, 'Export', 'TF 캡처가 없습니다.')
             return
-        d = QFileDialog.getExistingDirectory(self, '내보낼 폴더 선택')
+        # 폴더 선택 다이얼로그 — accept 버튼을 '내보내기'로 (macOS 기본 'Open' 대신 명확하게)
+        dlg = QFileDialog(self, '내보낼 폴더 선택')
+        dlg.setFileMode(QFileDialog.Directory)
+        dlg.setOption(QFileDialog.ShowDirsOnly, True)
+        dlg.setLabelText(QFileDialog.Accept, '내보내기')
+        if dlg.exec_() != QFileDialog.Accepted:
+            return
+        sel = dlg.selectedFiles()
+        d = sel[0] if sel else ''
         if not d:
             return
         import csv, os, datetime
@@ -8551,6 +8812,15 @@ class TransferFunctionWindow(QWidget):
             self.mag_cvs.bring_to_front(idx)
             self.phase_cvs.bring_to_front(idx)
             self.ir_cvs.bring_to_front(idx)
+            # 선택 캡처의 임펄스 피크로 IR 센터 정렬 + ▷ 숫자 표기
+            cap = self.ir_cvs._captures[idx] if idx < len(self.ir_cvs._captures) else None
+            if cap and cap.get('t') is not None and cap.get('h') is not None:
+                t = np.asarray(cap['t']); h = np.asarray(cap['h'])
+                if len(h) > 1 and len(t) == len(h):
+                    pk = int(np.argmax(_hilbert_env(h)))
+                    peak_ms = float(t[pk])
+                    self.ir_cvs._delay_ms = peak_ms
+                    self._center_ir_on_delay(peak_ms)
             self._refresh_tf_capture_bar()
 
     def _on_tf_live_front(self):
@@ -8558,6 +8828,8 @@ class TransferFunctionWindow(QWidget):
             cvs._live_on_top = True
             cvs._front_idx = None
             cvs._cap_pix = None; cvs.update()
+        # 라이브 복귀 → 현재 front 카드 딜레이로 IR 마커/센터 복원
+        self._sync_ir_delay_marker()
 
     # ── 컨트롤 핸들러 ────────────────────────
     def _recalc_target(self):
@@ -8605,6 +8877,7 @@ class TransferFunctionWindow(QWidget):
         self.mag_cvs.clear(); self.phase_cvs.clear()
         if not visible:
             self._cross_acc = None; self._auto_acc_x = None; self._auto_acc_y = None; self._n_avg = 0
+            self.ir_cvs.clear()   # primary 숨김 시 IR 임펄스도 지움 (extra 카드 IR은 유지)
         # 스트림은 그대로 유지 — _on_mc_chunk/_render_inner 에서 플래그 체크
 
     def _on_extra_display_toggle(self, idx, visible):
@@ -8656,23 +8929,25 @@ class TransferFunctionWindow(QWidget):
             # Primary 카드
             if self._level_cards:
                 self._level_cards[0].set_running(False)
+                self._level_cards[0].reset()   # 정지 → 레벨 비움
             self._cross_acc = None; self._auto_acc_x = None; self._auto_acc_y = None; self._n_avg = 0
-            self.mag_cvs.clear(); self.phase_cvs.clear()
+            self.mag_cvs.clear(); self.phase_cvs.clear(); self.ir_cvs.clear()  # primary IR 임펄스도 지움
         else:
             if 0 <= pair_idx < len(self._extra_pairs):
                 self._extra_pairs[pair_idx]['display'] = False
                 card = self._extra_pairs[pair_idx].get('card')
-                if card: card.set_running(False)
+                if card: card.set_running(False); card.reset()   # 정지 → 레벨 비움
                 self.mag_cvs.clear_tf_extra(pair_idx)
                 self.phase_cvs.clear_tf_extra_phase(pair_idx)
                 self.ir_cvs.clear_tf_extra(pair_idx)
                 self._extra_pair_acc[pair_idx] = None
-        # 모든 카드가 Stop이면 스트림 정지
+        # 모든 카드가 Stop이면 입력 분석만 정지 — 제너레이터(출력)는 계속 재생.
+        # (제너레이터는 오직 Play/Stop 버튼으로만 제어 — 카드 Stop은 분석만 중단)
         primary_active = (not getattr(self, '_primary_deleted', False) and
                           bool(self._level_cards) and self._level_cards[0]._display_on)
         extra_active = any(p.get('display', False) for p in self._extra_pairs)
         if not primary_active and not extra_active and self._running:
-            self._stop()
+            self._stop_analysis()
 
     def _find_delay_for_pair(self, pair_idx):
         """카드별 Auto Find Delay — IR 피크로 딜레이 계산 후 해당 카드 delay_spin 업데이트."""
@@ -8736,10 +9011,12 @@ class TransferFunctionWindow(QWidget):
                     self._extra_pairs[pair_idx]['delay_ms'] = d_ms
 
     def _on_extra_delay_changed(self, idx, v):
-        """Extra pair delay_spin 변경 → pair dict 동기화."""
+        """Extra pair delay_spin 변경 → pair dict 동기화 + (그 카드가 front면) IR 마커/센터 갱신."""
         if 0 <= idx < len(self._extra_pairs):
             self._extra_pairs[idx]['delay_ms'] = v
             self._save_tf_extra_pairs()
+            if getattr(self, '_front_pair', None) == idx:
+                self._sync_ir_delay_marker()
 
     def _find_all_delays(self):
         """L키: 전체 카드 딜레이 파인더 팝업 (AllDelayFinderDialog)."""
@@ -8759,8 +9036,10 @@ class TransferFunctionWindow(QWidget):
 
     def _on_delay_changed(self, v):
         self.delay_ms = v
-        self.ir_cvs._delay_ms = v   # 주황 대시 라인 위치 동기화
-        self._center_ir_on_delay(v)
+        # primary 가 맨 앞(front)일 때만 IR 마커/센터 갱신 — extra 카드가 front면 그 카드 기준 유지
+        if getattr(self, '_front_pair', None) is None:
+            self.ir_cvs._delay_ms = v   # 주황 대시 라인 위치 동기화
+            self._center_ir_on_delay(v)
 
     def _center_ir_on_delay(self, delay_ms):
         if delay_ms == 0.0:
@@ -8770,6 +9049,20 @@ class TransferFunctionWindow(QWidget):
         half = span / 2.0
         self.ir_cvs.t_min = delay_ms - half
         self.ir_cvs.t_max = delay_ms + half
+        self.ir_cvs._center_locked = True
+        self.ir_cvs._cache = None; self.ir_cvs.update()
+
+    def _sync_ir_delay_marker(self):
+        """현재 front(선택) 카드의 딜레이로 IR 마커(▷)+뷰 센터링 동기화."""
+        key = getattr(self, '_front_pair', None)
+        if key is None:
+            d = self.delay_ms
+        elif key < len(self._extra_pairs):
+            d = self._extra_pairs[key].get('delay_ms', 0.0)
+        else:
+            d = 0.0
+        self.ir_cvs._delay_ms = d
+        self._center_ir_on_delay(d)
         self.ir_cvs._center_locked = True
         self.ir_cvs._cache = None; self.ir_cvs.update()
 
@@ -8907,6 +9200,7 @@ class TransferFunctionWindow(QWidget):
 
     def _start_sig_gen(self):
         _alog.debug(f'_start_sig_gen() called  sig_stream={self._sig_stream}  duplex={self._duplex_thread}')
+        self._stop_input_monitor()   # 출력 스트림 재구성 전 입력 모니터 해제 (장치 충돌 방지)
         if self.sig_file_btn.isChecked() and self._audio_file_buf is not None:
             self._pink_buf = self._audio_file_buf   # 파일 버퍼 사용 (순환 재생)
         elif self.sig_white_btn.isChecked():
@@ -8950,8 +9244,12 @@ class TransferFunctionWindow(QWidget):
             p.get('display', False) and p.get('meas_cb') and p['meas_cb'].currentData() == out_dev
             for p in getattr(self, '_extra_pairs', [])
         )
+        # 외부 레퍼런스(입력 채널)는 standalone 출력 + 입력 스트림으로 처리 → 카드 Start/Stop 시
+        # 출력 스트림을 건드리지 않아 제너레이터가 끊기지 않음 (ref+meas 는 단일 입력 스트림에서 동기 캡처).
+        # duplex 는 내부 루프백 ref(출력=레퍼런스) 또는 Sweep 1-shot 캡처일 때만 필요.
         use_duplex = (meas_idx is not None and out_dev is not None and meas_idx == out_dev
-                      and not _active_extras_on_out)
+                      and not _active_extras_on_out
+                      and (ref_idx is None or self.sig_sweep_btn.isChecked()))
 
         if use_duplex:
             # 기존 측정 스레드 먼저 해제 (Start 먼저 눌렀을 때 장치 충돌 방지)
@@ -8991,6 +9289,7 @@ class TransferFunctionWindow(QWidget):
                 ref_ch=ref_ch_param, meas_in_ch=meas_in_ch_param, out_ch2=out_ch2)
             self._duplex_thread.frame_ready.connect(self._on_frame, Qt.QueuedConnection)
             self._duplex_thread.error_signal.connect(self._on_err, Qt.QueuedConnection)
+            self._duplex_thread.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection)
             self._duplex_thread.fade_done.connect(self._reset_avg, Qt.QueuedConnection)
             self._duplex_thread.sweep_captured.connect(self._on_sweep_captured, Qt.QueuedConnection)
             self._sig_lvl_ref = self._duplex_thread._sig_level_ref   # 레벨 슬라이더가 duplex에도 실시간 반영
@@ -9119,6 +9418,7 @@ class TransferFunctionWindow(QWidget):
                 self._meas_thread = AudioThread(meas_idx, self.sample_rate, self.fft_size, meas_ch, force_latency='high')
                 self._meas_thread.chunk_ready.connect(self._on_meas, Qt.QueuedConnection)
                 self._meas_thread.error_signal.connect(self._on_err, Qt.QueuedConnection)
+                self._meas_thread.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection)
                 self._meas_thread.start()
                 self._reset_avg()
 
@@ -9129,6 +9429,9 @@ class TransferFunctionWindow(QWidget):
             f'stop:0 rgba({_sgr},{_sgg},{_sgb},55),stop:1 rgba({_sgr},{_sgg},{_sgb},22));'
             f'color:{T("green")};border:1px solid rgba({_sgr},{_sgg},{_sgb},140);'
             f'padding:4px;border-radius:7px;font-weight:bold;')
+        # 제너레이터 재생 시작 → 분석 미실행이면 입력 레벨 모니터 시작 (정지 카드도 레벨 표시)
+        if not self._running:
+            QTimer.singleShot(150, self._refresh_input_monitor)
 
     def _mute_sig_gen(self):
         """TFDuplexThread는 살려둔 채 출력 무음화 — M4 idle beep 방지."""
@@ -9160,6 +9463,7 @@ class TransferFunctionWindow(QWidget):
         self.sig_on_btn.setText('▶  Play'); self.sig_on_btn.setChecked(False)
         self.sig_on_btn.setStyleSheet(f'background:{T("panel")};color:{T("text_dim")};'
                                        f'border:1px solid {T("border")};padding:4px;border-radius:{RADIUS_CTRL}px;font-weight:bold;')
+        self._stop_input_monitor()   # 제너레이터 정지 → 입력 모니터도 정지
 
     def closeEvent(self, e):
         self._timer.stop(); self._stop(); self._stop_mon_streams(); self._stop_sig_gen()
@@ -10877,9 +11181,10 @@ class MainWindow(QMainWindow):
                 border: 1px solid rgba({ar},{ag},{ab},200);
             }}
             QPushButton:checked {{
-                background: rgba({ar},{ag},{ab},28);
+                background: rgba({ar},{ag},{ab},90);
                 color: {accent};
-                border: 1px solid rgba({ar},{ag},{ab},80);
+                border: 2px solid {accent};
+                font-weight: bold;
             }}
             QPushButton:disabled {{
                 color: {text_dim};
@@ -11216,11 +11521,9 @@ class MainWindow(QMainWindow):
         self._device_popup.show()
 
     def _on_popup_refresh(self):
-        self._load_devices()
-        try:
-            self._device_popup.rebuild_cards(self.dev_cb, self._disconnected_dev_name)
-        except RuntimeError:
-            pass
+        # 수동 새로고침도 중앙 재초기화 — 재연결 장치를 인식하려면 PortAudio 재초기화 필수
+        # (단순 query_devices 는 캐시된 옛 목록만 반환 → 재연결 장치 누락/-9986)
+        self.reinit_audio_devices('manual refresh')
 
     def _on_popup_device_selected(self, combo_idx):
         self.dev_cb.setCurrentIndex(combo_idx)
@@ -11558,6 +11861,90 @@ class MainWindow(QMainWindow):
             f'마이크 연결에 실패했습니다:\n{msg}\n\n'
             '시스템 설정 → 개인정보 보호 → 마이크에서 접근을 허용했는지 확인하세요.')
 
+    def reinit_audio_devices(self, reason=''):
+        """USB 핫플러그 중앙 처리 — 모든 탭 스트림 정지 → PortAudio 재초기화(장치목록 갱신)
+        → 전 탭 콤보 재로드. PortAudio는 프로세스당 1회 초기화라 장치 추가/제거를 반영하려면
+        모든 스트림을 닫은 뒤 _terminate()/_initialize() 해야 함. 탭 공통 문제이므로 중앙 1회 수행.
+        (Spectrum/TF/Stereo + 공유 AudioEngine 모두 동시 해결)"""
+        if getattr(self, '_reiniting_audio', False): return
+        self._reiniting_audio = True
+        _alog.info(f'오디오 시스템 재초기화 시작  reason={reason}')
+        try:
+            # 1) 전 탭 스트림 정지 (스트림이 열려 있으면 _terminate 시 -10851)
+            try: self._stop()
+            except Exception as e: _alog.warning(f'  spec stop 실패: {e}')
+            try:
+                if self.tf_win is not None:
+                    self.tf_win._stop_analysis(); self.tf_win._stop_sig_gen()
+            except Exception as e: _alog.warning(f'  tf stop 실패: {e}')
+            try:
+                if self.stereo_page is not None and getattr(self.stereo_page, '_running', False):
+                    self.stereo_page.stop()
+            except Exception as e: _alog.warning(f'  stereo stop 실패: {e}')
+            try: self.audio_engine.stop_all()
+            except Exception as e: _alog.warning(f'  engine stop 실패: {e}')
+            # 2) PortAudio 재초기화 — 모든 스트림 닫힌 뒤에만 안전 (재연결 장치 인식의 핵심)
+            try:
+                sd._terminate(); sd._initialize()
+                _alog.info('  PortAudio 재초기화 OK')
+            except Exception as e:
+                _alog.error(f'  PortAudio 재초기화 실패: {e}')
+            # 3) 전 탭 콤보 재로드 (장치는 이름으로 복원 → 인덱스 바뀌어도 재선택됨)
+            try: self._load_devices()
+            except Exception as e: _alog.warning(f'  spec reload 실패: {e}')
+            try:
+                if self.tf_win is not None: self.tf_win._load_devices()
+            except Exception as e: _alog.warning(f'  tf reload 실패: {e}')
+            try:
+                if getattr(self, '_device_popup', None) and self._device_popup.isVisible():
+                    self._device_popup.rebuild_cards(self.dev_cb, getattr(self, '_disconnected_dev_name', ''))
+            except Exception: pass
+        finally:
+            self._reiniting_audio = False
+        _alog.info('오디오 시스템 재초기화 완료')
+
+    def _device_count(self):
+        try: return len(sd.query_devices())
+        except Exception: return 0
+
+    def _any_audio_active(self):
+        """어느 탭이든 오디오 스트림이 활성인지 — 폴링 재초기화가 사용 중인 측정을 끊지 않도록 게이트."""
+        if getattr(self, '_running', False): return True   # spectrum
+        tw = self.tf_win
+        if tw is not None and (getattr(tw, '_running', False) or
+                               (getattr(tw, 'sig_on_btn', None) is not None and tw.sig_on_btn.isChecked())):
+            return True
+        sp = self.stereo_page
+        if sp is not None and getattr(sp, '_running', False): return True
+        try:
+            if self.audio_engine.active_devices(): return True
+        except Exception: pass
+        return False
+
+    def _begin_replug_watch(self):
+        """USB 끊김 직후 호출 — 앱이 idle인 동안 2초마다 재탐색하며 장치 재연결 감지.
+        PortAudio는 재초기화해야만 새 장치를 보므로, 끊김 시점의 1회 재초기화만으론
+        '나중에 다시 꽂은' 장치를 못 본다 → idle 동안 짧게 폴링해 재연결을 잡는다."""
+        self._replug_base = self._device_count()
+        self._replug_tries = 0
+        QTimer.singleShot(2000, self._replug_tick)
+
+    def _replug_tick(self):
+        # 사용자가 다른 장치로 측정을 시작했으면 폴링 중단 (재초기화가 측정을 끊지 않도록)
+        if self._any_audio_active():
+            _alog.info('  재연결 폴링 중단 — 오디오 활성 상태')
+            return
+        self._replug_tries = getattr(self, '_replug_tries', 0) + 1
+        self.reinit_audio_devices(f'replug watch #{self._replug_tries}')
+        if self._device_count() > getattr(self, '_replug_base', 0):
+            _alog.info('  장치 재연결 감지 → 폴링 종료')
+            self._disconnected_dev_name = ''
+            return
+        if self._replug_tries < 15:   # 최대 ~30초
+            QTimer.singleShot(2000, self._replug_tick)
+        else:
+            _alog.info('  재연결 폴링 타임아웃(30초) — 종료')
+
     def _on_device_disconnected(self,msg):
         dev_name=self.dev_cb.currentText()
         if not dev_name: return   # 이미 Stop된 상태에서 중복 호출 방지
@@ -11571,13 +11958,9 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(2000, self._auto_refresh_after_disconnect)
 
     def _auto_refresh_after_disconnect(self):
-        """USB 끊김 2초 후 장치 목록 갱신 + popup이 열려있으면 카드도 갱신."""
-        self._load_devices()
-        try:
-            if self._device_popup and self._device_popup.isVisible():
-                self._device_popup.rebuild_cards(self.dev_cb, self._disconnected_dev_name)
-        except RuntimeError:
-            pass
+        """USB 끊김 2초 후 중앙 재초기화 + 재연결 폴링 시작."""
+        self.reinit_audio_devices('USB disconnect (spectrum)')
+        self._begin_replug_watch()
 
     # ── 오디오 처리
     def _process_audio(self,buf):
@@ -12285,18 +12668,21 @@ class MainWindow(QMainWindow):
     # ── 캡처 영속성 ───────────────────────────
     def _save_spec_captures(self):
         try:
-            data = _load_captures_file()
-            data['fft'] = [
+            fft_list = [
                 {'f': c['f'].tolist(), 'db': c['db'].tolist(),
                  'color': c['color'], 'label': c['label'], 'group': c.get('group', '')}
                 for c in self.fft_cvs._captures
             ]
-            data['oct'] = [
+            oct_list = [
                 {'values': c['values'].tolist(), 'mode': c.get('mode', 'oct3'),
                  'color': c['color'], 'label': c['label'], 'group': c.get('group', '')}
                 for c in self.oct_cvs._captures
             ]
-            _save_captures_file(data)
+            with _CAPTURES_LOCK:   # TF 백그라운드 저장과 같은 파일 공유 → 클로버 방지
+                data = _load_captures_file()
+                data['fft'] = fft_list
+                data['oct'] = oct_list
+                _save_captures_file(data)
         except Exception as e:
             _alog.warning(f'스펙트럼 캡처 저장 실패: {e}')
 
@@ -12393,6 +12779,13 @@ class MainWindow(QMainWindow):
         self._render_t.stop()
         self.stereo_page.stop()
         self._stop()
+        # 보류된 TF 캡쳐 저장 flush — 종료 시 동기 저장(앱 종료 중이라 글리치 무관)
+        try:
+            tw = self.tf_win
+            if tw is not None:
+                tw._flush_tf_captures(sync=True)
+        except Exception as ex:
+            _alog.warning(f'close flush 실패: {ex}')
         e.accept()
 
 
