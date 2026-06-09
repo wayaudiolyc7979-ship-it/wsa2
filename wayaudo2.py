@@ -661,6 +661,7 @@ class MultiChannelAudioThread(QThread):
     """단일 InputStream으로 여러 채널을 동시에 캡처.
     chunk_ready({ch_idx: np.array}) 형태로 emit — 스트림 하나이므로 완벽 동기화."""
     chunk_ready         = pyqtSignal(object)
+    raw_ready           = pyqtSignal(object)   # 원시 연속 프레임 {ch: array} — 스로틀 X (Loudness 등 샘플 적분 소비자용)
     error_signal        = pyqtSignal(str)
     disconnected_signal = pyqtSignal(str)
 
@@ -687,12 +688,16 @@ class MultiChannelAudioThread(QThread):
             try:
                 _last_cb[0] = time.monotonic(); _got_cb[0] = True
                 if indata.shape[1] == 0: return
+                raw = {}
                 for ch in self.channels:
                     src = min(ch, indata.shape[1] - 1)
-                    chunk = indata[:, src].astype(np.float32)
+                    chunk = indata[:, src].astype(np.float32)   # astype → 새 배열(콜백 버퍼와 분리)
+                    raw[ch] = chunk
                     n = min(len(chunk), self.fft_size)
                     bufs[ch][:-n] = bufs[ch][n:]
                     bufs[ch][-n:] = chunk[:n]
+                # 원시 연속 프레임 — 매 콜백 emit (샘플 손실 없이 → Loudness 적분 정확)
+                self.raw_ready.emit(raw)
                 now = time.monotonic()
                 if now - _last_emit[0] >= 0.016:
                     _last_emit[0] = now
@@ -754,7 +759,8 @@ class MultiChannelAudioThread(QThread):
 # ──────────────────────────────────────────────────────────────
 class Subscription(QObject):
     """AudioEngine 구독 핸들 — 구독한 채널의 chunk만 수신."""
-    chunk_ready  = pyqtSignal(object)   # {ch: np.array}
+    chunk_ready  = pyqtSignal(object)   # {ch: np.array} — 롤링 fft_size 버퍼 (Spectrum용)
+    raw_ready    = pyqtSignal(object)   # {ch: np.array} — 원시 연속 프레임 (Loudness 등 샘플 적분용)
     error        = pyqtSignal(str)
     disconnected = pyqtSignal(str)
 
@@ -798,6 +804,8 @@ class _DeviceStream:
         th = self._engine._thread_factory(
             self.device_idx, self.sample_rate, self._engine._fft_size, sorted(self.union))
         th.chunk_ready.connect(self._dispatch)
+        if hasattr(th, 'raw_ready'):   # 테스트 가짜 스레드는 raw_ready 없을 수 있음
+            th.raw_ready.connect(self._dispatch_raw)
         th.error_signal.connect(self._on_error)
         th.disconnected_signal.connect(self._on_disc)
         self.thread = th
@@ -807,6 +815,7 @@ class _DeviceStream:
         if self.thread is not None:
             try:
                 self.thread.chunk_ready.disconnect()
+                if hasattr(self.thread, 'raw_ready'): self.thread.raw_ready.disconnect()
                 self.thread.error_signal.disconnect()
                 self.thread.disconnected_signal.disconnect()
             except Exception: pass
@@ -822,6 +831,12 @@ class _DeviceStream:
         for sub in list(self.subs):
             try:
                 sub.chunk_ready.emit({ch: chunk_dict[ch] for ch in sub.channels if ch in chunk_dict})
+            except Exception: pass
+
+    def _dispatch_raw(self, chunk_dict):
+        for sub in list(self.subs):
+            try:
+                sub.raw_ready.emit({ch: chunk_dict[ch] for ch in sub.channels if ch in chunk_dict})
             except Exception: pass
 
     def _on_error(self, msg):
@@ -10221,7 +10236,8 @@ class StereoLoudnessPage(QWidget):
 
     def __init__(self):
         super().__init__()
-        self._thread=None; self._meter=None; self._running=False
+        self._sub=None; self._meter=None; self._running=False
+        self._l_ch=0; self._r_ch=1
         self._build_ui()
 
     def _build_ui(self):
@@ -10356,20 +10372,29 @@ class StereoLoudnessPage(QWidget):
         self._ml.addWidget(self._radar, 1)
         self._sep.setVisible(True)
 
-    def start(self,dev_idx,sr,l_ch,r_ch):
+    def start(self,dev_idx,sr,l_ch,r_ch,engine):
+        # 공유 오디오 엔진 구독 — 장치당 단일 스트림이라 Spectrum/TF와 같은 장치 동시 사용 가능.
+        # Loudness 적분은 연속 샘플이 필요하므로 롤링 버퍼(chunk_ready)가 아닌 raw_ready 사용.
         self.stop()
+        self._l_ch=l_ch; self._r_ch=r_ch
         self._meter=LoudnessMeter(sr); self._meter.start_integration()
-        self._thread=StereoAudioThread(dev_idx,sr,l_ch,r_ch)
-        self._thread.chunk_ready.connect(self._on_chunk,Qt.QueuedConnection)
-        self._thread.error_signal.connect(self._on_error,Qt.QueuedConnection)
-        self._thread.start()
+        try:
+            self._sub=engine.subscribe(dev_idx,[l_ch,r_ch],sr)
+        except Exception as e:
+            self._sub=None
+            self._on_error(str(e)); return
+        self._sub.raw_ready.connect(self._on_raw,Qt.QueuedConnection)
+        self._sub.error.connect(self._on_error,Qt.QueuedConnection)
+        self._sub.disconnected.connect(self._on_error,Qt.QueuedConnection)
         self._radar.start(); self._running=True
 
     def stop(self):
-        if self._thread:
-            try: self._thread.chunk_ready.disconnect()
+        if self._sub:
+            try: self._sub.raw_ready.disconnect()
             except Exception: pass
-            self._thread.stop(); self._thread=None
+            try: self._sub.close()
+            except Exception: pass
+            self._sub=None
         self._radar.stop(); self._running=False
 
     def reset_integration(self):
@@ -10379,6 +10404,12 @@ class StereoLoudnessPage(QWidget):
     def reset_peak(self):
         if self._meter: self._meter._PH=-100.0
         self._radar.reset_peak()
+
+    def _on_raw(self,d):
+        # 엔진 raw_ready: {ch: 연속 프레임} → L/R 추출 (같은 콜백에서 나와 샘플 동기)
+        L=d.get(self._l_ch); R=d.get(self._r_ch)
+        if L is None or R is None: return
+        self._on_chunk(L,R)
 
     def _on_chunk(self,L,R):
         if not self._meter: return
@@ -11680,7 +11711,7 @@ class MainWindow(QMainWindow):
             l_ch=min(self._st_l_cb.currentData() or 0, n_ch-1)
             r_ch=min(self._st_r_cb.currentData() or 1, n_ch-1)
             _alog.info(f'Stereo 시작  device="{dev_name}"({idx})  L=ch{l_ch}  R=ch{r_ch}  sr={sr}')
-            self.stereo_page.start(idx, sr, l_ch, r_ch)
+            self.stereo_page.start(idx, sr, l_ch, r_ch, self.audio_engine)
             self._st_start_btn.setText('■  Stop')
             self._stop_style(self._st_start_btn)
 
