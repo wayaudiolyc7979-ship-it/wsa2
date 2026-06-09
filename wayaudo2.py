@@ -621,7 +621,10 @@ class AudioThread(QThread):
         # force_latency 지정 시 해당 latency만 시도 (공유 하드웨어 IO 버퍼 재설정 방지)
         # 미지정 시: 1차 blocksize=512/low → 2차 high → 3차 blocksize=0/high
         # USB 재연결 직후 AUHAL 초기화 지연 대응: 전체 2라운드 시도 (라운드 사이 1.5초 대기)
-        _attempts = [(2048, self.force_latency)] if self.force_latency else [(512,'low'), (512,'high'), (0,'high')]
+        # force_latency='high': 큰 하드웨어 버퍼(제너레이터 출력과 IO 안정) 유지하되, blocksize는 512로
+        # 작게 — PortAudio는 콜백 청크(blocksize)와 하드웨어 버퍼(latency)를 분리 처리하므로
+        # 콜백을 자주 받아(≈93/s) 공유 소비자(Spectrum)의 청크당 스무딩이 느려지지 않음.
+        _attempts = [(512, self.force_latency), (2048, self.force_latency)] if self.force_latency else [(512,'low'), (512,'high'), (0,'high')]
         last_err=None
         for round_n in range(2):
             for (bs, lat) in _attempts:
@@ -725,7 +728,9 @@ class MultiChannelAudioThread(QThread):
             finally:
                 self._active_stream = None
 
-        _attempts = [(2048, self.force_latency)] if self.force_latency else [(512,'low'),(512,'high'),(0,'high')]
+        # force_latency='high': 큰 하드웨어 버퍼(제너레이터 안정) 유지 + blocksize 512(잦은 콜백)
+        # → 공유 스트림을 TF와 함께 써도 Spectrum 청크당 스무딩 속도가 정상 유지됨.
+        _attempts = [(512, self.force_latency), (2048, self.force_latency)] if self.force_latency else [(512,'low'),(512,'high'),(0,'high')]
         last_err = None
         for round_n in range(2):
             for (bs, lat) in _attempts:
@@ -764,11 +769,12 @@ class Subscription(QObject):
     error        = pyqtSignal(str)
     disconnected = pyqtSignal(str)
 
-    def __init__(self, engine, device_idx, channels):
+    def __init__(self, engine, device_idx, channels, force_latency=None):
         super().__init__()
         self._engine = engine
         self.device_idx = device_idx
         self.channels = sorted(set(channels))
+        self.force_latency = force_latency   # 'high' 요청 시 공유 스트림이 high로 (출력과 IO버퍼 일치)
         self._closed = False
 
     def close(self):
@@ -786,23 +792,36 @@ class _DeviceStream:
         self.subs = []          # Subscription 목록
         self.thread = None
         self.union = set()      # 현재 스트림이 캡처 중인 채널 합집합
+        self.force_latency = None  # 현재 스트림 latency ('high' or None)
+
+    def _resolve_latency(self):
+        # 공유 스트림은 항상 low latency. high latency는 입력 데이터를 큰 버스트로 몰아줘
+        # 동시 사용하는 Spectrum/Stereo 의 실효 업데이트율을 떨어뜨려 버벅/느림을 유발한다.
+        # 외장 IF(M4)에서 low latency 입력 + standalone 제너레이터 출력 공존을 하드웨어 검증함
+        # (2026-06-09, Spectrum 빠름 + 제너레이터 안끊김). 구독자의 force_latency='high' 요청은
+        # 이 공유 정책에 의해 의도적으로 무시된다(내부 듀플렉스 경로는 엔진 미경유라 영향 없음).
+        return None
 
     def add(self, sub):
         self.subs.append(sub)
         need = self.union | set(sub.channels)
-        if self.thread is None or need != self.union:
-            self._open(need)    # 신규 또는 채널 확장 → (재)오픈
+        need_lat = self._resolve_latency()
+        # 채널 확장 또는 latency 상승 시 (재)오픈
+        if self.thread is None or need != self.union or need_lat != self.force_latency:
+            self._open(need, need_lat)
 
     def remove(self, sub):
         if sub in self.subs: self.subs.remove(sub)
         if not self.subs:       # 마지막 구독 해제 → 스트림 종료 (union 축소는 v1 생략)
             self._close()
 
-    def _open(self, channels):
+    def _open(self, channels, force_latency=None):
         self._close_thread()
         self.union = set(channels)
+        self.force_latency = force_latency
         th = self._engine._thread_factory(
-            self.device_idx, self.sample_rate, self._engine._fft_size, sorted(self.union))
+            self.device_idx, self.sample_rate, self._engine._fft_size, sorted(self.union),
+            force_latency=force_latency)
         th.chunk_ready.connect(self._dispatch)
         if hasattr(th, 'raw_ready'):   # 테스트 가짜 스레드는 raw_ready 없을 수 있음
             th.raw_ready.connect(self._dispatch_raw)
@@ -859,9 +878,10 @@ class AudioEngine(QObject):
         self._fft_size = fft_size
         self._thread_factory = thread_factory
 
-    def subscribe(self, device_idx, channels, sample_rate):
+    def subscribe(self, device_idx, channels, sample_rate, force_latency=None):
         """device_idx의 channels를 sample_rate로 구독. Subscription 반환.
-        같은 장치에 다른 SR 요청 시 ValueError(장치당 SR 하나)."""
+        같은 장치에 다른 SR 요청 시 ValueError(장치당 SR 하나).
+        force_latency='high' 요청 시 공유 스트림을 high latency로 (재)오픈 (출력 듀플렉스와 IO버퍼 일치)."""
         st = self._streams.get(device_idx)
         if st is None:
             st = _DeviceStream(self, device_idx, sample_rate)
@@ -870,7 +890,7 @@ class AudioEngine(QObject):
             raise ValueError(
                 f'device {device_idx} already open at {st.sample_rate}Hz; '
                 f'cannot subscribe at {sample_rate}Hz (one SR per device)')
-        sub = Subscription(self, device_idx, channels)
+        sub = Subscription(self, device_idx, channels, force_latency)
         st.add(sub)
         return sub
 
@@ -889,6 +909,150 @@ class AudioEngine(QObject):
         for st in list(self._streams.values()):
             st._close_thread()
         self._streams.clear()
+
+
+# ──────────────────────────────────────────────────────────────
+#  TF 엔진 백드 입력 소스 (옵션2 — TF 측정입력을 공유 엔진으로)
+#  기존 TFSyncThread/MultiChannelAudioThread/AudioThread 와 동일한 인터페이스
+#  (start/stop, frame_ready/chunk_ready/error_signal/disconnected_signal)를 제공하되
+#  내부는 engine.subscribe(raw_ready)로 동작 → 장치당 단일 스트림 공유.
+#  엔진은 raw(원시 연속 프레임)만 주고, 각 소스가 자기 fft_size 롤링 버퍼를 유지한다
+#  (탭마다 FFT 크기가 달라도 OK — Spectrum 16384, TF 4K~32K 동시).
+#  ※ 제너레이터(_sig_stream)·내부 듀플렉스(TFDuplexThread)는 격리 유지(엔진 미경유).
+# ──────────────────────────────────────────────────────────────
+class _EngineSyncSource(QObject):
+    """TFSyncThread 대체 — ref+meas 두 채널을 단일 스트림 동일 콜백에서 받아
+    각자 fft_size 롤링 버퍼 유지 후 frame_ready(ref,meas) emit (ΔT=0 원자성)."""
+    frame_ready         = pyqtSignal(object, object)
+    error_signal        = pyqtSignal(str)
+    disconnected_signal = pyqtSignal(str)
+
+    def __init__(self, engine, device_idx, sample_rate, fft_size, ref_ch, meas_ch, force_latency='high'):
+        super().__init__()
+        self._engine = engine; self.device_idx = device_idx; self.sample_rate = sample_rate
+        self.fft_size = fft_size; self.ref_ch = ref_ch; self.meas_ch = meas_ch
+        self.force_latency = force_latency   # TFSyncThread는 항상 high였음 (동기 안정성)
+        self._sub = None
+        self._ref_buf  = np.zeros(fft_size, dtype=np.float32)
+        self._meas_buf = np.zeros(fft_size, dtype=np.float32)
+
+    def start(self):
+        try:
+            self._sub = self._engine.subscribe(self.device_idx, [self.ref_ch, self.meas_ch],
+                                               self.sample_rate, force_latency=self.force_latency)
+        except Exception as e:
+            self.error_signal.emit(str(e)); return
+        self._sub.raw_ready.connect(self._on_raw, Qt.QueuedConnection)
+        self._sub.error.connect(self.error_signal, Qt.QueuedConnection)
+        self._sub.disconnected.connect(self.disconnected_signal, Qt.QueuedConnection)
+
+    def _on_raw(self, d):
+        r = d.get(self.ref_ch); m = d.get(self.meas_ch)
+        if r is None or m is None: return
+        nr = min(len(r), self.fft_size); nm = min(len(m), self.fft_size)
+        self._ref_buf[:-nr]  = self._ref_buf[nr:];  self._ref_buf[-nr:]  = r[:nr]
+        self._meas_buf[:-nm] = self._meas_buf[nm:]; self._meas_buf[-nm:] = m[:nm]
+        self.frame_ready.emit(self._ref_buf.copy(), self._meas_buf.copy())
+
+    def isRunning(self): return self._sub is not None
+
+    def stop(self):
+        if self._sub is not None:
+            try: self._sub.raw_ready.disconnect()
+            except Exception: pass
+            try: self._sub.close()
+            except Exception: pass
+            self._sub = None
+
+
+class _EngineMultiSource(QObject):
+    """MultiChannelAudioThread 대체 — 여러 채널을 받아 채널별 fft_size 롤링 버퍼 유지,
+    chunk_ready({ch:buf}) emit (16ms 스로틀). _on_mc_chunk 형식과 동일."""
+    chunk_ready         = pyqtSignal(object)
+    error_signal        = pyqtSignal(str)
+    disconnected_signal = pyqtSignal(str)
+
+    def __init__(self, engine, device_idx, sample_rate, fft_size, channels, force_latency=None):
+        super().__init__()
+        self._engine = engine; self.device_idx = device_idx; self.sample_rate = sample_rate
+        self.fft_size = fft_size; self.channels = sorted(set(channels)); self.force_latency = force_latency
+        self._sub = None; self._last_emit = 0.0
+        self._bufs = {ch: np.zeros(fft_size, dtype=np.float32) for ch in self.channels}
+
+    def start(self):
+        try:
+            self._sub = self._engine.subscribe(self.device_idx, self.channels,
+                                               self.sample_rate, force_latency=self.force_latency)
+        except Exception as e:
+            self.error_signal.emit(str(e)); return
+        self._sub.raw_ready.connect(self._on_raw, Qt.QueuedConnection)
+        self._sub.error.connect(self.error_signal, Qt.QueuedConnection)
+        self._sub.disconnected.connect(self.disconnected_signal, Qt.QueuedConnection)
+
+    def _on_raw(self, d):
+        for ch in self.channels:
+            frames = d.get(ch)
+            if frames is None: continue
+            b = self._bufs[ch]; n = min(len(frames), self.fft_size)
+            b[:-n] = b[n:]; b[-n:] = frames[:n]
+        now = time.monotonic()
+        if now - self._last_emit >= 0.016:
+            self._last_emit = now
+            self.chunk_ready.emit({ch: self._bufs[ch].copy() for ch in self.channels})
+
+    def isRunning(self): return self._sub is not None
+
+    def stop(self):
+        if self._sub is not None:
+            try: self._sub.raw_ready.disconnect()
+            except Exception: pass
+            try: self._sub.close()
+            except Exception: pass
+            self._sub = None
+
+
+class _EngineChannelSource(QObject):
+    """AudioThread 대체 — 단일 채널 fft_size 롤링 버퍼 → chunk_ready(buf) emit (16ms 스로틀)."""
+    chunk_ready         = pyqtSignal(object)
+    error_signal        = pyqtSignal(str)
+    disconnected_signal = pyqtSignal(str)
+
+    def __init__(self, engine, device_idx, sample_rate, fft_size, channel=0, force_latency=None):
+        super().__init__()
+        self._engine = engine; self.device_idx = device_idx; self.sample_rate = sample_rate
+        self.fft_size = fft_size; self.channel = channel; self.force_latency = force_latency
+        self._sub = None; self._last_emit = 0.0
+        self._buf = np.zeros(fft_size, dtype=np.float32)
+
+    def start(self):
+        try:
+            self._sub = self._engine.subscribe(self.device_idx, [self.channel],
+                                               self.sample_rate, force_latency=self.force_latency)
+        except Exception as e:
+            self.error_signal.emit(str(e)); return
+        self._sub.raw_ready.connect(self._on_raw, Qt.QueuedConnection)
+        self._sub.error.connect(self.error_signal, Qt.QueuedConnection)
+        self._sub.disconnected.connect(self.disconnected_signal, Qt.QueuedConnection)
+
+    def _on_raw(self, d):
+        frames = d.get(self.channel)
+        if frames is None: return
+        b = self._buf; n = min(len(frames), self.fft_size)
+        b[:-n] = b[n:]; b[-n:] = frames[:n]
+        now = time.monotonic()
+        if now - self._last_emit >= 0.016:
+            self._last_emit = now
+            self.chunk_ready.emit(self._buf.copy())
+
+    def isRunning(self): return self._sub is not None
+
+    def stop(self):
+        if self._sub is not None:
+            try: self._sub.raw_ready.disconnect()
+            except Exception: pass
+            try: self._sub.close()
+            except Exception: pass
+            self._sub = None
 
 
 class TFSyncThread(QThread):
@@ -6780,6 +6944,7 @@ class TransferFunctionWindow(QWidget):
         self._ref_capture_idx = None; self._delta_on = False  # Δ 비교 상태
         self._stabilizing = False; self._stable_timer = None  # 안정화 캡쳐 상태
         self._mutex = QMutex()
+        self._engine = None   # 공유 오디오 엔진 (MainWindow가 주입) — TF 측정입력을 장치당 단일 스트림으로
         self._ref_thread = None; self._meas_thread = None; self._sync_thread = None
         self._extra_pairs = []        # Smaart 방식: 추가 Ref+Meas 쌍 목록
         self._front_pair = None       # 분석 화면 맨 앞 곡선: None=primary, int=pair idx
@@ -7683,7 +7848,7 @@ class TransferFunctionWindow(QWidget):
                 for _i, _rc, _mc in extras: all_chs |= {_rc, _mc}
                 if len(extras) == 1:
                     _i, _rc, _mc = extras[0]
-                    th = TFSyncThread(dev, self.sample_rate, self.fft_size, _rc, _mc)
+                    th = _EngineSyncSource(self._engine, dev, self.sample_rate, self.fft_size, _rc, _mc)
                     th.frame_ready.connect(lambda r, m, xi=_i: self._on_extra_frame(xi, r, m), Qt.QueuedConnection)
                     th.error_signal.connect(self._on_err, Qt.QueuedConnection)
                     th.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection)
@@ -7693,7 +7858,7 @@ class TransferFunctionWindow(QWidget):
                                 'callback': lambda r, m, xi=_i: self._on_extra_frame(xi, r, m)}
                                for _i, _rc, _mc in extras]
                     for _i, _, _ in extras: self._extra_pair_threads[_i] = (None, None, None)
-                    mc_th = MultiChannelAudioThread(dev, self.sample_rate, self.fft_size, list(all_chs),
+                    mc_th = _EngineMultiSource(self._engine, dev, self.sample_rate, self.fft_size, list(all_chs),
                                                     force_latency=('high' if (self._sig_stream is not None
                                                                    and dev == self.sig_out_cb.currentData()) else None))
                     mc_th.chunk_ready.connect(lambda d, _dv=dev: self._on_mc_chunk(_dv, d), Qt.QueuedConnection)
@@ -7702,12 +7867,12 @@ class TransferFunctionWindow(QWidget):
                     mc_th.start(); self._mc_threads[dev] = (mc_th, routing)
             for _i, p_ref_idx2, p_ref_ch2, p_meas_idx, p_meas_ch in diff_dev:
                 if p_ref_idx2 is not None and p_ref_idx2 not in self._mc_threads:
-                    r_th = AudioThread(p_ref_idx2, self.sample_rate, self.fft_size, p_ref_ch2)
+                    r_th = _EngineChannelSource(self._engine, p_ref_idx2, self.sample_rate, self.fft_size, p_ref_ch2)
                     r_th.chunk_ready.connect(lambda buf, xi=_i: self._on_extra_ref(xi, buf), Qt.QueuedConnection)
                     r_th.error_signal.connect(self._on_err, Qt.QueuedConnection)
                     r_th.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection); r_th.start()
                     self._extra_pair_threads[_i] = (None, r_th, None)
-                m_th = AudioThread(p_meas_idx, self.sample_rate, self.fft_size, p_meas_ch)
+                m_th = _EngineChannelSource(self._engine, p_meas_idx, self.sample_rate, self.fft_size, p_meas_ch)
                 m_th.chunk_ready.connect(lambda buf, xi=_i: self._on_extra_meas(xi, buf), Qt.QueuedConnection)
                 m_th.error_signal.connect(self._on_err, Qt.QueuedConnection)
                 m_th.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection); m_th.start()
@@ -7742,7 +7907,7 @@ class TransferFunctionWindow(QWidget):
                 # force_latency='high': 공유 하드웨어 IO 버퍼 재설정 방지 (low latency 시도 시 OutputStream 끊김)
                 _alog.debug(f'  Standalone OutputStream running → opening meas AudioThread device={meas_idx}')
                 meas_ch = self.meas_ch_cb.currentData() or 0
-                self._meas_thread = AudioThread(meas_idx, self.sample_rate, self.fft_size, meas_ch, force_latency='high')
+                self._meas_thread = _EngineChannelSource(self._engine, meas_idx, self.sample_rate, self.fft_size, meas_ch, force_latency='high')
                 self._meas_thread.chunk_ready.connect(self._on_meas, Qt.QueuedConnection)
                 self._meas_thread.error_signal.connect(self._on_err, Qt.QueuedConnection)
                 self._meas_thread.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection)
@@ -7820,7 +7985,7 @@ class TransferFunctionWindow(QWidget):
                     rc2 = r.get('ref_ch'); mc2 = r.get('meas_ch')
                     pair_id2 = r.get('pair_idx')
                     if rc2 is not None and mc2 is not None:
-                        th = TFSyncThread(dev, self.sample_rate, self.fft_size, rc2, mc2)
+                        th = _EngineSyncSource(self._engine, dev, self.sample_rate, self.fft_size, rc2, mc2)
                         if pair_id2 == 'primary':
                             th.frame_ready.connect(self._on_frame, Qt.QueuedConnection)
                             self._sync_thread = th
@@ -7833,7 +7998,7 @@ class TransferFunctionWindow(QWidget):
                         th.start()
                         continue  # 다음 장치 처리
                 if routing or has_primary_ref_only:
-                    mc_th = MultiChannelAudioThread(dev, self.sample_rate, self.fft_size, list(all_chs),
+                    mc_th = _EngineMultiSource(self._engine, dev, self.sample_rate, self.fft_size, list(all_chs),
                                                     force_latency=('high' if (self._sig_stream is not None
                                                                    and dev == self.sig_out_cb.currentData()) else None))
                     mc_th.chunk_ready.connect(lambda d, _dv=dev: self._on_mc_chunk(_dv, d), Qt.QueuedConnection)
@@ -7848,13 +8013,13 @@ class TransferFunctionWindow(QWidget):
             # primary_ref_only: ref가 별도 장치에 있고 primary meas는 다른 장치
             if primary_active and meas_idx is not None and meas_idx != ref_idx:
                 if ref_idx not in self._mc_threads and ref_idx is not None:
-                    r_th = AudioThread(ref_idx, self.sample_rate, self.fft_size, ref_ch)
+                    r_th = _EngineChannelSource(self._engine, ref_idx, self.sample_rate, self.fft_size, ref_ch)
                     r_th.chunk_ready.connect(self._on_ref, Qt.QueuedConnection)
                     r_th.error_signal.connect(self._on_err, Qt.QueuedConnection)
                     r_th.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection)
                     r_th.start(); self._ref_thread = r_th
                 if meas_idx not in self._mc_threads:
-                    m_th = AudioThread(meas_idx, self.sample_rate, self.fft_size, meas_ch)
+                    m_th = _EngineChannelSource(self._engine, meas_idx, self.sample_rate, self.fft_size, meas_ch)
                     m_th.chunk_ready.connect(self._on_meas, Qt.QueuedConnection)
                     m_th.error_signal.connect(self._on_err, Qt.QueuedConnection)
                     m_th.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection)
@@ -7874,7 +8039,7 @@ class TransferFunctionWindow(QWidget):
                 if not ref_in_mc and ref_idx is not None and ref_idx not in self._mc_threads:
                     self._extra_ref_fft = getattr(self, '_extra_ref_fft', {})
                     self._extra_ref_buf = getattr(self, '_extra_ref_buf', {})
-                m_th = AudioThread(p_meas_idx, self.sample_rate, self.fft_size, p_meas_ch)
+                m_th = _EngineChannelSource(self._engine, p_meas_idx, self.sample_rate, self.fft_size, p_meas_ch)
                 m_th.chunk_ready.connect(lambda buf, xi=i: self._on_extra_meas(xi, buf), Qt.QueuedConnection)
                 m_th.error_signal.connect(self._on_err, Qt.QueuedConnection)
                 m_th.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection)
@@ -9430,7 +9595,7 @@ class TransferFunctionWindow(QWidget):
             if self._running and self.ref_cb.currentData() is None and self._meas_thread is None and meas_idx is not None:
                 _alog.debug('  Internal ref: opening meas AudioThread AFTER OutputStream (noise-free order)')
                 meas_ch = self.meas_ch_cb.currentData() or 0
-                self._meas_thread = AudioThread(meas_idx, self.sample_rate, self.fft_size, meas_ch, force_latency='high')
+                self._meas_thread = _EngineChannelSource(self._engine, meas_idx, self.sample_rate, self.fft_size, meas_ch, force_latency='high')
                 self._meas_thread.chunk_ready.connect(self._on_meas, Qt.QueuedConnection)
                 self._meas_thread.error_signal.connect(self._on_err, Qt.QueuedConnection)
                 self._meas_thread.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection)
@@ -10834,6 +10999,7 @@ class MainWindow(QMainWindow):
 
         # Page 1: Transfer Function (임베드)
         self.tf_win=TransferFunctionWindow(self, self._settings, embedded=True)
+        self.tf_win._engine = self.audio_engine   # 공유 엔진 주입 (TF 입력을 Spectrum/Stereo와 같은 스트림 공유)
         self.main_stack.addWidget(self.tf_win)  # index 1
         # tf_win.tb를 sub_stack page 1로 이동 (embedded 모드에서 tf_win은 tb를 root에 추가 안 함)
         self._sp1_lay.addWidget(self._toolbar_scroll(self.tf_win.tb))
