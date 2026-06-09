@@ -5648,7 +5648,7 @@ class TFIRCanvas(QWidget):
         self.t_ms = None; self.etc_db = None; self.h_raw = None
         self.peak_ms = 0.0
         self._delay_ms = 0.0   # delay_spin 설정값 — 주황 대시 라인 위치
-        self.t_min = 0.0; self.t_max = 30.0
+        self.t_min = -10.0; self.t_max = 10.0   # 보정 IR: 0ms 가운데 고정
         self.db_min = -60.0; self.db_max = 0.0
         self.ir_mode = 0   # 0=Lin  1=ETC  2=Log
         self._mx = -1
@@ -5871,9 +5871,9 @@ class TFIRCanvas(QWidget):
                 # Linear 모드: Up=시간 뒤로, Down=시간 앞으로 (Left/Right와 동일 축)
                 span = max(self.t_max - self.t_min, 1.0); d = span * 0.06
                 if key == Qt.Key_Up:
-                    self.t_min = max(0.0, self.t_min - d)
+                    self.t_min = self.t_min - d   # 보정 IR: 음수 시간(0 좌측) 허용
                 else:
-                    self.t_min = max(0.0, self.t_min + d)
+                    self.t_min = self.t_min + d
                 self.t_max = self.t_min + span
                 self._cache = None; self.update()
             else:
@@ -5887,23 +5887,23 @@ class TFIRCanvas(QWidget):
                     self._cache = None; self.update()
         elif key == Qt.Key_Left:
             span = max(self.t_max - self.t_min, 1.0); d = span * 0.06
-            self.t_min = max(0.0, self.t_min - d)
+            self.t_min = self.t_min - d
             self.t_max = self.t_min + span
             self._cache = None; self.update()
         elif key == Qt.Key_Right:
             span = max(self.t_max - self.t_min, 1.0); d = span * 0.06
-            self.t_min = max(0.0, self.t_min + d)
+            self.t_min = self.t_min + d
             self.t_max = self.t_min + span
             self._cache = None; self.update()
         elif key in (Qt.Key_Equal, Qt.Key_Plus) and mod & Qt.ControlModifier:
             span = max(5.0, (self.t_max - self.t_min) * 0.88)
             mid = (self.t_max + self.t_min) / 2
-            self.t_min = max(0.0, mid - span / 2); self.t_max = self.t_min + span
+            self.t_min = mid - span / 2; self.t_max = self.t_min + span
             self._cache = None; self.update()
         elif key == Qt.Key_Minus and mod & Qt.ControlModifier:
             span = max(5.0, (self.t_max - self.t_min) * 1.12)
             mid = (self.t_max + self.t_min) / 2
-            self.t_min = max(0.0, mid - span / 2); self.t_max = self.t_min + span
+            self.t_min = mid - span / 2; self.t_max = self.t_min + span
             self._cache = None; self.update()
         else:
             super().keyPressEvent(e)
@@ -6601,11 +6601,7 @@ class DelayFinderDialog(QDialog):
         if self._measured_ms is not None:
             d_ms = self._measured_ms
             self._tw.delay_spin.setValue(d_ms)
-            self._tw.ir_cvs.t_min = d_ms - 20.0
-            self._tw.ir_cvs.t_max = d_ms + 20.0
-            self._tw.ir_cvs._center_locked = True
-            self._tw.ir_cvs._cache = None; self._tw.ir_cvs.update()
-            self._tw.mag_cvs.fit_y()
+            self._tw.mag_cvs.fit_y()   # 보정 IR: 뷰는 건드리지 않음 (다른 카드 불변)
         self.accept()
 
     def _on_find_delay(self):
@@ -8478,13 +8474,18 @@ class TransferFunctionWindow(QWidget):
             f_ex, mag_ex, ph_wrap_ex, ph_unwr_ex, grp_ms_ex = _tf_smooth(freqs, H_ex_disp, self.smooth_bpo)
             self.mag_cvs.set_tf_extra(i, color, f_ex, mag_ex)
             self.phase_cvs.set_tf_extra_phase(i, color, f_ex, ph_wrap_ex, ph_unwr_ex, grp_ms_ex)
-            # 카드별 IR: primary와 동일하게 딜레이 미보정 raw H → 물리적 도착 위치
-            h_ex = np.fft.irfft(H_ex_raw, n=self.fft_size).astype(np.float32)
+            # 카드별 IR: 딜레이 보정 H(H_ex_disp) → 딜레이 적용 시 임펄스가 0ms로 정렬
+            # (delay=0이면 H_ex_disp=H_ex_raw → 물리적 도착 위치, 비정렬 상태)
+            h_ex = np.fft.irfft(H_ex_disp, n=self.fft_size).astype(np.float32)
             self.ir_cvs.set_tf_extra(i, color, t_ms, h_ex)
 
-        # Live IR (primary): 그래프 표시 ON 이고 primary 데이터 있을 때만
+        # Live IR (primary): 딜레이 보정 H → 딜레이 적용 시 임펄스가 0ms로 정렬
         if _primary_show and H_raw is not None:
-            h_full = np.fft.irfft(H_raw, n=self.fft_size).astype(np.float32)
+            if self.delay_ms != 0.0:
+                H_ir = H_raw * np.exp(1j * 2 * np.pi * freqs * (self.delay_ms / 1000.0))
+            else:
+                H_ir = H_raw
+            h_full = np.fft.irfft(H_ir, n=self.fft_size).astype(np.float32)
             self.ir_cvs.set_data(t_ms, h_full)
 
     # ── 딜레이 자동 탐지 (2단계: 2초 측정 후 계산) ──────────────────────
@@ -8563,14 +8564,8 @@ class TransferFunctionWindow(QWidget):
         """백그라운드 계산 완료 후 메인 스레드에서 UI 업데이트."""
         self.find_btn.setEnabled(True); self.find_btn.setText('🔍 Find')
         if 0 <= d_ms <= 500:
-            self.delay_spin.setValue(d_ms)   # _on_delay_changed 경유
-            # 검출값 ±20ms 고정 창으로 강제 중앙 배치 (set_data 자동이동 방지)
-            self.ir_cvs.t_min = d_ms - 20.0
-            self.ir_cvs.t_max = d_ms + 20.0
-            self.ir_cvs._center_locked = True
-            self.ir_cvs._cache = None; self.ir_cvs.update()
-            # Magnitude Y축 자동 맞춤 (더블클릭과 동일)
-            self.mag_cvs.fit_y()
+            self.delay_spin.setValue(d_ms)   # _on_delay_changed 경유 (self.delay_ms 갱신)
+            self.mag_cvs.fit_y()             # Magnitude Y축 자동 맞춤 (뷰는 건드리지 않음)
         else:
             from PyQt5.QtWidgets import QMessageBox
             QMessageBox.information(self, 'Delay Finder', f'탐지값: {d_ms:.2f} ms\n범위 초과 — 수동으로 입력하세요.')
@@ -9187,16 +9182,18 @@ class TransferFunctionWindow(QWidget):
             if pair_idx < len(self._extra_pairs):
                 card = self._extra_pairs[pair_idx].get('card')
                 if card and hasattr(card, 'set_delay'):
-                    card.set_delay(d_ms)
+                    card.set_delay(d_ms)   # 스핀 표시 갱신 (시그널 차단됨)
                     self._extra_pairs[pair_idx]['delay_ms'] = d_ms
+                    self._save_tf_extra_pairs()
+                    # 보정 IR: 다음 렌더에서 이 카드 임펄스만 0ms로 정렬. 뷰는 건드리지 않음
+                    # (다른 카드/사용자 줌 불변).
 
     def _on_extra_delay_changed(self, idx, v):
-        """Extra pair delay_spin 변경 → pair dict 동기화 + (그 카드가 front면) IR 마커/센터 갱신."""
+        """Extra pair delay_spin 변경 → pair dict 동기화. 보정 IR: 다음 렌더에서 그 카드
+        임펄스만 0ms로 정렬되며, 뷰는 건드리지 않아 다른 카드가 움직이지 않는다."""
         if 0 <= idx < len(self._extra_pairs):
             self._extra_pairs[idx]['delay_ms'] = v
             self._save_tf_extra_pairs()
-            if getattr(self, '_front_pair', None) == idx:
-                self._sync_ir_delay_marker()
 
     def _find_all_delays(self):
         """L키: 전체 카드 딜레이 파인더 팝업 (AllDelayFinderDialog)."""
@@ -9204,8 +9201,7 @@ class TransferFunctionWindow(QWidget):
 
     def _fft_changed(self, idx):
         self.fft_size = TF_FFT_SIZES[idx]; self._recalc_target(); self._reset_avg()
-        t_max_new = self.fft_size / self.sample_rate * 1000.0
-        self.ir_cvs.t_min = 0.0; self.ir_cvs.t_max = min(30.0, t_max_new); self.ir_cvs.clear()
+        self.ir_cvs.clear(); self._set_ir_view_centered()   # 보정 IR: 0 중심 고정 뷰
         if self._running: self._stop(); self._start()
 
     def _avg_changed(self, idx):
@@ -9214,37 +9210,31 @@ class TransferFunctionWindow(QWidget):
     def _smooth_changed(self, idx):
         self.smooth_bpo = TF_SMOOTH_BPO[idx]; self._reset_avg()
 
-    def _on_delay_changed(self, v):
-        self.delay_ms = v
-        # primary 가 맨 앞(front)일 때만 IR 마커/센터 갱신 — extra 카드가 front면 그 카드 기준 유지
-        if getattr(self, '_front_pair', None) is None:
-            self.ir_cvs._delay_ms = v   # 주황 대시 라인 위치 동기화
-            self._center_ir_on_delay(v)
+    # 보정 IR 표준 뷰 — 0ms를 가운데 고정. 딜레이를 적용해도 뷰가 절대 움직이지 않으므로
+    # (idempotent) 한 카드의 딜레이 변경이 다른 카드를 화면에서 움직이지 않는다.
+    # 각 카드는 자기 딜레이로만 보정돼, 자신의 임펄스만 0ms(가운데)로 정렬된다.
+    _IR_VIEW_HALF = 10.0   # 0 중심 ±10ms
 
-    def _center_ir_on_delay(self, delay_ms):
-        if delay_ms == 0.0:
-            self.ir_cvs._center_locked = False
-            return
-        span = max(self.ir_cvs.t_max - self.ir_cvs.t_min, 10.0)
-        half = span / 2.0
-        self.ir_cvs.t_min = delay_ms - half
-        self.ir_cvs.t_max = delay_ms + half
-        self.ir_cvs._center_locked = True
+    def _set_ir_view_centered(self):
+        self.ir_cvs.t_min = -self._IR_VIEW_HALF
+        self.ir_cvs.t_max =  self._IR_VIEW_HALF
+        self.ir_cvs._delay_ms = 0.0   # 주황 마커 숨김 — 0ms 그리드선이 정렬 기준
+        self.ir_cvs._cache = None; self.ir_cvs.update()
+
+    def _on_delay_changed(self, v):
+        # 보정 IR: self.delay_ms 변경 → 다음 렌더에서 primary 임펄스만 0ms로 정렬. 뷰 불변.
+        self.delay_ms = v
+
+    def _center_ir_on_delay(self, center_ms):
+        # 캡처 선택 시 그 캡처 피크를 뷰 가운데로 (라이브 보정 IR은 _set_ir_view_centered 사용).
+        half = self._IR_VIEW_HALF
+        self.ir_cvs.t_min = center_ms - half
+        self.ir_cvs.t_max = center_ms + half
         self.ir_cvs._cache = None; self.ir_cvs.update()
 
     def _sync_ir_delay_marker(self):
-        """현재 front(선택) 카드의 딜레이로 IR 마커(▷)+뷰 센터링 동기화."""
-        key = getattr(self, '_front_pair', None)
-        if key is None:
-            d = self.delay_ms
-        elif key < len(self._extra_pairs):
-            d = self._extra_pairs[key].get('delay_ms', 0.0)
-        else:
-            d = 0.0
-        self.ir_cvs._delay_ms = d
-        self._center_ir_on_delay(d)
-        self.ir_cvs._center_locked = True
-        self.ir_cvs._cache = None; self.ir_cvs.update()
+        """보정 IR: 뷰를 0 중심으로 고정 + 마커 숨김 (라이브 복귀/딜레이 변경 시 호출)."""
+        self._set_ir_view_centered()
 
     def _ir_mode_changed(self, idx):
         self.ir_cvs.set_mode(idx)
