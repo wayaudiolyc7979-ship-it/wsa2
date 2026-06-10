@@ -1,6 +1,6 @@
 11#!/usr/bin/env python3
 # ═══════════════════════════════════════════════════
-#  WAYAUDIO Spectrum Analyzer  v3.0
+#  WAYAUDIO Spectrum Analyzer  v1.0
 #  ✅ FFT 버벅임 수정 (포인트 다운샘플링)
 #  ✅ 마이크 캘리브레이션 (94/114dB @ 1kHz)
 #  ✅ dBA / dBC 실시간 레벨
@@ -795,11 +795,12 @@ class _DeviceStream:
         self.force_latency = None  # 현재 스트림 latency ('high' or None)
 
     def _resolve_latency(self):
-        # 공유 스트림은 항상 low latency. high latency는 입력 데이터를 큰 버스트로 몰아줘
-        # 동시 사용하는 Spectrum/Stereo 의 실효 업데이트율을 떨어뜨려 버벅/느림을 유발한다.
-        # 외장 IF(M4)에서 low latency 입력 + standalone 제너레이터 출력 공존을 하드웨어 검증함
-        # (2026-06-09, Spectrum 빠름 + 제너레이터 안끊김). 구독자의 force_latency='high' 요청은
-        # 이 공유 정책에 의해 의도적으로 무시된다(내부 듀플렉스 경로는 엔진 미경유라 영향 없음).
+        # 공유 입력 스트림은 항상 low latency(작은 blocksize) → Spectrum/Stereo 가 같은 장치를
+        # 공유해도 빠른 업데이트 유지. (구독자의 force_latency='high' 요청은 무시.)
+        # 제너레이터 띠띠띡 글리치는 입력을 high로 올려 막는 대신(→ Spectrum 느려짐),
+        # 제너레이터 standalone 출력을 low latency로 내려 입력과 latency 모드를 맞춰서 막는다
+        # (_start_sig_gen 의 OutputStream latency='low'). 둘 다 low면 같은 장치 클럭에서
+        # buffer 정렬되어 글리치 없음 + Spectrum 빠름.
         return None
 
     def add(self, sub):
@@ -932,7 +933,7 @@ class _EngineSyncSource(QObject):
         self._engine = engine; self.device_idx = device_idx; self.sample_rate = sample_rate
         self.fft_size = fft_size; self.ref_ch = ref_ch; self.meas_ch = meas_ch
         self.force_latency = force_latency   # TFSyncThread는 항상 high였음 (동기 안정성)
-        self._sub = None
+        self._sub = None; self._last_emit = 0.0
         self._ref_buf  = np.zeros(fft_size, dtype=np.float32)
         self._meas_buf = np.zeros(fft_size, dtype=np.float32)
 
@@ -950,9 +951,15 @@ class _EngineSyncSource(QObject):
         r = d.get(self.ref_ch); m = d.get(self.meas_ch)
         if r is None or m is None: return
         nr = min(len(r), self.fft_size); nm = min(len(m), self.fft_size)
+        # 버퍼 연속성: 롤링은 매 콜백 유지 (샘플 손실 방지)
         self._ref_buf[:-nr]  = self._ref_buf[nr:];  self._ref_buf[-nr:]  = r[:nr]
         self._meas_buf[:-nm] = self._meas_buf[nm:]; self._meas_buf[-nm:] = m[:nm]
-        self.frame_ready.emit(self._ref_buf.copy(), self._meas_buf.copy())
+        # frame_ready(→ 메인스레드 FFT)는 30fps로 스로틀 — TF 렌더는 10fps라 충분하고,
+        # Spectrum과 같은 메인스레드에서 매 콜백(~90fps) FFT를 돌리면 Spectrum 페인트가 밀린다.
+        now = time.monotonic()
+        if now - self._last_emit >= 0.033:
+            self._last_emit = now
+            self.frame_ready.emit(self._ref_buf.copy(), self._meas_buf.copy())
 
     def isRunning(self): return self._sub is not None
 
@@ -995,8 +1002,10 @@ class _EngineMultiSource(QObject):
             if frames is None: continue
             b = self._bufs[ch]; n = min(len(frames), self.fft_size)
             b[:-n] = b[n:]; b[-n:] = frames[:n]
+        # chunk_ready(→ 메인스레드 FFT/누적)는 30fps로 스로틀 — TF 렌더는 10fps라 충분.
+        # 60fps면 같은 메인스레드의 Spectrum FFT/페인트와 경합해 Spectrum이 느려진다.
         now = time.monotonic()
-        if now - self._last_emit >= 0.016:
+        if now - self._last_emit >= 0.033:
             self._last_emit = now
             self.chunk_ready.emit({ch: self._bufs[ch].copy() for ch in self.channels})
 
@@ -3677,6 +3686,7 @@ class _CaptureDrawer(QWidget):
     average_requested  = pyqtSignal(str)            # (mode) — TF 평균
     reference_changed  = pyqtSignal(str, int)       # (mode, idx) — Δ 기준 캡쳐 (-1=해제)
     export_requested   = pyqtSignal(str)            # (mode) — 캡쳐 내보내기
+    move_to_group_req  = pyqtSignal(str, int, str)  # (mode, idx, group_name) — 그룹 이동 ('' = 그룹 해제)
 
     PANEL_W = 220
 
@@ -3688,6 +3698,7 @@ class _CaptureDrawer(QWidget):
         self._spec_caps  = []
         self._tf_caps    = []
         self._row_registry = []
+        self._group_registry = []   # [(mode, gname, header_widget)] — 드래그-투-그룹 판정용
         self._drag       = None
         self._drop_line  = None
 
@@ -3706,7 +3717,7 @@ class _CaptureDrawer(QWidget):
         hdr = QWidget(); hdr.setFixedHeight(30)
         hl = QHBoxLayout(hdr); hl.setContentsMargins(8, 4, 4, 4); hl.setSpacing(4)
         hl.addWidget(QLabel('CAPTURES',
-            styleSheet='color:#0A84FF;font-size:15px;font-weight:bold;letter-spacing:1px;'))
+            styleSheet='color:#0A84FF;font-size:13px;font-weight:bold;'))
         hl.addStretch()
         self._avg_btn = QPushButton('Avg')
         self._avg_btn.setFixedSize(36, 20)
@@ -3726,12 +3737,12 @@ class _CaptureDrawer(QWidget):
         self._export_btn.clicked.connect(lambda: self.export_requested.emit(self._panel_tab))
         self._export_btn.setVisible(False)
         hl.addWidget(self._export_btn)
-        grp_btn = QPushButton('+ Group')
-        grp_btn.setFixedSize(62, 20)
+        grp_btn = QPushButton('+ Grp')
+        grp_btn.setFixedSize(44, 20)
         grp_btn.setToolTip('새 그룹 만들기')
         grp_btn.setStyleSheet(
             'font-size:9px;font-weight:600;border:1px solid #38383A;border-radius:5px;'
-            'background:#2C2C2E;color:#8E8E93;padding:0 4px;')
+            'background:#2C2C2E;color:#8E8E93;padding:0 3px;')
         grp_btn.clicked.connect(lambda: self.new_group_req.emit(self._panel_tab))
         hl.addWidget(grp_btn)
         pv.addWidget(hdr)
@@ -3841,6 +3852,7 @@ class _CaptureDrawer(QWidget):
 
     def _update_drag(self, global_y):
         if not self._drag: return
+        self._drag['y'] = global_y   # 드롭 시 그룹 판정용 마지막 커서 Y
         mode = self._drag['mode']
         rows = [(ci, w) for m, ci, w in self._row_registry if m == mode]
         if not rows: return
@@ -3879,7 +3891,19 @@ class _CaptureDrawer(QWidget):
         mode = self._drag['mode']
         src  = self._drag['src']
         slot = self._drag.get('tgt_slot', 0)
+        drop_y = self._drag.get('y', None)
         self._drag = None
+        # ① 그룹 이동 — 드롭한 위치의 그룹이 src 의 현재 그룹과 다르면 그룹만 변경
+        # (빈 그룹으로도 이동 가능). 같은 그룹/영역이면 ②로 내려가 순서 변경.
+        if drop_y is not None:
+            caps = self._spec_caps if mode == 'spec' else self._tf_caps
+            if 0 <= src < len(caps):
+                cur_g = caps[src].get('group', '')
+                tgt_g = self._target_group_at(mode, drop_y)
+                if tgt_g != cur_g:
+                    QTimer.singleShot(0, lambda: self.move_to_group_req.emit(mode, src, tgt_g))
+                    return
+        # ② 같은 그룹/영역 내 순서 변경 (기존 동작)
         rows = [(ci, w) for m, ci, w in self._row_registry if m == mode]
         if not rows: return
         n = len(rows)
@@ -3893,6 +3917,22 @@ class _CaptureDrawer(QWidget):
         # QTimer로 지연 발행 — mouseReleaseEvent 스택 탈출 후 실행
         QTimer.singleShot(0, lambda: self.reorder_requested.emit(mode, src, tgt))
 
+    def _target_group_at(self, mode, global_y):
+        """드롭한 전역 Y가 속한 그룹 이름 반환 — 그룹 헤더 위(ungrouped 영역)면 ''.
+        각 그룹 섹션은 그 헤더부터 다음 헤더 직전까지. 빈 그룹 헤더로도 드롭 가능."""
+        tops = []
+        for m, g, w in self._group_registry:
+            if m != mode: continue
+            try: tops.append((g, w.mapToGlobal(QPoint(0, 0)).y()))
+            except RuntimeError: continue
+        if not tops: return ''
+        if global_y < tops[0][1]: return ''   # 첫 그룹 헤더 위 → ungrouped
+        cur = ''
+        for g, t in tops:
+            if global_y >= t: cur = g
+            else: break
+        return cur
+
     # ── 내부 렌더링 ─────────────────────────────────
     def _clear_inner(self):
         while self._ilay.count() > 1:
@@ -3903,6 +3943,7 @@ class _CaptureDrawer(QWidget):
     def _redraw(self):
         self._clear_inner()
         self._row_registry = []
+        self._group_registry = []
         pos = 0
         caps = self._spec_caps if self._panel_tab == 'spec' else self._tf_caps
         pg   = self._get_pending_group(self._panel_tab)
@@ -3962,6 +4003,7 @@ class _CaptureDrawer(QWidget):
                 lambda _, m=mode, g=gname: self.delete_group_req.emit(m, g))
             ghl.addWidget(gdel)
             self._ilay.insertWidget(pos, ghdr); pos += 1
+            self._group_registry.append((mode, gname, ghdr))   # 드래그-투-그룹 판정용
 
             if not collapsed and not is_pending:
                 for i, cap in items:
@@ -4055,6 +4097,11 @@ class _CaptureDrawer(QWidget):
             lambda _, m=mode, i=idx: self.delete_requested.emit(m, i))
         rl.addWidget(del_btn)
 
+        # 우클릭 → 그룹으로 이동 메뉴 (빈 그룹으로도 이동 가능)
+        row.setContextMenuPolicy(Qt.CustomContextMenu)
+        row.customContextMenuRequested.connect(
+            lambda pos, m=mode, i=idx, w=row: self._show_row_menu(m, i, w.mapToGlobal(pos)))
+
         row.setObjectName(f'capRow')
         sep_c = '#2A2A2A'
         row_bg = T('bg')
@@ -4073,6 +4120,36 @@ class _CaptureDrawer(QWidget):
         caps = self._spec_caps if mode == 'spec' else self._tf_caps
         if 0 <= idx < len(caps): return caps[idx].get('label', '')
         return ''
+
+    def _show_row_menu(self, mode, cap_idx, global_pos):
+        """캡처 행 우클릭 → 기존/대기 그룹 목록으로 이동 + 그룹 해제."""
+        from PyQt5.QtWidgets import QMenu
+        caps = self._spec_caps if mode == 'spec' else self._tf_caps
+        if not (0 <= cap_idx < len(caps)): return
+        cur_group = caps[cap_idx].get('group', '')
+        names = []
+        for c in caps:
+            g = c.get('group', '')
+            if g and g not in names: names.append(g)
+        pg = self._get_pending_group(mode)
+        if pg and pg not in names: names.append(pg)
+
+        menu = QMenu(self)
+        if not names:
+            act = menu.addAction('그룹 없음 — 먼저 “+ Grp” 으로 생성')
+            act.setEnabled(False)
+        else:
+            title = menu.addAction('그룹으로 이동'); title.setEnabled(False)
+            for g in names:
+                act = menu.addAction(('✓ ' if g == cur_group else '    ') + g)
+                act.triggered.connect(
+                    lambda _=False, gg=g, m=mode, i=cap_idx: self.move_to_group_req.emit(m, i, gg))
+        if cur_group:
+            menu.addSeparator()
+            ung = menu.addAction('그룹에서 빼기')
+            ung.triggered.connect(
+                lambda _=False, m=mode, i=cap_idx: self.move_to_group_req.emit(m, i, ''))
+        menu.exec_(global_pos)
 
 
 class RoundComboBox(QComboBox):
@@ -5747,26 +5824,26 @@ class TFIRCanvas(QWidget):
         self._cap_pix = QPixmap.fromImage(img)
         self._cap_pix_key = (W, H, self.db_max, self.db_min, round(self.t_min,1), round(self.t_max,1), self.ir_mode)
 
-    def add_capture(self, label, color):
+    def add_capture(self, label, color, delay=0.0):
         if self.t_ms is None or self.h_raw is None: return
         self._captures.append({
             't': self.t_ms.copy(), 'h': self.h_raw.copy(),
             'etc_db': self.etc_db.copy() if self.etc_db is not None else None,
-            'color': color, 'label': label
+            'color': color, 'label': label, 'delay': delay
         })
         self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
 
-    def add_capture_empty(self, label, color):
+    def add_capture_empty(self, label, color, delay=0.0):
         """extra 카드는 IR 데이터가 없음 — _tf_captures 인덱스 정합용 빈 캡쳐."""
         self._captures.append({
-            't': None, 'h': None, 'etc_db': None, 'color': color, 'label': label
+            't': None, 'h': None, 'etc_db': None, 'color': color, 'label': label, 'delay': delay
         })
         self._cap_pix=None; self.update()
 
-    def add_capture_data(self, label, color, t, h, etc_db=None):
+    def add_capture_data(self, label, color, t, h, etc_db=None, delay=0.0):
         """extra 카드(멀티카드)의 live IR 캡쳐 — 카드별 _tf_extra 의 t/h 사용."""
         if t is None or h is None:
-            self.add_capture_empty(label, color); return
+            self.add_capture_empty(label, color, delay); return
         h = np.asarray(h, dtype=np.float32)
         if etc_db is None:
             etc = _hilbert_env(h); pk = max(float(np.max(etc)), 1e-10)
@@ -5774,7 +5851,7 @@ class TFIRCanvas(QWidget):
         self._captures.append({
             't': np.asarray(t, dtype=np.float32).copy(), 'h': h.copy(),
             'etc_db': np.asarray(etc_db, dtype=np.float32).copy(),
-            'color': color, 'label': label
+            'color': color, 'label': label, 'delay': delay
         })
         self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
 
@@ -5791,11 +5868,12 @@ class TFIRCanvas(QWidget):
             self._front_idx=idx; self._live_on_top=False
             self._cap_pix=None; self.update()
 
-    def set_tf_extra(self, ch_idx, color, t, h):
+    def set_tf_extra(self, ch_idx, color, t, h, delay=0.0):
         # ETC 포락선은 한 번만 계산해 저장 (paint마다 hilbert 재계산 방지)
         etc = _hilbert_env(h); pk = max(float(np.max(etc)), 1e-10)
         etc_db = (20 * np.log10(np.maximum(etc / pk, 1e-10))).astype(np.float32)
-        self._tf_extra[ch_idx] = {'color': color, 't': t, 'h': h, 'etc_db': etc_db}
+        # delay: 카드 딜레이값 — paintEvent 에서 카드색 마커 위치로 사용
+        self._tf_extra[ch_idx] = {'color': color, 't': t, 'h': h, 'etc_db': etc_db, 'delay': delay}
         self.update()
 
     def clear_tf_extra(self, ch_idx):
@@ -6090,16 +6168,43 @@ class TFIRCanvas(QWidget):
         self._draw_grid_lines(p, W, H)
 
         pl = self.PAD_L; pr = self.PAD_R; pt = self.PAD_T; pb = self.PAD_B; uw = W - pl - pr
-        # 딜레이 마커 — 선택 카드 기준 점선 + 값(시간축 라벨 줄). 활성 IR 데이터 있을 때만(정지 시 숨김).
-        if (self._delay_ms != 0.0 and self.t_min <= self._delay_ms <= self.t_max
-                and (self.t_ms is not None or self._tf_extra)):
-            _tr = max(self.t_max - self.t_min, 1.0)
-            dlx = int(pl + (self._delay_ms - self.t_min) / _tr * uw)
-            _dly = QColor('#FF3DD8')   # 마젠타 — coherence(주황)/커서(노랑)/카드(녹·청)와 명확히 구분
-            p.setPen(QPen(_dly, 2.0, Qt.DashLine))
-            p.drawLine(dlx, pt, dlx, H - pb)
-            p.setFont(_qfont(CF_MODE, True)); p.setPen(_dly)
-            p.drawText(dlx + 5, H - pb + 14, f'▷ {self._delay_ms:.2f} ms')   # 0ms/5ms 시간축 라벨 줄
+        _tr = max(self.t_max - self.t_min, 1.0)
+        # 카드별 딜레이 마커 — 각 카드 색 세로 점선. 임펄스가 실제 도착(=딜레이) 위치에
+        # 그려지므로 마커가 그 카드 임펄스를 가리킨다. front 카드는 굵게 + 값 라벨.
+        _fk = self._front_extra
+        # 캡처가 front 면(_front_idx 설정 + 라이브가 위가 아님) 라벨은 그 캡처에, 아니면 라이브 카드에.
+        _cap_front_idx = self._front_idx if (not self._live_on_top) else None
+        _markers = []   # (delay_ms, color, is_front)
+        # 라이브 카드 마커
+        if self.t_ms is not None:   # primary 활성(정지 시 숨김)
+            _markers.append((self._delay_ms, T('green'),
+                             _cap_front_idx is None and (_fk is None or _fk == -1)))
+        for _key, _ex in self._tf_extra.items():
+            _markers.append((_ex.get('delay', 0.0), _ex.get('color'),
+                             _cap_front_idx is None and _key == _fk))
+        # 캡처 마커 — 표시중 + IR 데이터 있는 캡처 (각 캡처색, front 캡처만 라벨)
+        for _ci, _cap in enumerate(self._captures):
+            if not _cap.get('visible', True): continue
+            if _cap.get('t') is None: continue   # 빈 IR 캡처 → 마커 없음
+            _markers.append((_cap.get('delay', 0.0), _cap.get('color'),
+                             _ci == _cap_front_idx))
+        for _dms, _dcol, _is_front in _markers:
+            if _dms == 0.0 or not (self.t_min <= _dms <= self.t_max): continue
+            _dx = int(pl + (_dms - self.t_min) / _tr * uw)
+            _c = QColor(_dcol)
+            p.setPen(QPen(_c, 2.2 if _is_front else 1.2, Qt.DashLine))
+            p.drawLine(_dx, pt, _dx, H - pb)
+            if _is_front:
+                _lbl = f'▷ {_dms:.2f} ms'
+                p.setFont(_qfont(CF_MODE, True))
+                _fm = p.fontMetrics(); _tw2 = _fm.horizontalAdvance(_lbl)
+                _lx = _dx + 5
+                if _lx + _tw2 > W - pr: _lx = _dx - 5 - _tw2   # 오른쪽 끝이면 왼쪽으로
+                _ty = H - pb + 14   # 시간축 숫자와 같은 줄
+                # 불투명 배경 박스 — 그 자리 축 숫자를 덮어 글자 겹침 방지
+                p.setPen(Qt.NoPen); p.setBrush(QColor(T('bg')))
+                p.drawRect(_lx - 3, _ty - _fm.ascent() - 1, _tw2 + 6, _fm.height() + 2)
+                p.setPen(_c); p.drawText(_lx, _ty, _lbl)
         # 커서: 선택(front) 카드 우선 → primary → 아무 extra
         _fk = self._front_extra
         if isinstance(_fk, int) and _fk != -1 and _fk in self._tf_extra:
@@ -7976,7 +8081,11 @@ class TransferFunctionWindow(QWidget):
                 if len(all_chs) == 2 and not routing:
                     # 채널은 있지만 routing 없음 (all ref-only) → AudioThread만
                     pass
-                elif len(routing) == 1 and not has_primary_ref_only:
+                elif len(routing) == 1 and not has_primary_ref_only and not self._extra_pairs:
+                    # SyncSource(ref+meas 단일 스트림 원자 캡처)는 extra 카드가 **하나도 없을 때만**.
+                    # extra 카드가 존재하면(Stop 상태여도) primary 단독 SyncSource 가 raw 를
+                    # 못 받아 분석 데이터가 안 뜨는 현상이 있음 → 동일 동작의 MultiSource 경로로 통일
+                    # (아래 `if routing` 블록). card2 를 Start 하면 MultiSource 라 정상 동작했던 이유.
                     r = routing[0]
                     rc2 = r.get('ref_ch'); mc2 = r.get('meas_ch')
                     pair_id2 = r.get('pair_idx')
@@ -8396,7 +8505,10 @@ class TransferFunctionWindow(QWidget):
             return
         # 주파수/시간 축 — fft_size 기준. primary 유무와 무관하게 extra 렌더에도 필요.
         freqs = np.fft.rfftfreq(self.fft_size, 1.0 / self.sample_rate).astype(np.float32)
-        t_ms = np.arange(self.fft_size, dtype=np.float32) / self.sample_rate * 1000.0
+        # IR 시간축: 0을 가운데로 (fftshift) → 음수 시간(임펄스 도착 전 pre-ring)도 표시.
+        # irfft는 순환배열(0..+T)이라 음수성분이 꼬리로 wrap됨 → fftshift로 -T/2..+T/2 매핑.
+        _ir_half = self.fft_size // 2
+        t_ms = (np.arange(self.fft_size, dtype=np.float32) - _ir_half) / self.sample_rate * 1000.0
         # primary 표시 여부: 분석중(_display_on)이고 그래프 표시 체크(is_graph_visible)일 때만
         _pc = self._level_cards[0] if (hasattr(self, '_level_cards') and self._level_cards) else None
         _primary_show = (_pc is None) or (_pc._display_on and _pc.is_graph_visible())
@@ -8474,19 +8586,18 @@ class TransferFunctionWindow(QWidget):
             f_ex, mag_ex, ph_wrap_ex, ph_unwr_ex, grp_ms_ex = _tf_smooth(freqs, H_ex_disp, self.smooth_bpo)
             self.mag_cvs.set_tf_extra(i, color, f_ex, mag_ex)
             self.phase_cvs.set_tf_extra_phase(i, color, f_ex, ph_wrap_ex, ph_unwr_ex, grp_ms_ex)
-            # 카드별 IR: 딜레이 보정 H(H_ex_disp) → 딜레이 적용 시 임펄스가 0ms로 정렬
-            # (delay=0이면 H_ex_disp=H_ex_raw → 물리적 도착 위치, 비정렬 상태)
-            h_ex = np.fft.irfft(H_ex_disp, n=self.fft_size).astype(np.float32)
-            self.ir_cvs.set_tf_extra(i, color, t_ms, h_ex)
+            # 카드별 IR: 딜레이 보정 없이 raw H → 임펄스가 실제 도착(=딜레이) 위치에 표시.
+            # 딜레이 값은 카드색 마커로 그려지고, front 카드면 뷰가 그 위치로 센터링된다.
+            # (mag/phase 는 위 H_ex_disp 로 위상 보정 유지 — IR 만 물리 위치)
+            h_ex = np.fft.fftshift(np.fft.irfft(H_ex_raw, n=self.fft_size)).astype(np.float32)
+            self.ir_cvs.set_tf_extra(i, color, t_ms, h_ex, delay=pair_delay)
 
-        # Live IR (primary): 딜레이 보정 H → 딜레이 적용 시 임펄스가 0ms로 정렬
+        # Live IR (primary): 딜레이 보정 없이 raw H → 임펄스가 실제 도착(=딜레이) 위치에.
+        # 딜레이는 녹색 마커로 표시되고, primary 가 front 면 뷰가 그 위치로 센터링된다.
         if _primary_show and H_raw is not None:
-            if self.delay_ms != 0.0:
-                H_ir = H_raw * np.exp(1j * 2 * np.pi * freqs * (self.delay_ms / 1000.0))
-            else:
-                H_ir = H_raw
-            h_full = np.fft.irfft(H_ir, n=self.fft_size).astype(np.float32)
+            h_full = np.fft.fftshift(np.fft.irfft(H_raw, n=self.fft_size)).astype(np.float32)
             self.ir_cvs.set_data(t_ms, h_full)
+            self.ir_cvs._delay_ms = self.delay_ms   # primary 딜레이 마커 위치
 
     # ── 딜레이 자동 탐지 (2단계: 2초 측정 후 계산) ──────────────────────
     def _on_sweep_captured(self, ref_arr, meas_arr):
@@ -8513,8 +8624,8 @@ class TransferFunctionWindow(QWidget):
         self.mag_cvs.set_data(f_out, mag_out, coh_out, ph_wrap)
 
         # IR: 역필터 결과 시간 도메인
-        h_full = np.fft.irfft(H, n=n).astype(np.float32)
-        t_ms = np.arange(n, dtype=np.float32) / self.sample_rate * 1000.0
+        h_full = np.fft.fftshift(np.fft.irfft(H, n=n)).astype(np.float32)
+        t_ms = (np.arange(n, dtype=np.float32) - n // 2) / self.sample_rate * 1000.0
         self.ir_cvs.set_data(t_ms, h_full)
 
         dur_ms = n / self.sample_rate * 1000.0
@@ -8630,7 +8741,8 @@ class TransferFunctionWindow(QWidget):
                         entry['ir'] = None  # extra 카드 빈 IR 캡쳐
                     else:
                         entry['ir'] = {'t': r['t'].tolist(), 'h': r['h'].tolist(),
-                                       'etc_db': r['etc_db'].tolist() if r.get('etc_db') is not None else None}
+                                       'etc_db': r['etc_db'].tolist() if r.get('etc_db') is not None else None,
+                                       'delay': float(r.get('delay', 0.0))}
                 tf_list.append(entry)
             with _CAPTURES_LOCK:   # spec 캡쳐와 같은 파일 공유 → 읽기-수정-쓰기 원자화(클로버 방지)
                 data = _load_captures_file()
@@ -8669,7 +8781,7 @@ class TransferFunctionWindow(QWidget):
                         't': np.array(r['t'], dtype=np.float32),
                         'h': np.array(r['h'], dtype=np.float32),
                         'etc_db': np.array(r['etc_db'], dtype=np.float32) if r.get('etc_db') else None,
-                        'color': color, 'label': label
+                        'color': color, 'label': label, 'delay': float(r.get('delay', 0.0))
                     })
                 else:
                     # extra 카드 빈 IR — _tf_captures 인덱스 정합 유지
@@ -8723,7 +8835,7 @@ class TransferFunctionWindow(QWidget):
             color = _auto_capture_color(n)
             self.mag_cvs.add_capture(base, color)
             self.phase_cvs.add_capture(base, color)
-            self.ir_cvs.add_capture(base, color)
+            self.ir_cvs.add_capture(base, color, delay=self.delay_ms)
             self._tf_captures.append({'color': color, 'label': base,
                                       'group': group, 'source': 'primary'})
             added += 1
@@ -8744,11 +8856,12 @@ class TransferFunctionWindow(QWidget):
                 ex_p.get('ph_unwr') if ex_p else None,
                 ex_p.get('grp_ms') if ex_p else None)
             ex_ir = self.ir_cvs._tf_extra.get(i)
+            ex_delay = pair.get('delay_ms', 0.0)
             if ex_ir and ex_ir.get('t') is not None and ex_ir.get('h') is not None:
                 self.ir_cvs.add_capture_data(ex_label, ex_color, ex_ir.get('t'),
-                                             ex_ir.get('h'), ex_ir.get('etc_db'))
+                                             ex_ir.get('h'), ex_ir.get('etc_db'), delay=ex_delay)
             else:
-                self.ir_cvs.add_capture_empty(ex_label, ex_color)
+                self.ir_cvs.add_capture_empty(ex_label, ex_color, delay=ex_delay)
             self._tf_captures.append({'color': ex_color, 'label': ex_label,
                                       'group': group, 'source': f'card{i}'})
             added += 1
@@ -8987,15 +9100,14 @@ class TransferFunctionWindow(QWidget):
             self.mag_cvs.bring_to_front(idx)
             self.phase_cvs.bring_to_front(idx)
             self.ir_cvs.bring_to_front(idx)
-            # 선택 캡처의 임펄스 피크로 IR 센터 정렬 + ▷ 숫자 표기
+            # 선택 캡처의 임펄스 피크로 IR 센터 정렬 (라벨은 paintEvent 가 그 캡처색 마커로
+            # 그림 — front 캡처라 ▷값 라벨 포함). _delay_ms 는 primary 라이브 마커 전용이라 안 건드림.
             cap = self.ir_cvs._captures[idx] if idx < len(self.ir_cvs._captures) else None
             if cap and cap.get('t') is not None and cap.get('h') is not None:
                 t = np.asarray(cap['t']); h = np.asarray(cap['h'])
                 if len(h) > 1 and len(t) == len(h):
                     pk = int(np.argmax(_hilbert_env(h)))
-                    peak_ms = float(t[pk])
-                    self.ir_cvs._delay_ms = peak_ms
-                    self._center_ir_on_delay(peak_ms)
+                    self._center_ir_on_delay(float(t[pk]))
             self._refresh_tf_capture_bar()
 
     def _on_tf_live_front(self):
@@ -9017,8 +9129,13 @@ class TransferFunctionWindow(QWidget):
 
     def _delayed_restart(self):
         """분석 스트림만 재시작 — 제너레이터는 절대 건드리지 않음.
-        단일 타이머: 빠른 반복 토글 시 마지막 상태로만 재시작."""
+        단일 타이머: 빠른 반복 토글 시 마지막 상태로만 재시작.
+        settle 구간 동안 같은 장치의 입력 스트림(이전 분석 + 모니터)을 모두 닫아
+        새 입력 스트림 open 이 close 와 맞물리지 않게 한다 (CoreAudio 재구성 충돌 회피)."""
         if self._running: self._stop_analysis()  # 분석만 정지, 제너레이터 유지
+        # _stop_analysis 가 입력 모니터를 재개할 수 있으므로 그 뒤에 모니터까지 확실히 닫는다.
+        # → settle 동안 장치에는 제너레이터 출력만 남고 입력 스트림은 0개 (open 충돌 원천 차단).
+        self._stop_mon_streams(); self._stop_input_monitor()
         if getattr(self, '_restart_timer', None) is not None:
             self._restart_timer.stop(); self._restart_timer = None
         self._restart_timer = QTimer(self)
@@ -9088,15 +9205,18 @@ class TransferFunctionWindow(QWidget):
                 if card: card.set_running(True)
         # 제너레이터가 켜져 있으면 분석 스트림 재시작
         if self.sig_on_btn.isChecked():
-            if self._running:
-                self._stop_analysis()
             # 외부 Ref + duplex 모드: TFDuplexThread가 M4 입력 점유 중
             # → _start()가 같은 장치에 TFSyncThread/MC 열면 CoreAudio 충돌 → standalone 전환
             ref_idx = self.ref_cb.currentData()
             if (ref_idx is not None and
                     self._duplex_thread and self._duplex_thread.isRunning()):
                 self._start_sig_gen()   # duplex → standalone OutputStream으로 전환
-            self._start()
+            # 입력 분석 스트림은 즉시 열지 않고 settle 지연 후 연다 (_delayed_restart).
+            # 같은 장치(M4)에서 (모니터/이전 분석) 입력 스트림 close 와 새 입력 스트림 open 이
+            # 맞물리면 CoreAudio 가 장치를 재구성하며 ① 첫 스트림이 데이터를 못 주거나
+            # (1카드 단독 분석 미표시) ② 라이브 제너레이터 출력에 글리치(띠띠띡) 가 낀다.
+            # _reconfigure_audio(제너레이터 재생 중 600ms 지연 재시작)와 동일 패턴으로 일원화.
+            self._delayed_restart()
 
     def _on_meas_stop(self, pair_idx):
         """카드 Stop 버튼: 분석 비활성화, 해당 채널 캔버스 지우기."""
@@ -9185,15 +9305,22 @@ class TransferFunctionWindow(QWidget):
                     card.set_delay(d_ms)   # 스핀 표시 갱신 (시그널 차단됨)
                     self._extra_pairs[pair_idx]['delay_ms'] = d_ms
                     self._save_tf_extra_pairs()
-                    # 보정 IR: 다음 렌더에서 이 카드 임펄스만 0ms로 정렬. 뷰는 건드리지 않음
-                    # (다른 카드/사용자 줌 불변).
+                    # raw H IR: 마커가 d_ms 로 이동. 이 카드가 front 면 뷰도 센터링.
+                    if getattr(self, '_front_pair', None) == pair_idx:
+                        self._center_ir_on_delay(d_ms)
+                    else:
+                        self.ir_cvs._cache = None; self.ir_cvs.update()
 
     def _on_extra_delay_changed(self, idx, v):
-        """Extra pair delay_spin 변경 → pair dict 동기화. 보정 IR: 다음 렌더에서 그 카드
-        임펄스만 0ms로 정렬되며, 뷰는 건드리지 않아 다른 카드가 움직이지 않는다."""
+        """Extra pair delay_spin 변경 → pair dict 동기화 + 마커/센터 갱신.
+        그 카드가 front 면 뷰를 그 딜레이 위치로 센터링(아니면 마커만 다음 렌더에서 갱신)."""
         if 0 <= idx < len(self._extra_pairs):
             self._extra_pairs[idx]['delay_ms'] = v
             self._save_tf_extra_pairs()
+            if getattr(self, '_front_pair', None) == idx:
+                self._center_ir_on_delay(v)
+            else:
+                self.ir_cvs._cache = None; self.ir_cvs.update()
 
     def _find_all_delays(self):
         """L키: 전체 카드 딜레이 파인더 팝업 (AllDelayFinderDialog)."""
@@ -9201,7 +9328,7 @@ class TransferFunctionWindow(QWidget):
 
     def _fft_changed(self, idx):
         self.fft_size = TF_FFT_SIZES[idx]; self._recalc_target(); self._reset_avg()
-        self.ir_cvs.clear(); self._set_ir_view_centered()   # 보정 IR: 0 중심 고정 뷰
+        self.ir_cvs.clear(); self._sync_ir_delay_marker()   # raw H IR: front 딜레이 중심 뷰
         if self._running: self._stop(); self._start()
 
     def _avg_changed(self, idx):
@@ -9210,31 +9337,46 @@ class TransferFunctionWindow(QWidget):
     def _smooth_changed(self, idx):
         self.smooth_bpo = TF_SMOOTH_BPO[idx]; self._reset_avg()
 
-    # 보정 IR 표준 뷰 — 0ms를 가운데 고정. 딜레이를 적용해도 뷰가 절대 움직이지 않으므로
-    # (idempotent) 한 카드의 딜레이 변경이 다른 카드를 화면에서 움직이지 않는다.
-    # 각 카드는 자기 딜레이로만 보정돼, 자신의 임펄스만 0ms(가운데)로 정렬된다.
-    _IR_VIEW_HALF = 10.0   # 0 중심 ±10ms
+    # IR 뷰 — front(선택) 카드의 딜레이를 가운데로. 임펄스는 raw H 라 실제 도착(=딜레이)
+    # 위치에 그려지므로, front 카드 딜레이로 센터링하면 그 카드 임펄스가 화면 중앙에 온다.
+    # 각 카드는 자기 딜레이에 카드색 마커를 가지며, front 전환 시 그 카드 기준으로 재센터링된다.
+    _IR_VIEW_HALF = 10.0   # 센터 ±10ms
 
     def _set_ir_view_centered(self):
         self.ir_cvs.t_min = -self._IR_VIEW_HALF
         self.ir_cvs.t_max =  self._IR_VIEW_HALF
-        self.ir_cvs._delay_ms = 0.0   # 주황 마커 숨김 — 0ms 그리드선이 정렬 기준
         self.ir_cvs._cache = None; self.ir_cvs.update()
 
+    def _front_delay_ms(self):
+        """현재 front(선택) 카드의 딜레이값 (None/-1=primary)."""
+        key = getattr(self, '_front_pair', None)
+        if key is None or key == -1:
+            return self.delay_ms
+        if 0 <= key < len(self._extra_pairs):
+            return self._extra_pairs[key].get('delay_ms', 0.0)
+        return 0.0
+
     def _on_delay_changed(self, v):
-        # 보정 IR: self.delay_ms 변경 → 다음 렌더에서 primary 임펄스만 0ms로 정렬. 뷰 불변.
+        # raw H IR: 임펄스는 실제 도착 위치. 딜레이 변경 → 마커 위치 갱신 +
+        # primary 가 front 면 뷰를 그 위치로 센터링(다른 카드 front 면 뷰 불변).
         self.delay_ms = v
+        self.ir_cvs._delay_ms = v
+        if getattr(self, '_front_pair', None) in (None, -1):
+            self._center_ir_on_delay(v)
+        else:
+            self.ir_cvs._cache = None; self.ir_cvs.update()
 
     def _center_ir_on_delay(self, center_ms):
-        # 캡처 선택 시 그 캡처 피크를 뷰 가운데로 (라이브 보정 IR은 _set_ir_view_centered 사용).
+        # 뷰를 center_ms 가운데로 ±10ms (front 카드 딜레이 / 캡처 피크 선택 시).
         half = self._IR_VIEW_HALF
         self.ir_cvs.t_min = center_ms - half
         self.ir_cvs.t_max = center_ms + half
         self.ir_cvs._cache = None; self.ir_cvs.update()
 
     def _sync_ir_delay_marker(self):
-        """보정 IR: 뷰를 0 중심으로 고정 + 마커 숨김 (라이브 복귀/딜레이 변경 시 호출)."""
-        self._set_ir_view_centered()
+        """뷰를 front 카드의 딜레이 위치로 센터링 (마커는 각 카드색으로 paintEvent 가 그림).
+        카드 선택/라이브 복귀/딜레이 변경 시 호출."""
+        self._center_ir_on_delay(self._front_delay_ms())
 
     def _ir_mode_changed(self, idx):
         self.ir_cvs.set_mode(idx)
@@ -9559,10 +9701,13 @@ class TransferFunctionWindow(QWidget):
             for _attempt in range(2):   # macOS AUHAL -10863 재시도 1회
                 try:
                     with _no_stderr():
+                        # latency='low' — 공유 입력 스트림(항상 low)과 latency 모드를 맞춰
+                        # 같은 장치 클럭에서 buffer 정렬 → 제너레이터 띠띠띡 글리치 방지하면서
+                        # 입력을 low로 유지해 Spectrum 속도 보존. blocksize 2048은 유지(출력 안정).
                         self._sig_stream = sd.OutputStream(device=out_dev, samplerate=self.sample_rate,
                                                             channels=n_ch, dtype='float32',
                                                             blocksize=_blk_size,
-                                                            latency='high', callback=cb)
+                                                            latency='low', callback=cb)
                         self._sig_stream.start()
                     _alog.debug(f'  OutputStream started  out={out_dev} sr={self.sample_rate} ch={n_ch}')
                     break
@@ -11008,6 +11153,7 @@ class MainWindow(QMainWindow):
         self._capture_drawer.new_group_req.connect(self._on_drawer_new_group)
         self._capture_drawer.delete_group_req.connect(self._on_drawer_delete_group)
         self._capture_drawer.reorder_requested.connect(self._on_drawer_reorder)
+        self._capture_drawer.move_to_group_req.connect(self._on_drawer_move_to_group)
         self._capture_drawer.capture_selected.connect(self._on_drawer_select)
         self._capture_drawer.visibility_changed.connect(self._on_drawer_visibility)
         self._capture_drawer.average_requested.connect(self._on_drawer_average)
@@ -12801,6 +12947,29 @@ class MainWindow(QMainWindow):
             tf._refresh_tf_capture_bar()
             tf._save_tf_captures()
 
+    def _on_drawer_move_to_group(self, mode, idx, group):
+        """캡처를 그룹으로 이동(또는 ''로 그룹 해제). group 필드만 바꾸면
+        _build_section 이 해당 그룹 섹션에 렌더 — 빈 그룹으로도 이동 가능."""
+        if mode == 'tf':
+            tf = self.tf_win
+            if 0 <= idx < len(tf._tf_captures):
+                tf._tf_captures[idx]['group'] = group
+                tf._refresh_tf_capture_bar()
+                tf._save_tf_captures()
+        elif mode == 'spec':
+            fft_n = len(self.fft_cvs._captures)
+            if idx < fft_n:
+                if 0 <= idx < len(self.fft_cvs._captures):
+                    self.fft_cvs._captures[idx]['group'] = group
+            else:
+                oi = idx - fft_n
+                if 0 <= oi < len(self.oct_cvs._captures):
+                    self.oct_cvs._captures[oi]['group'] = group
+            self.fft_cvs._cap_pix = None; self.fft_cvs.update()
+            self.oct_cvs._cap_pix = None; self.oct_cvs.update()
+            self._refresh_spec_capture_bar()
+            self._save_spec_captures()
+
     def _on_drawer_reorder(self, mode, src, tgt):
         if mode == 'spec':
             combined = [{**c, '_src': 'fft'} for c in self.fft_cvs._captures]
@@ -12989,7 +13158,7 @@ if __name__=='__main__':
 
     # ── 세션 시작 로그 헤더
     _alog.info('=' * 60)
-    _alog.info(f'WSA2 v2.1  시작  {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+    _alog.info(f'WSA2 v1.0  시작  {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
     _alog.info(f'OS: {_pl.platform()}')
     _alog.info(f'Machine: {_pl.machine()}  Processor: {_pl.processor()}')
     _alog.info(f'Python: {_pl.python_version()}')
