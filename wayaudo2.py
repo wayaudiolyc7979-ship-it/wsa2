@@ -1,6 +1,6 @@
 11#!/usr/bin/env python3
 # ═══════════════════════════════════════════════════
-#  WAYAUDIO Spectrum Analyzer  v1.0
+#  WAYAUDIO Spectrum Analyzer  v1.6-beta
 #  ✅ FFT 버벅임 수정 (포인트 다운샘플링)
 #  ✅ 마이크 캘리브레이션 (94/114dB @ 1kHz)
 #  ✅ dBA / dBC 실시간 레벨
@@ -818,7 +818,18 @@ class _DeviceStream:
 
     def _open(self, channels, force_latency=None):
         self._close_thread()
-        self.union = set(channels)
+        # 장치의 전체 입력 채널을 한 번에 캡처 → 이후 구독자가 채널을 추가해도 union 이 커지지
+        # 않아 재오픈이 영영 불필요. close→reopen 은 같은 장치에 다른 스트림(Spectrum 라이브)·
+        # 제너레이터 출력이 활성일 때 글리치(노이즈)·스트림 open 실패(에러)·콜백 정지(가짜
+        # device-removed)를 유발하므로 원천 차단 → 탭 시작 순서(TF먼저/Spectrum먼저) 무관 동작.
+        want = set(channels)
+        try:
+            _max_in = int(sd.query_devices(self.device_idx)['max_input_channels'])
+        except Exception:
+            _max_in = 0
+        if _max_in > 0:
+            want |= set(range(_max_in))
+        self.union = want
         self.force_latency = force_latency
         th = self._engine._thread_factory(
             self.device_idx, self.sample_rate, self._engine._fft_size, sorted(self.union),
@@ -1240,7 +1251,8 @@ class FFTCanvas(QWidget):
         img=QImage(W,H,QImage.Format_ARGB32_Premultiplied); img.fill(0)
         p=QPainter(img); p.setRenderHint(QPainter.Antialiasing,True)
         max_pts = max(int(uw) * 2, 512)
-        def _draw_one(cap):
+        def _draw_one(cap, emph=False):
+            # E 스타일: 선택(front)=밝고 굵은 선, 비선택=흐린 가는 선
             cf=cap['f']; cd=cap['db']
             if self.scale_log:
                 cxs=pl+(np.log10(np.maximum(cf,1)/20)/math.log10(ny/20))*uw
@@ -1252,15 +1264,19 @@ class FFTCanvas(QWidget):
                 idx=np.linspace(0,n-1,max_pts,dtype=int)
                 cxs=cxs[idx]; cys=cys[idx]
             poly=QPolygonF([QPointF(float(x),float(y)) for x,y in zip(cxs.tolist(),cys.tolist())])
-            p.setPen(QPen(QColor(cap['color']),1.5))
+            qc=QColor(cap['color'])
+            if emph:
+                p.setPen(QPen(qc,2.6))
+            else:
+                qc.setAlpha(70); p.setPen(QPen(qc,1.2))
             p.drawPolyline(poly)
         for i,cap in enumerate(caps):
             if i==front: continue
             if not cap.get('visible', True): continue
-            _draw_one(cap)
+            _draw_one(cap, emph=False)
         if front is not None and 0<=front<len(caps):
             if caps[front].get('visible', True):
-                _draw_one(caps[front])
+                _draw_one(caps[front], emph=True)   # 선택(front) 캡쳐 — 맨 위 + 밝고 굵게
         p.end()
         return img
 
@@ -1268,7 +1284,7 @@ class FFTCanvas(QWidget):
         ny=min(self.sample_rate/2, 20000)
         img = self._build_cap_img(W, H, list(self._captures), self._front_idx)
         self._cap_pix = QPixmap.fromImage(img)
-        self._cap_pix_key = (W, H, self.db_max, self.db_min, self.scale_log, int(ny))
+        self._cap_pix_key = (W, H, self.db_max, self.db_min, self.scale_log, int(ny), self._front_idx, self._live_on_top)
 
     def add_capture(self, label, color, group=''):
         if self._ds_f is None or self._ds_avg is None: return
@@ -1291,12 +1307,16 @@ class FFTCanvas(QWidget):
             self._front_idx=idx; self._live_on_top=False
             self._cap_pix=None; self.update()
 
-    def _draw_live(self, p, W, H):
+    def _draw_live(self, p, W, H, dim=False):
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
         dh=H-pt-pb; uw=W-pl-pr; ny=min(self.sample_rate/2, 20000)
         # ★ 라이브 곡선은 안티앨리어싱 OFF — Retina 전체화면에서 AA 래스터화가 10배 비쌈
         #   (멀티 마이크 시 FFT 버벅임의 주원인). 격자/라벨은 캐시 픽스맵이라 선명 유지.
         p.setRenderHint(QPainter.Antialiasing, False)
+        def _ch_col(c):   # 캡쳐 포커스 시 라이브(채널) 흐리게 (E 스타일)
+            qc=QColor(c)
+            if dim: qc.setAlpha(55)
+            return qc
         f_arr=self._ds_f; a_arr=self._ds_avg
         if f_arr is None or len(f_arr)<2 or a_arr is None or len(a_arr)!=len(f_arr): return
         if not self._primary_visible:
@@ -1309,7 +1329,7 @@ class FFTCanvas(QWidget):
                 yc=pt+np.clip(((self.db_max-a_c)/(self.db_max-self.db_min)*dh).astype(int),0,dh)
                 sc=QPainterPath(); sc.moveTo(float(xc[0]),float(yc[0]))
                 for x,y in zip(xc[1:],yc[1:]): sc.lineTo(float(x),float(y))
-                p.setPen(QPen(QColor(ch_data['color']),1.8)); p.drawPath(sc)
+                p.setPen(QPen(_ch_col(ch_data['color']),1.8)); p.drawPath(sc)
             return
         if self.scale_log:
             xs=pl+(np.log10(np.maximum(f_arr,1)/20)/math.log10(ny/20))*uw
@@ -1320,6 +1340,8 @@ class FFTCanvas(QWidget):
             top_col=QColor(T('red')); line_col=QColor(T('red')); pk_col=QColor(T('red'))
         else:
             top_col=QColor(*bar_top()); line_col=QColor(T('spec_line')); pk_col=QColor(T('peak_line'))
+        if dim:   # 캡쳐 포커스 시 라이브 채움/선 흐리게
+            top_col.setAlpha(36); line_col.setAlpha(70); pk_col.setAlpha(70)
         path=QPainterPath()
         path.moveTo(float(xs[0]),float(H-pb))
         for x,y in zip(xs,ys): path.lineTo(float(x),float(y))
@@ -1353,7 +1375,7 @@ class FFTCanvas(QWidget):
             sc = QPainterPath()
             sc.moveTo(float(xc[0]), float(yc[0]))
             for x, y in zip(xc[1:], yc[1:]): sc.lineTo(float(x), float(y))
-            p.setPen(QPen(QColor(ch_data['color']), 1.8)); p.drawPath(sc)
+            p.setPen(QPen(_ch_col(ch_data['color']), 1.8)); p.drawPath(sc)
         # front 가 primary 면 primary 라인을 맨 위에 다시
         if self._front_id == 0:
             p.setPen(QPen(line_col, 2.4)); p.drawPath(stroke)
@@ -1497,18 +1519,21 @@ class FFTCanvas(QWidget):
         if a_arr is None or len(a_arr)!=len(f_arr):
             p.end(); return
 
-        if not self._live_on_top:
-            self._draw_live(p, W, H)
-
-        if self._captures:
-            _cap_key=(W,H,self.db_max,self.db_min,self.scale_log,int(ny))
+        # E 포커스: 캡쳐 선택 → 라이브 흐리게 + 선택 캡쳐 밝게(위) / 라이브 포커스 → 캡쳐 흐리게 + 라이브(위)
+        _cap_focus = (self._front_idx is not None)
+        def _draw_caps():
+            if not self._captures: return
+            _cap_key=(W,H,self.db_max,self.db_min,self.scale_log,int(ny),self._front_idx,self._live_on_top)
             if self._cap_pix is None or self._cap_pix_key!=_cap_key:
                 self._trigger_cap_build(W, H, _cap_key)
             if self._cap_pix is not None:
                 p.drawPixmap(0,0,self._cap_pix)
-
-        if self._live_on_top:
-            self._draw_live(p, W, H)
+        if _cap_focus:
+            self._draw_live(p, W, H, dim=True)
+            _draw_caps()
+        else:
+            _draw_caps()
+            self._draw_live(p, W, H, dim=False)
         p.setRenderHint(QPainter.Antialiasing, True)   # 라이브 곡선 후 AA 복원 (격자/라벨/커서 선명)
 
         self._draw_grid_lines(p, W, H)
@@ -1610,23 +1635,31 @@ class OctaveCanvas(QWidget):
         gap=max(1.0,bar_w*gap_r)
         img=QImage(W,H,QImage.Format_ARGB32_Premultiplied); img.fill(0)
         p=QPainter(img)
-        def _draw_one(cap):
+        def _draw_one(cap, emph=False):
+            # E 스타일: 선택(front)=솔리드 막대(라이브처럼 꽉), 비선택=아주 옅은 채움+옅은 외곽선
             if cap['mode']!=self.mode: return
             cv=cap['values']; qc=QColor(cap['color'])
-            qc_fill=QColor(qc); qc_fill.setAlpha(55)
-            for i in range(n):
-                db=float(np.clip(cv[i],self.db_min,self.db_max))
-                bh=max(2,int((db-self.db_min)/db_range*dh))
-                bx=int(pl+i*bar_w+gap/2); bw=max(1,int(bar_w-gap)); by=pt+dh-bh
-                p.fillRect(bx,by,bw,bh,qc_fill)
-                p.setPen(QPen(qc,1)); p.drawRect(bx,by,bw-1,bh-1)
+            if emph:
+                for i in range(n):
+                    db=float(np.clip(cv[i],self.db_min,self.db_max))
+                    bh=max(2,int((db-self.db_min)/db_range*dh))
+                    bx=int(pl+i*bar_w+gap/2); bw=max(1,int(bar_w-gap)); by=pt+dh-bh
+                    p.fillRect(bx,by,bw,bh,qc)
+            else:
+                qf=QColor(qc); qf.setAlpha(26); qe=QColor(qc); qe.setAlpha(110)
+                for i in range(n):
+                    db=float(np.clip(cv[i],self.db_min,self.db_max))
+                    bh=max(2,int((db-self.db_min)/db_range*dh))
+                    bx=int(pl+i*bar_w+gap/2); bw=max(1,int(bar_w-gap)); by=pt+dh-bh
+                    p.fillRect(bx,by,bw,bh,qf)
+                    p.setPen(QPen(qe,1)); p.drawRect(bx,by,bw-1,bh-1)
         for i,cap in enumerate(caps):
             if i==front: continue
             if not cap.get('visible', True): continue
-            _draw_one(cap)
+            _draw_one(cap, emph=False)
         if front is not None and 0<=front<len(caps):
             if caps[front].get('visible', True):
-                _draw_one(caps[front])
+                _draw_one(caps[front], emph=True)
         p.end()
         return img
 
@@ -1638,7 +1671,7 @@ class OctaveCanvas(QWidget):
         gap=max(1.0,bar_w*gap_r)
         img = self._build_cap_img(W, H, list(self._captures), self._front_idx)
         self._cap_pix = QPixmap.fromImage(img)
-        self._cap_pix_key = (W,H,self.db_max,self.db_min,self.mode,round(bar_w*1000),round(gap*1000))
+        self._cap_pix_key = (W,H,self.db_max,self.db_min,self.mode,round(bar_w*1000),round(gap*1000),self._front_idx,self._live_on_top)
 
     def add_capture(self, label, color, group=''):
         self._captures.append({
@@ -1660,7 +1693,7 @@ class OctaveCanvas(QWidget):
             self._front_idx=idx; self._live_on_top=False
             self._cap_pix=None; self.update()
 
-    def _draw_live(self, p, W, H):
+    def _draw_live(self, p, W, H, dim=False):
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
         dh=H-pt-pb; uw=W-pl-pr
         db_range=self.db_max-self.db_min
@@ -1672,6 +1705,8 @@ class OctaveCanvas(QWidget):
         gap=max(1.0,bar_w*gap_r)
         col=QColor(T('red')) if self.clipping else QColor(*bar_top())
         pk_col=QColor(T('red')) if self.clipping else QColor(T('peak_line'))
+        if dim:   # 캡쳐 포커스 시 라이브 흐리게 (E 스타일: 선택된 것만 솔리드)
+            col.setAlpha(50); pk_col.setAlpha(50)
         for i in range(n):
             db=float(np.clip(sm[i],self.db_min,self.db_max))
             lp=(db-self.db_min)/db_range; bh=max(2,int(lp*dh))
@@ -1823,37 +1858,40 @@ class OctaveCanvas(QWidget):
         gap_r=0.06 if self.mode=='oct24' else 0.08 if self.mode=='oct12' else 0.12
         gap=max(1.0,bar_w*gap_r)
 
-        if not self._live_on_top:
-            self._draw_live(p, W, H)
-
-        if self._captures:
-            _cap_key=(W,H,self.db_max,self.db_min,self.mode,round(bar_w*1000),round(gap*1000))
-            if self._cap_pix is None or self._cap_pix_key!=_cap_key:
-                self._trigger_cap_build(W, H, _cap_key)
-            if self._cap_pix is not None:
-                p.drawPixmap(0,0,self._cap_pix)
-
-        if self._live_on_top:
-            self._draw_live(p, W, H)
-
-        # 멀티-소스 solid 막대 오버레이 (primary 와 같은 막대 모양, 색만 다르게)
-        def _draw_src_bars(ch):
+        # E 포커스: 캡쳐 선택(_front_idx 있음) → 라이브 그룹 흐리게 + 선택 캡쳐 솔리드(위).
+        # 라이브 포커스(_front_idx None) → 캡쳐 흐리게 + 라이브 솔리드(위).
+        _cap_focus = (self._front_idx is not None)
+        def _draw_src_bars(ch, dim=False):
             vals = ch['values']
             if vals is None or len(vals) != n: return
             qc = QColor(ch['color'])
+            if dim: qc.setAlpha(50)
             for i in range(n):
                 db = float(np.clip(vals[i], self.db_min, self.db_max))
                 bh = max(2, int((db - self.db_min) / db_range * dh))
                 bx = int(pl + i * bar_w + gap / 2); bw = max(1, int(bar_w - gap)); by = pt + dh - bh
                 p.fillRect(bx, by, bw, bh, qc)
-        if self._ch_oct:
-            # front 가 아닌 소스 먼저, front 인 소스 맨 마지막
-            for cid, ch in sorted(self._ch_oct.items(), key=lambda kv: kv[0]==self._front_id):
-                if not ch.get('visible', True): continue
-                _draw_src_bars(ch)
-        # front 가 primary 면 primary 막대를 맨 위에 다시
-        if self._front_id == 0:
-            self._draw_live(p, W, H)
+        def _draw_caps():
+            if not self._captures: return
+            _cap_key=(W,H,self.db_max,self.db_min,self.mode,round(bar_w*1000),round(gap*1000),self._front_idx,self._live_on_top)
+            if self._cap_pix is None or self._cap_pix_key!=_cap_key:
+                self._trigger_cap_build(W, H, _cap_key)
+            if self._cap_pix is not None:
+                p.drawPixmap(0,0,self._cap_pix)
+        def _draw_all_live(dim):
+            self._draw_live(p, W, H, dim=dim)
+            if self._ch_oct:
+                for cid, ch in sorted(self._ch_oct.items(), key=lambda kv: kv[0]==self._front_id):
+                    if not ch.get('visible', True): continue
+                    _draw_src_bars(ch, dim=dim)
+            if self._front_id == 0:
+                self._draw_live(p, W, H, dim=dim)
+        if _cap_focus:
+            _draw_all_live(dim=True)    # 라이브 흐리게(아래)
+            _draw_caps()                # 선택 캡쳐 솔리드(위)
+        else:
+            _draw_caps()                # 캡쳐 흐리게(아래)
+            _draw_all_live(dim=False)   # 라이브 솔리드(위)
 
         self._draw_grid_lines(p, W, H)
 
@@ -4434,7 +4472,8 @@ class TFPhaseCanvas(QWidget):
         img=QImage(W,H,QImage.Format_ARGB32_Premultiplied); img.fill(0)
         p=QPainter(img); p.setRenderHint(QPainter.Antialiasing,True)
         max_pts=max(int(uw),200)  # 픽셀 1:1
-        def _draw_one(cap):
+        def _draw_one(cap, emph=False):
+            # E 포커스: 선택(front)=밝고 굵게, 비선택=흐리고 얇게
             data=[cap['ph_wrap'],cap['ph_unwr'],cap['grp_ms']][self.phase_mode]
             if data is None: return
             freqs=cap['f']
@@ -4460,21 +4499,26 @@ class TFPhaseCanvas(QWidget):
                 else:
                     seg_x.append(float(xs[i])); seg_y.append(float(ys[i]))
             _flush()
-            p.setPen(QPen(QColor(cap['color']),1.5)); p.setBrush(Qt.NoBrush); p.drawPath(path)
+            qc=QColor(cap['color'])
+            if emph:
+                p.setPen(QPen(qc,3.0))
+            else:
+                qc.setAlpha(140); p.setPen(QPen(qc,1.4))
+            p.setBrush(Qt.NoBrush); p.drawPath(path)
         for i,cap in enumerate(caps):
             if i==front: continue
             if not cap.get('visible', True): continue
-            _draw_one(cap)
+            _draw_one(cap, emph=False)
         if front is not None and 0<=front<len(caps):
             if caps[front].get('visible', True):
-                _draw_one(caps[front])
+                _draw_one(caps[front], emph=True)
         p.end()
         return img
 
     def _build_cap_pix(self, W, H):
         img = self._build_cap_img(W, H, list(self._captures), self._front_idx)
         self._cap_pix = QPixmap.fromImage(img)
-        self._cap_pix_key = (W, H, self.ph_max, self.ph_min, self.phase_mode, self.coh_blank)
+        self._cap_pix_key = (W, H, self.ph_max, self.ph_min, self.phase_mode, self.coh_blank, self._front_idx, self._live_on_top)
 
     def add_capture(self, label, color):
         if self.freqs is None: return
@@ -4661,6 +4705,17 @@ class TFPhaseCanvas(QWidget):
         if delta_no_ref:
             return
         p.setRenderHint(QPainter.Antialiasing, True)
+        # E 포커스: 포커스된 하나만 밝게, 나머지 라이브 곡선은 흐리게(alpha 140)
+        _capf = (self._front_idx is not None)
+        _fk2 = self._front_extra
+        def _is_focus(key):
+            if _capf: return False
+            if key is None or key == -1: return (_fk2 is None or _fk2 == -1)
+            return _fk2 == key
+        def _col(c, key):
+            qc = QColor(c)
+            if not _is_focus(key): qc.setAlpha(140)
+            return qc
         # ── primary 곡선 (데이터 있을 때만; 없으면 extra만 그림 — primary 숨김 시 카드2 위상 유지) ──
         path = None
         data = None if self.freqs is None else [self.ph_wrap,self.ph_unwr,self.grp_ms][self.phase_mode]
@@ -4701,21 +4756,21 @@ class TFPhaseCanvas(QWidget):
                 else:
                     seg_x.append(float(xs[i])); seg_y.append(float(ys[i]))
             _flush()
-            p.setPen(QPen(QColor('#33FF66'),2.0)); p.setBrush(Qt.NoBrush); p.drawPath(path)
+            p.setPen(QPen(_col('#33FF66', None),2.0)); p.setBrush(Qt.NoBrush); p.drawPath(path)
         # ── 추가 채널 곡선 (primary 유무와 무관하게 그림; front 는 마지막에 굵게) ──
         fk=self._front_extra
         for key, ex in self._tf_extra_phase.items():
             if key==fk: continue
-            self._draw_extra_phase_curve(p, W, H, ex)
-        # front 맨 앞 재드로우 (멀티카드일 때만)
-        if self._tf_extra_phase:
+            self._draw_extra_phase_curve(p, W, H, ex, dim=not _is_focus(key))
+        # front(포커스) 맨 앞 굵게 재드로우 — 캡쳐 포커스 시엔 생략
+        if self._tf_extra_phase and not _capf:
             if fk is None or fk==-1:
                 if path is not None:
                     p.setPen(QPen(QColor('#33FF66'),3.4)); p.setBrush(Qt.NoBrush); p.drawPath(path)
             elif fk in self._tf_extra_phase:
                 self._draw_extra_phase_curve(p, W, H, self._tf_extra_phase[fk], width=3.4)
 
-    def _draw_extra_phase_curve(self, p, W, H, ex, width=1.8):
+    def _draw_extra_phase_curve(self, p, W, H, ex, width=1.8, dim=False):
         f_arr = ex.get('f'); data_arr = [ex.get('ph_wrap'), ex.get('ph_unwr'), ex.get('grp_ms')][self.phase_mode]
         if f_arr is None or data_arr is None: return
         refmode = self._delta and self._ref_f is not None
@@ -4751,7 +4806,9 @@ class TFPhaseCanvas(QWidget):
                 seg_x.append(float(xs[i])); seg_y.append(float(ys[i]))
         _flush2()
         p.setRenderHint(QPainter.Antialiasing, True)
-        p.setPen(QPen(QColor(ex['color']),width)); p.setBrush(Qt.NoBrush); p.drawPath(path)
+        _qc=QColor(ex['color'])
+        if dim: _qc.setAlpha(140)
+        p.setPen(QPen(_qc,width)); p.setBrush(Qt.NoBrush); p.drawPath(path)
 
     def paintEvent(self,ev):
         W=self.width(); H=self.height()
@@ -4759,18 +4816,19 @@ class TFPhaseCanvas(QWidget):
             self._build_cache(W,H)
         p=QPainter(self); p.drawPixmap(0,0,self._cache)
 
-        if not self._live_on_top:
-            self._draw_curve(p,W,H)
-
-        if self._captures and not self._delta:  # 델타 모드에선 절대값 캡쳐 숨김
-            _cap_key=(W,H,self.ph_max,self.ph_min,self.phase_mode,self.coh_blank)
+        # E 포커스: 캡쳐 선택 시 라이브(흐림) 먼저 → 포커스 캡쳐(밝음) 위. 라이브 포커스 시 반대.
+        _cap_focus = (self._front_idx is not None)
+        def _draw_caps():
+            if not (self._captures and not self._delta): return  # 델타 모드 절대값 캡쳐 숨김
+            _cap_key=(W,H,self.ph_max,self.ph_min,self.phase_mode,self.coh_blank,self._front_idx,self._live_on_top)
             if self._cap_pix is None or self._cap_pix_key!=_cap_key:
                 self._trigger_cap_build(W, H, _cap_key)
             if self._cap_pix is not None:
                 p.drawPixmap(0,0,self._cap_pix)
-
-        if self._live_on_top:
-            self._draw_curve(p,W,H)
+        if _cap_focus:
+            self._draw_curve(p,W,H); _draw_caps()
+        else:
+            _draw_caps(); self._draw_curve(p,W,H)
 
         self._draw_grid_lines(p, W, H)
 
@@ -4962,7 +5020,8 @@ class TFMagCanvas(QWidget):
             if len(arr)<k: return arr
             return np.convolve(np.pad(arr,k//2,mode='edge'),np.ones(k)/k,mode='valid').astype(float)
         max_pts=max(int(uw),200)  # 픽셀 1:1 — Python 루프 최소화
-        def _draw_one(cap):
+        def _draw_one(cap, emph=False):
+            # E 포커스: 선택(front)=밝고 굵게, 비선택=흐리고 얇게
             f_arr=cap['f']; m_arr=cap['mag']
             xs=(pl+(np.log10(np.maximum(f_arr,1)/20)/math.log10(ny/20))*uw).astype(float)
             ys=(pt+np.clip((self.db_max-m_arr)/rng*dh,0,dh)).astype(float)
@@ -4970,24 +5029,28 @@ class TFMagCanvas(QWidget):
             if len(xs)>max_pts:
                 _ids=np.linspace(0,len(xs)-1,max_pts,dtype=int)
                 xs=xs[_ids]; ys_s=ys_s[_ids]
-            # catmull_seg(Python루프) → drawPolyline — 단일 C++ 호출, Python 루프 없음
             poly=QPolygonF([QPointF(x,y) for x,y in zip(xs.tolist(),ys_s.tolist())])
-            p.setPen(QPen(QColor(cap['color']),1.5)); p.setBrush(Qt.NoBrush)
+            qc=QColor(cap['color'])
+            if emph:
+                p.setPen(QPen(qc,3.0))
+            else:
+                qc.setAlpha(140); p.setPen(QPen(qc,1.4))
+            p.setBrush(Qt.NoBrush)
             p.drawPolyline(poly)
         for i,cap in enumerate(caps):
             if i==front: continue
             if not cap.get('visible', True): continue
-            _draw_one(cap)
+            _draw_one(cap, emph=False)
         if front is not None and 0<=front<len(caps):
             if caps[front].get('visible', True):
-                _draw_one(caps[front])
+                _draw_one(caps[front], emph=True)
         p.end()
         return img
 
     def _build_cap_pix(self, W, H):
         img = self._build_cap_img(W, H, list(self._captures), self._front_idx)
         self._cap_pix = QPixmap.fromImage(img)
-        self._cap_pix_key = (W, H, self.db_max, self.db_min)
+        self._cap_pix_key = (W, H, self.db_max, self.db_min, self._front_idx, self._live_on_top)
 
     def add_capture(self, label, color):
         if self.freqs is None or self.mag is None: return
@@ -5162,6 +5225,17 @@ class TFMagCanvas(QWidget):
         refmode = self._delta and self._ref_f is not None and self._ref_mag is not None
         if self._delta and not refmode:
             return  # 델타 모드인데 기준 없음 — 절대값을 델타 축에 그리지 않음
+        # E 포커스: 포커스된 하나(라이브 카드 또는 캡쳐)만 밝게, 나머지 라이브 곡선은 흐리게.
+        _capf = (self._front_idx is not None)   # 캡쳐 포커스 → 모든 라이브 dim
+        _fk = self._front_extra
+        def _is_focus(key):   # key: None/-1=primary, int=extra. 이 라이브가 포커스 대상인가
+            if _capf: return False
+            if key is None or key == -1: return (_fk is None or _fk == -1)
+            return _fk == key
+        def _col(c, key):
+            qc = QColor(c)
+            if not _is_focus(key): qc.setAlpha(140)   # 비포커스 흐림 (너무 어둡지 않게)
+            return qc
         def _vis_smooth(arr, k=7):
             if len(arr) < k: return arr
             kernel = np.ones(k, dtype=float) / k
@@ -5179,7 +5253,7 @@ class TFMagCanvas(QWidget):
             else:
                 xs_d=xs
             p.setRenderHint(QPainter.Antialiasing,True)
-            p.setPen(QPen(QColor(T('green')),2.5)); p.setBrush(Qt.NoBrush)
+            p.setPen(QPen(_col(T('green'), None),2.5)); p.setBrush(Qt.NoBrush)
             p.drawPath(_catmull_seg(xs_d, ys_ms))
             if self.coh is not None and len(self.coh)==len(f_arr):
                 cr,cg,cb_=self._COH_COLOR
@@ -5187,14 +5261,15 @@ class TFMagCanvas(QWidget):
                 ys_c_raw=(pt+np.clip((1.0-self.coh)*coh_h,0,coh_h)).astype(float)
                 ys_cs=_vis_smooth(ys_c_raw,3)   # 디테일 유지 (과도한 평탄화 방지)
                 if len(xs)>max_pts: ys_cs=ys_cs[_ids]
-                p.setPen(QPen(QColor(cr,cg,cb_,230),1.8)); p.setBrush(Qt.NoBrush)
+                _coha = 230 if _is_focus(None) else 140   # primary 비포커스면 코히어런스도 흐리게
+                p.setPen(QPen(QColor(cr,cg,cb_,_coha),1.8)); p.setBrush(Qt.NoBrush)
                 p.drawPath(_catmull_seg(xs_d, ys_cs))
                 p.setFont(_qfont(CF_ANNO, True)); p.setPen(QColor(cr,cg,cb_,200))
                 p.drawText(pl+4,int(pt+coh_h+5),'γ²')
         # 추가 채널 magnitude 곡선
         if self._tf_extra:
             _ex_max_pts=max(int(uw),200)
-            for ex in self._tf_extra.values():
+            for _exk, ex in self._tf_extra.items():
                 ex_f=ex.get('f'); ex_m=ex.get('mag')
                 if ex_f is None or ex_m is None or len(ex_f)<2: continue
                 if refmode:
@@ -5208,10 +5283,10 @@ class TFMagCanvas(QWidget):
                 else:
                     ex_xs_d=ex_xs
                 p.setRenderHint(QPainter.Antialiasing,True)
-                p.setPen(QPen(QColor(ex['color']),2.0)); p.setBrush(Qt.NoBrush)
+                p.setPen(QPen(_col(ex['color'], _exk),2.0)); p.setBrush(Qt.NoBrush)
                 p.drawPath(_catmull_seg(ex_xs_d, ex_ys_s))
-        # front 곡선 맨 앞 재드로우 (멀티카드일 때만)
-        if self._tf_extra:
+        # front(포커스) 라이브 곡선 맨 앞 굵게 재드로우 — 캡쳐 포커스 시엔 생략
+        if self._tf_extra and not _capf:
             fk=self._front_extra
             if fk is None or fk==-1:
                 if self.freqs is not None and self.mag is not None:
@@ -5229,18 +5304,19 @@ class TFMagCanvas(QWidget):
             self._build_cache(W,H)
         p=QPainter(self); p.drawPixmap(0,0,self._cache)
 
-        if not self._live_on_top:
-            self._draw_live_curve(p,W,H)
-
-        if self._captures and not self._delta:  # 델타 모드에선 절대값 캡쳐 숨김
-            _cap_key=(W,H,self.db_max,self.db_min)
+        # E 포커스: 캡쳐 선택 시 라이브(흐림) 먼저 → 포커스 캡쳐(밝음) 위. 라이브 포커스 시 반대.
+        _cap_focus = (self._front_idx is not None)
+        def _draw_caps():
+            if not (self._captures and not self._delta): return  # 델타 모드 절대값 캡쳐 숨김
+            _cap_key=(W,H,self.db_max,self.db_min,self._front_idx,self._live_on_top)
             if self._cap_pix is None or self._cap_pix_key!=_cap_key:
                 self._trigger_cap_build(W, H, _cap_key)
             if self._cap_pix is not None:
                 p.drawPixmap(0,0,self._cap_pix)
-
-        if self._live_on_top:
-            self._draw_live_curve(p,W,H)
+        if _cap_focus:
+            self._draw_live_curve(p,W,H); _draw_caps()
+        else:
+            _draw_caps(); self._draw_live_curve(p,W,H)
 
         self._draw_grid_lines(p, W, H)
 
@@ -5776,7 +5852,7 @@ class TFIRCanvas(QWidget):
         MAX_PTS = max(int(uw), 200)  # 화면 픽셀 수 기준 — Python 루프 최소화
         img=QImage(W,H,QImage.Format_ARGB32_Premultiplied); img.fill(0)
         p=QPainter(img); p.setRenderHint(QPainter.Antialiasing,True)
-        def _draw_one(cap):
+        def _draw_one(cap, emph=False):
             t_arr=cap['t']; h_raw=cap['h']
             if t_arr is None or h_raw is None: return  # extra 카드 빈 IR 캡쳐 스킵
             xs_r=ys_r=None
@@ -5805,24 +5881,29 @@ class TFIRCanvas(QWidget):
                         xs_r=(pl+(t_v-self.t_min)/t_range*uw).astype(float)
                         ys_r=(pt+np.clip((self.db_max-db_v)/db_range*dh,0,dh)).astype(float)
             if xs_r is not None and len(xs_r)>=2:
-                # Python for 루프 대신 QPolygonF + drawPolyline — 단일 C++ 호출
+                # E 포커스: 선택(front)=밝고 굵게, 비선택=흐리고 얇게
                 poly=QPolygonF([QPointF(x,y) for x,y in zip(xs_r.tolist(),ys_r.tolist())])
-                p.setPen(QPen(QColor(cap['color']),1.5)); p.setBrush(Qt.NoBrush)
+                qc=QColor(cap['color'])
+                if emph:
+                    p.setPen(QPen(qc,3.0))
+                else:
+                    qc.setAlpha(140); p.setPen(QPen(qc,1.4))
+                p.setBrush(Qt.NoBrush)
                 p.drawPolyline(poly)
         for i,cap in enumerate(caps):
             if i==front: continue
             if not cap.get('visible', True): continue
-            _draw_one(cap)
+            _draw_one(cap, emph=False)
         if front is not None and 0<=front<len(caps):
             if caps[front].get('visible', True):
-                _draw_one(caps[front])
+                _draw_one(caps[front], emph=True)
         p.end()
         return img
 
     def _build_cap_pix(self, W, H):
         img = self._build_cap_img(W, H, list(self._captures), self._front_idx)
         self._cap_pix = QPixmap.fromImage(img)
-        self._cap_pix_key = (W, H, self.db_max, self.db_min, round(self.t_min,1), round(self.t_max,1), self.ir_mode)
+        self._cap_pix_key = (W, H, self.db_max, self.db_min, round(self.t_min,1), round(self.t_max,1), self.ir_mode, self._front_idx, self._live_on_top)
 
     def add_capture(self, label, color, delay=0.0):
         if self.t_ms is None or self.h_raw is None: return
@@ -5885,7 +5966,7 @@ class TFIRCanvas(QWidget):
     def set_front_curve(self, key):
         self._front_extra = key; self.update()
 
-    def _draw_ir_curve(self, p, W, H, t_arr, h_raw, color, width, etc_db=None):
+    def _draw_ir_curve(self, p, W, H, t_arr, h_raw, color, width, etc_db=None, dim=False):
         """단일 IR 곡선(line)을 현재 ir_mode에 맞춰 그림 — extra/front 공용."""
         if t_arr is None or h_raw is None or len(t_arr) < 2: return
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
@@ -5913,7 +5994,9 @@ class TFIRCanvas(QWidget):
             ids=np.linspace(0,len(t_v)-1,_mp,dtype=int); t_v=t_v[ids]; ys=ys[ids]
         xs=(pl+(t_v-self.t_min)/t_range*uw).astype(float); ys=ys.astype(float)
         p.setRenderHint(QPainter.Antialiasing,True)
-        p.setPen(QPen(QColor(color),width)); p.setBrush(Qt.NoBrush)
+        _qc=QColor(color)
+        if dim: _qc.setAlpha(140)
+        p.setPen(QPen(_qc,width)); p.setBrush(Qt.NoBrush)
         p.drawPolyline(QPolygonF([QPointF(x,y) for x,y in zip(xs.tolist(),ys.tolist())]))
 
     def set_data(self, t_ms, h):
@@ -6075,6 +6158,15 @@ class TFIRCanvas(QWidget):
         dh = H - pt - pb; uw = W - pl - pr
         t_range = max(self.t_max - self.t_min, 1.0)
         p.setRenderHint(QPainter.Antialiasing, True)
+        # E 포커스: 포커스된 하나만 밝게, 나머지 라이브는 흐리게(alpha 140)
+        _capf = (self._front_idx is not None)
+        _fk = self._front_extra
+        def _is_focus(key):
+            if _capf: return False
+            if key is None or key == -1: return (_fk is None or _fk == -1)
+            return _fk == key
+        _pdim = not _is_focus(None)        # primary 흐림 여부
+        _LA = 140 if _pdim else 230        # primary 라이브 라인 알파
         if self.ir_mode == 0:
             if self.t_ms is not None and self.h_raw is not None and len(self.t_ms) >= 2:
                 peak_lin = max(float(np.max(np.abs(self.h_raw))), 1e-10)
@@ -6088,7 +6180,7 @@ class TFIRCanvas(QWidget):
                         t_v = t_v[ids]; h_v = h_v[ids]
                     xs = (pl + (t_v - self.t_min) / t_range * uw).astype(float)
                     ys = (pt + np.clip((1.0 - h_v) / 2.0 * dh, 0, dh)).astype(float)
-                    lc = QColor(T('green')); lc.setAlpha(230)
+                    lc = QColor(T('green')); lc.setAlpha(_LA)
                     p.setPen(QPen(lc, 2.0)); p.setBrush(Qt.NoBrush)
                     p.drawPolyline(QPolygonF([QPointF(x,y) for x,y in zip(xs.tolist(),ys.tolist())]))
         else:
@@ -6120,31 +6212,32 @@ class TFIRCanvas(QWidget):
                             for pt2 in _poly_pts[1:]: fp.lineTo(pt2.x(), pt2.y())
                             fp.lineTo(xs[-1], float(H - pb)); fp.closeSubpath()
                             g = QLinearGradient(0, pt, 0, H - pb)
-                            ac = QColor(T('green')); ac.setAlpha(55)
-                            ac2 = QColor(T('green')); ac2.setAlpha(5)
+                            ac = QColor(T('green')); ac.setAlpha(20 if _pdim else 55)
+                            ac2 = QColor(T('green')); ac2.setAlpha(2 if _pdim else 5)
                             g.setColorAt(0, ac); g.setColorAt(1, ac2)
                             p.setBrush(QBrush(g)); p.setPen(Qt.NoPen); p.drawPath(fp)
-                            lc = QColor(T('green')); lc.setAlpha(230)
+                            lc = QColor(T('green')); lc.setAlpha(_LA)
                             p.setPen(QPen(lc, 1.6)); p.setBrush(Qt.NoBrush)
                             p.drawPolyline(QPolygonF(_poly_pts))
                         else:  # Log — line only
-                            lc = QColor(T('green')); lc.setAlpha(200)
+                            lc = QColor(T('green')); lc.setAlpha(_LA)
                             p.setPen(QPen(lc, 1.2)); p.setBrush(Qt.NoBrush)
                             p.drawPolyline(QPolygonF(_poly_pts))
 
-        # 카드별 추가 IR 곡선 + front 맨앞 재드로우 (멀티카드일 때만 — 단일카드는 기존 모습 유지)
+        # 카드별 추가 IR 곡선 + front(포커스) 맨앞 굵게 재드로우. 비포커스는 흐리게(alpha 140).
         if self._tf_extra:
             for key, ex in self._tf_extra.items():
-                if key == self._front_extra: continue
+                if key == self._front_extra and not _capf: continue   # front는 아래서 굵게(라이브 포커스 시)
                 self._draw_ir_curve(p, W, H, ex.get('t'), ex.get('h'),
-                                    ex.get('color'), 1.6, ex.get('etc_db'))
-            fk = self._front_extra
-            if fk is None or fk == -1:
-                self._draw_ir_curve(p, W, H, self.t_ms, self.h_raw, T('green'), 2.8, self.etc_db)
-            elif fk in self._tf_extra:
-                ex = self._tf_extra[fk]
-                self._draw_ir_curve(p, W, H, ex.get('t'), ex.get('h'),
-                                    ex.get('color'), 2.8, ex.get('etc_db'))
+                                    ex.get('color'), 1.6, ex.get('etc_db'), dim=not _is_focus(key))
+            if not _capf:   # 캡쳐 포커스 시엔 라이브 front 굵게 재드로우 생략
+                fk = self._front_extra
+                if fk is None or fk == -1:
+                    self._draw_ir_curve(p, W, H, self.t_ms, self.h_raw, T('green'), 2.8, self.etc_db)
+                elif fk in self._tf_extra:
+                    ex = self._tf_extra[fk]
+                    self._draw_ir_curve(p, W, H, ex.get('t'), ex.get('h'),
+                                        ex.get('color'), 2.8, ex.get('etc_db'))
 
     def paintEvent(self, ev):
         W = self.width(); H = self.height()
@@ -6152,18 +6245,19 @@ class TFIRCanvas(QWidget):
             self._build_cache(W, H)
         p = QPainter(self); p.drawPixmap(0, 0, self._cache)
 
-        if not self._live_on_top:
-            self._draw_live_curve(p, W, H)
-
-        if self._captures:
-            _cap_key=(W,H,self.db_max,self.db_min,round(self.t_min,1),round(self.t_max,1),self.ir_mode)
+        # E 포커스: 캡쳐 선택 시 라이브(흐림) 먼저 → 포커스 캡쳐(밝음) 위. 라이브 포커스 시 반대.
+        _cap_focus = (self._front_idx is not None)
+        def _draw_caps():
+            if not self._captures: return
+            _cap_key=(W,H,self.db_max,self.db_min,round(self.t_min,1),round(self.t_max,1),self.ir_mode,self._front_idx,self._live_on_top)
             if self._cap_pix is None or self._cap_pix_key!=_cap_key:
                 self._trigger_cap_build(W, H, _cap_key)
             if self._cap_pix is not None:
                 p.drawPixmap(0,0,self._cap_pix)
-
-        if self._live_on_top:
-            self._draw_live_curve(p, W, H)
+        if _cap_focus:
+            self._draw_live_curve(p, W, H); _draw_caps()
+        else:
+            _draw_caps(); self._draw_live_curve(p, W, H)
 
         self._draw_grid_lines(p, W, H)
 
@@ -7872,9 +7966,11 @@ class TransferFunctionWindow(QWidget):
         self._front_pair = key
         for c in self._level_cards:
             c.set_selected(c is card)
-        self.mag_cvs.set_front_curve(key)
-        self.phase_cvs.set_front_curve(key)
-        self.ir_cvs.set_front_curve(key)
+        # 카드 클릭 → 라이브 포커스(캡쳐 선택 해제 → 캡쳐 흐리게, 그 카드 곡선 밝게 맨앞)
+        for cvs in (self.mag_cvs, self.phase_cvs, self.ir_cvs):
+            cvs._live_on_top = True; cvs._front_idx = None
+            cvs._cap_pix = None
+            cvs.set_front_curve(key)   # _front_extra 설정 + update
         # 선택한 카드의 딜레이로 IR 임펄스 센터 정렬 + ▷ 숫자 표기 (각 카드 클릭 시 그 카드 기준)
         self._sync_ir_delay_marker()
 
@@ -12571,8 +12667,11 @@ class MainWindow(QMainWindow):
         if self._primary_card: self._primary_card.set_selected(card_id == 0)
         for src in self._spec_extra:
             if src.get('card'): src['card'].set_selected(src['id'] == card_id)
-        self.fft_cvs._front_id = card_id; self.fft_cvs.update()
-        self.oct_cvs._front_id = card_id; self.oct_cvs.update()
+        # 라이브 카드 클릭 → 라이브 포커스(캡쳐 선택 해제 → 캡쳐 흐리게, 라이브 솔리드) + 그 소스 맨앞
+        for cvs in (self.fft_cvs, self.oct_cvs):
+            cvs._front_id = card_id
+            cvs._live_on_top = True; cvs._front_idx = None
+            cvs._cap_pix = None; cvs.update()
 
     # ── 멀티-장치 추가 소스 관리
     def _spec_smallest_unused_num(self):
@@ -13158,7 +13257,7 @@ if __name__=='__main__':
 
     # ── 세션 시작 로그 헤더
     _alog.info('=' * 60)
-    _alog.info(f'WSA2 v1.0  시작  {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+    _alog.info(f'WSA2 v1.6-beta  시작  {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
     _alog.info(f'OS: {_pl.platform()}')
     _alog.info(f'Machine: {_pl.machine()}  Processor: {_pl.processor()}')
     _alog.info(f'Python: {_pl.python_version()}')
