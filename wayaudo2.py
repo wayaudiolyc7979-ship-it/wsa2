@@ -42,8 +42,11 @@ def _no_stderr():
     try: yield
     finally: os.dup2(_sv, 2); os.close(_sv)
 
-# ─── 세션 로그  ~/Library/Logs/WSA2/wsa2_YYYYMMDD_HHMMSS.log ───────────────
-_LOG_DIR  = os.path.expanduser('~/Library/Logs/WSA2')
+# ─── 세션 로그 (macOS: ~/Library/Logs/WSA2 / Windows: %LOCALAPPDATA%\WSA2\Logs) ───
+if _pl.system() == 'Windows':
+    _LOG_DIR = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'WSA2', 'Logs')
+else:
+    _LOG_DIR = os.path.expanduser('~/Library/Logs/WSA2')
 os.makedirs(_LOG_DIR, exist_ok=True)
 _LOG_TS   = _dt.datetime.now().strftime('%Y%m%d_%H%M%S')
 _LOG_PATH = os.path.join(_LOG_DIR, f'wsa2_{_LOG_TS}.log')
@@ -297,8 +300,12 @@ FREQ_MARKS = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
 # ───────────────────────────────────────────
 #  설정 저장/불러오기
 # ───────────────────────────────────────────
-_SETTINGS_PATH = os.path.expanduser('~/Library/Application Support/WSA2/settings.json')
-_CAPTURES_PATH = os.path.expanduser('~/Library/Application Support/WSA2/captures.json')
+if _pl.system() == 'Windows':
+    _APP_SUPPORT = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'WSA2')
+else:
+    _APP_SUPPORT = os.path.expanduser('~/Library/Application Support/WSA2')
+_SETTINGS_PATH = os.path.join(_APP_SUPPORT, 'settings.json')
+_CAPTURES_PATH = os.path.join(_APP_SUPPORT, 'captures.json')
 _CAPTURES_LOCK = threading.Lock()   # captures.json 동시 읽기-수정-쓰기 보호 (백그라운드 저장용)
 
 def _load_settings():
@@ -408,7 +415,7 @@ PAD_CTRL, PAD_SM = '2px 8px', '1px 4px'
 
 # 앱 전체 글꼴 — 한 곳에서 교체 (캔버스 텍스트 + 위젯 공통). 후보: 'Avenir Next'(지오메트릭·세련),
 # 'Helvetica Neue'(클래식), '.AppleSystemUIFont'(SF Pro 시스템), 'Arial'(구 기본)
-FONT_FAMILY = 'Optima'
+FONT_FAMILY = 'Segoe UI' if _pl.system() == 'Windows' else 'Optima'   # Optima는 맥 전용 → Windows는 Segoe UI
 
 def _qfont(pt, bold=False):
     f = QFont(FONT_FAMILY, pt); f.setBold(bold); return f
@@ -11653,7 +11660,8 @@ class MainWindow(QMainWindow):
         log_btn = self._log_btn = QPushButton('Log')
         log_btn.setFixedHeight(22)
         log_btn.setToolTip(f'로그 폴더 열기\n{_LOG_DIR}')
-        log_btn.clicked.connect(lambda: _sp.Popen(['open', _LOG_DIR]))
+        log_btn.clicked.connect(lambda: (os.startfile(_LOG_DIR) if _pl.system() == 'Windows'
+                                         else _sp.Popen(['open', _LOG_DIR])))
         lic_btn = self._lic_btn = QPushButton('License')
         lic_btn.setFixedHeight(22)
         lic_btn.setToolTip('라이선스 정보')

@@ -1,0 +1,32 @@
+name: Build Windows
+
+# 수동 실행(Actions 탭 > Run workflow) 또는 v태그 push 시 자동 빌드
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install PyQt5 numpy scipy sounddevice soundfile pyinstaller
+
+      - name: Build with PyInstaller
+        run: python -m PyInstaller WSA2_Windows.spec --clean --noconfirm
+
+      - name: Upload WSA2.exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WSA2-Windows-x64
+          path: dist/WSA2.exe
