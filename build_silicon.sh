@@ -23,7 +23,7 @@ python3 -m pip install --user PyQt5 numpy scipy sounddevice soundfile pyinstalle
 
 # PyInstaller 빌드 (WSA2.spec = arm64, 버전 1.0)
 echo "PyInstaller 빌드 시작..."
-python3 -m PyInstaller WSA2.spec --clean
+python3 -m PyInstaller WSA2.spec --clean --noconfirm
 
 # DMG 생성
 echo "DMG 생성 중..."
