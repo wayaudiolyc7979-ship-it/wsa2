@@ -375,12 +375,12 @@ THEMES = {
         'spec_line':     '#33FF66',
         'peak_line':     '#FF9F0A',
     },
-    'light': {   # Crisp White — Apple풍 거의-흰 배경 + 순백 패널 + 브랜드 블루 (2026-06-14 리파인)
-        'bg':       '#F4F6FB',
-        'bg2':      '#FCFDFF',
-        'bg3':      '#ECEFF5',
+    'light': {   # Crisp White — 라이트그레이 캔버스 위 흰 서피스가 '떠 보이는' 레이어드 룩 (2026-06-14 리파인 pass2)
+        'bg':       '#E7EDF6',   # 캔버스: 살짝 깊은 쿨그레이 → 흰 패널/툴바가 elevation으로 떠 보임
+        'bg2':      '#FFFFFF',   # 팝업/드롭다운: 깨끗한 흰 카드
+        'bg3':      '#DCE4F0',
         'panel':    '#FFFFFF',
-        'border':   '#DCE2EC',
+        'border':   '#CBD5E4',   # 살짝 더 또렷한 하어라인
         'text':     '#16213A',
         'text_dim': '#5A6B86',
         'graph_txt': '#46566e',
@@ -390,8 +390,8 @@ THEMES = {
         'green':    '#0e7c30',
         'yellow':   '#8c6600',
         'red':      '#b81818',
-        'grid':     '#E2E7F0',
-        'grid_ref': '#CDD6E4',
+        'grid':     '#D7DFEC',
+        'grid_ref': '#BECBDD',
         'spec_fill_top': (22,112,204,120),
         'spec_fill_bot': (22,112,204,8),
         'spec_line':     '#1670cc',
