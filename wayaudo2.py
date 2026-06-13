@@ -888,8 +888,11 @@ def draw_dom_badge(p, plot_right, plot_top, dom_fs, dom_db, unit='dB'):
     tw = p.fontMetrics().horizontalAdvance(txt)
     bw = tw + 24; bh = 36
     bx = plot_right - bw - 6; by = plot_top + 5
-    p.setPen(Qt.NoPen)
-    p.setBrush(QBrush(QColor(0, 0, 0, 220)))
+    if _theme == 'light':
+        # 라이트: 흰 카드 + 은은한 보더 (검정 박스 대신)
+        p.setPen(QPen(QColor(T('border')), 1)); p.setBrush(QBrush(QColor(T('panel'))))
+    else:
+        p.setPen(Qt.NoPen); p.setBrush(QBrush(QColor(0, 0, 0, 220)))
     p.drawRoundedRect(bx, by, bw, bh, 4, 4)
     p.setPen(QColor(T('accent')))
     p.drawText(bx, by, bw, bh, Qt.AlignHCenter | Qt.AlignVCenter, txt)
