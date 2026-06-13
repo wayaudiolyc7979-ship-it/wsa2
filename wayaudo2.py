@@ -2986,7 +2986,7 @@ class LeqWindow(QWidget):
         layout.addWidget(result_group)
 
         # 리셋
-        rst = QPushButton('🔄 Reset')
+        rst = QPushButton('  Reset'); rst.setIcon(_icon('refresh'))
         rst.setStyleSheet(f'background:{T("panel")};color:{T("text_dim")};border:1px solid {T("border")};padding:4px;border-radius:8px;')
         rst.clicked.connect(self._reset_leq)
         layout.addWidget(rst)
@@ -10333,7 +10333,7 @@ class TransferFunctionWindow(QWidget):
         self._audio_file_buf = data
         # 버튼 텍스트에 파일명 (최대 12자) 표시
         import os; fname = os.path.basename(path)
-        self.sig_file_btn.setText(f'🎵 {fname[:12]}{"…" if len(fname)>12 else ""}')
+        self.sig_file_btn.setText(f'{fname[:12]}{"…" if len(fname)>12 else ""}')  # folder 아이콘 유지
         self.sig_file_btn.setChecked(True)
         self.sig_pink_btn.setChecked(False); self.sig_white_btn.setChecked(False)
         self.sig_sweep_btn.setChecked(False)
