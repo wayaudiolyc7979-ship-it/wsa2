@@ -1,6 +1,6 @@
 11#!/usr/bin/env python3
 # ═══════════════════════════════════════════════════
-#  WAYAUDIO Spectrum Analyzer  v1.1
+#  SPECTRA — Spectrum Analyzer  (by WAYAUDIO)  v1.1
 #  ✅ FFT 버벅임 수정 (포인트 다운샘플링)
 #  ✅ 마이크 캘리브레이션 (94/114dB @ 1kHz)
 #  ✅ dBA / dBC 실시간 레벨
@@ -187,7 +187,7 @@ def check_license_at_startup() -> bool:
 class LicenseDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle('WSA2 — 라이선스 활성화'); _apply_dark_titlebar(self)
+        self.setWindowTitle('SPECTRA — 라이선스 활성화'); _apply_dark_titlebar(self)
         self.setFixedSize(460, 310)
         self.setWindowFlags(Qt.Dialog | Qt.MSWindowsFixedSizeDialogHint)
         self._mid = _get_machine_id()
@@ -7910,7 +7910,7 @@ class TransferFunctionWindow(QWidget):
         logo = QLabel()
         logo.setTextFormat(Qt.RichText)
         logo.setText(f'<span style="font-size:14px;font-weight:700;color:{T("accent")};'
-                     f'letter-spacing:2px;">WAYAUDIO</span>'
+                     f'letter-spacing:3px;">SPECTRA</span>'
                      f'&nbsp;&nbsp;<span style="font-size:11px;color:{T("text_dim")};">'
                      f'Transfer Function</span>')
         hl.addWidget(logo); hl.addStretch()
@@ -14027,7 +14027,7 @@ class MainWindow(QMainWindow):
         valid, reason = verify_license(key) if key != '(없음)' else (False, '')
         status = '활성화됨' if valid else '미활성화'
         from PyQt5.QtWidgets import QMessageBox
-        QMessageBox.information(self, 'WSA2 라이선스 정보',
+        QMessageBox.information(self, 'SPECTRA 라이선스 정보',
             f'머신 ID:  {mid}\n'
             f'시리얼 키: {key[:28]}…\n'
             f'상태:  {status}\n\n'
