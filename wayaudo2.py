@@ -364,6 +364,7 @@ THEMES = {
         'graph_txt': '#9CA0A8',
         'accent':    '#4E7DF0',
         'accent2':   '#FF9F0A',
+        'accent3':   '#9B5DE5',
         'green':     '#33FF66',
         'yellow':    '#FFD60A',
         'red':       '#FF453A',
@@ -385,6 +386,7 @@ THEMES = {
         'graph_txt': '#46566e',
         'accent':   '#2E54C8',
         'accent2':  '#cc4c00',
+        'accent3':  '#6a3fb0',
         'green':    '#0e7c30',
         'yellow':   '#8c6600',
         'red':      '#b81818',
@@ -2977,9 +2979,9 @@ class LeqWindow(QWidget):
             return row, val
 
         r1,self.leq_a_lbl   = big_val_row('LEQ(A)', T('accent'))
-        r2,self.leq_c_lbl   = big_val_row('LEQ(C)', T('accent2'))
-        r3,self.inst_a_lbl  = big_val_row('dBA', T('green'))
-        r4,self.inst_c_lbl  = big_val_row('dBC', '#8E8E93')
+        r2,self.leq_c_lbl   = big_val_row('LEQ(C)', T('accent3'))
+        r3,self.inst_a_lbl  = big_val_row('dBA', T('accent'))
+        r4,self.inst_c_lbl  = big_val_row('dBC', T('accent3'))
         for r in [r1,r2,r3,r4]: rg_layout.addLayout(r)
         layout.addWidget(result_group)
 
@@ -3191,10 +3193,10 @@ class SplMeterWindow(QWidget):
     ]
     # 표시 가능한 지표:  id -> (제목, 색)
     _METRICS = {
-        'dba':  ('dB SPL A Slow', '#FFFFFF'),
-        'dbc':  ('dB SPL C Slow', '#33FF66'),
-        'laeq': ('dB LAeq',       '#FFFFFF'),
-        'lceq': ('dB LCeq',       '#33FF66'),
+        'dba':  ('dB SPL A Slow', '#4E7DF0'),
+        'dbc':  ('dB SPL C Slow', '#9B5DE5'),
+        'laeq': ('dB LAeq',       '#4E7DF0'),
+        'lceq': ('dB LCeq',       '#9B5DE5'),
     }
     _DEFAULT_CELLS = ['dba', 'dbc', 'laeq', 'lceq']
 
@@ -12043,24 +12045,24 @@ class MainWindow(QMainWindow):
             vl.setAlignment(Qt.AlignRight)
             row.addWidget(kl); row.addWidget(vl); level_lay.addLayout(row); refs[k]=vl
         dba_row=QHBoxLayout()
-        dba_lbl=QLabel('dBA'); dba_lbl.setStyleSheet(ss_text(FS_XS))
-        dba_val=QLabel('—'); dba_val.setStyleSheet(f'color:#FFFFFF;font-size:{FS_DISP}px;font-weight:bold;')
+        dba_lbl=QLabel('dBA'); dba_lbl.setStyleSheet(ss_text(FS_SM))
+        dba_val=QLabel('—'); dba_val.setStyleSheet(f'color:{T("accent")};font-size:{FS_DISP}px;font-weight:bold;')
         dba_val.setAlignment(Qt.AlignRight)
         dba_row.addWidget(dba_lbl); dba_row.addWidget(dba_val); level_lay.addLayout(dba_row)
         dbc_row=QHBoxLayout()
-        dbc_lbl=QLabel('dBC'); dbc_lbl.setStyleSheet(ss_text(FS_XS))
-        dbc_val=QLabel('—'); dbc_val.setStyleSheet(f'color:{T("green")};font-size:{FS_DISP}px;font-weight:bold;')
+        dbc_lbl=QLabel('dBC'); dbc_lbl.setStyleSheet(ss_text(FS_SM))
+        dbc_val=QLabel('—'); dbc_val.setStyleSheet(f'color:{T("accent3")};font-size:{FS_DISP}px;font-weight:bold;')
         dbc_val.setAlignment(Qt.AlignRight)
         dbc_row.addWidget(dbc_lbl); dbc_row.addWidget(dbc_val); level_lay.addLayout(dbc_row)
         refs['dBA']=dba_val; refs['dBC']=dbc_val
         laeq_row=QHBoxLayout()
-        laeq_lbl=QLabel('LAeq'); laeq_lbl.setStyleSheet(ss_text(FS_XS))
-        laeq_val=QLabel('—'); laeq_val.setStyleSheet(f'color:#FFFFFF;font-size:{FS_VAL}px;font-weight:bold;')
+        laeq_lbl=QLabel('LAeq'); laeq_lbl.setStyleSheet(ss_text(FS_SM))
+        laeq_val=QLabel('—'); laeq_val.setStyleSheet(f'color:{T("accent")};font-size:{FS_VAL}px;font-weight:bold;')
         laeq_val.setAlignment(Qt.AlignRight)
         laeq_row.addWidget(laeq_lbl); laeq_row.addWidget(laeq_val); level_lay.addLayout(laeq_row)
         lceq_row=QHBoxLayout()
-        lceq_lbl=QLabel('LCeq'); lceq_lbl.setStyleSheet(ss_text(FS_XS))
-        lceq_val=QLabel('—'); lceq_val.setStyleSheet(f'color:{T("green")};font-size:{FS_VAL}px;font-weight:bold;')
+        lceq_lbl=QLabel('LCeq'); lceq_lbl.setStyleSheet(ss_text(FS_SM))
+        lceq_val=QLabel('—'); lceq_val.setStyleSheet(f'color:{T("accent3")};font-size:{FS_VAL}px;font-weight:bold;')
         lceq_val.setAlignment(Qt.AlignRight)
         lceq_row.addWidget(lceq_lbl); lceq_row.addWidget(lceq_val); level_lay.addLayout(lceq_row)
         refs['LAeq']=laeq_val; refs['LCeq']=lceq_val
@@ -12068,8 +12070,8 @@ class MainWindow(QMainWindow):
         self.i_spl=refs['SPL']; self.i_pk=refs['Peak Hold']
         self.i_dom=refs['Dominant']; self.i_dba=refs['dBA']; self.i_dbc=refs['dBC']
         self.i_laeq=refs['LAeq']; self.i_lceq=refs['LCeq']
-        self._i_dba_base='#FFFFFF'; self._i_dbc_base=T('green')
-        self._i_laeq_base='#FFFFFF'; self._i_lceq_base=T('green')
+        self._i_dba_base=T('accent'); self._i_dbc_base=T('accent3')
+        self._i_laeq_base=T('accent'); self._i_lceq_base=T('accent3')
         self._i_warn_db = -20.0; self._i_peak_db = -10.0
         layout.addWidget(level_w)
 
