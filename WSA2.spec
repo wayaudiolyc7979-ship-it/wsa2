@@ -24,7 +24,7 @@ a = Analysis(
         'soundfile', '_soundfile', 'cffi', '_cffi_backend',
         'scipy', 'scipy.io', 'scipy.io.wavfile', 'scipy.signal',
         'scipy.fft', 'scipy.fftpack',
-        'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets',
+        'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets', 'PyQt5.QtSvg',
         'PyQt5.sip',
         'numpy', 'numpy.core', 'numpy.fft',
         'collections', 'collections.abc',

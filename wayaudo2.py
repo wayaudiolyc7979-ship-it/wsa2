@@ -196,8 +196,8 @@ class LicenseDialog(QDialog):
     def _build_ui(self):
         lay = QVBoxLayout(self); lay.setSpacing(14); lay.setContentsMargins(24, 20, 24, 20)
 
-        title = QLabel('WAYAUDIO Spectrum Analyzer 2')
-        title.setStyleSheet('font-size:15px;font-weight:bold;color:#3E7BD6;')
+        title = QLabel('SPECTRA')
+        title.setStyleSheet('font-size:17px;font-weight:bold;color:#3E7BD6;letter-spacing:4px;')
         lay.addWidget(title)
 
         # 머신 ID 표시
@@ -622,6 +622,47 @@ class _ResetMaxBtn(QPushButton):
         p.drawPolygon(QPolygonF([
             QPointF(ax, ay - 1), QPointF(ax + 4, ay), QPointF(ax, ay + 4)]))
         p.end()
+
+
+# ── SPECTRA 로고 마크 (정적 그라디언트 웨이브 SVG → QPixmap 캐시; 라이브 렌더 아님 → 속도 무관)
+_SPECTRA_MARK_SVG = (
+    b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 110 60">'
+    b'<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="0">'
+    b'<stop offset="0" stop-color="#1FA2FF"/><stop offset="0.28" stop-color="#4E7DF0"/>'
+    b'<stop offset="0.52" stop-color="#9B5DE5"/><stop offset="0.72" stop-color="#F15BB5"/>'
+    b'<stop offset="0.86" stop-color="#FF9F0A"/><stop offset="1" stop-color="#FF453A"/>'
+    b'</linearGradient></defs>'
+    b'<path d="M2,42 C12,42 14,30 20,30 S26,46 31,40 S37,8 44,18 S50,52 56,34 '
+    b'S62,4 70,26 S76,50 83,38 S90,22 96,30 S104,40 108,38" fill="none" '
+    b'stroke="url(#g)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+)
+# 시그니처 그라디언트 — Qt 스타일시트용 (헤더 언더라인 등)
+_SPECTRA_GRAD_QSS = ('qlineargradient(x1:0,y1:0,x2:1,y2:0,'
+                     'stop:0 #1FA2FF, stop:0.28 #4E7DF0, stop:0.52 #9B5DE5,'
+                     'stop:0.72 #F15BB5, stop:0.86 #FF9F0A, stop:1 #FF453A)')
+_spectra_mark_cache = {}
+def _spectra_mark(h=22):
+    """그라디언트 웨이브 마크 QPixmap(높이 h px). 한 번만 렌더 후 캐시 (속도 영향 0)."""
+    try:
+        dpr = QApplication.primaryScreen().devicePixelRatio() if QApplication.instance() else 1.0
+    except Exception:
+        dpr = 1.0
+    w = int(round(h * 110 / 60))
+    key = (w, h, round(dpr, 2))
+    pm = _spectra_mark_cache.get(key)
+    if pm is not None:
+        return pm
+    try:
+        from PyQt5.QtCore import QByteArray
+        from PyQt5.QtSvg import QSvgRenderer
+        r = QSvgRenderer(QByteArray(_SPECTRA_MARK_SVG))
+        pm = QPixmap(max(1, int(w * dpr)), max(1, int(h * dpr))); pm.fill(Qt.transparent)
+        p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing); r.render(p); p.end()
+        pm.setDevicePixelRatio(dpr)
+    except Exception:
+        pm = QPixmap(1, 1); pm.fill(Qt.transparent)   # QtSvg 없으면 빈 마크(워드마크만 표시)
+    _spectra_mark_cache[key] = pm
+    return pm
 
 
 def ss_text(size=FS_BODY, color_key='text_dim', bold=False):
@@ -7621,7 +7662,7 @@ class TransferFunctionWindow(QWidget):
             super().__init__(parent)
         else:
             super().__init__(parent, Qt.Window)
-            self.setWindowTitle('WAYAUDIO — Transfer Function')
+            self.setWindowTitle('SPECTRA — Transfer Function')
             self.setMinimumSize(1020, 570)
         self._settings = settings or {}
         self._tf_primary_name = self._settings.get('tf_primary_name', '')  # primary 카드 사용자 이름
@@ -11367,7 +11408,7 @@ class StereoLoudnessPage(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle('WAYAUDIO Spectrum Analyzer 2')
+        self.setWindowTitle('SPECTRA')
         self.setMinimumSize(1100, 660)
         self.resize(1440, 800)
 
@@ -11484,8 +11525,13 @@ class MainWindow(QMainWindow):
         self.hdr = QWidget(); self.hdr.setFixedHeight(38)
         self.hdr.setObjectName('mainHdr')
         hl = QHBoxLayout(self.hdr); hl.setContentsMargins(80, 0, 12, 0); hl.setSpacing(0)
-        self.logo_lbl = QLabel(); self.logo_lbl.setTextFormat(Qt.RichText)
-        self.logo_lbl.setAlignment(Qt.AlignCenter)
+        # ── 브랜드 로고: 그라디언트 웨이브 마크(캐시 QPixmap) + SPECTRA 워드마크
+        self.logo_mark = QLabel(); self.logo_mark.setPixmap(_spectra_mark(20))
+        self.logo_mark.setStyleSheet('background:transparent;')
+        self.logo_lbl = QLabel('SPECTRA'); self.logo_lbl.setTextFormat(Qt.PlainText)
+        self.logo_w = QWidget()
+        _lw = QHBoxLayout(self.logo_w); _lw.setContentsMargins(0, 0, 0, 0); _lw.setSpacing(9)
+        _lw.addWidget(self.logo_mark); _lw.addWidget(self.logo_lbl)
         self.status_lbl = QLabel('● Standby')
         self.theme_btn = QPushButton('Light'); self.theme_btn.setIcon(_icon('sun'))
         self.theme_btn.setFixedWidth(72); self.theme_btn.setFixedHeight(28)
@@ -11500,13 +11546,13 @@ class MainWindow(QMainWindow):
         _right_lay.addWidget(self.theme_btn)
         _right_lay.addWidget(self.calib_btn)
         hl.addStretch(1)
-        hl.addWidget(self.logo_lbl)
+        hl.addWidget(self.logo_w)
         hl.addSpacing(120)
         hl.addWidget(_right_w, 1)
         self.hdr.installEventFilter(self)
         root.addWidget(self.hdr)
         self.hdr_sep = QFrame(); self.hdr_sep.setFrameShape(QFrame.HLine)
-        self.hdr_sep.setFixedHeight(1); self.hdr_sep.setObjectName('hdrSep')
+        self.hdr_sep.setFixedHeight(3); self.hdr_sep.setObjectName('hdrSep')   # 시그니처 그라디언트 언더라인
         root.addWidget(self.hdr_sep)
 
         # ── Layer 2: 40px 탭바 — Apple segmented control style
@@ -11794,7 +11840,7 @@ class MainWindow(QMainWindow):
         # ── 푸터
         self.ft=QWidget(); self.ft.setFixedHeight(22)
         fl=QHBoxLayout(self.ft); fl.setContentsMargins(16,0,16,0)
-        fl.addWidget(QLabel('WSA Spectrum Analyzer 2  |  v1.1'))
+        fl.addWidget(QLabel('SPECTRA  |  v1.1'))
         fl.addStretch()
         jordan_lbl=QLabel('Design by Jordan')
         jordan_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:10px;font-style:italic;')
@@ -12207,7 +12253,7 @@ class MainWindow(QMainWindow):
         self._capture_drawer._inner.setStyleSheet(f'#capInner {{ background:{bg}; }}')
         sep_line = '#4A4A4A' if _theme == 'dark' else border
         self.hdr.setStyleSheet(f'#mainHdr {{ background: {bg2}; border: none; }}')
-        self.hdr_sep.setStyleSheet(f'background: {sep_line}; border: none;')
+        self.hdr_sep.setStyleSheet(f'#hdrSep {{ background: {_SPECTRA_GRAD_QSS}; border: none; }}')
         self.tab_bar.setStyleSheet(
             f'#mainTabBar {{ background: {bg2}; border-bottom: 1px solid {sep_line}; }}')
         self._main_seg_pill.setStyleSheet(
@@ -12266,11 +12312,8 @@ class MainWindow(QMainWindow):
                 _b = getattr(self.tf_win, _bn, None)
                 if _b is not None and not _b.icon().isNull(): _b.setIcon(_icon(_ic, _sz))
         self._apply_tab_styles()
-        self.logo_lbl.setText(
-            f'<span style="font-size:14px;font-weight:700;'
-            f'color:{accent};letter-spacing:3px;">WAYAUDIO</span>'
-            f'&nbsp;<span style="font-size:10px;color:{text_dim};">Spectrum Analyzer 2</span>'
-        )
+        self.logo_lbl.setStyleSheet(
+            f'font-size:17px;font-weight:700;letter-spacing:5px;color:{text};background:transparent;')
         self.status_lbl.setStyleSheet(
             f'color:{text_dim};font-size:11px;letter-spacing:0.5px;')
         self.mic_st.setStyleSheet(f'color:{text_dim};font-size:10px;')
@@ -13815,13 +13858,13 @@ if __name__=='__main__':
 
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
-    app.setApplicationName('WSA Spectrum Analyzer')
+    app.setApplicationName('SPECTRA')
     # 앱 전체 글꼴 — 가족만 교체(크기는 위젯별 stylesheet/기본 유지) → 레이아웃 영향 최소
     _appf = app.font(); _appf.setFamily(FONT_FAMILY); app.setFont(_appf)
 
     # ── 세션 시작 로그 헤더
     _alog.info('=' * 60)
-    _alog.info(f'WSA2 v1.1  시작  {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+    _alog.info(f'SPECTRA v1.1  시작  {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
     _alog.info(f'OS: {_pl.platform()}')
     _alog.info(f'Machine: {_pl.machine()}  Processor: {_pl.processor()}')
     _alog.info(f'Python: {_pl.python_version()}')

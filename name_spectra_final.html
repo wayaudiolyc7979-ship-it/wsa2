@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>SPECTRA — 최종 헤더 목업</title>
+<style>
+  :root{--bg:#0e0e10;--dim:#8e8e93;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:#fff;
+       font-family:Optima,'Segoe UI',-apple-system,sans-serif;padding:44px 36px 90px;}
+  h1{font-size:24px;letter-spacing:1px;margin:0 0 4px;}
+  .sub{color:var(--dim);font-size:13px;margin-bottom:36px;}
+  .cap{color:var(--dim);font-size:11px;margin:26px 0 8px;letter-spacing:1px;}
+
+  /* realistic app header */
+  .app{max-width:880px;border:1px solid #2a2a2e;border-radius:12px;overflow:hidden;}
+  .app .bar{display:flex;align-items:center;height:50px;padding:0 18px;}
+  .app.dark .bar{background:#1c1c1e;}
+  .app.light .bar{background:#d4dcea;}
+  .logo{display:flex;align-items:center;gap:13px;}
+  .wm{font-weight:700;letter-spacing:5px;font-size:18px;}
+  .right{margin-left:auto;display:flex;align-items:center;gap:10px;}
+  .stat{font-size:11px;color:var(--dim);letter-spacing:.5px;}
+  .btn{font-size:11px;padding:5px 12px;border-radius:7px;border:1px solid #38383a;
+       background:#2c2c2e;color:#c7c7cc;display:flex;align-items:center;gap:6px;}
+  .app.light .btn{background:#bcc6d6;border-color:#7e94b0;color:#0c1828;}
+  .app.light .stat{color:#38506c;}
+  .ul{height:3px;background:linear-gradient(90deg,#1FA2FF,#9B5DE5,#FF9F0A,#FF453A);}
+  .tabs{display:flex;gap:2px;padding:6px 12px;}
+  .app.dark .tabs{background:#161618;}
+  .app.light .tabs{background:#c8d0de;}
+  .tab{font-size:11px;font-weight:600;padding:6px 16px;border-radius:6px;color:#8e8e93;}
+  .tab.on{background:#3a3a3c;color:#fff;}
+  .app.light .tab{color:#46566e;} .app.light .tab.on{background:#fff;color:#0c1828;}
+
+  .icons{display:flex;gap:26px;align-items:flex-end;margin-top:10px;}
+  .ic{display:flex;flex-direction:column;align-items:center;gap:8px;}
+  .ic .c{color:var(--dim);font-size:10px;}
+  .sq{border-radius:22px;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 22px rgba(0,0,0,.45);}
+</style>
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute"><defs>
+    <linearGradient id="spec" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1FA2FF"/><stop offset="0.28" stop-color="#4E7DF0"/>
+      <stop offset="0.52" stop-color="#9B5DE5"/><stop offset="0.72" stop-color="#F15BB5"/>
+      <stop offset="0.86" stop-color="#FF9F0A"/><stop offset="1" stop-color="#FF453A"/>
+    </linearGradient>
+  </defs></svg>
+
+  <h1>SPECTRA</h1>
+  <div class="sub">C안 — 설명 없이 마크 + SPECTRA 만. 실제 앱 헤더(오른쪽 컨트롤·탭바 포함)에 얹은 모습.</div>
+
+  <!-- DARK -->
+  <div class="cap">다크</div>
+  <div class="app dark">
+    <div class="bar">
+      <div class="logo">
+        <svg width="46" height="25" viewBox="0 0 110 60"><path d="M2,42 C12,42 14,30 20,30 S26,46 31,40 S37,8 44,18 S50,52 56,34 S62,4 70,26 S76,50 83,38 S90,22 96,30 S104,40 108,38" fill="none" stroke="url(#spec)" stroke-width="5" stroke-linecap="round"/></svg>
+        <span class="wm">SPECTRA</span>
+      </div>
+      <div class="right">
+        <span class="stat">● Standby</span>
+        <span class="btn">☀ Light</span>
+        <span class="btn">⚙ Calibration</span>
+      </div>
+    </div>
+    <div class="ul"></div>
+    <div class="tabs">
+      <span class="tab on">Spectrum</span><span class="tab">Transfer Function</span><span class="tab">Stereo Loudness</span>
+    </div>
+  </div>
+
+  <!-- LIGHT -->
+  <div class="cap">라이트</div>
+  <div class="app light">
+    <div class="bar">
+      <div class="logo">
+        <svg width="46" height="25" viewBox="0 0 110 60"><path d="M2,42 C12,42 14,30 20,30 S26,46 31,40 S37,8 44,18 S50,52 56,34 S62,4 70,26 S76,50 83,38 S90,22 96,30 S104,40 108,38" fill="none" stroke="url(#spec)" stroke-width="5" stroke-linecap="round"/></svg>
+        <span class="wm" style="color:#0c1828">SPECTRA</span>
+      </div>
+      <div class="right">
+        <span class="stat">● Standby</span>
+        <span class="btn">☀ Light</span>
+        <span class="btn">⚙ Calibration</span>
+      </div>
+    </div>
+    <div class="ul"></div>
+    <div class="tabs">
+      <span class="tab on">Spectrum</span><span class="tab">Transfer Function</span><span class="tab">Stereo Loudness</span>
+    </div>
+  </div>
+
+  <!-- 언더라인 없는 버전(참고) -->
+  <div class="cap">참고 · 그라디언트 언더라인 없이 (마크에만 색)</div>
+  <div class="app dark">
+    <div class="bar">
+      <div class="logo">
+        <svg width="46" height="25" viewBox="0 0 110 60"><path d="M2,42 C12,42 14,30 20,30 S26,46 31,40 S37,8 44,18 S50,52 56,34 S62,4 70,26 S76,50 83,38 S90,22 96,30 S104,40 108,38" fill="none" stroke="url(#spec)" stroke-width="5" stroke-linecap="round"/></svg>
+        <span class="wm">SPECTRA</span>
+      </div>
+      <div class="right"><span class="stat">● Standby</span><span class="btn">☀ Light</span><span class="btn">⚙ Calibration</span></div>
+    </div>
+    <div class="tabs">
+      <span class="tab on">Spectrum</span><span class="tab">Transfer Function</span><span class="tab">Stereo Loudness</span>
+    </div>
+  </div>
+
+  <!-- ICONS + FOOTER -->
+  <div class="cap" style="margin-top:32px">Dock 아이콘 · 푸터</div>
+  <div class="icons">
+    <div class="ic"><div class="sq" style="width:92px;height:92px;background:#131315;border:1px solid #2a2a2e;">
+      <svg width="56" height="36" viewBox="0 0 110 60"><path d="M2,42 C12,42 14,30 20,30 S26,46 31,40 S37,8 44,18 S50,52 56,34 S62,4 70,26 S76,50 83,38 S90,22 96,30 S104,40 108,38" fill="none" stroke="url(#spec)" stroke-width="6" stroke-linecap="round"/></svg>
+    </div><div class="c">다크</div></div>
+    <div class="ic"><div class="sq" style="width:92px;height:92px;background:linear-gradient(135deg,#1FA2FF,#9B5DE5 55%,#FF6B3D);">
+      <svg width="56" height="36" viewBox="0 0 110 60"><path d="M2,42 C12,42 14,30 20,30 S26,46 31,40 S37,8 44,18 S50,52 56,34 S62,4 70,26 S76,50 83,38 S90,22 96,30 S104,40 108,38" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/></svg>
+    </div><div class="c">그라디언트</div></div>
+    <div class="ic" style="align-self:center">
+      <div style="color:#8e8e93;font-size:13px;font-family:Optima,sans-serif">SPECTRA&nbsp;&nbsp;|&nbsp;&nbsp;v1.1</div>
+      <div class="c">푸터</div>
+    </div>
+  </div>
+</body>
+</html>
