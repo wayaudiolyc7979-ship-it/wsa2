@@ -3102,9 +3102,9 @@ class _SplPanel(QWidget):
             f'color:{tc};font-size:18px;font-weight:bold;background:transparent;')
         layout.addWidget(self._title_lbl)
 
-        sep = QFrame(); sep.setFrameShape(QFrame.HLine); sep.setFixedHeight(1)
-        sep.setStyleSheet('background:#38383A;border:none;')
-        layout.addWidget(sep)
+        self._sep = QFrame(); self._sep.setFrameShape(QFrame.HLine); self._sep.setFixedHeight(1)
+        self._sep.setStyleSheet(f'background:{T("border")};border:none;')
+        layout.addWidget(self._sep)
 
         self._val_lbl = QLabel('—')
         self._val_lbl.setAlignment(Qt.AlignCenter)
@@ -3127,14 +3127,21 @@ class _SplPanel(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         r = QRectF(self.rect()).adjusted(2, 2, -2, -2)
+        # 테마 토큰 사용 → 다크/라이트 토글 시 update()만으로 카드 배경이 따라감
         p.setPen(Qt.NoPen)
-        p.setBrush(self._bg)
+        p.setBrush(QColor(T('panel')))
         p.drawRoundedRect(r, 8, 8)
-        pen = QPen(self._bord, 1.5)
+        pen = QPen(QColor(T('border')), 1.5)
         p.setPen(pen); p.setBrush(Qt.NoBrush)
         p.drawRoundedRect(r, 8, 8)
         p.end()
         super().paintEvent(e)
+
+    def restyle(self):
+        """테마 토글 시 카드 내부 색 재적용 (분리선 + 카드 배경/테두리 repaint)."""
+        self._sep.setStyleSheet(f'background:{T("border")};border:none;')
+        self._max_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:{self._max_fs}px;background:transparent;')
+        self.update()
 
     def set_calib_offset(self, offset):
         self._warn_db = -20.0 + offset
@@ -3240,13 +3247,14 @@ class SplMeterWindow(QWidget):
         self._reset_btn.clicked.connect(self._reset_max)
         _apply_dark_titlebar(self, resizable=True, aux=[self._set_btn, self._reset_btn])
 
-        self.setStyleSheet('SplMeterWindow{background:#131315;}')
+        self.setStyleSheet(f'SplMeterWindow{{background:{T("bg")};}}')
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
         # 레이아웃이 콘텐츠 최소크기로 창을 강제하지 않게 → 사용자가 더 작게 드래그 가능(최소 탐색용)
         root.setSizeConstraint(QVBoxLayout.SetNoConstraint)
 
         # ── 패널 그리드 컨테이너 (행×열은 _rebuild_grid 에서 채움). 컨트롤은 설정창으로 이동.
-        panels_w = QWidget(); panels_w.setStyleSheet('background:#131315;')
+        panels_w = QWidget(); panels_w.setStyleSheet(f'background:{T("bg")};')
+        self._panels_w = panels_w
         self._grid = QGridLayout(panels_w)
         self._grid.setContentsMargins(6, 6, 6, 6); self._grid.setSpacing(6)
         root.addWidget(panels_w, 1)
@@ -3286,6 +3294,20 @@ class SplMeterWindow(QWidget):
             _save_settings(self.parent()._settings)
         except Exception as e:
             _alog.warning(f'SPL 레이아웃 저장 실패: {e}')
+
+    def restyle_theme(self):
+        """테마 토글(다크↔라이트) 시 창/그리드 배경 + 다크타이틀바 + 패널 색 재적용."""
+        self.setStyleSheet(f'SplMeterWindow{{background:{T("bg")};}}')
+        if hasattr(self, '_panels_w'):
+            self._panels_w.setStyleSheet(f'background:{T("bg")};')
+        bar = getattr(self, '_dark_titlebar', None)
+        if bar is not None:
+            bar.setStyleSheet(f'#darkTitleBar{{background:{T("bg2")};}}')
+            _t = getattr(bar, '_title', None)
+            if _t is not None:
+                _t.setStyleSheet(f'color:{T("text")};font-size:12px;font-weight:bold;background:transparent;')
+        for p in self._panels:
+            p.restyle()
 
     def _chrome_h(self):
         return 12   # 컨트롤 줄 제거됨 — 그리드 여백만
@@ -12718,6 +12740,8 @@ class MainWindow(QMainWindow):
         self.fft_cvs._cache=None; self.oct_cvs._cache=None; self.spectro_cvs._cache=None
         for w in [self.fft_cvs,self.oct_cvs,self.spectro_cvs,self.vu_a]: w.update()
         if hasattr(self, 'stereo_page'): self.stereo_page.restyle_theme()
+        _spl = getattr(self, 'spl_meter_win', None)
+        if _spl is not None: _spl.restyle_theme()
         # 캡처 드로어 행 재빌드 (테마 전환 시 T() 색상 갱신)
         self._refresh_capture_drawer()
 
