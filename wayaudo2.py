@@ -8011,10 +8011,11 @@ class TransferFunctionWindow(QWidget):
         tb = QWidget(); tb.setFixedHeight(46); tb.setObjectName('tf_tb')
         # embedded 모드에서는 toolbar_wrapper가 그라디언트 제공 → tb는 transparent
         # standalone 모드에서는 _apply_theme에서 별도 처리
-        tl = QHBoxLayout(tb); tl.setContentsMargins(12,6,12,6); tl.setSpacing(5)
+        tl = QHBoxLayout(tb); tl.setContentsMargins(8,6,8,6); tl.setSpacing(4)   # 3탭 툴바 메트릭 통일(Spectrum 기준)
 
         def _vs():
-            f=QFrame(); f.setFrameShape(QFrame.VLine); f.setStyleSheet(f'color:{T("border")};'); return f
+            f=QFrame(); f.setFrameShape(QFrame.VLine); f.setFixedWidth(1); f.setFixedHeight(22)
+            f.setStyleSheet(f'color:{T("border")};background:{T("border")};'); return f   # Spectrum/Stereo _vsep와 통일
         def _lb(t):
             l=QLabel(t); l.setStyleSheet(ss_text(FS_BODY))
             l.setAlignment(Qt.AlignVCenter | Qt.AlignHCenter); return l
@@ -11637,7 +11638,7 @@ class MainWindow(QMainWindow):
         self.mic_st=QLabel()  # 숨김 — 내부 상태 참조용
 
         # ── Sub-controls stack (46px): 탭별 전용 컨트롤
-        self.sub_stack=QStackedWidget(); self.sub_stack.setFixedHeight(52)
+        self.sub_stack=QStackedWidget(); self.sub_stack.setFixedHeight(46)   # wrapper(46)와 일치 — 탭 전환 시 높이 점프 방지
         self.sub_stack.setObjectName('subStack')
 
         # Sub-page 0: Spectrum 컨트롤
@@ -11745,7 +11746,7 @@ class MainWindow(QMainWindow):
 
         # Sub-page 2: Stereo & Loudness 컨트롤
         sp2=QWidget(); sl2=QHBoxLayout(sp2)
-        sl2.setContentsMargins(12,8,12,8); sl2.setSpacing(6)
+        sl2.setContentsMargins(8,6,8,6); sl2.setSpacing(4)   # 3탭 툴바 메트릭 통일(Spectrum 기준)
 
         # Start/Stop 버튼
         self._st_start_btn=QPushButton('Start'); self._st_start_btn.setIcon(_txn_icon(False))
