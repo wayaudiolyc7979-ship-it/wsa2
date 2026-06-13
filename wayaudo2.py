@@ -829,8 +829,11 @@ FREQ_MARKS_MINOR = [20,25,40,50,80,100,160,200,315,400,630,800,
                     1250,1600,2500,3150,5000,6300,10000,12500,20000]
 
 def draw_freq_minor_grid(p, pl, pr, uw, pt, pb, W, H, ny):
-    """1/3옥타브 보조 세로 그리드선 — 옥타브선보다 어둡게(behind). FREQ_MARKS 주선 그리기 직전 호출."""
-    p.setPen(QPen(QColor(T('grid')).darker(150), 1, Qt.SolidLine))
+    """1/3옥타브 보조 세로 그리드선 — 옥타브선보다 '흐리게'(behind). FREQ_MARKS 주선 직전 호출.
+    '흐리게'의 방향은 배경에 따라 반대: 다크=어둡게(검정쪽), 라이트=밝게(흰쪽). 안 그러면 라이트에서
+    보조선이 옥타브선보다 진해져 위계가 뒤집힘."""
+    minor = QColor(T('grid')).lighter(116) if _theme == 'light' else QColor(T('grid')).darker(150)
+    p.setPen(QPen(minor, 1, Qt.SolidLine))
     for f in FREQ_MARKS_MINOR:
         if f < 20 or f > ny: continue
         fx = freq_to_x(f, pl, uw, ny)
