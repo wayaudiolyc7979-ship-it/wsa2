@@ -375,14 +375,14 @@ THEMES = {
         'spec_line':     '#33FF66',
         'peak_line':     '#FF9F0A',
     },
-    'light': {
-        'bg':       '#c8d0de',
-        'bg2':      '#d4dcea',
-        'bg3':      '#bcc6d6',
-        'panel':    '#b2bece',
-        'border':   '#7e94b0',
-        'text':     '#0c1828',
-        'text_dim': '#38506c',
+    'light': {   # Crisp White — Apple풍 거의-흰 배경 + 순백 패널 + 브랜드 블루 (2026-06-14 리파인)
+        'bg':       '#F4F6FB',
+        'bg2':      '#FCFDFF',
+        'bg3':      '#ECEFF5',
+        'panel':    '#FFFFFF',
+        'border':   '#DCE2EC',
+        'text':     '#16213A',
+        'text_dim': '#5A6B86',
         'graph_txt': '#46566e',
         'accent':   '#2E54C8',
         'accent2':  '#cc4c00',
@@ -390,8 +390,8 @@ THEMES = {
         'green':    '#0e7c30',
         'yellow':   '#8c6600',
         'red':      '#b81818',
-        'grid':     '#a8b8cc',
-        'grid_ref': '#7e94b0',
+        'grid':     '#E2E7F0',
+        'grid_ref': '#CDD6E4',
         'spec_fill_top': (22,112,204,120),
         'spec_fill_bot': (22,112,204,8),
         'spec_line':     '#1670cc',
@@ -862,11 +862,12 @@ def draw_info_box(p, W, freq_str, db_str, pk_str=None):
     bw = max(fw,dw,pw)+40; bh=90 if pk_str else 66
     bx = W//2-bw//2; by=14
     for off,alp in [(5,15),(3,30),(2,50)]:
-        p.setPen(QPen(QColor(T('accent')).darker(80) if _theme=='light' else QColor(78,125,240,alp), off*2))
-        p.setBrush(Qt.NoBrush)
+        # 라이트: 흰 배경에서 카드가 떠 보이도록 은은한 뉴트럴 드롭섀도(파란 띠 X)
+        ring = QColor(20,33,58, max(6, alp//2)) if _theme=='light' else QColor(78,125,240,alp)
+        p.setPen(QPen(ring, off*2)); p.setBrush(Qt.NoBrush)
         p.drawRoundedRect(bx-off,by-off,bw+off*2,bh+off*2,10,10)
     p.setPen(QPen(QColor(T('accent')),2))
-    p.setBrush(QBrush(QColor(T('bg2')).darker(110) if _theme=='light' else QColor(0,0,0,230)))
+    p.setBrush(QBrush(QColor(T('panel')) if _theme=='light' else QColor(0,0,0,230)))
     p.drawRoundedRect(bx,by,bw,bh,8,8)
     p.setFont(_qfont(CF_CUR_TITLE, True)); p.setPen(QColor(T('accent')))
     p.drawText(bx,by+4,bw,30,Qt.AlignHCenter|Qt.AlignVCenter,freq_str)
@@ -2551,8 +2552,9 @@ class SpectrogramCanvas(QWidget):
         # ── 6. Crosshair cursor + info box ────────────────────────────────
         if pl<=self._mx<=W-pr and self._n>0:
             cx=self._mx; cy=self._my
-            # vertical line
-            p.setPen(QPen(QColor(255,255,255,100),1,Qt.DashLine))
+            # vertical line (라이트=흰 그래프 → 어두운 크로스헤어)
+            _xh = QColor(20,33,58,120) if _theme=='light' else QColor(255,255,255,100)
+            p.setPen(QPen(_xh,1,Qt.DashLine))
             p.drawLine(cx,pt,cx,H-pb)
             # horizontal line (only inside data area)
             if pt<=cy<=H-pb:
@@ -2577,7 +2579,7 @@ class SpectrogramCanvas(QWidget):
                     # small time label beside cursor Y
                     t_lbl=f'{t_ago:.1f}s'
                     p.setFont(_qfont(CF_ANNO))
-                    p.setPen(QColor(255,255,255,160))
+                    p.setPen(QColor(20,33,58,200) if _theme=='light' else QColor(255,255,255,160))
                     p.drawText(pl+4,cy-3,t_lbl)
                 else:
                     draw_info_box(p,W,fs,'')
@@ -3800,9 +3802,9 @@ class _MiniMeterBar(QWidget):
     def paintEvent(self, ev):
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
         W = self.width(); H = self.height(); rr = H / 2.0
-        # 은은한 둥근 트랙 (까만 공백 대신)
-        bg = QColor(T('bg'))
-        track = QColor(min(bg.red()+14, 255), min(bg.green()+14, 255), min(bg.blue()+16, 255))
+        # 은은한 둥근 트랙 (까만 공백 대신). 라이트(near-white)에선 밝히면 사라짐 → 어둡게 파생.
+        bg = QColor(T('bg')); d = -20 if _theme == 'light' else 14
+        track = QColor(max(0, min(bg.red()+d, 255)), max(0, min(bg.green()+d, 255)), max(0, min(bg.blue()+d+2, 255)))
         p.setPen(Qt.NoPen); p.setBrush(track); p.drawRoundedRect(QRectF(0, 0, W, H), rr, rr)
         DB_MIN = -60.0; DB_MAX = 0.0
         ratio = max(0.0, min(1.0, (self._level - DB_MIN) / (DB_MAX - DB_MIN)))
@@ -3872,7 +3874,7 @@ class ChannelPopup(QFrame):
                 chk.stateChanged.connect(lambda st, c=ch: self._on_check(c, st))
 
             dot = QLabel('●')
-            main_color = T('spec_line') if _theme == 'dark' else '#007AFF'
+            main_color = T('spec_line')   # 브랜드 spec_line(라이트 #1670cc) 통일
             dot.setStyleSheet(f'color:{main_color if ch==primary_ch else color};font-size:13px;')
             dot.setFixedWidth(14)
 
@@ -6211,8 +6213,8 @@ class _HorizBarVU(QWidget):
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
         W = self.width(); H = self.height(); rr = H / 2.0
         DB_MIN = -60.0; DB_MAX = 0.0; rng = DB_MAX - DB_MIN
-        bg = QColor(T('bg'))
-        track = QColor(min(bg.red()+14, 255), min(bg.green()+14, 255), min(bg.blue()+16, 255))
+        bg = QColor(T('bg')); d = -20 if _theme == 'light' else 14   # 라이트 near-white → 어둡게
+        track = QColor(max(0, min(bg.red()+d, 255)), max(0, min(bg.green()+d, 255)), max(0, min(bg.blue()+d+2, 255)))
         p.setPen(Qt.NoPen); p.setBrush(track); p.drawRoundedRect(QRectF(0, 0, W, H), rr, rr)
         ratio = max(0.0, min(1.0, (self._db - DB_MIN) / rng))
         bar_w = W * ratio
@@ -12282,7 +12284,7 @@ class MainWindow(QMainWindow):
             cb_bg0  = f'rgba({pnR},{pnG},{pnB},255)'
             cb_bg1  = f'rgba({max(0,pnR-10)},{max(0,pnG-10)},{max(0,pnB-10)},255)'
             cb_bd   = border
-            scr_hdl = f'rgba({max(0,bgR-30)},{max(0,bgG-30)},{max(0,bgB-20)},120)'
+            scr_hdl = f'rgba({max(0,bgR-55)},{max(0,bgG-52)},{max(0,bgB-42)},150)'  # near-white에서 핸들 가시성
             grp_bd  = border; grp_bg = bg3
             dis_bg  = bg3;    dis_bd  = border
         self.setStyleSheet(f"""
@@ -13404,7 +13406,7 @@ class MainWindow(QMainWindow):
 
         dev_items = self._input_device_items()
         primary_ch = self.in_ch_cb.currentData() or 0
-        primary_color = T('spec_line') if _theme == 'dark' else '#007AFF'
+        primary_color = T('spec_line')   # 브랜드 spec_line(라이트 #1670cc) 통일
         # primary 도 _SpecCard 로 통일 (장치+채널 드롭다운). 삭제버튼만 숨김.
         pc = _SpecCard(0, primary_color, dev_items, is_primary=True)
         if self.dev_cb.currentData() is not None: pc.set_device(self.dev_cb.currentData())
