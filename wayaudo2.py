@@ -439,7 +439,19 @@ _LUCIDE_ICONS = {
     'mic':      ('<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>', False),
     'refresh':  ('<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>', False),
     'check':    ('<path d="M20 6 9 17l-5-5"/>', False),
+    'info':     ('<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>', False),
+    'audio-lines':('<path d="M2 10v3"/><path d="M6 6v11"/><path d="M10 3v18"/><path d="M14 8v7"/><path d="M18 5v13"/><path d="M22 10v3"/>', False),
+    'extlink':  ('<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>', False),
 }
+
+def _svg_render(p, inner, color, size, filled=False):
+    """Lucide inner SVG를 주어진 색으로 painter에 렌더 (size x size, 24 viewBox)."""
+    from PyQt5.QtSvg import QSvgRenderer
+    from PyQt5.QtCore import QByteArray
+    attrs = (f'fill="{color}" stroke="none"' if filled else
+             f'fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"')
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" {attrs}>{inner}</svg>'
+    QSvgRenderer(QByteArray(svg.encode())).render(p, QRectF(0, 0, size, size))
 
 def _icon(name, size=16, color=None):
     """단색 벡터 아이콘 — Lucide(MIT) SVG를 테마색으로 렌더. Retina 2x.
@@ -4181,28 +4193,12 @@ class _SidebarIcon(QWidget):
                 p.drawRoundedRect(bx, h-bh_, bw, bh_, 1, 1)
 
         elif self._type == 'info':
-            # Filled circle with "i" cut out
-            p.setPen(Qt.NoPen); p.setBrush(self._col)
-            p.drawEllipse(QRectF(0, 0, w, h))
-            # cut-out "i": dot + stem in background colour (transparent)
-            p.setBrush(QColor(0, 0, 0, 0))
-            p.setCompositionMode(QPainter.CompositionMode_Clear)
-            dot_r = max(1, w//7)
-            cx = w//2
-            p.drawEllipse(QRectF(cx-dot_r, int(h*0.18), dot_r*2, dot_r*2))
-            sw = max(1, w//6); sh = int(h*0.38)
-            p.drawRect(cx-sw//2, int(h*0.45), sw, sh)
+            # Lucide info — 동그라미 + i (아웃라인)
+            _svg_render(p, _LUCIDE_ICONS['info'][0], self._col.name(), w)
 
         elif self._type == 'input':
-            # 마이크 — 캡슐 바디 + 받침 ( _icon('mic')와 동일 톤)
-            p.setPen(QPen(self._col, max(1.3, w*0.10), Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-            p.setBrush(Qt.NoBrush)
-            cx = w/2; bw = w*0.34; bh = h*0.40
-            p.drawRoundedRect(QRectF(cx-bw/2, h*0.10, bw, bh), bw/2, bw/2)
-            rr = w*0.30
-            p.drawArc(QRectF(cx-rr, h*0.28, rr*2, rr*2), 200*16, 140*16)
-            p.drawLine(QPointF(cx, h*0.74), QPointF(cx, h*0.90))
-            p.drawLine(QPointF(cx-w*0.15, h*0.90), QPointF(cx+w*0.15, h*0.90))
+            # Lucide audio-lines — 오디오 입력 막대 파형
+            _svg_render(p, _LUCIDE_ICONS['audio-lines'][0], self._col.name(), w)
 
         p.end()
 
@@ -4234,16 +4230,11 @@ class _SplMeterBtn(QPushButton):
         p.setBrush(bg)
         p.drawRoundedRect(QRectF(self.rect()), 5, 5)
 
-        # Icon: open-in-new (온전한 둥근 창 박스 + 우상단으로 빠져나가는 ↗ 화살표). 깔끔·표준.
+        # Icon: Lucide external-link — INFO/INPUT 섹션 아이콘과 동일 액센트색으로 통일
         w, h = self.width(), self.height()
-        col  = QColor(255, 255, 255, 220) if _theme == 'dark' else QColor(T('text_dim'))
-        pen  = QPen(col, 1.7, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-        p.setPen(pen); p.setBrush(Qt.NoBrush)
-        m = 6
-        p.drawRoundedRect(QRectF(m, m + 5, w - 2 * m - 6, h - 2 * m - 6), 2.5, 2.5)   # 창(좌하단)
-        tip = QPointF(w - m, m); tail = QPointF(w - m - 9, m + 9)                      # ↗ (우상단)
-        p.drawLine(tail, tip)
-        p.drawLine(tip, QPointF(tip.x() - 6, tip.y())); p.drawLine(tip, QPointF(tip.x(), tip.y() + 6))
+        isz = 17; off = (w - isz) / 2
+        p.translate(off, off)
+        _svg_render(p, _LUCIDE_ICONS['extlink'][0], QColor(T('accent')).name(), isz)
         p.end()
 
 
@@ -12737,9 +12728,11 @@ class MainWindow(QMainWindow):
         return super().eventFilter(obj, event)
 
     def _st_dev_lbl_ss(self):
-        # 장치명은 보조 정보 → 너무 검지 않게 text_dim + 세미볼드(볼드 검정 느낌 완화)
+        # 장치명은 보조 정보 → text_dim 세미볼드. 배경은 옆 툴바 컨트롤(은은한 오버레이)과 맞춤
+        # (기존 bg3 진한 회색 블록이 혼자 튀던 문제).
+        bg = 'rgba(255,255,255,10)' if _theme != 'light' else T('bg2')
         return (f'font-size:{FS_BODY}px;font-weight:500;color:{T("text_dim")};'
-                f'background:{T("bg3")};border:1px solid {T("border")};'
+                f'background:{bg};border:1px solid {T("border")};'
                 f'border-radius:{RADIUS_SM}px;padding:2px 8px;')
 
     def _toggle_theme(self):
