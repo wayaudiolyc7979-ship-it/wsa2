@@ -10872,11 +10872,20 @@ class LoudnessMeter:
 
 
 def _spec_color(frac: float, lightness: int = 160, alpha: int = 255) -> 'QColor':
-    """frac 0→1 을 violet(260°)→red(0°) HSL 스펙트럼 QColor로 변환."""
+    """frac 0→1 을 violet(260°)→red(0°) HSL 스펙트럼 QColor로 변환.
+    라이트 테마: 흰 배경 대비 위해 명도를 낮춰 진하고 채도 높은 보석톤으로 (스코프 가독성)."""
     hue = int((1.0 - max(0.0, min(1.0, frac))) * 260)
+    if _theme == 'light':
+        lightness = max(55, min(135, int(lightness * 0.52)))
     c = QColor.fromHsl(hue, 255, lightness)
     c.setAlpha(alpha)
     return c
+
+def _metric_col(hue, light=160):
+    """라우드니스 메트릭 값 색 (HSL). 라이트 테마: 흰 바 대비 위해 명도 낮춤."""
+    if _theme == 'light':
+        light = max(70, min(150, int(light * 0.6)))
+    return QColor.fromHsl(hue, 255, light).name()
 
 
 class VectorscopeCanvas(QWidget):
@@ -10904,21 +10913,28 @@ class VectorscopeCanvas(QWidget):
     def paintEvent(self, ev):
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
         W, H = self.width(), self.height()
-        p.fillRect(0, 0, W, H, QColor(2, 2, 4))
+        dark = (_theme != 'light')
+        def ov(a): return QColor(255, 255, 255, a) if dark else QColor(26, 38, 62, a)
+        p.fillRect(0, 0, W, H, QColor(2, 2, 4) if dark else QColor(T('bg')))
         sz = min(W, H) - 56; cx = W // 2; cy = (H - 24) // 2 + 14
         r = sz // 2
 
         # ── Background halo ───────────────────────────────────────────
         halo = QRadialGradient(cx, cy, r * 1.8)
-        halo.setColorAt(0.0,  QColor(50, 20, 120, 45))
-        halo.setColorAt(0.45, QColor(30, 10, 80, 18))
-        halo.setColorAt(1.0,  QColor(0, 0, 0, 0))
+        if dark:
+            halo.setColorAt(0.0,  QColor(50, 20, 120, 45))
+            halo.setColorAt(0.45, QColor(30, 10, 80, 18))
+            halo.setColorAt(1.0,  QColor(0, 0, 0, 0))
+        else:
+            halo.setColorAt(0.0,  QColor(120, 150, 235, 30))
+            halo.setColorAt(0.45, QColor(150, 175, 240, 12))
+            halo.setColorAt(1.0,  QColor(255, 255, 255, 0))
         p.setPen(Qt.NoPen); p.setBrush(QBrush(halo))
         hr = int(r * 1.8)
         p.drawEllipse(cx - hr, cy - hr, 2*hr, 2*hr)
 
         # ── Circle background ─────────────────────────────────────────
-        p.setBrush(QColor(3, 2, 10))
+        p.setBrush(QColor(3, 2, 10) if dark else QColor(T('panel')))
         p.drawEllipse(cx - r, cy - r, 2*r, 2*r)
 
         # ── Spectrum outer ring: glow pass + crisp pass ───────────────
@@ -10937,14 +10953,14 @@ class VectorscopeCanvas(QWidget):
         # ── Reference rings ───────────────────────────────────────────
         for frac in (0.33, 0.67):
             ri = int(r * frac)
-            p.setPen(QPen(QColor(255, 255, 255, 12), 0.6))
+            p.setPen(QPen(ov(12 if dark else 28), 0.6))
             p.drawEllipse(cx - ri, cy - ri, 2*ri, 2*ri)
 
         # ── Axes ──────────────────────────────────────────────────────
         d = int(r * 0.707)
-        p.setPen(QPen(QColor(255, 255, 255, 15), 0.7, Qt.DashLine))
+        p.setPen(QPen(ov(15 if dark else 30), 0.7, Qt.DashLine))
         p.drawLine(cx-d, cy-d, cx+d, cy+d); p.drawLine(cx-d, cy+d, cx+d, cy-d)
-        p.setPen(QPen(QColor(255, 255, 255, 20), 0.8))
+        p.setPen(QPen(ov(20 if dark else 40), 0.8))
         p.drawLine(cx-r, cy, cx+r, cy); p.drawLine(cx, cy-r, cx, cy+r)
 
         # ── Lissajous: 2-pass (glow + crisp) + bright tip ────────────
@@ -10975,15 +10991,15 @@ class VectorscopeCanvas(QWidget):
             # Bright tip dot (newest sample)
             tip_x, tip_y = int(xi[-1]), int(yi[-1])
             tip_g = QRadialGradient(tip_x, tip_y, 7)
-            tip_g.setColorAt(0, QColor(255, 255, 255, 230))
-            tip_g.setColorAt(1, QColor(255, 255, 255, 0))
+            tip_g.setColorAt(0, QColor(255, 255, 255, 230) if dark else QColor(20, 30, 52, 235))
+            tip_g.setColorAt(1, QColor(255, 255, 255, 0) if dark else QColor(20, 30, 52, 0))
             p.setPen(Qt.NoPen); p.setBrush(QBrush(tip_g))
             p.drawEllipse(tip_x - 7, tip_y - 7, 14, 14)
 
         # ── Phase correlation bar ─────────────────────────────────────
         bw = int(sz * 0.8); bh = 7
         bx = cx - bw//2; by = cy + r + 12
-        p.setPen(Qt.NoPen); p.setBrush(QColor(255, 255, 255, 10))
+        p.setPen(Qt.NoPen); p.setBrush(ov(10 if dark else 22))
         p.drawRect(bx, by, bw, bh)
         corr = max(-1.0, min(1.0, self._corr))
         cx_bar = bx + bw // 2
@@ -10997,13 +11013,13 @@ class VectorscopeCanvas(QWidget):
             p.setBrush(QBrush(fill_g))
             if corr >= 0: p.drawRect(cx_bar, by, fw, bh)
             else:         p.drawRect(cx_bar - fw, by, fw, bh)
-        p.setPen(QPen(QColor(255, 255, 255, 120), 1.2))
+        p.setPen(QPen(ov(120 if dark else 150), 1.2))
         p.drawLine(cx_bar, by - 4, cx_bar, by + bh + 4)
 
         corr_col = _spec_color(0.72 if corr >= 0 else 0.28, 175, 230)
         p.setFont(_qfont(CF_ANNO, True)); p.setPen(corr_col)
         p.drawText(QRect(cx_bar - 25, by - 20, 50, 16), Qt.AlignHCenter, f'{corr:+.2f}')
-        p.setFont(_qfont(CF_ANNO)); p.setPen(QColor(255, 255, 255, 50))
+        p.setFont(_qfont(CF_ANNO)); p.setPen(ov(50 if dark else 120))
         p.drawText(bx - 2, by + bh + 13, '-1')
         p.drawText(cx_bar - 4, by + bh + 13, '0')
         p.drawText(bx + bw - 12, by + bh + 13, '+1')
@@ -11020,16 +11036,16 @@ class VectorscopeCanvas(QWidget):
 
         # ── Title + popout icon ───────────────────────────────────────
         p.setFont(_qfont(CF_ANNO, True))
-        p.setPen(QColor(255, 255, 255, 90))
+        p.setPen(ov(90 if dark else 130))
         lbl = 'VECTORSCOPE'
         fm_lbl = p.fontMetrics(); tw = fm_lbl.horizontalAdvance(lbl)
         p.drawText(W - tw - 8, H - 8, lbl)
         ix = W - tw - 28; iy = H - 20
         self._popout_rect = QRect(ix-2, iy-2, 18, 18)
-        pen_ico = QPen(QColor(255, 255, 255, 80), 1.0)
+        pen_ico = QPen(ov(80 if dark else 120), 1.0)
         p.setPen(pen_ico); p.setBrush(Qt.NoBrush)
         p.drawRect(ix+4, iy, 8, 8)
-        p.fillRect(ix, iy+4, 8, 8, QColor(2, 2, 4))
+        p.fillRect(ix, iy+4, 8, 8, QColor(2, 2, 4) if dark else QColor(T('bg')))
         p.drawRect(ix, iy+4, 8, 8)
 
     def mouseMoveEvent(self,e):
@@ -11126,7 +11142,9 @@ class LoudnessRadarCanvas(QWidget):
     def paintEvent(self, ev):
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
         W, H = self.width(), self.height()
-        p.fillRect(0, 0, W, H, QColor(1, 1, 3))
+        dark = (_theme != 'light')
+        def ov(a): return QColor(255, 255, 255, a) if dark else QColor(26, 38, 62, a)
+        p.fillRect(0, 0, W, H, QColor(1, 1, 3) if dark else QColor(T('bg')))
 
         # ── Layout ────────────────────────────────────────────────
         PAD_H = 46; PAD_T = 28; PAD_B = 54
@@ -11139,19 +11157,24 @@ class LoudnessRadarCanvas(QWidget):
 
         # ── Warm background halo ──────────────────────────────────
         halo = QRadialGradient(cx, cy, R_arc * 1.8)
-        halo.setColorAt(0.0,  QColor(120, 30, 8, 35))
-        halo.setColorAt(0.45, QColor(60, 15, 4, 12))
-        halo.setColorAt(1.0,  QColor(0, 0, 0, 0))
+        if dark:
+            halo.setColorAt(0.0,  QColor(120, 30, 8, 35))
+            halo.setColorAt(0.45, QColor(60, 15, 4, 12))
+            halo.setColorAt(1.0,  QColor(0, 0, 0, 0))
+        else:
+            halo.setColorAt(0.0,  QColor(235, 175, 120, 26))
+            halo.setColorAt(0.45, QColor(240, 200, 160, 10))
+            halo.setColorAt(1.0,  QColor(255, 255, 255, 0))
         p.setPen(Qt.NoPen); p.setBrush(QBrush(halo))
         hr = int(R_arc * 1.8)
         p.drawEllipse(cx - hr, cy - hr, 2*hr, 2*hr)
 
         # ── 로즈 배경 ─────────────────────────────────────────────
-        p.setPen(Qt.NoPen); p.setBrush(QColor(2, 2, 6))
+        p.setPen(Qt.NoPen); p.setBrush(QColor(2, 2, 6) if dark else QColor(T('panel')))
         p.drawEllipse(cx-R_out, cy-R_out, 2*R_out, 2*R_out)
 
         # ── 로즈 그리드 (방사선만) ────────────────────────────────
-        p.setPen(QPen(QColor(255, 255, 255, 10), 0.6))
+        p.setPen(QPen(ov(10 if dark else 26), 0.6))
         for deg in range(0, 360, 30):
             a = math.radians(90.0 - deg)
             p.drawLine(int(cx+R_in*math.cos(a)), int(cy-R_in*math.sin(a)),
@@ -11242,7 +11265,7 @@ class LoudnessRadarCanvas(QWidget):
             p.setPen(QPen(QBrush(edge_g), 1.2)); p.setBrush(Qt.NoBrush); p.drawPath(path)
 
         # ── 중앙 구멍 + 글로우 닷 ──────────────────────────────────
-        p.setPen(Qt.NoPen); p.setBrush(QColor(2, 2, 6))
+        p.setPen(Qt.NoPen); p.setBrush(QColor(2, 2, 6) if dark else QColor(T('panel')))
         p.drawEllipse(cx-R_in, cy-R_in, 2*R_in, 2*R_in)
         cdot = QRadialGradient(cx, cy, R_in)
         cdot.setColorAt(0, _spec_color(0.05, 170, 150))
@@ -11253,7 +11276,7 @@ class LoudnessRadarCanvas(QWidget):
         # ── 히스토리 위치 선 (로즈 내부) ─────────────────────────
         if self._running:
             a = math.radians(90.0 - (self._elapsed % 60.0) * (360.0/60.0))
-            p.setPen(QPen(QColor(255, 255, 255, 90), 0.9))
+            p.setPen(QPen(ov(90 if dark else 120), 0.9))
             p.drawLine(int(cx+R_in*math.cos(a)), int(cy-R_in*math.sin(a)),
                        int(cx+R_out*math.cos(a)), int(cy-R_out*math.sin(a)))
 
@@ -11290,7 +11313,7 @@ class LoudnessRadarCanvas(QWidget):
                 p.setPen(Qt.NoPen)
                 p.setBrush(QBrush(_spec_color(frac, 140, 45))); p.drawPath(path_g)
             # Crisp pass
-            col = _spec_color(frac, 162, 228) if is_lit else QColor(255, 255, 255, 8)
+            col = _spec_color(frac, 162, 228) if is_lit else (QColor(255, 255, 255, 8) if dark else QColor(26, 38, 62, 20))
             path = QPainterPath()
             path.arcMoveTo(ro, start_q); path.arcTo(ro, start_q, span_q)
             path.arcTo(ri, start_q+span_q, -span_q); path.closeSubpath()
@@ -11335,12 +11358,12 @@ class LoudnessRadarCanvas(QWidget):
         # ── Target 링 ─────────────────────────────────────────────────
         t_rr = self._lufs_to_r(self.target, R_in, R_out)
         if t_rr > R_in + 2:
-            p.setPen(QPen(QColor(255, 255, 255, 155), 1.5)); p.setBrush(Qt.NoBrush)
+            p.setPen(QPen(ov(155 if dark else 175), 1.5)); p.setBrush(Qt.NoBrush)
             p.drawEllipse(cx - t_rr, cy - t_rr, 2*t_rr, 2*t_rr)
             txt = f'{int(self.target)}'
             p.setFont(_qfont(CF_ANNO, True)); fm_t = p.fontMetrics()
             tw = fm_t.horizontalAdvance(txt)
-            p.setPen(QColor(255, 255, 255, 200))
+            p.setPen(ov(200 if dark else 210))
             p.drawText(int(cx - tw // 2), int(cy - t_rr - 4), txt)
 
         # ── 기준 링 4개 (스펙트럼 색상) ──────────────────────────────
@@ -11361,15 +11384,15 @@ class LoudnessRadarCanvas(QWidget):
             p.drawText(lx, ly, txt)
 
         # Title (오른쪽 하단) + 팝아웃 아이콘
-        p.setFont(_qfont(CF_ANNO, True)); p.setPen(QColor(255, 255, 255, 90))
+        p.setFont(_qfont(CF_ANNO, True)); p.setPen(ov(90 if dark else 130))
         lbl = 'LOUDNESS RADAR'
         fm_lbl = p.fontMetrics(); tw_l = fm_lbl.horizontalAdvance(lbl)
         p.drawText(W-tw_l-8, H-8, lbl)
         ix = W-tw_l-28; iy = H-20
         self._popout_rect = QRect(ix-2, iy-2, 18, 18)
-        pen_ico = QPen(QColor(255, 255, 255, 80), 1.0); p.setPen(pen_ico); p.setBrush(Qt.NoBrush)
+        pen_ico = QPen(ov(80 if dark else 120), 1.0); p.setPen(pen_ico); p.setBrush(Qt.NoBrush)
         p.drawRect(ix+4, iy, 8, 8)
-        p.fillRect(ix, iy+4, 8, 8, QColor(1, 1, 3))
+        p.fillRect(ix, iy+4, 8, 8, QColor(1, 1, 3) if dark else QColor(T('bg')))
         p.drawRect(ix, iy+4, 8, 8)
 
     def mouseMoveEvent(self,e):
@@ -11419,8 +11442,10 @@ class StereoLoudnessPage(QWidget):
         # 하단 숫자 패널
         num_bar=QWidget(); num_bar.setFixedHeight(80)
         num_bar.setObjectName('stNumBar')
-        num_bar.setStyleSheet('#stNumBar{background:#010103;}')
+        self._num_bar = num_bar
+        num_bar.setStyleSheet('#stNumBar{background:%s;}' % ('#010103' if _theme != 'light' else T('bg2')))
         nl=QHBoxLayout(num_bar); nl.setContentsMargins(16,4,16,4); nl.setSpacing(0)
+        self._vseps = []; self._metric_meta = []
 
         _tooltips = {
             '_lbl_M':  ('M  Momentary', 'LUFS',
@@ -11441,48 +11466,76 @@ class StereoLoudnessPage(QWidget):
                         '음악: 5~15 LU / 드라마·광고: 더 좁게 관리.'),
         }
 
-        def _metric(title, unit, attr, big=False, col='#FFFFFF'):
+        def _metric(title, unit, attr, big=False, hue=0, light=160):
             w=QWidget(); vl=QVBoxLayout(w); vl.setContentsMargins(0,0,0,0); vl.setSpacing(1)
             t=QLabel(title)
-            t.setStyleSheet(f'font-size:{FS_SM}px;color:#3a3a52;letter-spacing:1px;')
+            t.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};letter-spacing:1px;')
             t.setAlignment(Qt.AlignHCenter)
             row=QWidget(); rl=QHBoxLayout(row); rl.setContentsMargins(0,0,0,0); rl.setSpacing(3)
             fs=FS_METRIC_BIG if big else FS_METRIC
             v=QLabel('—')
-            v.setStyleSheet(f'font-size:{fs}px;font-weight:bold;color:{col};')
+            v.setStyleSheet(f'font-size:{fs}px;font-weight:bold;color:{_metric_col(hue, light)};')
             v.setAlignment(Qt.AlignRight|Qt.AlignVCenter)
             u=QLabel(unit)
-            u.setStyleSheet(f'font-size:{FS_SM}px;color:#3a3a52;')
+            u.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};')
             u.setAlignment(Qt.AlignLeft|Qt.AlignVCenter)
             rl.addStretch(); rl.addWidget(v); rl.addWidget(u); rl.addStretch()
             vl.addWidget(t); vl.addWidget(row)
             if attr in _tooltips:
                 tip = _tooltips[attr][2]
                 w.setToolTip(tip); t.setToolTip(tip); v.setToolTip(tip); u.setToolTip(tip)
-            setattr(self, attr, v); return w
+            setattr(self, attr, v)
+            self._metric_meta.append((attr, hue, light, big, t, u))
+            return w
 
         def _vsep():
             f=QFrame(); f.setFrameShape(QFrame.VLine); f.setFixedWidth(1)
-            f.setStyleSheet('color:#1a1a2a;background:#1a1a2a;'); return f
+            _c = '#1a1a2a' if _theme != 'light' else T('border')
+            f.setStyleSheet(f'color:{_c};background:{_c};')
+            self._vseps.append(f); return f
 
-        # 스펙트럼 hue별 색상 (violet→blue→green→yellow→orange)
-        _c = lambda h, l=160: QColor.fromHsl(h, 255, l).name()
         nl.addStretch()
-        nl.addWidget(_metric('M  Momentary',    'LUFS', '_lbl_M',  big=False, col=_c(230, 155)))
+        nl.addWidget(_metric('M  Momentary',    'LUFS', '_lbl_M',  big=False, hue=230, light=155))
         nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
-        nl.addWidget(_metric('S  Short-term',   'LUFS', '_lbl_S',  big=False, col=_c(195, 152)))
+        nl.addWidget(_metric('S  Short-term',   'LUFS', '_lbl_S',  big=False, hue=195, light=152))
         nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
-        nl.addWidget(_metric('Program Loudness','LUFS', '_lbl_I',  big=True,  col=_c(140, 165)))
+        nl.addWidget(_metric('Program Loudness','LUFS', '_lbl_I',  big=True,  hue=140, light=165))
         nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
-        nl.addWidget(_metric('True-peak Max',   'dBTP', '_lbl_TP', big=True,  col=_c(45,  168)))
+        nl.addWidget(_metric('True-peak Max',   'dBTP', '_lbl_TP', big=True,  hue=45,  light=168))
         nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
-        nl.addWidget(_metric('Loudness Range',  'LU',   '_lbl_LRA',big=False, col=_c(18,  152)))
+        nl.addWidget(_metric('Loudness Range',  'LU',   '_lbl_LRA',big=False, hue=18,  light=152))
         nl.addStretch()
         root.addWidget(num_bar)
 
         self._disp_timer=QTimer(self)
         self._disp_timer.timeout.connect(self._refresh_display)
         self._disp_timer.start(80)
+
+    def _metric_lbl_col(self):
+        return '#3a3a52' if _theme != 'light' else T('text_dim')
+
+    def restyle_theme(self):
+        """테마 토글(다크↔라이트) 시 하단 메트릭 바/구분선/값색 + 스코프 재적용."""
+        dark = (_theme != 'light')
+        if hasattr(self, '_num_bar'):
+            self._num_bar.setStyleSheet('#stNumBar{background:%s;}' % ('#010103' if dark else T('bg2')))
+        _sc = '#1a1a2a' if dark else T('border')
+        for f in getattr(self, '_vseps', []):
+            f.setStyleSheet(f'color:{_sc};background:{_sc};')
+        _lc = self._metric_lbl_col()
+        for attr, hue, light, big, t_lbl, u_lbl in getattr(self, '_metric_meta', []):
+            v = getattr(self, attr, None)
+            fs = FS_METRIC_BIG if big else FS_METRIC
+            if v is not None:
+                v.setStyleSheet(f'font-size:{fs}px;font-weight:bold;color:{_metric_col(hue, light)};')
+            t_lbl.setStyleSheet(f'font-size:{FS_SM}px;color:{_lc};letter-spacing:1px;')
+            u_lbl.setStyleSheet(f'font-size:{FS_SM}px;color:{_lc};')
+        if hasattr(self, '_sep'):
+            self._sep.setStyleSheet(f'color:{T("border")};background:{T("border")};')
+        if hasattr(self, '_vs'): self._vs.update()
+        if hasattr(self, '_radar'): self._radar.update()
+        for wn in (getattr(self, '_vs_win', None), getattr(self, '_radar_win', None)):
+            if wn is not None: wn.setStyleSheet(f'background:{T("bg")};')
 
     # ── 팝아웃 ────────────────────────────────────────────────────────
     def _make_popout_win(self, canvas, title):
@@ -11610,8 +11663,8 @@ class StereoLoudnessPage(QWidget):
         self._lbl_TP.setText(fmt(m.peak_hold))
         # M 라벨 색상: target=-23 기준
         if m.M>-100:
-            c=('#33FF66' if m.M<-20 else
-               '#FFD60A' if m.M<-16 else '#FF453A')
+            c=(T('green') if m.M<-20 else
+               T('yellow') if m.M<-16 else T('red'))
             self._lbl_M.setStyleSheet(
                 f'font-size:{FS_METRIC}px;font-weight:bold;color:{c};')
 
@@ -12642,6 +12695,7 @@ class MainWindow(QMainWindow):
         # 캔버스 캐시 무효화 + 리페인트
         self.fft_cvs._cache=None; self.oct_cvs._cache=None; self.spectro_cvs._cache=None
         for w in [self.fft_cvs,self.oct_cvs,self.spectro_cvs,self.vu_a]: w.update()
+        if hasattr(self, 'stereo_page'): self.stereo_page.restyle_theme()
         # 캡처 드로어 행 재빌드 (테마 전환 시 T() 색상 갱신)
         self._refresh_capture_drawer()
 
