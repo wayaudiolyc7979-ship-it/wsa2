@@ -1,6 +1,6 @@
 11#!/usr/bin/env python3
 # ═══════════════════════════════════════════════════
-#  WAYAUDIO Spectrum Analyzer  v1.0
+#  WAYAUDIO Spectrum Analyzer  v1.1
 #  ✅ FFT 버벅임 수정 (포인트 다운샘플링)
 #  ✅ 마이크 캘리브레이션 (94/114dB @ 1kHz)
 #  ✅ dBA / dBC 실시간 레벨
@@ -486,20 +486,39 @@ def _icon(name, size=16, color=None):
 class _DarkTitleBar(QWidget):
     """프레임리스 창용 다크 커스텀 타이틀바 — 제목 + 닫기(✕) + 드래그 이동.
     라이트모드에서 흰색 네이티브 타이틀바가 다크 본문과 안 어울리는 문제 해결."""
-    def __init__(self, win, title=''):
+    def __init__(self, win, title='', aux=None):
         super().__init__()
         self._win = win; self._drag = None
         self.setFixedHeight(34); self.setObjectName('darkTitleBar')
         self.setStyleSheet(f'#darkTitleBar{{background:{T("bg2")};}}')
         lay = QHBoxLayout(self); lay.setContentsMargins(14, 0, 8, 0); lay.setSpacing(0)
+        self._full_title = title
         self._title = QLabel(title)
         self._title.setStyleSheet(f'color:{T("text")};font-size:12px;font-weight:bold;background:transparent;')
+        self._title.setMinimumWidth(0)
         lay.addWidget(self._title); lay.addStretch()
+        # 창별 보조 버튼(예: SPL Meter 설정 토글) — ✕ 왼쪽에 배치
+        self._aux = list(aux) if aux else []
+        if aux:
+            for b in aux:
+                b.setParent(self); lay.addWidget(b)
+            lay.addSpacing(6)
         self._x = QPushButton('✕'); self._x.setFixedSize(24, 24); self._x.setCursor(Qt.PointingHandCursor)
         self._x.setStyleSheet('QPushButton{border:none;background:transparent;color:#9A9AA0;font-size:13px;border-radius:6px;}'
                               'QPushButton:hover{background:#FF453A;color:#FFFFFF;}')
         self._x.clicked.connect(self._close)
         lay.addWidget(self._x)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._elide_title()
+
+    def _elide_title(self):
+        # 우측 고정폭(보조버튼 + spacing + ✕) 제외한 공간에 맞춰 제목 elide → 글자 중간 잘림 방지
+        right = sum(b.sizeHint().width() for b in self._aux) + (6 if self._aux else 0) + 24
+        avail = self.width() - 14 - 8 - right
+        self._title.setText(self._title.fontMetrics().elidedText(
+            self._full_title, Qt.ElideRight, max(0, avail)))
 
     def _close(self):
         if hasattr(self._win, 'reject'):
@@ -535,9 +554,10 @@ def _add_resize_grip(win):
     QTimer.singleShot(0, _pos)
 
 
-def _apply_dark_titlebar(win, resizable=False):
+def _apply_dark_titlebar(win, resizable=False, aux=None):
     """창을 프레임리스로 + 다크 커스텀 타이틀바 부착(레이아웃 menuBar 슬롯).
-    resizable=True 면 우하단 리사이즈 그립 추가. 바 삽입은 레이아웃 준비 후로 지연."""
+    resizable=True 면 우하단 리사이즈 그립 추가. 바 삽입은 레이아웃 준비 후로 지연.
+    aux: ✕ 왼쪽에 넣을 보조 버튼 리스트(창별 토글 등)."""
     try:
         win.setWindowFlags((win.windowFlags() | Qt.FramelessWindowHint))
     except Exception:
@@ -546,12 +566,62 @@ def _apply_dark_titlebar(win, resizable=False):
         try:
             lay = win.layout()
             if lay is not None and lay.menuBar() is None:
-                lay.setMenuBar(_DarkTitleBar(win, win.windowTitle()))
+                bar = _DarkTitleBar(win, win.windowTitle(), aux=aux)
+                win._dark_titlebar = bar
+                lay.setMenuBar(bar)
         except Exception:
             pass
     QTimer.singleShot(0, _ins)
     if resizable:
         _add_resize_grip(win)
+
+
+class _SettingsBtn(QPushButton):
+    """타이틀바용 설정 버튼 — 누르면 SPL 설정창 오픈. 슬라이더(컨트롤) 아이콘을 직접 그림."""
+    def __init__(self):
+        super().__init__()
+        self.setFixedSize(26, 24); self.setCursor(Qt.PointingHandCursor)
+        self.setStyleSheet('QPushButton{border:none;background:transparent;border-radius:6px;}'
+                           'QPushButton:hover{background:rgba(255,255,255,30);}')
+
+    def paintEvent(self, e):
+        super().paintEvent(e)   # hover 배경
+        col = QColor('#9A9AA0')
+        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
+        pen = QPen(col, 1.6); pen.setCapStyle(Qt.RoundCap)
+        p.setPen(pen)
+        y1, y2 = 9, 15
+        p.drawLine(6, y1, 20, y1)
+        p.drawLine(6, y2, 20, y2)
+        p.setPen(Qt.NoPen); p.setBrush(col)
+        p.drawEllipse(13, y1 - 3, 6, 6)   # 윗줄 knob (오른쪽)
+        p.drawEllipse(7,  y2 - 3, 6, 6)   # 아랫줄 knob (왼쪽)
+        p.end()
+
+
+class _ResetMaxBtn(QPushButton):
+    """타이틀바용 컴팩트 아이콘 — Max 리셋. 원형 리셋 화살표(↺)를 직접 그림."""
+    def __init__(self):
+        super().__init__()
+        self.setFixedSize(26, 24); self.setCursor(Qt.PointingHandCursor)
+        self.setStyleSheet('QPushButton{border:none;background:transparent;border-radius:6px;}'
+                           'QPushButton:hover{background:rgba(255,255,255,30);}')
+
+    def paintEvent(self, e):
+        super().paintEvent(e)   # hover 배경
+        col = QColor('#9A9AA0')
+        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
+        pen = QPen(col, 1.6); pen.setCapStyle(Qt.RoundCap)
+        p.setPen(pen); p.setBrush(Qt.NoBrush)
+        # 원호(약 300°, 위쪽 틈) — 중심(13,12) 반지름 6
+        rect = QRectF(7, 6, 12, 12)
+        p.drawArc(rect, 60 * 16, 280 * 16)
+        # 화살촉 — 원호 시작점(우상단 틈) 근처에 작은 삼각형
+        p.setPen(Qt.NoPen); p.setBrush(col)
+        ax, ay = 13 + 6 * math.cos(math.radians(60)), 12 - 6 * math.sin(math.radians(60))
+        p.drawPolygon(QPolygonF([
+            QPointF(ax, ay - 1), QPointF(ax + 4, ay), QPointF(ax, ay + 4)]))
+        p.end()
 
 
 def ss_text(size=FS_BODY, color_key='text_dim', bold=False):
@@ -2471,12 +2541,18 @@ def _text_input_dialog(parent, title, label, default=''):
 
 
 class CalibDialog(QDialog):
-    def __init__(self, current_offset, current_spl_func, parent=None):
+    def __init__(self, device_name, n_channels, offsets, active_ch,
+                 current_spl_func, set_channel_func, parent=None):
         super().__init__(parent)
         self.setWindowTitle('마이크 캘리브레이션'); _apply_dark_titlebar(self)
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(440)
         self.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
         self._get_spl = current_spl_func
+        self._set_channel = set_channel_func
+        self._n_ch = max(int(n_channels), 1)
+        self._offsets = dict(offsets)         # {ch:int -> offset:float} (설정된 채널만)
+        self._cur_ch = int(active_ch) if 0 <= active_ch < self._n_ch else 0
+        self._rows = {}                       # ch -> {'btn':..., 'off':...}
         self._measuring = False
         self._meas_samples = []
         layout = QVBoxLayout(self); layout.setSpacing(12); layout.setContentsMargins(16,12,16,12)
@@ -2484,13 +2560,43 @@ class CalibDialog(QDialog):
         # ── 순서 안내
         steps = QLabel(
             '① 칼리브레이터를 마이크에 연결하세요\n'
-            '② 칼리브레이터의 기준값(94 or 114 dBSPL)을 선택하세요\n'
-            '③ 칼리브레이터를 켜고 [🎤 레벨 측정] 버튼을 누르세요\n'
-            '④ [오프셋 계산] → [OK]'
+            '② 아래 목록에서 캘리브할 채널을 [선택]하세요\n'
+            '③ 기준값(94 or 114 dBSPL) 선택 → [🎤 레벨 측정]\n'
+            '④ [오프셋 자동 계산] → 다른 채널도 반복 → [OK]'
         )
         steps.setStyleSheet(f'color:{T("text_dim")};font-size:11px;'
                             f'background:{T("panel")};border-radius:8px;padding:10px;')
         steps.setWordWrap(True); layout.addWidget(steps)
+
+        # ── 채널 목록 테이블 (B안): 채널 / 현재 오프셋 / 선택
+        if self._n_ch > 1:
+            ch_hdr = QLabel(f'채널 목록  ·  {device_name}')
+            ch_hdr.setStyleSheet(f'color:{T("text_dim")};font-size:10px;padding-left:2px;')
+            layout.addWidget(ch_hdr)
+
+            ch_wrap = QWidget()
+            ch_col = QVBoxLayout(ch_wrap); ch_col.setSpacing(4); ch_col.setContentsMargins(2,2,2,2)
+            for ch in range(self._n_ch):
+                row = QHBoxLayout(); row.setSpacing(8); row.setContentsMargins(8,2,8,2)
+                name_l = QLabel(f'Ch {ch+1}')
+                name_l.setStyleSheet(f'color:{T("text")};font-size:12px;'); name_l.setFixedWidth(56)
+                off_l = QLabel('—')
+                off_l.setStyleSheet(f'color:{T("text_dim")};font-size:12px;font-weight:bold;')
+                off_l.setAlignment(Qt.AlignCenter); off_l.setFixedWidth(96)
+                sel = QPushButton('선택')
+                sel.setFixedWidth(72); sel.setCursor(Qt.PointingHandCursor)
+                sel.clicked.connect(lambda _=False, c=ch: self._select_channel(c))
+                row.addWidget(name_l); row.addStretch(); row.addWidget(off_l); row.addWidget(sel)
+                rw = QWidget(); rw.setLayout(row)
+                ch_col.addWidget(rw)
+                self._rows[ch] = {'btn': sel, 'off': off_l}
+            ch_col.addStretch(1)
+
+            scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(ch_wrap)
+            scroll.setFrameShape(QFrame.NoFrame)
+            scroll.setMaximumHeight(168 if self._n_ch > 4 else 16 + self._n_ch*34)
+            scroll.setStyleSheet(f'QScrollArea{{background:{T("panel")};border:1px solid {T("border")};border-radius:8px;}}')
+            layout.addWidget(scroll)
 
         # ── 기준값 선택 (가운데 정렬)
         # RoundComboBox → QComboBox: modal exec() 안에서 Popup 서브윈도우가
@@ -2516,7 +2622,7 @@ class CalibDialog(QDialog):
         layout.addLayout(ref_row)
 
         # ── 측정 영역
-        meas_box = QGroupBox('현재 마이크 레벨 측정')
+        self._meas_box = meas_box = QGroupBox(self._meas_title())
         meas_box.setStyleSheet(f'QGroupBox{{border:1px solid {T("border")};border-radius:8px;'
                                 f'margin-top:8px;color:{T("text_dim")};font-size:10px;}}'
                                 f'QGroupBox::title{{subcontrol-origin:margin;left:10px;}}')
@@ -2569,7 +2675,8 @@ class CalibDialog(QDialog):
         self.offset_spin = QDoubleSpinBox()
         self.offset_spin.setRange(-30, 150)
         self.offset_spin.setDecimals(1); self.offset_spin.setSingleStep(0.5)
-        self.offset_spin.setValue(current_offset)
+        self.offset_spin.setValue(self._offsets.get(self._cur_ch, 0.0))
+        self.offset_spin.valueChanged.connect(self._on_offset_edited)
         self.offset_spin.setStyleSheet(f"""
             QDoubleSpinBox {{
                 background:{T("panel")}; color:{T("accent")};
@@ -2583,7 +2690,7 @@ class CalibDialog(QDialog):
         rst = QPushButton('초기화')
         rst.setStyleSheet(f'background:{T("panel")};color:{T("text_dim")};'
                           f'border:1px solid {T("border")};padding:4px 12px;border-radius:8px;')
-        rst.clicked.connect(lambda: (self.offset_spin.setValue(0), self.result_lbl.setText('초기화됨')))
+        rst.clicked.connect(lambda: (self.offset_spin.setValue(0), self.result_lbl.setText(f'Ch {self._cur_ch+1} 초기화됨')))
         off_row.addWidget(rst); off_row.addStretch()
         layout.addLayout(off_row)
 
@@ -2597,6 +2704,53 @@ class CalibDialog(QDialog):
         self._meas_timer = QTimer(self)
         self._meas_timer.timeout.connect(self._sample_level)
         self._meas_count = 0
+
+        self._refresh_rows()   # 초기 채널 하이라이트 + 오프셋 표시
+
+    # ── 채널 테이블 ──────────────────────────
+    def _meas_title(self):
+        return f'Ch {self._cur_ch+1} 레벨 측정' if self._n_ch > 1 else '현재 마이크 레벨 측정'
+
+    def _select_channel(self, ch):
+        """채널 행 [선택] → 부모 입력 채널 전환 후 그 채널을 측정 대상으로."""
+        if self._measuring:
+            self._meas_timer.stop(); self._measuring = False
+        self._cur_ch = ch
+        try: self._set_channel(ch)   # 부모 in_ch_cb 전환 → 스트림 재시작
+        except Exception as e: _alog.warning(f'캘리브 채널 전환 실패 ch={ch}: {e}')
+        # 이 채널의 저장된 오프셋을 스핀에 로드 (write-back 차단)
+        self.offset_spin.blockSignals(True)
+        self.offset_spin.setValue(self._offsets.get(ch, 0.0))
+        self.offset_spin.blockSignals(False)
+        # 측정 표시 초기화
+        self.meas_display.setText('— dBFS')
+        self.meas_display.setStyleSheet(f'color:{T("accent")};font-size:26px;font-weight:bold;')
+        self._meas_box.setTitle(self._meas_title())
+        self.result_lbl.setText(f'Ch {ch+1} 선택됨 — 측정하거나 오프셋을 입력하세요')
+        self._refresh_rows()
+
+    def _on_offset_edited(self, val):
+        """오프셋 스핀 변경 → 현재 채널 값으로 기록."""
+        self._offsets[self._cur_ch] = round(float(val), 1)
+        self._refresh_rows()
+
+    def _refresh_rows(self):
+        for ch, w in self._rows.items():
+            is_cur = (ch == self._cur_ch)
+            if ch in self._offsets:
+                w['off'].setText(f'{self._offsets[ch]:+.1f} dB')
+                w['off'].setStyleSheet(f'color:{T("green")};font-size:12px;font-weight:bold;')
+            else:
+                w['off'].setText('—')
+                w['off'].setStyleSheet(f'color:{T("text_dim")};font-size:12px;font-weight:bold;')
+            if is_cur:
+                w['btn'].setText('● 선택됨')
+                w['btn'].setStyleSheet(f'background:rgba(10,132,255,35);color:{T("accent")};'
+                                       f'border:1px solid {T("accent")};border-radius:7px;padding:3px;font-size:11px;')
+            else:
+                w['btn'].setText('선택')
+                w['btn'].setStyleSheet(f'background:{T("bg2")};color:{T("text_dim")};'
+                                       f'border:1px solid {T("border")};border-radius:7px;padding:3px;font-size:11px;')
 
     def _start_measure(self):
         if self._measuring: return
@@ -2626,10 +2780,15 @@ class CalibDialog(QDialog):
         ref_val = 94.0 if self.ref_cb.currentIndex()==0 else 114.0
         meas    = self.meas_spin.value()
         offset  = ref_val - meas
-        self.offset_spin.setValue(round(offset, 1))
-        self.result_lbl.setText(f'오프셋  {offset:+.1f} dB  →  {meas:.1f} + {offset:.1f} = {ref_val:.0f} dBSPL ✅')
+        self.offset_spin.setValue(round(offset, 1))   # → _on_offset_edited 가 _offsets 기록
+        self.result_lbl.setText(f'Ch {self._cur_ch+1}  오프셋 {offset:+.1f} dB  →  {meas:.1f} + {offset:.1f} = {ref_val:.0f} dBSPL ✅')
 
-    def get_offset(self): return self.offset_spin.value()
+    def get_all_offsets(self):
+        """{ch:int -> offset:float} — 이번 세션에서 설정/변경된 모든 채널."""
+        return dict(self._offsets)
+
+    def get_current_channel(self):
+        return self._cur_ch
 
 # ───────────────────────────────────────────
 #  LEQ 팝업 창
@@ -2775,25 +2934,28 @@ class LeqWindow(QWidget):
 class _SplPanel(QWidget):
     """Single measurement panel inside SplMeterWindow — Smaart-style centered layout."""
     _BASE_W = 200  # reference width for font scaling
+    _BASE_H = 132  # reference height — scale 1 폰트가 세로로 여유있게 맞는 높이(짤림 방지)
 
-    def __init__(self, title, tc, vc, bg_hex='#0d0d1a', border_hex='#2a3060', parent=None):
+    def __init__(self, title, tc, vc, bg_hex='#0d0d1a', border_hex='#2a3060', parent=None, metric_id=None):
         super().__init__(parent)
+        self.metric_id = metric_id
         self._tc = tc; self._vc = vc; self._base_vc = vc
         self._warn_db = -20.0   # yellow above this
         self._peak_db = -10.0   # red above this
         self._bg    = QColor(bg_hex)
         self._bord  = QColor(border_hex)
         self._val_fs = 46  # current font size for value label
+        self._max_fs = 15  # current font size for Max/dot (리사이즈 후 재적용용)
         self.setAttribute(Qt.WA_OpaquePaintEvent, False)
-        self.setMinimumHeight(90)
+        self.setMinimumHeight(20)   # 아주 작게까지 허용 (최소 크기 탐색용)
         layout = QVBoxLayout(self)
         # inner margins leave room for the painted border
-        layout.setContentsMargins(12, 10, 12, 8); layout.setSpacing(3)
+        layout.setContentsMargins(10, 4, 10, 4); layout.setSpacing(1)
 
         self._title_lbl = QLabel(title)
         self._title_lbl.setAlignment(Qt.AlignCenter)
         self._title_lbl.setStyleSheet(
-            f'color:{tc};font-size:14px;font-weight:bold;background:transparent;')
+            f'color:{tc};font-size:18px;font-weight:bold;background:transparent;')
         layout.addWidget(self._title_lbl)
 
         sep = QFrame(); sep.setFrameShape(QFrame.HLine); sep.setFixedHeight(1)
@@ -2810,9 +2972,9 @@ class _SplPanel(QWidget):
         max_row = QHBoxLayout(); max_row.setContentsMargins(0, 0, 0, 0)
         max_row.addStretch()
         self._dot = QLabel('●')
-        self._dot.setStyleSheet('color:#33FF66;font-size:11px;background:transparent;')
+        self._dot.setStyleSheet('color:#33FF66;font-size:15px;background:transparent;')
         self._max_lbl = QLabel('Max: —')
-        self._max_lbl.setStyleSheet('color:#8E8E93;font-size:11px;background:transparent;')
+        self._max_lbl.setStyleSheet('color:#8E8E93;font-size:15px;background:transparent;')
         max_row.addWidget(self._dot); max_row.addWidget(self._max_lbl)
         max_row.addStretch()
         layout.addLayout(max_row)
@@ -2845,10 +3007,12 @@ class _SplPanel(QWidget):
         return '#33FF66'
 
     def set_font_scale(self, scale):
-        vs = max(20, int(46 * scale))
-        ts = max(9,  int(14 * scale))
-        ms = max(8,  int(11 * scale))
+        # 하한을 낮춰 창을 아주 작게 줄여도 글자가 같이 작아지게
+        vs = max(10, int(46 * scale))
+        ts = max(8,  int(18 * scale))
+        ms = max(8,  int(15 * scale))
         self._val_fs = vs
+        self._max_fs = ms
         self._title_lbl.setStyleSheet(
             f'color:{self._tc};font-size:{ts}px;font-weight:bold;background:transparent;')
         self._val_lbl.setStyleSheet(
@@ -2867,8 +3031,9 @@ class _SplPanel(QWidget):
         self._val_lbl.setText(f'{val:.1f}')
         if max_val is not None:
             pc = self._peak_color(max_val)
-            self._dot.setStyleSheet(f'color:{pc};background:transparent;')
-            self._max_lbl.setStyleSheet(f'color:{pc};background:transparent;')
+            # font-size 를 함께 명시 — 안 그러면 리사이즈로 키운 크기가 매 갱신마다 기본값으로 되돌아감
+            self._dot.setStyleSheet(f'color:{pc};font-size:{self._max_fs}px;background:transparent;')
+            self._max_lbl.setStyleSheet(f'color:{pc};font-size:{self._max_fs}px;background:transparent;')
             self._max_lbl.setText(f'Max: {max_val:.1f}')
 
     def reset(self):
@@ -2877,12 +3042,12 @@ class _SplPanel(QWidget):
             f'color:{self._base_vc};font-size:{self._val_fs}px;font-weight:bold;'
             f'background:transparent;')
         self._val_lbl.setText('—'); self._max_lbl.setText('Max: —')
-        self._dot.setStyleSheet('color:#33FF66;font-size:11px;background:transparent;')
-        self._max_lbl.setStyleSheet('color:#8E8E93;font-size:11px;background:transparent;')
+        self._dot.setStyleSheet(f'color:#33FF66;font-size:{self._max_fs}px;background:transparent;')
+        self._max_lbl.setStyleSheet(f'color:#8E8E93;font-size:{self._max_fs}px;background:transparent;')
 
 
 class SplMeterWindow(QWidget):
-    """Smaart-style SPL Meter with 4 always-running panels."""
+    """Smaart-style SPL Meter — 자유 행×열 그리드 + 칸별 지표 선택."""
     _PUSH_RATE = 50  # ~50 fps from audio thread
     _PRESETS = [
         ('1 min',   60),  ('5 min',   300), ('10 min',  600),
@@ -2890,12 +3055,18 @@ class SplMeterWindow(QWidget):
         ('1 hr',   3600), ('1.5 hr', 5400), ('2 hr',   7200),
         ('3 hr',  10800),
     ]
+    # 표시 가능한 지표:  id -> (제목, 색)
+    _METRICS = {
+        'dba':  ('dB SPL A Slow', '#FFFFFF'),
+        'dbc':  ('dB SPL C Slow', '#33FF66'),
+        'laeq': ('dB LAeq',       '#FFFFFF'),
+        'lceq': ('dB LCeq',       '#33FF66'),
+    }
+    _DEFAULT_CELLS = ['dba', 'dbc', 'laeq', 'lceq']
 
     def __init__(self, parent=None):
         super().__init__(parent, Qt.Window | Qt.Tool)
-        self.setWindowTitle('SPL Meter'); _apply_dark_titlebar(self, resizable=True)
-        self.setMinimumSize(240, 480)
-        self.resize(270, 500)
+        self.setWindowTitle('SPL Meter')
         self.setAttribute(Qt.WA_DeleteOnClose, False)
 
         self._buf_a = deque(maxlen=self._PUSH_RATE * 60 * 60 * 3)  # 3 hr max
@@ -2904,71 +3075,124 @@ class SplMeterWindow(QWidget):
         self._max_laeq = None; self._max_lceq = None
         self._leq_secs = 60  # default 1 min
         self._mutex = QMutex()
+        self._panels = []     # 현재 그리드에 배치된 _SplPanel 목록
+        self._calib_offset = 0.0
+
+        # ── 저장된 레이아웃 복원 (없으면 4×1 기본 = 기존 모습)
+        self._rows, self._cols, self._cells = self._load_layout()
+        try:
+            self._leq_idx = int(self.parent()._settings.get('spl_meter', {}).get('leq_idx', 0))
+        except Exception:
+            self._leq_idx = 0
+        self._leq_idx = max(0, min(len(self._PRESETS) - 1, self._leq_idx))
+        self._leq_secs = self._PRESETS[self._leq_idx][1]
+
+        # ── 타이틀바(✕ 옆): 설정(슬라이더 아이콘) + Reset Max(아이콘)
+        self._set_btn = _SettingsBtn()
+        self._set_btn.setToolTip('설정')
+        self._set_btn.clicked.connect(self._open_layout_dialog)
+        self._reset_btn = _ResetMaxBtn()
+        self._reset_btn.setToolTip('Reset Max')
+        self._reset_btn.clicked.connect(self._reset_max)
+        _apply_dark_titlebar(self, resizable=True, aux=[self._set_btn, self._reset_btn])
 
         self.setStyleSheet('SplMeterWindow{background:#131315;}')
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
+        # 레이아웃이 콘텐츠 최소크기로 창을 강제하지 않게 → 사용자가 더 작게 드래그 가능(최소 탐색용)
+        root.setSizeConstraint(QVBoxLayout.SetNoConstraint)
 
-        # ── top header — FIXED height, does not scale with resize
-        hdr = QWidget()
-        hdr.setFixedHeight(40)
-        hdr.setStyleSheet('background:#1C1C1E;')
-        hdr.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        hdr_lay = QHBoxLayout(hdr); hdr_lay.setContentsMargins(12, 0, 10, 0)
-        title_l = QLabel('SPL Meter')
-        title_l.setStyleSheet('color:#FFFFFF;font-size:12px;font-weight:bold;background:transparent;')
-        rst_btn = QPushButton('Reset Max'); rst_btn.setFixedHeight(22)
-        rst_btn.setStyleSheet('background:#2C2C2E;color:#8E8E93;border:1px solid #38383A;'
-                              'border-radius:4px;font-size:10px;padding:0 8px;')
-        rst_btn.clicked.connect(self._reset_max)
-        hdr_lay.addWidget(title_l); hdr_lay.addStretch(); hdr_lay.addWidget(rst_btn)
-        root.addWidget(hdr)
-
-        # ── LEQ window selector — FIXED height, does not scale
-        sel_row = QWidget()
-        sel_row.setFixedHeight(38)
-        sel_row.setStyleSheet('background:#1C1C1E;')
-        sel_row.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        sel_lay = QHBoxLayout(sel_row); sel_lay.setContentsMargins(12, 0, 10, 0); sel_lay.setSpacing(8)
-        lbl = QLabel('LEQ window:')
-        lbl.setStyleSheet('color:#8E8E93;font-size:10px;background:transparent;')
-        self._time_cb = QComboBox()
-        self._time_cb.setFixedHeight(22)
-        self._time_cb.setStyleSheet(
-            'QComboBox{background:#2C2C2E;color:#FFFFFF;border:1px solid #38383A;'
-            'border-radius:4px;font-size:10px;padding:0 6px;}'
-            'QComboBox::drop-down{border:none;width:14px;}'
-        )
-        for label, _ in self._PRESETS:
-            self._time_cb.addItem(label)
-        self._time_cb.setCurrentIndex(0)  # 1 min default
-        self._time_cb.currentIndexChanged.connect(self._on_preset_changed)
-        sel_lay.addWidget(lbl); sel_lay.addWidget(self._time_cb); sel_lay.addStretch()
-        root.addWidget(sel_row)
-
-        # ── 4 measurement panels — each a distinct rounded box, expand to fill
-        self._panel_dba  = _SplPanel('dB SPL A Slow', '#FFFFFF', '#FFFFFF',
-                                     bg_hex='#1C1C1E', border_hex='#38383A')
-        self._panel_dbc  = _SplPanel('dB SPL C Slow', '#33FF66', '#33FF66',
-                                     bg_hex='#1C1C1E', border_hex='#38383A')
-        self._panel_laeq = _SplPanel('dB LAeq',       '#FFFFFF', '#FFFFFF',
-                                     bg_hex='#1C1C1E', border_hex='#38383A')
-        self._panel_lceq = _SplPanel('dB LCeq',       '#33FF66', '#33FF66',
-                                     bg_hex='#1C1C1E', border_hex='#38383A')
-        # panels container with padding and spacing for box separation
+        # ── 패널 그리드 컨테이너 (행×열은 _rebuild_grid 에서 채움). 컨트롤은 설정창으로 이동.
         panels_w = QWidget(); panels_w.setStyleSheet('background:#131315;')
-        panels_lay = QVBoxLayout(panels_w)
-        panels_lay.setContentsMargins(6, 6, 6, 6); panels_lay.setSpacing(6)
-        for pnl in [self._panel_dba, self._panel_dbc, self._panel_laeq, self._panel_lceq]:
-            pnl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            panels_lay.addWidget(pnl)
-        root.addWidget(panels_w)
+        self._grid = QGridLayout(panels_w)
+        self._grid.setContentsMargins(6, 6, 6, 6); self._grid.setSpacing(6)
+        root.addWidget(panels_w, 1)
+
+        self._rebuild_grid()
+        self.setMinimumSize(self._min_w(), self._min_h())
+        # 기본(처음 열 때) 크기 — 작고 보기 좋게. 사용자가 자유롭게 늘리거나 줄일 수 있음.
+        self.resize(max(150 * self._cols, 280), self._chrome_h() + 116 * self._rows)
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._update_display)
         self._timer.start(200)
 
-    def _on_preset_changed(self, idx):
-        self._leq_secs = self._PRESETS[idx][1]
+    # ── 레이아웃 로드/저장 ──────────────────────
+    def _load_layout(self):
+        try:
+            cfg = self.parent()._settings.get('spl_meter', {})
+            rows = int(cfg.get('rows', 4)); cols = int(cfg.get('cols', 1))
+            cells = list(cfg.get('cells', self._DEFAULT_CELLS))
+        except Exception:
+            rows, cols, cells = 4, 1, list(self._DEFAULT_CELLS)
+        rows = max(1, min(4, rows)); cols = max(1, min(4, cols))
+        cells = self._normalize_cells(cells, rows, cols)
+        return rows, cols, cells
+
+    def _normalize_cells(self, cells, rows, cols):
+        n = rows * cols
+        cells = [(c if c in self._METRICS else None) for c in cells][:n]
+        cells += [None] * (n - len(cells))   # 부족분 빈 칸 패딩
+        return cells
+
+    def _save_layout(self):
+        try:
+            self.parent()._settings['spl_meter'] = {
+                'rows': self._rows, 'cols': self._cols, 'cells': self._cells,
+                'leq_idx': self._leq_idx}
+            _save_settings(self.parent()._settings)
+        except Exception as e:
+            _alog.warning(f'SPL 레이아웃 저장 실패: {e}')
+
+    def _chrome_h(self):
+        return 12   # 컨트롤 줄 제거됨 — 그리드 여백만
+
+    def _min_w(self):
+        # 최소 크기 탐색용 — 거의 풀어줌(실제 하한은 타이틀바 콘텐츠 자연 최소가 결정)
+        return max(40 * self._cols, 80)
+
+    def _min_h(self):
+        # 패널 폰트가 자동 축소되므로 아주 작게까지 허용
+        return self._chrome_h() + 22 * self._rows
+
+    # ── 그리드 재구성 ───────────────────────────
+    def _rebuild_grid(self):
+        # 기존 패널 제거
+        for p in self._panels:
+            self._grid.removeWidget(p); p.setParent(None); p.deleteLater()
+        self._panels = []
+        for col in range(self._grid.columnCount()): self._grid.setColumnStretch(col, 0)
+        for row in range(self._grid.rowCount()):    self._grid.setRowStretch(row, 0)
+
+        self._cells = self._normalize_cells(self._cells, self._rows, self._cols)
+        for idx, mid in enumerate(self._cells):
+            r, c = divmod(idx, self._cols)
+            if mid is None:
+                continue
+            title, color = self._METRICS[mid]
+            pnl = _SplPanel(title, color, color, bg_hex='#1C1C1E', border_hex='#38383A',
+                            metric_id=mid)
+            pnl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            pnl.set_calib_offset(self._calib_offset)
+            self._grid.addWidget(pnl, r, c)
+            self._panels.append(pnl)
+        for c in range(self._cols): self._grid.setColumnStretch(c, 1)
+        for r in range(self._rows): self._grid.setRowStretch(r, 1)
+
+        # 창 최소 크기 — 작게 줄일 수 있도록 (강제 확대 안 함)
+        self.setMinimumSize(self._min_w(), self._min_h())
+        QTimer.singleShot(0, self._scale_panels)
+
+    def _open_layout_dialog(self):
+        leq_labels = [lbl for lbl, _ in self._PRESETS]
+        dlg = SplLayoutDialog(self._rows, self._cols, self._cells, self._METRICS,
+                              leq_labels, self._leq_idx, self)
+        if dlg.exec() == QDialog.Accepted:
+            self._rows, self._cols, self._cells = dlg.get_layout()
+            self._leq_idx = dlg.get_leq_idx()
+            self._leq_secs = self._PRESETS[self._leq_idx][1]
+            self._rebuild_grid()
+            self._scale_panels()
+            self._save_layout()
 
     def push_sample(self, dba, dbc):
         if dba > -100:
@@ -2991,24 +3215,29 @@ class SplMeterWindow(QWidget):
         if self._max_laeq is None or laeq > self._max_laeq: self._max_laeq = laeq
         if self._max_lceq is None or lceq > self._max_lceq: self._max_lceq = lceq
 
-        self._panel_dba.set_value(dba,   self._max_a)
-        self._panel_dbc.set_value(dbc,   self._max_c)
-        self._panel_laeq.set_value(laeq, self._max_laeq)
-        self._panel_lceq.set_value(lceq, self._max_lceq)
+        value_for = {'dba': dba, 'dbc': dbc, 'laeq': laeq, 'lceq': lceq}
+        max_for   = {'dba': self._max_a, 'dbc': self._max_c,
+                     'laeq': self._max_laeq, 'lceq': self._max_lceq}
+        for pnl in self._panels:
+            pnl.set_value(value_for[pnl.metric_id], max_for[pnl.metric_id])
 
     def set_calib_offset(self, offset):
-        for pnl in [self._panel_dba, self._panel_dbc, self._panel_laeq, self._panel_lceq]:
+        self._calib_offset = offset
+        for pnl in self._panels:
             pnl.set_calib_offset(offset)
 
     def _reset_max(self):
         self._max_a = self._max_c = self._max_laeq = self._max_lceq = None
-        for pnl in [self._panel_dba, self._panel_dbc, self._panel_laeq, self._panel_lceq]:
+        for pnl in self._panels:
             pnl.reset()
 
     def _scale_panels(self):
-        scale = self.width() / _SplPanel._BASE_W
-        for pnl in [self._panel_dba, self._panel_dbc, self._panel_laeq, self._panel_lceq]:
-            pnl.set_font_scale(scale)
+        # 가로·세로 둘 다 고려해 작은 쪽 기준 → 좁거나 낮은 패널에서 글자 짤림 방지
+        for pnl in self._panels:
+            w = pnl.width(); h = pnl.height()
+            if w <= 0 or h <= 0:
+                continue
+            pnl.set_font_scale(min(w / _SplPanel._BASE_W, h / _SplPanel._BASE_H))
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
@@ -3024,6 +3253,108 @@ class SplMeterWindow(QWidget):
         if hasattr(self.parent(), 'spl_meter_win'):
             self.parent().spl_meter_win = None
         e.accept()
+
+
+class SplLayoutDialog(QDialog):
+    """SPL Meter 레이아웃 편집 — 행/열 개수 + 칸별 지표 지정."""
+    def __init__(self, rows, cols, cells, metrics, leq_labels=None, leq_idx=0, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('SPL 설정'); _apply_dark_titlebar(self)
+        self.setMinimumWidth(360)
+        self.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
+        self._metrics = metrics                 # id -> (title, color)
+        self._cells = list(cells)               # 현재 지정값 (재구성 시 보존)
+        self._combos = []                       # 현재 그리드의 QComboBox 목록
+        self._ids = [None] + list(metrics.keys())   # 콤보 인덱스 ↔ 지표 id
+
+        root = QVBoxLayout(self); root.setSpacing(12); root.setContentsMargins(16, 12, 16, 12)
+
+        info = QLabel('행·열 개수를 정하고, 각 칸에 표시할 지표를 고르세요.\n빈 칸은 "— 없음"으로 두면 됩니다.')
+        info.setStyleSheet(f'color:{T("text_dim")};font-size:11px;'
+                           f'background:{T("panel")};border-radius:8px;padding:10px;')
+        info.setWordWrap(True); root.addWidget(info)
+
+        # ── LEQ time (적분 시간) 선택
+        leq_row = QHBoxLayout(); leq_row.addStretch()
+        leq_row.addWidget(QLabel('LEQ time:'))
+        self._leq_cb = QComboBox(); self._leq_cb.setStyleSheet(self._combo_style())
+        self._leq_cb.setMinimumWidth(120)
+        for lbl in (leq_labels or ['1 min']):
+            self._leq_cb.addItem(lbl)
+        self._leq_cb.setCurrentIndex(max(0, min(self._leq_cb.count() - 1, leq_idx)))
+        leq_row.addWidget(self._leq_cb); leq_row.addStretch()
+        root.addLayout(leq_row)
+
+        # ── 행/열 스핀
+        rc_row = QHBoxLayout(); rc_row.addStretch()
+        rc_row.addWidget(QLabel('행(Row):'))
+        self._row_sp = QSpinBox(); self._row_sp.setRange(1, 4); self._row_sp.setValue(rows)
+        rc_row.addWidget(self._row_sp)
+        rc_row.addSpacing(14)
+        rc_row.addWidget(QLabel('열(Col):'))
+        self._col_sp = QSpinBox(); self._col_sp.setRange(1, 4); self._col_sp.setValue(cols)
+        rc_row.addWidget(self._col_sp)
+        rc_row.addStretch()
+        for sp in (self._row_sp, self._col_sp):
+            sp.setStyleSheet(f"""
+                QSpinBox {{ background:{T('panel')}; color:{T('text')};
+                    border:1px solid {T('border')}; padding:3px 8px;
+                    border-radius:6px; min-width:54px; font-size:13px; }}
+            """)
+            sp.valueChanged.connect(self._rebuild_combos)
+        root.addLayout(rc_row)
+
+        # ── 칸별 지표 콤보 그리드
+        self._cells_wrap = QWidget()
+        self._cells_grid = QGridLayout(self._cells_wrap)
+        self._cells_grid.setSpacing(6); self._cells_grid.setContentsMargins(2, 2, 2, 2)
+        root.addWidget(self._cells_wrap)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.setStyleSheet(f'color:{T("text")};')
+        btns.accepted.connect(self.accept); btns.rejected.connect(self.reject)
+        root.addWidget(btns)
+
+        self._rebuild_combos()
+
+    def _combo_style(self):
+        return (f"QComboBox{{background:{T('panel')};color:{T('text')};"
+                f"border:1px solid {T('border')};border-radius:6px;padding:3px 8px;font-size:11px;}}"
+                f"QComboBox::drop-down{{width:16px;border:none;}}"
+                f"QComboBox QAbstractItemView{{background:{T('bg2')};color:{T('text')};"
+                f"border:1px solid {T('accent')};selection-background-color:rgba(0,150,255,80);}}")
+
+    def _rebuild_combos(self, *_):
+        # 현재 선택값 보존 후 재생성 (최초 호출 땐 콤보가 없으니 초기 cells 유지)
+        if self._combos:
+            self._cells = self.get_cells_raw()
+        while self._cells_grid.count():
+            it = self._cells_grid.takeAt(0)
+            if it.widget(): it.widget().setParent(None)
+        self._combos = []
+        rows = self._row_sp.value(); cols = self._col_sp.value()
+        n = rows * cols
+        cells = (self._cells + [None] * n)[:n]
+        for idx in range(n):
+            r, c = divmod(idx, cols)
+            cb = QComboBox(); cb.setStyleSheet(self._combo_style())
+            cb.addItem('— 없음')
+            for mid in self._metrics:
+                cb.addItem(self._metrics[mid][0])
+            cur = cells[idx]
+            cb.setCurrentIndex(self._ids.index(cur) if cur in self._ids else 0)
+            self._cells_grid.addWidget(cb, r, c)
+            self._combos.append(cb)
+
+    def get_cells_raw(self):
+        """현재 콤보 상태를 id 리스트로."""
+        return [self._ids[cb.currentIndex()] for cb in self._combos]
+
+    def get_layout(self):
+        return self._row_sp.value(), self._col_sp.value(), self.get_cells_raw()
+
+    def get_leq_idx(self):
+        return self._leq_cb.currentIndex()
 
 
 # ───────────────────────────────────────────
@@ -10900,7 +11231,9 @@ class StereoLoudnessPage(QWidget):
 
     # ── 팝아웃 ────────────────────────────────────────────────────────
     def _make_popout_win(self, canvas, title):
-        win = QWidget(flags=Qt.Window)
+        # Qt.Tool + 메인창 부모 → SPL 미터처럼 풀스크린 위에 떠서 정렬 가능
+        # (일반 Qt.Window 는 macOS 풀스크린에서 별도 Space 로 튀어 정렬 불가)
+        win = QWidget(self.window(), Qt.Window | Qt.Tool)
         win.setWindowTitle(title)
         win.setStyleSheet(f'background:{T("bg")};')
         lay = QVBoxLayout(win); lay.setContentsMargins(0,0,0,0)
@@ -11461,7 +11794,7 @@ class MainWindow(QMainWindow):
         # ── 푸터
         self.ft=QWidget(); self.ft.setFixedHeight(22)
         fl=QHBoxLayout(self.ft); fl.setContentsMargins(16,0,16,0)
-        fl.addWidget(QLabel('WSA Spectrum Analyzer 2  |  v1.0'))
+        fl.addWidget(QLabel('WSA Spectrum Analyzer 2  |  v1.1'))
         fl.addStretch()
         jordan_lbl=QLabel('Design by Jordan')
         jordan_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:10px;font-style:italic;')
@@ -12100,26 +12433,43 @@ class MainWindow(QMainWindow):
         def get_raw_spl():
             with QMutexLocker(self._mutex):
                 return self._raw_spl_smooth
-        dlg = CalibDialog(self.calib_offset, get_raw_spl, self)
-        if dlg.exec() == QDialog.Accepted:
-            prev = self.calib_offset
-            self.calib_offset = dlg.get_offset()
-            self.i_calib.setText(f'{self.calib_offset:+.1f} dB')
-            device_name = self.dev_cb.currentText()
-            ch = self.in_ch_cb.currentData() or 0
-            _alog.info(f'캘리브레이션 변경  device="{device_name}"  ch={ch}  {prev:+.1f} → {self.calib_offset:+.1f} dB')
+        device_name = self.dev_cb.currentText()
+        n_ch = self._dev_input_channels(self.dev_cb.currentData())
+        active_ch = self.in_ch_cb.currentData() or 0
+        calibs = self._settings.get('calibrations', {})
+        # 이 장치의 채널별 기존 오프셋 수집 (+ 레거시 장치단위 값은 ch0 으로)
+        offsets = {}
+        for ch in range(n_ch):
+            key = f'{device_name}:{ch}'
+            if key in calibs:
+                offsets[ch] = float(calibs[key])
+        if not offsets and device_name in calibs:
+            offsets[0] = float(calibs[device_name])
+
+        def set_channel(ch):
+            for i in range(self.in_ch_cb.count()):
+                if self.in_ch_cb.itemData(i) == ch:
+                    self.in_ch_cb.setCurrentIndex(i); break   # → _on_input_ch_changed (재시작+calib로드)
+
+        dlg = CalibDialog(device_name, n_ch, offsets, active_ch,
+                          get_raw_spl, set_channel, self)
+        result = dlg.exec()
+        if result == QDialog.Accepted:
+            all_off = dlg.get_all_offsets()
             if 'calibrations' not in self._settings:
                 self._settings['calibrations'] = {}
-            self._settings['calibrations'][f'{device_name}:{ch}'] = self.calib_offset
+            for ch, off in all_off.items():
+                self._settings['calibrations'][f'{device_name}:{ch}'] = round(float(off), 1)
             _save_settings(self._settings)
-            with QMutexLocker(self._mutex):
-                self._avg_buf.clear()
-                self._fft_smooth = None; self._pow_smooth = None
-            self.fft_cvs.calib_offset = self.calib_offset
-            self.oct_cvs.calib_offset = self.calib_offset
-            self.fft_cvs._cache = None; self.oct_cvs._cache = None
-            self._apply_calib_thresholds()
-            self._auto_range_for_calib()
+            _alog.info(f'캘리브레이션 저장  device="{device_name}"  '
+                       + ', '.join(f'ch{ch}={off:+.1f}' for ch, off in sorted(all_off.items())))
+            # 현재 활성 채널 기준으로 라이브 반영 (다이얼로그가 채널을 바꿔놨을 수 있음)
+            cur_ch = self.in_ch_cb.currentData() or 0
+            self._load_calib_for_device(device_name, cur_ch)
+        else:
+            # 취소 — 다이얼로그 도중 채널이 바뀌었으면 원래 채널로 복원
+            if (self.in_ch_cb.currentData() or 0) != active_ch:
+                set_channel(active_ch)
 
     def _apply_db_range(self):
         self.fft_cvs.db_max=self.db_max; self.fft_cvs.db_min=self.db_min
@@ -13471,7 +13821,7 @@ if __name__=='__main__':
 
     # ── 세션 시작 로그 헤더
     _alog.info('=' * 60)
-    _alog.info(f'WSA2 v1.0  시작  {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+    _alog.info(f'WSA2 v1.1  시작  {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
     _alog.info(f'OS: {_pl.platform()}')
     _alog.info(f'Machine: {_pl.machine()}  Processor: {_pl.processor()}')
     _alog.info(f'Python: {_pl.python_version()}')
