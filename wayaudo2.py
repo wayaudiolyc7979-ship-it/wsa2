@@ -197,7 +197,7 @@ class LicenseDialog(QDialog):
         lay = QVBoxLayout(self); lay.setSpacing(14); lay.setContentsMargins(24, 20, 24, 20)
 
         title = QLabel('SPECTRA')
-        title.setStyleSheet('font-size:17px;font-weight:bold;color:#3E7BD6;letter-spacing:4px;')
+        title.setStyleSheet('font-size:17px;font-weight:bold;color:#4E7DF0;letter-spacing:4px;')
         lay.addWidget(title)
 
         # 머신 ID 표시
@@ -211,7 +211,7 @@ class LicenseDialog(QDialog):
         self._mid_val.setTextInteractionFlags(Qt.TextSelectableByMouse)
         copy_btn = QPushButton('머신 ID 복사')
         copy_btn.setFixedWidth(110)
-        copy_btn.setStyleSheet('background:#2C2C2E;color:#3E7BD6;border:1px solid #3E7BD6;border-radius:4px;padding:3px;font-size:10px;')
+        copy_btn.setStyleSheet('background:#2C2C2E;color:#4E7DF0;border:1px solid #4E7DF0;border-radius:4px;padding:3px;font-size:10px;')
         copy_btn.clicked.connect(self._copy_mid)
         mid_row = QHBoxLayout(); mid_row.addWidget(self._mid_val); mid_row.addStretch(); mid_row.addWidget(copy_btn)
         mid_lay.addWidget(mid_lbl); mid_lay.addLayout(mid_row)
@@ -239,7 +239,7 @@ class LicenseDialog(QDialog):
         self._act_btn = QPushButton('활성화')
         self._act_btn.setFixedWidth(100)
         self._act_btn.setEnabled(False)
-        self._act_btn.setStyleSheet('background:#3E7BD6;color:#FFFFFF;font-weight:bold;border-radius:6px;padding:6px;')
+        self._act_btn.setStyleSheet('background:#4E7DF0;color:#FFFFFF;font-weight:bold;border-radius:6px;padding:6px;')
         self._act_btn.clicked.connect(self._activate)
         btn_row.addWidget(quit_btn); btn_row.addStretch(); btn_row.addWidget(self._act_btn)
         lay.addLayout(btn_row)
@@ -362,7 +362,7 @@ THEMES = {
         'text':      '#FFFFFF',
         'text_dim':  '#8E8E93',
         'graph_txt': '#9CA0A8',
-        'accent':    '#3E7BD6',
+        'accent':    '#4E7DF0',
         'accent2':   '#FF9F0A',
         'green':     '#33FF66',
         'yellow':    '#FFD60A',
@@ -383,7 +383,7 @@ THEMES = {
         'text':     '#0c1828',
         'text_dim': '#38506c',
         'graph_txt': '#46566e',
-        'accent':   '#1670cc',
+        'accent':   '#2E54C8',
         'accent2':  '#cc4c00',
         'green':    '#0e7c30',
         'yellow':   '#8c6600',
@@ -792,7 +792,7 @@ def draw_info_box(p, W, freq_str, db_str, pk_str=None):
     bw = max(fw,dw,pw)+40; bh=90 if pk_str else 66
     bx = W//2-bw//2; by=14
     for off,alp in [(5,15),(3,30),(2,50)]:
-        p.setPen(QPen(QColor(T('accent')).darker(80) if _theme=='light' else QColor(10,132,255,alp), off*2))
+        p.setPen(QPen(QColor(T('accent')).darker(80) if _theme=='light' else QColor(78,125,240,alp), off*2))
         p.setBrush(Qt.NoBrush)
         p.drawRoundedRect(bx-off,by-off,bw+off*2,bh+off*2,10,10)
     p.setPen(QPen(QColor(T('accent')),2))
@@ -2211,7 +2211,7 @@ class OctaveCanvas(QWidget):
             db2=float(sm[bi])
             bx2=int(pl+bi*bar_w+gap/2); bw2=max(1,int(bar_w-gap))
             p.setPen(QPen(QColor(T('accent')),2))
-            p.setBrush(QBrush(QColor(T('accent')).lighter(200) if _theme=='light' else QColor(10,132,255,12)))
+            p.setBrush(QBrush(QColor(T('accent')).lighter(200) if _theme=='light' else QColor(78,125,240,12)))
             p.drawRect(bx2,pt,bw2,dh)
             fs=f'{fc/1000:.2f} kHz' if fc>=1000 else f'{fc:.0f} Hz'
             draw_info_box(p,W,fs,f'{db2:.1f} {unit}')
@@ -2363,7 +2363,7 @@ class SpectrogramCanvas(QWidget):
     # ── Triangle handles (left edge) ─────────────────────────────────────────
     def _draw_handles(self,p,H):
         tx=self.PAD_L-2
-        for db,col in [(self._cmax,'#3E7BD6'),(self._cmin,'#FF9F0A')]:
+        for db,col in [(self._cmax,'#4E7DF0'),(self._cmin,'#FF9F0A')]:
             y=self._cdb_to_y(db,H)
             pts=[QPoint(tx,y),QPoint(tx-11,y-7),QPoint(tx-11,y+7)]
             p.setBrush(QBrush(QColor(col))); p.setPen(Qt.NoPen)
@@ -2688,7 +2688,7 @@ class CalibDialog(QDialog):
             QComboBox::drop-down {{ width:18px; border:none; }}
             QComboBox QAbstractItemView {{
                 background:{T('bg2')}; color:{T('text')};
-                border:1px solid {T('accent')}; selection-background-color:rgba(0,150,255,80);
+                border:1px solid {T('accent')}; selection-background-color:rgba(78,125,240,80);
             }}
         """)
         ref_row.addWidget(self.ref_cb); ref_row.addStretch()
@@ -2707,7 +2707,7 @@ class CalibDialog(QDialog):
         mb.addWidget(self.meas_display)
 
         self.meas_btn = QPushButton('레벨 측정 시작  (3초)'); self.meas_btn.setIcon(_icon('mic', 14, color=T('accent')))
-        self.meas_btn.setStyleSheet(f'background:rgba(10,132,255,25);color:{T("accent")};'
+        self.meas_btn.setStyleSheet(f'background:rgba(78,125,240,25);color:{T("accent")};'
                                      f'border:1px solid {T("accent")};padding:6px;border-radius:8px;font-size:12px;')
         self.meas_btn.clicked.connect(self._start_measure)
         mb.addWidget(self.meas_btn)
@@ -2818,7 +2818,7 @@ class CalibDialog(QDialog):
                 w['off'].setStyleSheet(f'color:{T("text_dim")};font-size:12px;font-weight:bold;')
             if is_cur:
                 w['btn'].setText('● 선택됨')
-                w['btn'].setStyleSheet(f'background:rgba(10,132,255,35);color:{T("accent")};'
+                w['btn'].setStyleSheet(f'background:rgba(78,125,240,35);color:{T("accent")};'
                                        f'border:1px solid {T("accent")};border-radius:7px;padding:3px;font-size:11px;')
             else:
                 w['btn'].setText('선택')
@@ -2845,7 +2845,7 @@ class CalibDialog(QDialog):
             self.meas_display.setText(f'{avg:.1f} dBFS  ✓')
             self.meas_display.setStyleSheet(f'color:{T("green")};font-size:26px;font-weight:bold;')
             self.meas_btn.setText('레벨 측정 시작  (3초)'); self.meas_btn.setIcon(_icon('mic', 14, color=T('accent')))
-            self.meas_btn.setStyleSheet(f'background:rgba(10,132,255,25);color:{T("accent")};'
+            self.meas_btn.setStyleSheet(f'background:rgba(78,125,240,25);color:{T("accent")};'
                                          f'border:1px solid {T("accent")};padding:6px;border-radius:5px;font-size:12px;')
             self._auto_calc()
 
@@ -3395,7 +3395,7 @@ class SplLayoutDialog(QDialog):
                 f"border:1px solid {T('border')};border-radius:6px;padding:3px 8px;font-size:11px;}}"
                 f"QComboBox::drop-down{{width:16px;border:none;}}"
                 f"QComboBox QAbstractItemView{{background:{T('bg2')};color:{T('text')};"
-                f"border:1px solid {T('accent')};selection-background-color:rgba(0,150,255,80);}}")
+                f"border:1px solid {T('accent')};selection-background-color:rgba(78,125,240,80);}}")
 
     def _rebuild_combos(self, *_):
         # 현재 선택값 보존 후 재생성 (최초 호출 땐 콤보가 없으니 초기 cells 유지)
@@ -3460,13 +3460,13 @@ class DropdownPopup(QFrame):
             btn.setFlat(True)
             btn.setStyleSheet(
                 f'QPushButton {{'
-                f'  background:{"rgba(0,150,255,70)" if selected else "transparent"};'
+                f'  background:{"rgba(78,125,240,70)" if selected else "transparent"};'
                 f'  color:{T("accent") if selected else T("text")};'
                 f'  border:none; border-radius:7px;'
                 f'  padding:6px 16px; font-size:11px; font-weight:{"bold" if selected else "normal"};'
                 f'  text-align:left; min-height:26px;'
                 f'}}'
-                f'QPushButton:hover {{ background:rgba(0,150,255,30); color:{T("text")}; }}'
+                f'QPushButton:hover {{ background:rgba(78,125,240,30); color:{T("text")}; }}'
             )
             # clicked 대신 mousePressEvent — macOS Popup이 mouseRelease 전에 닫혀
             # clicked 시그널이 도달하지 못하는 Intel Mac 버그 우회
@@ -3597,7 +3597,7 @@ class DeviceCardPopup(QFrame):
 
     def _make_card(self, combo_idx, name, ch_count, selected, disconnected, dev_idx):
         card = QFrame(); card.setObjectName('devCard')
-        bg = 'rgba(10,132,255,40)' if selected else T('bg3')
+        bg = 'rgba(78,125,240,40)' if selected else T('bg3')
         bd = T('accent') if selected else T('border')
         card.setStyleSheet(
             f'QFrame#devCard {{ background:{bg}; border:1px solid {bd}; border-radius:8px; }}'
@@ -4309,14 +4309,14 @@ class _CaptureDrawer(QWidget):
         hdr = QWidget(); hdr.setFixedHeight(30)
         hl = QHBoxLayout(hdr); hl.setContentsMargins(8, 4, 4, 4); hl.setSpacing(4)
         hl.addWidget(QLabel('CAPTURES',
-            styleSheet='color:#3E7BD6;font-size:13px;font-weight:bold;'))
+            styleSheet='color:#4E7DF0;font-size:13px;font-weight:bold;'))
         hl.addStretch()
         self._avg_btn = QPushButton('Avg')
         self._avg_btn.setFixedSize(36, 20)
         self._avg_btn.setToolTip('체크된 TF 캡처들의 평균 생성')
         self._avg_btn.setStyleSheet(
             'font-size:9px;font-weight:600;border:1px solid #38383A;border-radius:5px;'
-            'background:#1C1C1E;color:#3E7BD6;padding:0 2px;')
+            'background:#1C1C1E;color:#4E7DF0;padding:0 2px;')
         self._avg_btn.clicked.connect(lambda: self.average_requested.emit(self._panel_tab))
         self._avg_btn.setVisible(False)
         hl.addWidget(self._avg_btn)
@@ -4325,7 +4325,7 @@ class _CaptureDrawer(QWidget):
         self._export_btn.setToolTip('TF 캡처 내보내기 (CSV + PNG)')
         self._export_btn.setStyleSheet(
             'font-size:12px;font-weight:600;border:1px solid #38383A;border-radius:5px;'
-            'background:#1C1C1E;color:#3E7BD6;padding:0;')
+            'background:#1C1C1E;color:#4E7DF0;padding:0;')
         self._export_btn.clicked.connect(lambda: self.export_requested.emit(self._panel_tab))
         self._export_btn.setVisible(False)
         hl.addWidget(self._export_btn)
@@ -4628,8 +4628,8 @@ class _CaptureDrawer(QWidget):
         chk.setFixedSize(20, 20)
         chk.setStyleSheet(
             'QPushButton{font-size:13px;font-weight:bold;border:2px solid #48484A;'
-            'border-radius:4px;background:#1C1C1E;color:#3E7BD6;padding:0;}'
-            'QPushButton:checked{border:2px solid #3E7BD6;background:#1C2A3A;}')
+            'border-radius:4px;background:#1C1C1E;color:#4E7DF0;padding:0;}'
+            'QPushButton:checked{border:2px solid #4E7DF0;background:#1C2A3A;}')
         def _on_vis(c, b=chk, m=mode, i=idx):
             b.setText('✓' if c else '')
             self.visibility_changed.emit(m, i, c)
@@ -7171,8 +7171,8 @@ class SweepConfigDialog(QDialog):
         ok_btn = QPushButton('Apply')
         ok_btn.setStyleSheet(
             f'background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
-            f'stop:0 rgba(10,132,255,80),stop:1 rgba(10,132,255,40));'
-            f'color:{ac};border:1px solid rgba(10,132,255,160);border-radius:6px;'
+            f'stop:0 rgba(78,125,240,80),stop:1 rgba(78,125,240,40));'
+            f'color:{ac};border:1px solid rgba(78,125,240,160);border-radius:6px;'
             f'padding:5px 14px;font-size:12px;font-weight:bold;')
         cancel_btn = QPushButton('Cancel')
         ok_btn.clicked.connect(self.accept)
@@ -8074,8 +8074,8 @@ class TransferFunctionWindow(QWidget):
         _toggle_ss = (
             'QPushButton{background:#2C2C2E;color:#9A9AA0;border:1px solid #48484A;'
             'border-radius:7px;font-size:14px;font-weight:bold;}'
-            'QPushButton:hover{border-color:#3E7BD6;}'
-            'QPushButton:checked{background:#3E7BD6;color:#FFFFFF;border:1px solid #3E7BD6;}')
+            'QPushButton:hover{border-color:#4E7DF0;}'
+            'QPushButton:checked{background:#4E7DF0;color:#FFFFFF;border:1px solid #4E7DF0;}')
         self.delta_btn = QPushButton(''); self.delta_btn.setIcon(_icon('delta')); self.delta_btn.setFixedWidth(30); self.delta_btn.setFixedHeight(30)
         self.delta_btn.setCheckable(True)
         self.delta_btn.setStyleSheet(_toggle_ss)
