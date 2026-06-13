@@ -11477,7 +11477,8 @@ class StereoLoudnessPage(QWidget):
         num_bar=QWidget(); num_bar.setFixedHeight(80)
         num_bar.setObjectName('stNumBar')
         self._num_bar = num_bar
-        num_bar.setStyleSheet('#stNumBar{background:%s;}' % ('#010103' if _theme != 'light' else T('bg2')))
+        # 다크=스코프와 동일한 T('bg')(검정)로 → 바닥 전체 단색. 라이트=흰색(bg2).
+        num_bar.setStyleSheet('#stNumBar{background:%s;}' % (T('bg') if _theme != 'light' else T('bg2')))
         nl=QHBoxLayout(num_bar); nl.setContentsMargins(16,4,16,4); nl.setSpacing(0)
         self._vseps = []; self._metric_meta = []
 
@@ -11501,17 +11502,20 @@ class StereoLoudnessPage(QWidget):
         }
 
         def _metric(title, unit, attr, big=False, hue=0, light=160):
-            w=QWidget(); vl=QVBoxLayout(w); vl.setContentsMargins(0,0,0,0); vl.setSpacing(1)
+            # 카드 배경을 투명으로 → 전역 QWidget{bg2} 회색을 없애고 바(stNumBar) 단색이 그대로 비침.
+            w=QWidget(); w.setStyleSheet('background:transparent;')
+            vl=QVBoxLayout(w); vl.setContentsMargins(0,0,0,0); vl.setSpacing(1)
             t=QLabel(title)
-            t.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};letter-spacing:1px;')
+            t.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};letter-spacing:1px;background:transparent;')
             t.setAlignment(Qt.AlignHCenter)
-            row=QWidget(); rl=QHBoxLayout(row); rl.setContentsMargins(0,0,0,0); rl.setSpacing(3)
+            row=QWidget(); row.setStyleSheet('background:transparent;')
+            rl=QHBoxLayout(row); rl.setContentsMargins(0,0,0,0); rl.setSpacing(3)
             fs=FS_METRIC_BIG if big else FS_METRIC
             v=QLabel('—')
-            v.setStyleSheet(f'font-size:{fs}px;font-weight:bold;color:{_metric_col(hue, light)};')
+            v.setStyleSheet(f'font-size:{fs}px;font-weight:bold;color:{_metric_col(hue, light)};background:transparent;')
             v.setAlignment(Qt.AlignRight|Qt.AlignVCenter)
             u=QLabel(unit)
-            u.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};')
+            u.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};background:transparent;')
             u.setAlignment(Qt.AlignLeft|Qt.AlignVCenter)
             rl.addStretch(); rl.addWidget(v); rl.addWidget(u); rl.addStretch()
             vl.addWidget(t); vl.addWidget(row)
@@ -11552,7 +11556,7 @@ class StereoLoudnessPage(QWidget):
         """테마 토글(다크↔라이트) 시 하단 메트릭 바/구분선/값색 + 스코프 재적용."""
         dark = (_theme != 'light')
         if hasattr(self, '_num_bar'):
-            self._num_bar.setStyleSheet('#stNumBar{background:%s;}' % ('#010103' if dark else T('bg2')))
+            self._num_bar.setStyleSheet('#stNumBar{background:%s;}' % (T('bg') if dark else T('bg2')))
         _sc = '#1a1a2a' if dark else T('border')
         for f in getattr(self, '_vseps', []):
             f.setStyleSheet(f'color:{_sc};background:{_sc};')
@@ -11561,9 +11565,9 @@ class StereoLoudnessPage(QWidget):
             v = getattr(self, attr, None)
             fs = FS_METRIC_BIG if big else FS_METRIC
             if v is not None:
-                v.setStyleSheet(f'font-size:{fs}px;font-weight:bold;color:{_metric_col(hue, light)};')
-            t_lbl.setStyleSheet(f'font-size:{FS_SM}px;color:{_lc};letter-spacing:1px;')
-            u_lbl.setStyleSheet(f'font-size:{FS_SM}px;color:{_lc};')
+                v.setStyleSheet(f'font-size:{fs}px;font-weight:bold;color:{_metric_col(hue, light)};background:transparent;')
+            t_lbl.setStyleSheet(f'font-size:{FS_SM}px;color:{_lc};letter-spacing:1px;background:transparent;')
+            u_lbl.setStyleSheet(f'font-size:{FS_SM}px;color:{_lc};background:transparent;')
         if hasattr(self, '_sep'):
             self._sep.setStyleSheet(f'color:{T("border")};background:{T("border")};')
         if hasattr(self, '_vs'): self._vs.update()
@@ -11700,7 +11704,7 @@ class StereoLoudnessPage(QWidget):
             c=(T('green') if m.M<-20 else
                T('yellow') if m.M<-16 else T('red'))
             self._lbl_M.setStyleSheet(
-                f'font-size:{FS_METRIC}px;font-weight:bold;color:{c};')
+                f'font-size:{FS_METRIC}px;font-weight:bold;color:{c};background:transparent;')
 
 
 # ───────────────────────────────────────────
