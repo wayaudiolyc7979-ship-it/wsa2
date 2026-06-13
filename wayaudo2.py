@@ -733,6 +733,14 @@ def ss_input(size=FS_SM, radius=RADIUS_SM):
     return (f'background:{T("panel")};color:{T("text")};border:1px solid {T("border")};'
             f'border-radius:{radius}px;padding:{PAD_SM};font-size:{size}px;')
 
+def ss_spin(size=FS_BODY, radius=6, min_w=80):
+    """다이얼로그 스핀박스 공통 스타일 — 패널 배경 + up/down 버튼 숨김."""
+    return (f'QDoubleSpinBox, QSpinBox {{ background:{T("panel")}; color:{T("text")};'
+            f'border:1px solid {T("border")}; padding:3px 8px; border-radius:{radius}px;'
+            f'min-width:{min_w}px; font-size:{size}px; }}'
+            f'QDoubleSpinBox::up-button, QSpinBox::up-button {{ width:0; border:none; }}'
+            f'QDoubleSpinBox::down-button, QSpinBox::down-button {{ width:0; border:none; }}')
+
 def ss_dialog_btns():
     """다이얼로그 OK/Cancel 버튼박스 공통 스타일 — OK(default)=로고블루 주동작, Cancel=중립."""
     a = QColor(T('accent')); ar, ag, ab = a.red(), a.green(), a.blue()
@@ -2691,7 +2699,7 @@ class CalibDialog(QDialog):
         self._rows = {}                       # ch -> {'btn':..., 'off':...}
         self._measuring = False
         self._meas_samples = []
-        layout = QVBoxLayout(self); layout.setSpacing(12); layout.setContentsMargins(16,12,16,12)
+        layout = QVBoxLayout(self); layout.setSpacing(12); layout.setContentsMargins(18,16,18,16)
 
         # ── 순서 안내
         steps = QLabel(
@@ -2781,15 +2789,7 @@ class CalibDialog(QDialog):
         self.meas_spin = QDoubleSpinBox()
         self.meas_spin.setRange(-120, 0); self.meas_spin.setDecimals(1)
         self.meas_spin.setSingleStep(0.1); self.meas_spin.setValue(-26.0)
-        self.meas_spin.setStyleSheet(f"""
-            QDoubleSpinBox {{
-                background:{T("panel")}; color:{T("text")};
-                border:1px solid {T("border")}; padding:3px 8px;
-                border-radius:6px; min-width:80px;
-            }}
-            QDoubleSpinBox::up-button   {{ width:0; border:none; }}
-            QDoubleSpinBox::down-button {{ width:0; border:none; }}
-        """)
+        self.meas_spin.setStyleSheet(ss_spin())
         manual_row.addWidget(self.meas_spin); manual_row.addStretch()
         mb.addLayout(manual_row)
         layout.addWidget(meas_box)
@@ -3403,7 +3403,7 @@ class SplLayoutDialog(QDialog):
         self._combos = []                       # 현재 그리드의 QComboBox 목록
         self._ids = [None] + list(metrics.keys())   # 콤보 인덱스 ↔ 지표 id
 
-        root = QVBoxLayout(self); root.setSpacing(12); root.setContentsMargins(16, 12, 16, 12)
+        root = QVBoxLayout(self); root.setSpacing(12); root.setContentsMargins(18, 16, 18, 16)
 
         info = QLabel('행·열 개수를 정하고, 각 칸에 표시할 지표를 고르세요.\n빈 칸은 "— 없음"으로 두면 됩니다.')
         info.setStyleSheet(f'color:{T("text_dim")};font-size:11px;'
@@ -3432,11 +3432,7 @@ class SplLayoutDialog(QDialog):
         rc_row.addWidget(self._col_sp)
         rc_row.addStretch()
         for sp in (self._row_sp, self._col_sp):
-            sp.setStyleSheet(f"""
-                QSpinBox {{ background:{T('panel')}; color:{T('text')};
-                    border:1px solid {T('border')}; padding:3px 8px;
-                    border-radius:6px; min-width:54px; font-size:13px; }}
-            """)
+            sp.setStyleSheet(ss_spin(FS_LG, 6, 54))
             sp.valueChanged.connect(self._rebuild_combos)
         root.addLayout(rc_row)
 
@@ -7252,7 +7248,7 @@ class SweepConfigDialog(QDialog):
             f'border:1px solid {bd};}}'
             f'QRadioButton::indicator:checked{{background:{ac};border-color:{ac};}}'
         )
-        lay = QVBoxLayout(self); lay.setSpacing(14); lay.setContentsMargins(18, 18, 18, 18)
+        lay = QVBoxLayout(self); lay.setSpacing(12); lay.setContentsMargins(18, 16, 18, 16)
 
         # 제목
         title = QLabel('Sweep Configuration')
