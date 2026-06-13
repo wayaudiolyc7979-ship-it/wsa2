@@ -8184,25 +8184,25 @@ class TransferFunctionWindow(QWidget):
         self.start_btn.clicked.connect(self._toggle)
         self.start_btn.hide()  # 제너레이터 ON/OFF가 자동으로 start/stop 제어
 
-        tl.addWidget(_lb('FFT:'))
+        tl.addWidget(_lb('FFT'))
         self.fft_cb = RoundComboBox(); self.fft_cb.addItems(TF_FFT_LABELS); self.fft_cb.setCurrentIndex(2)
         self.fft_cb._align_center = True
         self.fft_cb.setFixedWidth(58); self.fft_cb.setFixedHeight(30)
-        self.fft_cb.currentIndexChanged.connect(self._fft_changed); tl.addWidget(self.fft_cb); tl.addWidget(_vs())
+        self.fft_cb.currentIndexChanged.connect(self._fft_changed); tl.addWidget(self.fft_cb); tl.addSpacing(10)
 
-        tl.addWidget(_lb('Avg:'))
+        tl.addWidget(_lb('Avg'))
         self.avg_cb = RoundComboBox()
         self.avg_cb.addItems([f'{s}s' if s!=int(s) else f'{int(s)}s' for s in TF_AVG_SEC])
         self.avg_cb.setCurrentIndex(2)
         self.avg_cb._align_center = True
         self.avg_cb.setFixedWidth(52); self.avg_cb.setFixedHeight(30)
-        self.avg_cb.currentIndexChanged.connect(self._avg_changed); tl.addWidget(self.avg_cb); tl.addWidget(_vs())
+        self.avg_cb.currentIndexChanged.connect(self._avg_changed); tl.addWidget(self.avg_cb); tl.addSpacing(10)
 
-        tl.addWidget(_lb('Smooth:'))
+        tl.addWidget(_lb('Smooth'))
         self.sm_cb = RoundComboBox(); self.sm_cb.addItems(TF_SMOOTH_LABELS); self.sm_cb.setCurrentIndex(5)
         self.sm_cb._align_center = True
         self.sm_cb.setFixedWidth(62); self.sm_cb.setFixedHeight(30)
-        self.sm_cb.currentIndexChanged.connect(self._smooth_changed); tl.addWidget(self.sm_cb); tl.addWidget(_vs())
+        self.sm_cb.currentIndexChanged.connect(self._smooth_changed); tl.addWidget(self.sm_cb); tl.addSpacing(10)
 
         # delay_spin: primary 카드의 delay_spin과 동기화 (DelayFinderDialog 호환용)
         self.delay_spin = QDoubleSpinBox()
@@ -8215,7 +8215,7 @@ class TransferFunctionWindow(QWidget):
         self.delay_spin.hide()  # 툴바 딜레이 숨김 — 카드별 딜레이 사용
         self.delay_spin.valueChanged.connect(self._on_delay_changed)
         self.find_btn = QPushButton('Find  [L]'); self.find_btn.setIcon(_icon('search')); self.find_btn.setFixedWidth(96); self.find_btn.setFixedHeight(30)
-        self.find_btn.clicked.connect(self._find_all_delays); tl.addWidget(self.find_btn); tl.addWidget(_vs())
+        self.find_btn.clicked.connect(self._find_all_delays); tl.addWidget(self.find_btn); tl.addSpacing(10)
 
         self.tf_cap_btn = QPushButton('Capture'); self.tf_cap_btn.setFixedWidth(68); self.tf_cap_btn.setFixedHeight(30)
         self.tf_cap_btn.setToolTip('현재 TF 스냅샷 캡처 (Mag + Phase + IR)')
@@ -8236,16 +8236,16 @@ class TransferFunctionWindow(QWidget):
         self.tf_stable_btn.setCheckable(True)
         self.tf_stable_btn.setStyleSheet(_toggle_ss)
         self.tf_stable_btn.setToolTip('안정화 캡쳐 — 평균 수렴 + 코히런스 안정 후 자동 캡쳐')
-        tl.addWidget(self.tf_stable_btn); tl.addWidget(_vs())
+        tl.addWidget(self.tf_stable_btn); tl.addSpacing(10)
 
-        tl.addWidget(_lb('IR:'))
+        tl.addWidget(_lb('IR'))
         self.ir_cb = RoundComboBox(); self.ir_cb.addItems(TF_IR_MODES); self.ir_cb.setCurrentIndex(0)
         self.ir_cb._align_center = True
         self.ir_cb.setFixedWidth(58); self.ir_cb.setFixedHeight(30)
         self.ir_cb.currentIndexChanged.connect(self._ir_mode_changed)
-        tl.addWidget(self.ir_cb); tl.addWidget(_vs())
+        tl.addWidget(self.ir_cb); tl.addSpacing(10)
 
-        tl.addWidget(_lb('Phase:'))
+        tl.addWidget(_lb('Phase'))
         self.phase_cb = RoundComboBox(); self.phase_cb.addItems(TF_PHASE_MODES)
         self.phase_cb._align_center = True
         self.phase_cb.setFixedWidth(96); self.phase_cb.setFixedHeight(30)
@@ -11895,10 +11895,10 @@ class MainWindow(QMainWindow):
         self._st_start_btn.setFixedWidth(92); self._st_start_btn.setFixedHeight(30)
         self._st_start_btn.clicked.connect(self._st_toggle)
         sl2.addWidget(self._st_start_btn)
-        sl2.addSpacing(4); sl2.addWidget(self._vsep()); sl2.addSpacing(4)
+        sl2.addSpacing(10)
 
         # 현재 선택된 디바이스 표시
-        sl2.addWidget(self._lbl('Input:'))
+        sl2.addWidget(self._lbl('Input'))
         sl2.addSpacing(2)
         self._st_dev_lbl=QLabel('—')
         self._st_dev_lbl.setStyleSheet(
@@ -11907,26 +11907,26 @@ class MainWindow(QMainWindow):
             f'border-radius:{RADIUS_SM}px;padding:2px 8px;')
         self._st_dev_lbl.setMaximumWidth(240)
         sl2.addWidget(self._st_dev_lbl)
-        sl2.addSpacing(4); sl2.addWidget(self._vsep()); sl2.addSpacing(4)
+        sl2.addSpacing(10)
 
         # L / R 채널 선택
-        sl2.addWidget(self._lbl('L:'))
+        sl2.addWidget(self._lbl('L'))
         self._st_l_cb=RoundComboBox(); self._st_l_cb._align_center=True
         self._st_l_cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self._st_l_cb.setMinimumWidth(56); self._st_l_cb.setFixedHeight(30)
         self._st_l_cb.addItem('Ch 1',0)
         sl2.addWidget(self._st_l_cb)
         sl2.addSpacing(2)
-        sl2.addWidget(self._lbl('R:'))
+        sl2.addWidget(self._lbl('R'))
         self._st_r_cb=RoundComboBox(); self._st_r_cb._align_center=True
         self._st_r_cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self._st_r_cb.setMinimumWidth(56); self._st_r_cb.setFixedHeight(30)
         self._st_r_cb.addItem('Ch 2',1)
         sl2.addWidget(self._st_r_cb)
-        sl2.addSpacing(4); sl2.addWidget(self._vsep()); sl2.addSpacing(4)
+        sl2.addSpacing(10)
 
         # Target LUFS
-        sl2.addWidget(self._lbl('Target:'))
+        sl2.addWidget(self._lbl('Target'))
         self._st_target_cb=RoundComboBox(); self._st_target_cb._align_center=True
         self._st_target_cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self._st_target_cb.setMinimumWidth(84); self._st_target_cb.setFixedHeight(30)
@@ -11935,7 +11935,7 @@ class MainWindow(QMainWindow):
             self._st_target_cb.addItem(lbl,val)
         self._st_target_cb.currentIndexChanged.connect(self._on_st_target_changed)
         sl2.addWidget(self._st_target_cb)
-        sl2.addSpacing(4); sl2.addWidget(self._vsep()); sl2.addSpacing(4)
+        sl2.addSpacing(10)
 
         # Reset 버튼
         _rst_int=QPushButton('Reset I'); _rst_int.setFixedWidth(68); _rst_int.setFixedHeight(30)
