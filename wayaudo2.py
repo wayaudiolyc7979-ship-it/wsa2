@@ -3798,20 +3798,22 @@ class _MiniMeterBar(QWidget):
         self._level = -100.0; self._peak = -100.0; self.update()
 
     def paintEvent(self, ev):
-        p = QPainter(self)
-        W = self.width(); H = self.height()
-        p.fillRect(0, 0, W, H, QColor(T('bg')))
+        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
+        W = self.width(); H = self.height(); rr = H / 2.0
+        # 은은한 둥근 트랙 (까만 공백 대신)
+        bg = QColor(T('bg'))
+        track = QColor(min(bg.red()+14, 255), min(bg.green()+14, 255), min(bg.blue()+16, 255))
+        p.setPen(Qt.NoPen); p.setBrush(track); p.drawRoundedRect(QRectF(0, 0, W, H), rr, rr)
         DB_MIN = -60.0; DB_MAX = 0.0
         ratio = max(0.0, min(1.0, (self._level - DB_MIN) / (DB_MAX - DB_MIN)))
-        bar_w = int(W * ratio)
-        if bar_w > 0:
+        bar_w = W * ratio
+        if bar_w > 1.5:
             col = QColor(T('red')) if self._level > -3 else QColor(T('yellow')) if self._level > -9 else QColor(T('green'))
-            p.fillRect(0, 1, bar_w, H - 2, col)
+            p.setBrush(col); p.drawRoundedRect(QRectF(0, 0, bar_w, H), rr, rr)
         # peak tick
         if self._peak > DB_MIN:
-            px = int(W * max(0.0, min(1.0, (self._peak - DB_MIN) / (DB_MAX - DB_MIN))))
-            p.setPen(QPen(QColor(T('text_dim')), 1))
-            p.drawLine(px, 1, px, H - 2)
+            px = W * max(0.0, min(1.0, (self._peak - DB_MIN) / (DB_MAX - DB_MIN)))
+            p.setPen(QPen(QColor(T('text_dim')), 1)); p.drawLine(int(px), 1, int(px), int(H - 1))
         p.end()
 
 
@@ -4097,9 +4099,14 @@ class _SpecCard(QFrame):
         self._ch_cb.currentIndexChanged.connect(lambda _: self.channel_changed.emit(self._card_id))
 
     def _apply_border(self):
-        bw = 3 if self._is_selected else 2
-        self.setStyleSheet(f'#specCard{{background:{T("panel")};'
-                           f'border:{bw}px solid {self._color};border-radius:{RADIUS_SM}px;padding:1px;}}')
+        # 네온 풀컬러 → 차분한 저알파 색 프레임 (정체성은 스와치·점·번호가 담당). TF _MeasCard와 통일.
+        c = QColor(self._color); r, g, b = c.red(), c.green(), c.blue()
+        if self._is_selected:
+            self.setStyleSheet(f'#specCard{{border:2px solid rgba({r},{g},{b},230);'
+                               f'border-radius:{RADIUS_SM}px;background:rgba({r},{g},{b},30);padding:1px;}}')
+        else:
+            self.setStyleSheet(f'#specCard{{border:1px solid rgba({r},{g},{b},110);'
+                               f'border-radius:{RADIUS_SM}px;background:{T("panel")};padding:2px;}}')
 
     def set_selected(self, on):
         on = bool(on)
