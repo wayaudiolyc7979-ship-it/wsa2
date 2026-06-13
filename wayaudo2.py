@@ -423,91 +423,45 @@ def _qfont(pt, bold=False):
     f = QFont(FONT_FAMILY, pt); f.setBold(bold); return f
 
 
+# Lucide(MIT) 아이콘 — 24x24 viewBox inner SVG + filled 여부. 손그림 대비 일관·세련.
+_LUCIDE_ICONS = {
+    'search':   ('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>', False),
+    'folder':   ('<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>', False),
+    'hourglass':('<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>', False),
+    'download': ('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>', False),
+    'bolt':     ('<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>', True),
+    'sun':      ('<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>', False),
+    'moon':     ('<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>', False),
+    'sliders':  ('<line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/>', False),
+    'delta':    ('<polygon points="12 4 21 20 3 20 12 4"/>', False),
+    'play':     ('<polygon points="6 3 20 12 6 21 6 3"/>', True),
+    'stop':     ('<rect width="15" height="15" x="4.5" y="4.5" rx="3"/>', True),
+    'mic':      ('<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>', False),
+    'refresh':  ('<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>', False),
+    'check':    ('<path d="M20 6 9 17l-5-5"/>', False),
+}
+
 def _icon(name, size=16, color=None):
-    """단색 라인 벡터 아이콘 — 컬러 이모지 대체. 일관된 스트로크/RoundCap, Retina 2x.
-    color 미지정 시 테마 적응(다크=밝은 회색 / 라이트=짙은 회색)."""
+    """단색 벡터 아이콘 — Lucide(MIT) SVG를 테마색으로 렌더. Retina 2x.
+    color 미지정 시 테마 적응(다크=밝은 회색 / 라이트=짙은 회색). 호출부는 기존과 동일."""
     from PyQt5.QtGui import QIcon
+    from PyQt5.QtSvg import QSvgRenderer
+    from PyQt5.QtCore import QByteArray
     if color is None:
         color = '#C7CAD1' if _theme == 'dark' else '#46566e'
     s = size; dpr = 2
     pm = QPixmap(s * dpr, s * dpr); pm.setDevicePixelRatio(dpr); pm.fill(Qt.transparent)
+    entry = _LUCIDE_ICONS.get(name)
+    if entry is None:
+        return QIcon(pm)
+    inner, filled = entry
+    if filled:
+        attrs = f'fill="{color}" stroke="none"'
+    else:
+        attrs = f'fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" {attrs}>{inner}</svg>'
     p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing, True)
-    col = QColor(color)
-    p.setPen(QPen(col, 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)); p.setBrush(Qt.NoBrush)
-    m = s * 0.16
-    if name == 'search':
-        r = s * 0.30; cx = m + r; cy = m + r
-        p.drawEllipse(QPointF(cx, cy), r, r)
-        p.drawLine(QPointF(cx + r * 0.72, cy + r * 0.72), QPointF(s - m, s - m))
-    elif name == 'folder':
-        x0 = m; y0 = s * 0.36; w = s - 2 * m
-        path = QPainterPath(); path.moveTo(x0, y0)
-        path.lineTo(x0, s - m); path.lineTo(x0 + w, s - m); path.lineTo(x0 + w, y0 - s * 0.04)
-        path.lineTo(x0 + w * 0.44, y0 - s * 0.04); path.lineTo(x0 + w * 0.30, y0 - s * 0.13); path.lineTo(x0, y0 - s * 0.13)
-        path.closeSubpath(); p.drawPath(path)
-    elif name == 'hourglass':
-        x0 = m + s * 0.05; x1 = s - m - s * 0.05; y0 = m; y1 = s - m; cx = s / 2; cy = s / 2
-        p.drawLine(QPointF(x0, y0), QPointF(x1, y0)); p.drawLine(QPointF(x0, y1), QPointF(x1, y1))
-        p.drawLine(QPointF(x0, y0), QPointF(cx, cy)); p.drawLine(QPointF(x1, y0), QPointF(cx, cy))
-        p.drawLine(QPointF(x0, y1), QPointF(cx, cy)); p.drawLine(QPointF(x1, y1), QPointF(cx, cy))
-    elif name == 'download':
-        cx = s / 2
-        p.drawLine(QPointF(cx, m), QPointF(cx, s * 0.60))
-        p.drawLine(QPointF(cx - s * 0.16, s * 0.42), QPointF(cx, s * 0.60))
-        p.drawLine(QPointF(cx + s * 0.16, s * 0.42), QPointF(cx, s * 0.60))
-        p.drawLine(QPointF(m, s - m), QPointF(s - m, s - m))
-    elif name == 'bolt':
-        path = QPainterPath()
-        path.moveTo(s * 0.58, m); path.lineTo(s * 0.34, s * 0.55); path.lineTo(s * 0.50, s * 0.55)
-        path.lineTo(s * 0.42, s - m); path.lineTo(s * 0.70, s * 0.43); path.lineTo(s * 0.52, s * 0.43)
-        path.closeSubpath(); p.setPen(Qt.NoPen); p.setBrush(col); p.drawPath(path)
-    elif name == 'sun':
-        r = s * 0.17; cx = cy = s / 2; p.drawEllipse(QPointF(cx, cy), r, r)
-        for i in range(8):
-            a = math.pi * 2 * i / 8
-            p.drawLine(QPointF(cx + math.cos(a) * (r + s * 0.10), cy + math.sin(a) * (r + s * 0.10)),
-                       QPointF(cx + math.cos(a) * (r + s * 0.26), cy + math.sin(a) * (r + s * 0.26)))
-    elif name == 'moon':
-        cx = cy = s / 2; r = s * 0.33
-        p.setPen(Qt.NoPen); p.setBrush(col); p.drawEllipse(QPointF(cx, cy), r, r)
-        p.setCompositionMode(QPainter.CompositionMode_Clear)
-        p.drawEllipse(QPointF(cx + s * 0.17, cy - s * 0.07), r * 0.95, r * 0.95)
-        p.setCompositionMode(QPainter.CompositionMode_SourceOver)
-    elif name == 'sliders':
-        for y, kx in [(s * 0.28, 0.64), (s * 0.5, 0.36), (s * 0.72, 0.72)]:
-            p.drawLine(QPointF(m, y), QPointF(s - m, y))
-            p.setBrush(col); p.drawEllipse(QPointF(m + (s - 2 * m) * kx, y), s * 0.075, s * 0.075)
-            p.setBrush(Qt.NoBrush)
-    elif name == 'delta':
-        p.drawPolyline(QPolygonF([QPointF(s * 0.5, m + s * 0.04), QPointF(s - m, s - m),
-                                  QPointF(m, s - m), QPointF(s * 0.5, m + s * 0.04)]))
-    elif name == 'play':
-        p.setPen(Qt.NoPen); p.setBrush(col)
-        path = QPainterPath()
-        path.moveTo(s * 0.30, m + s * 0.02); path.lineTo(s - m - s * 0.04, s * 0.5)
-        path.lineTo(s * 0.30, s - m - s * 0.02); path.closeSubpath()
-        p.drawPath(path)
-    elif name == 'stop':
-        p.setPen(Qt.NoPen); p.setBrush(col)
-        p.drawRoundedRect(QRectF(m + s * 0.06, m + s * 0.06, s - 2 * m - s * 0.12,
-                                 s - 2 * m - s * 0.12), s * 0.10, s * 0.10)
-    elif name == 'mic':
-        cx = s / 2; bw = s * 0.26; bh = s * 0.40; by = m
-        p.drawRoundedRect(QRectF(cx - bw / 2, by, bw, bh), bw / 2, bw / 2)   # 캡슐 바디
-        rr = s * 0.30                                                         # 하단 U자 호
-        p.drawArc(QRectF(cx - rr, by + bh * 0.30, rr * 2, rr * 2), 200 * 16, 140 * 16)
-        p.drawLine(QPointF(cx, by + bh + rr * 0.78), QPointF(cx, s - m - s * 0.04))  # 스템
-        p.drawLine(QPointF(cx - s * 0.14, s - m - s * 0.04), QPointF(cx + s * 0.14, s - m - s * 0.04))  # 받침
-    elif name == 'refresh':
-        rr = s * 0.30; cx = cy = s / 2
-        p.drawArc(QRectF(cx - rr, cy - rr, rr * 2, rr * 2), 60 * 16, 280 * 16)
-        p.setPen(Qt.NoPen); p.setBrush(col)
-        ax = cx + rr * math.cos(math.radians(60)); ay = cy - rr * math.sin(math.radians(60))
-        p.drawPolygon(QPolygonF([QPointF(ax, ay - s * 0.06), QPointF(ax + s * 0.13, ay),
-                                 QPointF(ax, ay + s * 0.13)]))
-    elif name == 'check':
-        p.drawPolyline(QPolygonF([QPointF(m + s * 0.04, s * 0.52), QPointF(s * 0.40, s - m - s * 0.06),
-                                  QPointF(s - m - s * 0.02, m + s * 0.10)]))
+    QSvgRenderer(QByteArray(svg.encode())).render(p, QRectF(0, 0, s, s))
     p.end()
     return QIcon(pm)
 
