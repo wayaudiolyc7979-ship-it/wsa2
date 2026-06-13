@@ -712,6 +712,34 @@ def ss_input(size=FS_SM, radius=RADIUS_SM):
     return (f'background:{T("panel")};color:{T("text")};border:1px solid {T("border")};'
             f'border-radius:{radius}px;padding:{PAD_SM};font-size:{size}px;')
 
+def ss_dialog_btns():
+    """다이얼로그 OK/Cancel 버튼박스 공통 스타일 — OK(default)=로고블루 주동작, Cancel=중립."""
+    a = QColor(T('accent')); ar, ag, ab = a.red(), a.green(), a.blue()
+    return (
+        f'QPushButton{{background:{T("panel")};color:{T("text")};'
+        f'border:1px solid {T("border")};border-radius:6px;padding:5px 18px;font-size:12px;min-width:68px;}}'
+        f'QPushButton:hover{{border-color:{T("accent")};}}'
+        f'QPushButton:default{{background:{T("accent")};color:#FFFFFF;'
+        f'border:1px solid {T("accent")};font-weight:600;}}'
+        f'QPushButton:default:hover{{background:rgba({ar},{ag},{ab},210);}}')
+
+def ss_btn_primary(size=12):
+    """다이얼로그 주동작 버튼 — 로고블루 채움."""
+    a = QColor(T('accent')); ar, ag, ab = a.red(), a.green(), a.blue()
+    return (f'QPushButton{{background:{T("accent")};color:#FFFFFF;'
+            f'border:1px solid {T("accent")};border-radius:6px;padding:5px 16px;'
+            f'font-size:{size}px;font-weight:600;min-width:60px;}}'
+            f'QPushButton:hover{{background:rgba({ar},{ag},{ab},210);}}'
+            f'QPushButton:disabled{{background:{T("panel")};color:{T("text_dim")};border-color:{T("border")};}}')
+
+def ss_btn_neutral(size=12):
+    """다이얼로그 보조/취소 버튼 — 중립."""
+    return (f'QPushButton{{background:{T("panel")};color:{T("text")};'
+            f'border:1px solid {T("border")};border-radius:6px;padding:5px 16px;'
+            f'font-size:{size}px;min-width:60px;}}'
+            f'QPushButton:hover{{border-color:{T("accent")};}}'
+            f'QPushButton:disabled{{color:{T("text_dim")};}}')
+
 def hsep(color_key='border'):
     """1px 수평 구분선. QFrame.HLine 의 베벨/이중선 없이 깔끔한 단색 라인."""
     f = QFrame(); f.setFixedHeight(1)
@@ -2618,6 +2646,7 @@ def _text_input_dialog(parent, title, label, default=''):
     btn_row = QHBoxLayout()
     cancel = QPushButton('Cancel'); ok_btn = QPushButton('OK')
     ok_btn.setDefault(True)
+    cancel.setStyleSheet(ss_btn_neutral()); ok_btn.setStyleSheet(ss_btn_primary())
     cancel.clicked.connect(dlg.reject); ok_btn.clicked.connect(dlg.accept)
     btn_row.addStretch(); btn_row.addWidget(cancel); btn_row.addWidget(ok_btn)
     lay.addLayout(btn_row)
@@ -2781,7 +2810,7 @@ class CalibDialog(QDialog):
         layout.addLayout(off_row)
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btns.setStyleSheet(f'color:{T("text")};')
+        btns.setStyleSheet(ss_dialog_btns())
         btns.accepted.connect(self.accept); btns.rejected.connect(self.reject)
         btns.rejected.connect(lambda: self._meas_timer.stop() if hasattr(self,'_meas_timer') else None)
         layout.addWidget(btns)
@@ -3397,7 +3426,7 @@ class SplLayoutDialog(QDialog):
         root.addWidget(self._cells_wrap)
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btns.setStyleSheet(f'color:{T("text")};')
+        btns.setStyleSheet(ss_dialog_btns())
         btns.accepted.connect(self.accept); btns.rejected.connect(self.reject)
         root.addWidget(btns)
 
@@ -7100,8 +7129,7 @@ class _DelayAdvancedDialog(QDialog):
         row.addWidget(self._spin); lay.addLayout(row)
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(self.accept); btns.rejected.connect(self.reject)
-        btns.setStyleSheet(f'QPushButton{{background:{T("panel")};color:{T("text")};'
-                            f'border:1px solid {T("border")};border-radius:5px;padding:4px 14px;}}')
+        btns.setStyleSheet(ss_dialog_btns())
         lay.addWidget(btns)
 
     def speed(self):
@@ -7182,12 +7210,9 @@ class SweepConfigDialog(QDialog):
         # OK / Cancel
         btn_h = QHBoxLayout(); btn_h.setSpacing(8)
         ok_btn = QPushButton('Apply')
-        ok_btn.setStyleSheet(
-            f'background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
-            f'stop:0 rgba(78,125,240,80),stop:1 rgba(78,125,240,40));'
-            f'color:{ac};border:1px solid rgba(78,125,240,160);border-radius:6px;'
-            f'padding:5px 14px;font-size:12px;font-weight:bold;')
+        ok_btn.setStyleSheet(ss_btn_primary())
         cancel_btn = QPushButton('Cancel')
+        cancel_btn.setStyleSheet(ss_btn_neutral())
         ok_btn.clicked.connect(self.accept)
         cancel_btn.clicked.connect(self.reject)
         btn_h.addStretch(); btn_h.addWidget(cancel_btn); btn_h.addWidget(ok_btn)
@@ -7271,16 +7296,14 @@ class DelayFinderDialog(QDialog):
 
         # Buttons
         btn_row = QHBoxLayout(); btn_row.setSpacing(6)
-        btn_style = (f'QPushButton{{background:{T("panel")};color:{T("text")};'
-                     f'border:1px solid {T("border")};border-radius:6px;'
-                     f'padding:5px 12px;font-size:12px;}}'
-                     f'QPushButton:disabled{{color:{T("text_dim")};}}')
+        btn_style = ss_btn_neutral()   # 다이얼로그 버튼 통일
         self.insert_btn   = QPushButton('Insert');     self.insert_btn.setEnabled(False)
         self.find_btn     = QPushButton('Find Delay')
         self.advanced_btn = QPushButton('Advanced')
         self.cancel_btn   = QPushButton('Cancel')
         for b in (self.insert_btn, self.find_btn, self.advanced_btn, self.cancel_btn):
             b.setStyleSheet(btn_style); btn_row.addWidget(b)
+        self.find_btn.setStyleSheet(ss_btn_primary())   # 주동작 강조
         self.insert_btn.clicked.connect(self._on_insert)
         self.find_btn.clicked.connect(self._on_find_delay)
         self.advanced_btn.clicked.connect(self._on_advanced)
@@ -7449,14 +7472,13 @@ class AllDelayFinderDialog(QDialog):
         lay.addStretch()
 
         btn_row = QHBoxLayout(); btn_row.setSpacing(6)
-        btn_s = (f'QPushButton{{background:{T("panel")};color:{T("text")};'
-                 f'border:1px solid {T("border")};border-radius:6px;padding:5px 14px;font-size:12px;}}'
-                 f'QPushButton:disabled{{color:{T("text_dim")};}}')
+        btn_s = ss_btn_neutral()   # 다이얼로그 버튼 통일
         self._insert_btn = QPushButton('Insert All'); self._insert_btn.setEnabled(False)
         self._find_btn   = QPushButton('Find Again')
         self._cancel_btn = QPushButton('Cancel')
         for b in (self._insert_btn, self._find_btn, self._cancel_btn):
             b.setStyleSheet(btn_s); btn_row.addWidget(b)
+        self._find_btn.setStyleSheet(ss_btn_primary())   # 주동작 강조
         self._insert_btn.clicked.connect(self._on_insert_all)
         self._find_btn.clicked.connect(self._start_find)
         self._cancel_btn.clicked.connect(self.reject)
@@ -7656,8 +7678,8 @@ class _TFAverageDialog(QDialog):
         sep2.setStyleSheet(f'background:{brd};max-height:1px;'); lay.addWidget(sep2)
 
         btn_lay = QHBoxLayout(); btn_lay.setSpacing(8)
-        self._cancel_btn = QPushButton('취소')
-        self._ok_btn = QPushButton('Average')
+        self._cancel_btn = QPushButton('취소'); self._cancel_btn.setStyleSheet(ss_btn_neutral())
+        self._ok_btn = QPushButton('Average'); self._ok_btn.setStyleSheet(ss_btn_primary())
         self._cancel_btn.clicked.connect(self.reject)
         self._ok_btn.clicked.connect(self.accept)
         btn_lay.addStretch()
