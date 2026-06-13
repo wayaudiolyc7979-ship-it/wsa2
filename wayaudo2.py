@@ -4928,12 +4928,18 @@ class RoundComboBox(QComboBox):
         if self._max_display_chars is not None and len(text) > self._max_display_chars:
             text = text[:self._max_display_chars] + '..'
         painter.drawComplexControl(QStyle.CC_ComboBox, opt)
+        # 커스텀 페인트라 stylesheet color가 안 먹음 → 시스템 팔레트(맥 다크모드=흰색)로
+        # 그려져 라이트 테마에서 글씨가 안 보임. 테마 텍스트색을 명시한다.
+        _tc = QColor(T('text'))
         if self._align_center:
             rect = self.style().subControlRect(
                 QStyle.CC_ComboBox, opt, QStyle.SC_ComboBoxEditField, self)
+            painter.setPen(_tc)
             painter.drawText(rect, Qt.AlignCenter, text)
         else:
             opt.currentText = text
+            opt.palette.setColor(QPalette.ButtonText, _tc)
+            opt.palette.setColor(QPalette.Text, _tc)
             painter.drawControl(QStyle.CE_ComboBoxLabel, opt)
         painter.end()
 
@@ -12565,12 +12571,22 @@ class MainWindow(QMainWindow):
         self.sub_stack.setStyleSheet(
             f'#subStack {{ background: transparent; border: none; }}')
         # ctrl_bar bare-property cascade로 dev_cb 테두리가 사라지는 문제 → 명시 재부여
+        # 주의: 콤보에 per-widget 스타일을 주면 팝업(QAbstractItemView)이 앱 전역 QSS를
+        # 잃고 '시스템 팔레트'로 폴백 → macOS 다크모드에서 라이트 테마인데도 항목 글씨가
+        # 흰색이 되어 안 보임. 그래서 팝업 규칙을 _cb_ss 안에 명시한다.
         _cb_ss = (
-            f'background: qlineargradient(x1:0,y1:0,x2:0,y2:1,'
+            f'QComboBox{{background: qlineargradient(x1:0,y1:0,x2:0,y2:1,'
             f'stop:0 {cb_bg0}, stop:1 {cb_bg1});'
             f'color:{text}; border:1px solid {cb_bd};'
             f'border-radius:{RADIUS_CTRL}px; padding:2px 10px; font-size:{FS_BODY}px;'
-            f'min-height:26px; max-height:26px; combobox-popup:0;')
+            f'min-height:26px; max-height:26px; combobox-popup:0;}}'
+            f'QComboBox QAbstractItemView{{background:{bg2};color:{text};'
+            f'border:1px solid {cb_bd};border-radius:7px;outline:none;font-size:11px;'
+            f'selection-background-color:rgba({ar},{ag},{ab},55);selection-color:{accent};}}'
+            f'QComboBox QAbstractItemView::item{{color:{text};background:{bg2};'
+            f'min-height:26px;padding:4px 10px;}}'
+            f'QComboBox QAbstractItemView::item:selected{{color:{accent};'
+            f'background:rgba({ar},{ag},{ab},55);}}')
         self.dev_cb.setStyleSheet(_cb_ss)
         self.in_ch_cb.setStyleSheet(_cb_ss)
         self._st_l_cb.setStyleSheet(_cb_ss)
