@@ -12032,10 +12032,7 @@ class MainWindow(QMainWindow):
         sl2.addWidget(self._lbl('Input'))
         sl2.addSpacing(2)
         self._st_dev_lbl=QLabel('—')
-        self._st_dev_lbl.setStyleSheet(
-            f'font-size:{FS_BODY}px;font-weight:600;color:#FFFFFF;'
-            f'background:rgba(255,255,255,8);border:1px solid rgba(255,255,255,15);'
-            f'border-radius:{RADIUS_SM}px;padding:2px 8px;')
+        self._st_dev_lbl.setStyleSheet(self._st_dev_lbl_ss())  # 흰색 하드코드→토큰(라이트에서 안 보이던 버그)
         self._st_dev_lbl.setMaximumWidth(240)
         sl2.addWidget(self._st_dev_lbl)
         sl2.addSpacing(10)
@@ -12659,6 +12656,7 @@ class MainWindow(QMainWindow):
         self.status_lbl.setStyleSheet(
             f'color:{text_dim};font-size:11px;letter-spacing:0.5px;')
         self.mic_st.setStyleSheet(f'color:{text_dim};font-size:10px;')
+        if hasattr(self, '_st_dev_lbl'): self._st_dev_lbl.setStyleSheet(self._st_dev_lbl_ss())
         # 시작 버튼
         self._go_style(self.start_btn)
         # 테마 버튼
@@ -12779,6 +12777,11 @@ class MainWindow(QMainWindow):
                 self.showFullScreen()
             return True
         return super().eventFilter(obj, event)
+
+    def _st_dev_lbl_ss(self):
+        return (f'font-size:{FS_BODY}px;font-weight:600;color:{T("text")};'
+                f'background:{T("bg3")};border:1px solid {T("border")};'
+                f'border-radius:{RADIUS_SM}px;padding:2px 8px;')
 
     def _toggle_theme(self):
         global _theme
