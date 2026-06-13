@@ -11824,6 +11824,10 @@ class MainWindow(QMainWindow):
 
         tw_lay.addWidget(self.sub_stack)
         root.addWidget(self.toolbar_wrapper)
+        # 툴바 하단 시그니처 라인(로고블루 2px) — 툴바 내용과 분리된 별도 위젯이라 3탭 모두 확실히 표시
+        self.toolbar_underline = QFrame(); self.toolbar_underline.setFixedHeight(2)
+        self.toolbar_underline.setObjectName('toolbarUnderline')
+        root.addWidget(self.toolbar_underline)
 
         # ── 메인 스택: Spectrum(0) | Transfer(1) | Stereo(2)
         self.main_stack=QStackedWidget()
@@ -12308,9 +12312,11 @@ class MainWindow(QMainWindow):
         for b in self._tab_btns.values():
             b.setStyleSheet(_dtab_ss)
         # toolbar_wrapper: ID selector로 cascade 방지 (자식 위젯 border 미영향)
-        # 툴바 하단 = 로고블루 2px (헤더 그라디언트와 안 겹치는 단색 시그니처 라인, 3탭 공통)
         self.toolbar_wrapper.setStyleSheet(
-            f'#toolbarWrapper {{ background: {bg2}; border-bottom: 2px solid {accent}; }}')
+            f'#toolbarWrapper {{ background: {bg2}; }}')
+        # 툴바 하단 시그니처 라인 = 로고블루 2px (별도 위젯 — 3탭 공통 확실 표시, 테마 적응)
+        self.toolbar_underline.setStyleSheet(
+            f'#toolbarUnderline {{ background: {accent}; border: none; }}')
         self.sub_stack.setStyleSheet(
             f'#subStack {{ background: transparent; border: none; }}')
         # ctrl_bar bare-property cascade로 dev_cb 테두리가 사라지는 문제 → 명시 재부여
