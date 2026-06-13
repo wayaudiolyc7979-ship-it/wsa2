@@ -3752,6 +3752,13 @@ class _DrawerToggleBtn(QPushButton):
         p.end()
 
 
+class _RightPanelToggleBtn(_DrawerToggleBtn):
+    """우측 패널(LEVEL/INFO/INPUT · TF rp) 표시/숨김 토글 — 캡처 드로어 토글과 동일 스타일."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setToolTip('우측 패널 표시/숨김')
+
+
 class _MiniMeterBar(QWidget):
     """채널 팝업 안의 미니 수평 레벨 미터."""
     def __init__(self):
@@ -8170,6 +8177,13 @@ class TransferFunctionWindow(QWidget):
         self.phase_cb.currentIndexChanged.connect(self._phase_mode_changed)
         tl.addWidget(self.phase_cb)
         tl.addStretch()
+        # 우측 패널(rp) 표시/숨김 토글 + 저장 상태 복원
+        self._tf_panel_btn = _RightPanelToggleBtn()
+        self._tf_panel_btn.clicked.connect(self._toggle_tf_panel)
+        _tpv = bool(self._settings.get('tf_panel_visible', True))
+        self._tf_panel_btn.setChecked(_tpv)
+        self.rp.setVisible(_tpv); self._rp_sep.setVisible(_tpv)
+        tl.addWidget(self._tf_panel_btn)
         self.tb = tb   # MainWindow가 embedded 시 sub_stack에 넣을 수 있도록 저장
         if not self.embedded:
             root.addWidget(tb)
@@ -8325,6 +8339,13 @@ class TransferFunctionWindow(QWidget):
     @staticmethod
     def _strip_star(txt):
         return txt[2:] if txt.startswith('★ ') else txt
+
+    def _toggle_tf_panel(self):
+        vis = not self.rp.isVisible()
+        self.rp.setVisible(vis); self._rp_sep.setVisible(vis)
+        self._tf_panel_btn.setChecked(vis); self._tf_panel_btn.update()
+        self._settings['tf_panel_visible'] = vis
+        _save_settings(self._settings)
 
     def _save_tf_devices(self):
         if getattr(self, '_restoring_devices', False): return
@@ -11778,6 +11799,11 @@ class MainWindow(QMainWindow):
         self.color_btn.clicked.connect(self._open_color_picker)
         sl0.addWidget(self.color_btn)
         sl0.addStretch()
+        # 우측 패널(LEVEL/INFO/INPUT) 표시/숨김 토글
+        self._spec_panel_btn = _RightPanelToggleBtn()
+        self._spec_panel_btn.setChecked(True)
+        self._spec_panel_btn.clicked.connect(self._toggle_spec_panel)
+        sl0.addWidget(self._spec_panel_btn)
         self.sub_stack.addWidget(self._toolbar_scroll(sp0))  # index 0
 
         # Sub-page 1: Transfer 컨트롤 — tf_win.tb가 생성 후 여기로 이동됨
@@ -11907,6 +11933,11 @@ class MainWindow(QMainWindow):
         body_lay.addWidget(self._capture_drawer, 0)
         body_lay.addWidget(self.main_stack, 1)
         root.addWidget(body_w)
+
+        # 우측 패널 표시/숨김 상태 복원
+        _spv = self._settings.get('spec_panel_visible', True)
+        self._info_panel.setVisible(_spv)
+        self._spec_panel_btn.setChecked(_spv); self._spec_panel_btn.update()
 
         # TF 캡처 변경 시 드로어도 갱신
         self.tf_win._on_captures_changed = self._refresh_capture_drawer
@@ -12492,6 +12523,13 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'tf_win') and self.tf_win is not None:
             self.tf_win._drawer_btn.setChecked(visible)
             self.tf_win._drawer_btn.update()
+
+    def _toggle_spec_panel(self):
+        vis = not self._info_panel.isVisible()
+        self._info_panel.setVisible(vis)
+        self._spec_panel_btn.setChecked(vis); self._spec_panel_btn.update()
+        self._settings['spec_panel_visible'] = vis
+        _save_settings(self._settings)
 
     def eventFilter(self, obj, event):
         if obj is self.hdr and event.type() == QEvent.MouseButtonDblClick:
