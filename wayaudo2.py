@@ -5012,7 +5012,7 @@ def _gen_pink_noise(n):
 #  TF Phase Canvas
 # ───────────────────────────────────────────
 class TFPhaseCanvas(QWidget):
-    PAD_L=46; PAD_R=15; PAD_T=10; PAD_B=24
+    PAD_L=40; PAD_R=15; PAD_T=10; PAD_B=24
     cursor_x_changed = pyqtSignal(int)
     cursor_left      = pyqtSignal()
     _cap_built       = pyqtSignal()
@@ -5288,7 +5288,7 @@ class TFPhaseCanvas(QWidget):
             p.drawLine(pl,y,W-pr,y)
             p.setPen(QColor(T('graph_txt')))
             lbl=f'{deg}{unit}' if is_grp else f'{int(deg)}°'
-            p.drawText(0,y-8,pl-4,16,Qt.AlignRight|Qt.AlignVCenter,lbl)
+            p.drawText(0,y-8,pl-2,16,Qt.AlignRight|Qt.AlignVCenter,lbl)
         p.setFont(_qfont(CF_AXIS, True)); last_lx=-999
         draw_freq_minor_grid(p, pl, pr, uw, pt, pb, W, H, ny)
         for f in FREQ_MARKS:
@@ -5542,7 +5542,7 @@ class TFPhaseCanvas(QWidget):
 #  TF Magnitude + Coherence Canvas
 # ───────────────────────────────────────────
 class TFMagCanvas(QWidget):
-    PAD_L=46; PAD_R=15; PAD_T=10; PAD_B=28
+    PAD_L=40; PAD_R=15; PAD_T=10; PAD_B=28
     _COH_COLOR=(255,107,53)
     _COH_BAND=0.5   # γ² 트레이스가 차지하는 플롯 높이 비율 (위=1.0, 아래=0) — Smaart식 디테일
     cursor_x_changed = pyqtSignal(int)
@@ -5811,7 +5811,7 @@ class TFMagCanvas(QWidget):
             is0=(db==0)
             p.setPen(QPen(QColor(T('grid_ref')),1.5 if is0 else 0.7,Qt.SolidLine))
             p.drawLine(pl,y,W-pr,y)
-            p.setPen(QColor(T('graph_txt'))); p.drawText(0,y-8,pl-4,16,Qt.AlignRight|Qt.AlignVCenter,f'{db:+d}')
+            p.setPen(QColor(T('graph_txt'))); p.drawText(0,y-8,pl-2,16,Qt.AlignRight|Qt.AlignVCenter,f'{db:+d}')
         p.setFont(_qfont(CF_AXIS, True)); last_lx=-999
         draw_freq_minor_grid(p, pl, pr, uw, pt, pb, W, H, ny)
         for f in FREQ_MARKS:
@@ -6429,7 +6429,7 @@ def _hilbert_env(x):
 
 class TFIRCanvas(QWidget):
     """Live IR — Lin / ETC / Log 3-mode 표시."""
-    PAD_L = 46; PAD_R = 15; PAD_T = 10; PAD_B = 20
+    PAD_L = 40; PAD_R = 15; PAD_T = 10; PAD_B = 20
     _cap_built = pyqtSignal()
 
     def __init__(self):
@@ -6743,7 +6743,7 @@ class TFIRCanvas(QWidget):
                 p.setPen(QPen(QColor(T('grid_ref')), 1.5 if is0 else 0.7,
                              Qt.SolidLine))
                 p.drawLine(pl, y, W - pr, y)
-                p.setPen(QColor(T('graph_txt'))); p.drawText(0,y-8,pl-4,16,Qt.AlignRight|Qt.AlignVCenter,f'{amp:+.1f}')
+                p.setPen(QColor(T('graph_txt'))); p.drawText(0,y-8,pl-2,16,Qt.AlignRight|Qt.AlignVCenter,f'{amp:+.1f}')
             p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(T('graph_txt')))
             p.drawText(pl + 4, pt + 15, 'Live IR  (Linear)')
         else:  # ── ETC (1) or Log (2) ─────────────────────────────────────
@@ -6757,7 +6757,7 @@ class TFIRCanvas(QWidget):
                 p.setPen(QPen(QColor(T('grid_ref')), 1.3 if is0 else 0.6,
                              Qt.SolidLine))
                 p.drawLine(pl, y, W - pr, y)
-                p.setPen(QColor(T('graph_txt'))); p.drawText(0,y-8,pl-4,16,Qt.AlignRight|Qt.AlignVCenter,f'{db:+d}')
+                p.setPen(QColor(T('graph_txt'))); p.drawText(0,y-8,pl-2,16,Qt.AlignRight|Qt.AlignVCenter,f'{db:+d}')
             lbl_text = 'Live IR  (ETC)' if self.ir_mode == 1 else 'Live IR  (Log)'
             p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(T('graph_txt')))
             p.drawText(pl + 4, pt + 15, lbl_text)
