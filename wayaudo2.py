@@ -12308,8 +12308,9 @@ class MainWindow(QMainWindow):
         for b in self._tab_btns.values():
             b.setStyleSheet(_dtab_ss)
         # toolbar_wrapper: ID selector로 cascade 방지 (자식 위젯 border 미영향)
+        # 툴바 하단 = 로고블루 2px (헤더 그라디언트와 안 겹치는 단색 시그니처 라인, 3탭 공통)
         self.toolbar_wrapper.setStyleSheet(
-            f'#toolbarWrapper {{ background: {bg2}; border-bottom: 1px solid {sep_line}; }}')
+            f'#toolbarWrapper {{ background: {bg2}; border-bottom: 2px solid {accent}; }}')
         self.sub_stack.setStyleSheet(
             f'#subStack {{ background: transparent; border: none; }}')
         # ctrl_bar bare-property cascade로 dev_cb 테두리가 사라지는 문제 → 명시 재부여
