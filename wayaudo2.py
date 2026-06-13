@@ -4259,6 +4259,60 @@ class _CheckBtn(QPushButton):
             p.end()
 
 
+class _SegBtn(QPushButton):
+    """세그먼트 컨트롤 내부 버튼 — 활성 시 블루 채움(직접 페인트). 모던 툴바용."""
+    def __init__(self, text='', parent=None):
+        super().__init__(text, parent)
+        self.setCheckable(True); self.setFlat(True)
+        self.setCursor(Qt.PointingHandCursor)
+
+    def paintEvent(self, e):
+        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
+        on = self.isChecked(); en = self.isEnabled()
+        if on:
+            ac = QColor(T('accent')); ac.setAlpha(70)
+            p.setBrush(ac); p.setPen(Qt.NoPen)
+            p.drawRoundedRect(self.rect().adjusted(1, 2, -1, -2), 6, 6)
+        col = (T('text') if on else T('text_dim')) if en else T('border')
+        p.setPen(QColor(col))
+        f = self.font(); f.setBold(on); p.setFont(f)
+        p.drawText(self.rect(), Qt.AlignCenter, self.text())
+        p.end()
+
+
+class _SegmentedControl(QWidget):
+    """모던 세그먼트 컨트롤 — 하나의 펄 안에 옵션들, 활성만 블루 강조 (iOS식)."""
+    changed = pyqtSignal(str)
+    def __init__(self, items, height=30, parent=None):   # items = [(key, label, width|None), ...]
+        super().__init__(parent)
+        self.setObjectName('segCtl'); self.setFixedHeight(height)
+        lay = QHBoxLayout(self); lay.setContentsMargins(3, 0, 3, 0); lay.setSpacing(2)
+        self._btns = {}
+        for key, label, w in items:
+            b = _SegBtn(label); b.setFixedHeight(height - 6)
+            if w: b.setFixedWidth(w)
+            b.clicked.connect(lambda _=False, k=key: self._on_click(k))
+            lay.addWidget(b); self._btns[key] = b
+        self.apply_theme()
+
+    def _on_click(self, key):
+        self.set_active(key); self.changed.emit(key)
+
+    def set_active(self, key):
+        for k, b in self._btns.items():
+            b.setChecked(k == key); b.update()
+
+    def active(self):
+        for k, b in self._btns.items():
+            if b.isChecked(): return k
+        return None
+
+    def apply_theme(self):
+        bg = '#252527' if _theme == 'dark' else T('bg3')
+        self.setStyleSheet(f'#segCtl{{background:{bg};border-radius:8px;}}')
+        for b in self._btns.values(): b.update()
+
+
 class _CaptureBar(QWidget):
     """캡처 트레이스 목록 수평 바.
     라벨 클릭 → selected(idx) — 해당 캡처를 맨 앞으로
@@ -11716,30 +11770,25 @@ class MainWindow(QMainWindow):
         self.start_btn.setFixedWidth(92); self.start_btn.setFixedHeight(30)
         self.start_btn.clicked.connect(self._toggle)
         sl0.addWidget(self.start_btn)
-        sl0.addSpacing(4); sl0.addWidget(self._vsep()); sl0.addSpacing(4)
-        sl0.addWidget(self._lbl('View:'))
-        self.view_btns={}
-        _view_items=[('fft','FFT',52),('oct3','1/3 Oct',70),('oct12','1/12 Oct',76),('oct24','1/24 Oct',76)]
-        for m,t,w in _view_items:
-            b=_CheckBtn(t); b.setChecked(m=='oct12')
-            b.setFixedWidth(w); b.setFixedHeight(30)
-            b.clicked.connect(lambda _,mode=m: self._set_view(mode))
-            sl0.addWidget(b); self.view_btns[m]=b
-        sl0.addSpacing(3); sl0.addWidget(self._vsep()); sl0.addSpacing(3)
+        sl0.addSpacing(8)
+        # View — 모던 세그먼트 컨트롤 (라벨·구분선 제거)
+        self._view_seg = _SegmentedControl(
+            [('fft','FFT',44),('oct3','1/3',40),('oct12','1/12',46),('oct24','1/24',46)])
+        self._view_seg.set_active('oct12')
+        self._view_seg.changed.connect(self._set_view)
+        sl0.addWidget(self._view_seg)
+        sl0.addSpacing(6)
         self.spectro_btn=_CheckBtn('+Spectro')
         self.spectro_btn.setFixedWidth(80); self.spectro_btn.setFixedHeight(30)
         self.spectro_btn.clicked.connect(self._toggle_spectro)
         sl0.addWidget(self.spectro_btn)
-        sl0.addSpacing(3); sl0.addWidget(self._vsep()); sl0.addSpacing(3)
-        sl0.addWidget(self._lbl('Scale:'))
-        self.log_btn=_CheckBtn('Log'); self.log_btn.setChecked(True)
-        self.lin_btn=_CheckBtn('Lin')
-        self.log_btn.setFixedWidth(50); self.lin_btn.setFixedWidth(50)
-        self.log_btn.setFixedHeight(30); self.lin_btn.setFixedHeight(30)
-        self.log_btn.clicked.connect(lambda: self._set_scale(True))
-        self.lin_btn.clicked.connect(lambda: self._set_scale(False))
-        sl0.addWidget(self.log_btn); sl0.addWidget(self.lin_btn)
-        sl0.addSpacing(3); sl0.addWidget(self._vsep()); sl0.addSpacing(3)
+        sl0.addSpacing(6)
+        # Scale — 세그먼트
+        self._scale_seg = _SegmentedControl([('log','Log',44),('lin','Lin',44)])
+        self._scale_seg.set_active('log')
+        self._scale_seg.changed.connect(lambda k: self._set_scale(k=='log'))
+        sl0.addWidget(self._scale_seg)
+        sl0.addSpacing(8); sl0.addWidget(self._vsep()); sl0.addSpacing(8)
         sl0.addWidget(self._lbl('SR:'))
         self.sr_cb=RoundComboBox(); self.sr_cb._align_center=True
         self.sr_cb.addItems(['44.1 kHz','48 kHz','88.2 kHz','96 kHz'])
@@ -12375,6 +12424,8 @@ class MainWindow(QMainWindow):
         # 툴바 하단 시그니처 라인 = 로고블루 2px (별도 위젯 — 3탭 공통 확실 표시, 테마 적응)
         self.toolbar_underline.setStyleSheet(
             f'#toolbarUnderline {{ background: {accent}; border: none; }}')
+        if hasattr(self, '_view_seg'):
+            self._view_seg.apply_theme(); self._scale_seg.apply_theme()
         self.sub_stack.setStyleSheet(
             f'#subStack {{ background: transparent; border: none; }}')
         # ctrl_bar bare-property cascade로 dev_cb 테두리가 사라지는 문제 → 명시 재부여
@@ -13569,8 +13620,8 @@ class MainWindow(QMainWindow):
         _alog.info(f'뷰 모드 전환  mode={m}')
         self.view_mode=m
         if m in ('oct3','oct12','oct24'): self._last_oct_mode=m
-        for k,b in self.view_btns.items(): b.setChecked(k==m)
-        self.log_btn.setEnabled(m=='fft'); self.lin_btn.setEnabled(m=='fft')
+        self._view_seg.set_active(m)
+        self._scale_seg.setEnabled(m=='fft')
         self._apply_canvas_layout()
 
     def _sr_changed(self,idx):
@@ -13589,7 +13640,7 @@ class MainWindow(QMainWindow):
         if self._spec_running(): self._stop(); self._start()
 
     def _set_scale(self,log):
-        self.log_btn.setChecked(log); self.lin_btn.setChecked(not log)
+        self._scale_seg.set_active('log' if log else 'lin')
         self.fft_cvs.scale_log=log; self.fft_cvs._cache=None; self.fft_cvs.update()
 
     def _set_speed(self,idx):
