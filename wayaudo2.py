@@ -4172,6 +4172,17 @@ class _SidebarIcon(QWidget):
             sw = max(1, w//6); sh = int(h*0.38)
             p.drawRect(cx-sw//2, int(h*0.45), sw, sh)
 
+        elif self._type == 'input':
+            # 마이크 — 캡슐 바디 + 받침 ( _icon('mic')와 동일 톤)
+            p.setPen(QPen(self._col, max(1.3, w*0.10), Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            p.setBrush(Qt.NoBrush)
+            cx = w/2; bw = w*0.34; bh = h*0.40
+            p.drawRoundedRect(QRectF(cx-bw/2, h*0.10, bw, bh), bw/2, bw/2)
+            rr = w*0.30
+            p.drawArc(QRectF(cx-rr, h*0.28, rr*2, rr*2), 200*16, 140*16)
+            p.drawLine(QPointF(cx, h*0.74), QPointF(cx, h*0.90))
+            p.drawLine(QPointF(cx-w*0.15, h*0.90), QPointF(cx+w*0.15, h*0.90))
+
         p.end()
 
 
@@ -12013,11 +12024,11 @@ class MainWindow(QMainWindow):
         # ── Level section (top) — custom header with SPL btn
         level_w = QWidget()
         level_w.setObjectName('levelBox')
-        level_lay = QVBoxLayout(level_w); level_lay.setContentsMargins(8,8,8,8); level_lay.setSpacing(3)
+        level_lay = QVBoxLayout(level_w); level_lay.setContentsMargins(8,8,8,8); level_lay.setSpacing(4)
         hdr_row = QHBoxLayout(); hdr_row.setContentsMargins(0,0,0,6); hdr_row.setSpacing(5)
         level_icon = _SidebarIcon('level', T('accent'), 15)
         level_title = QLabel('LEVEL')
-        level_title.setStyleSheet(ss_text(FS_LG, 'accent', True))
+        level_title.setStyleSheet(ss_text(FS_LG, 'text_dim', True))
         spl_btn = _SplMeterBtn()
         spl_btn.clicked.connect(self._open_spl_meter)
         hdr_row.addWidget(level_icon); hdr_row.addWidget(level_title)
@@ -12065,9 +12076,9 @@ class MainWindow(QMainWindow):
         # ── Info section (bottom)
         info_w = QWidget()
         info_w.setObjectName('infoBox')
-        info_lay = QVBoxLayout(info_w); info_lay.setContentsMargins(8,8,8,8); info_lay.setSpacing(3)
-        info_hdr = QHBoxLayout(); info_hdr.setContentsMargins(0,0,0,4); info_hdr.setSpacing(5)
-        info_icon = _SidebarIcon('info', T('text_dim'), 15)
+        info_lay = QVBoxLayout(info_w); info_lay.setContentsMargins(8,8,8,8); info_lay.setSpacing(4)
+        info_hdr = QHBoxLayout(); info_hdr.setContentsMargins(0,0,0,6); info_hdr.setSpacing(5)
+        info_icon = _SidebarIcon('info', T('accent'), 15)
         info_title = QLabel('INFO')
         info_title.setStyleSheet(ss_text(FS_LG, 'text_dim', True))
         info_hdr.addWidget(info_icon); info_hdr.addWidget(info_title); info_hdr.addStretch()
@@ -12087,8 +12098,8 @@ class MainWindow(QMainWindow):
         # ── INPUT 섹션 (카드 기반) ──
         input_w = QWidget(); input_w.setObjectName('infoBox')
         input_lay = QVBoxLayout(input_w); input_lay.setContentsMargins(8,8,8,8); input_lay.setSpacing(5)
-        in_hdr = QHBoxLayout(); in_hdr.setSpacing(5)
-        in_icon = _SidebarIcon('level', T('text_dim'), 13)
+        in_hdr = QHBoxLayout(); in_hdr.setContentsMargins(0,0,0,6); in_hdr.setSpacing(5)
+        in_icon = _SidebarIcon('input', T('accent'), 15)
         in_title = QLabel('INPUT')
         in_title.setStyleSheet(ss_text(FS_LG, 'text_dim', True))
         in_hdr.addWidget(in_icon); in_hdr.addWidget(in_title); in_hdr.addStretch()
