@@ -1520,7 +1520,7 @@ class TFSyncThread(QThread):
 #  FFT 캔버스 — ★ 다운샘플링으로 포인트 수 제한
 # ───────────────────────────────────────────
 class FFTCanvas(QWidget):
-    PAD_L=54; PAD_R=10; PAD_T=12; PAD_B=28
+    PAD_L=40; PAD_R=10; PAD_T=12; PAD_B=28
     MAX_POINTS=600   # primary 곡선 포인트 수
     MAX_POINTS_EXTRA=600   # 추가 곡선 포인트 수 (원복: primary 와 동일)
     _cap_built = pyqtSignal()
@@ -1927,7 +1927,7 @@ class FFTCanvas(QWidget):
 #  옥타브 캔버스
 # ───────────────────────────────────────────
 class OctaveCanvas(QWidget):
-    PAD_L=54; PAD_R=10; PAD_T=12; PAD_B=28
+    PAD_L=40; PAD_R=10; PAD_T=12; PAD_B=28
     _cap_built = pyqtSignal()
     def __init__(self):
         super().__init__()
@@ -5012,7 +5012,7 @@ def _gen_pink_noise(n):
 #  TF Phase Canvas
 # ───────────────────────────────────────────
 class TFPhaseCanvas(QWidget):
-    PAD_L=60; PAD_R=15; PAD_T=10; PAD_B=24
+    PAD_L=46; PAD_R=15; PAD_T=10; PAD_B=24
     cursor_x_changed = pyqtSignal(int)
     cursor_left      = pyqtSignal()
     _cap_built       = pyqtSignal()
@@ -5542,7 +5542,7 @@ class TFPhaseCanvas(QWidget):
 #  TF Magnitude + Coherence Canvas
 # ───────────────────────────────────────────
 class TFMagCanvas(QWidget):
-    PAD_L=60; PAD_R=15; PAD_T=10; PAD_B=28
+    PAD_L=46; PAD_R=15; PAD_T=10; PAD_B=28
     _COH_COLOR=(255,107,53)
     _COH_BAND=0.5   # γ² 트레이스가 차지하는 플롯 높이 비율 (위=1.0, 아래=0) — Smaart식 디테일
     cursor_x_changed = pyqtSignal(int)
@@ -6429,7 +6429,7 @@ def _hilbert_env(x):
 
 class TFIRCanvas(QWidget):
     """Live IR — Lin / ETC / Log 3-mode 표시."""
-    PAD_L = 60; PAD_R = 15; PAD_T = 10; PAD_B = 20
+    PAD_L = 46; PAD_R = 15; PAD_T = 10; PAD_B = 20
     _cap_built = pyqtSignal()
 
     def __init__(self):
