@@ -12779,7 +12779,8 @@ class MainWindow(QMainWindow):
         return super().eventFilter(obj, event)
 
     def _st_dev_lbl_ss(self):
-        return (f'font-size:{FS_BODY}px;font-weight:600;color:{T("text")};'
+        # 장치명은 보조 정보 → 너무 검지 않게 text_dim + 세미볼드(볼드 검정 느낌 완화)
+        return (f'font-size:{FS_BODY}px;font-weight:500;color:{T("text_dim")};'
                 f'background:{T("bg3")};border:1px solid {T("border")};'
                 f'border-radius:{RADIUS_SM}px;padding:2px 8px;')
 
