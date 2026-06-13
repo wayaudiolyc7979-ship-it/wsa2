@@ -8725,12 +8725,6 @@ class TransferFunctionWindow(QWidget):
                     self._duplex_thread.unmute()   # Stop 후 재시작 시 무음 해제
                     # Play 버튼도 함께 활성화 (muted→unmuted 시 UI 동기화)
                     self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); _apply_txn(self.sig_on_btn, True)
-                    _sg = QColor(T('accent')); _sgr,_sgg,_sgb = _sg.red(),_sg.green(),_sg.blue()
-                    self.sig_on_btn.setStyleSheet(
-                        f'background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
-                        f'stop:0 rgba({_sgr},{_sgg},{_sgb},55),stop:1 rgba({_sgr},{_sgg},{_sgb},22));'
-                        f'color:{T("accent")};border:1px solid rgba({_sgr},{_sgg},{_sgb},140);'
-                        f'padding:4px;border-radius:7px;font-weight:bold;')
                 _alog.debug('  TFDuplexThread running → zero gap Start')
             elif self._sig_stream is not None:
                 # 다른 장치 standalone OutputStream 실행 중 → meas InputStream만 추가
@@ -10266,12 +10260,6 @@ class TransferFunctionWindow(QWidget):
             self._duplex_thread.unmute()
             _alog.debug('_start_sig_gen() → duplex unmuted (stream already alive)')
             self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); _apply_txn(self.sig_on_btn, True)
-            _sg = QColor(T('accent')); _sgr,_sgg,_sgb = _sg.red(),_sg.green(),_sg.blue()
-            self.sig_on_btn.setStyleSheet(
-                f'background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
-                f'stop:0 rgba({_sgr},{_sgg},{_sgb},55),stop:1 rgba({_sgr},{_sgg},{_sgb},22));'
-                f'color:{T("accent")};border:1px solid rgba({_sgr},{_sgg},{_sgb},140);'
-                f'padding:4px;border-radius:7px;font-weight:bold;')
             return
 
         meas_idx = self.meas_cb.currentData()
@@ -10362,12 +10350,6 @@ class TransferFunctionWindow(QWidget):
                 self._reset_avg()
                 _alog.debug('_start_sig_gen() → standalone unmuted (stream kept alive)')
                 self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); _apply_txn(self.sig_on_btn, True)
-                _sg = QColor(T('accent')); _sgr,_sgg,_sgb = _sg.red(),_sg.green(),_sg.blue()
-                self.sig_on_btn.setStyleSheet(
-                    f'background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
-                    f'stop:0 rgba({_sgr},{_sgg},{_sgb},55),stop:1 rgba({_sgr},{_sgg},{_sgb},22));'
-                    f'color:{T("accent")};border:1px solid rgba({_sgr},{_sgg},{_sgb},140);'
-                    f'padding:4px;border-radius:7px;font-weight:bold;')
                 return
 
             self._stop_sig_gen()  # 기존 sig gen만 정리
@@ -10472,12 +10454,6 @@ class TransferFunctionWindow(QWidget):
                 self._reset_avg()
 
         self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); _apply_txn(self.sig_on_btn, True)
-        _sg = QColor(T('accent')); _sgr,_sgg,_sgb = _sg.red(),_sg.green(),_sg.blue()
-        self.sig_on_btn.setStyleSheet(
-            f'background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
-            f'stop:0 rgba({_sgr},{_sgg},{_sgb},55),stop:1 rgba({_sgr},{_sgg},{_sgb},22));'
-            f'color:{T("accent")};border:1px solid rgba({_sgr},{_sgg},{_sgb},140);'
-            f'padding:4px;border-radius:7px;font-weight:bold;')
         # 제너레이터 재생 시작 → 분석 미실행이면 입력 레벨 모니터 시작 (정지 카드도 레벨 표시)
         if not self._running:
             QTimer.singleShot(150, self._refresh_input_monitor)
