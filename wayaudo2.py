@@ -511,8 +511,27 @@ def _icon(name, size=16, color=None):
 
 
 def _txn_icon(playing, sz=14):
-    """트랜스포트 버튼 아이콘 — 재생/시작=초록 play, 정지=빨강 stop."""
-    return _icon('stop' if playing else 'play', sz, color=T('red') if playing else T('green'))
+    """트랜스포트 버튼 아이콘 — 재생/시작=로고블루 play, 정지=빨강 stop."""
+    return _icon('stop' if playing else 'play', sz, color=T('red') if playing else T('accent'))
+
+
+def _txn_style(color_key):
+    """트랜스포트 버튼 틴트 스타일 — 은은한 컬러 워시 펄(브랜드)."""
+    c = QColor(T(color_key)); r, g, b = c.red(), c.green(), c.blue()
+    return (f'QPushButton{{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
+            f'stop:0 rgba({r},{g},{b},46), stop:1 rgba({r},{g},{b},20));'
+            f'color:{T(color_key)};border:1px solid rgba({r},{g},{b},150);'
+            f'font-weight:700;padding:3px 12px;border-radius:7px;}}'
+            f'QPushButton:hover{{border-color:rgba({r},{g},{b},210);}}'
+            f'QPushButton:disabled{{background:{T("panel")};color:{T("text_dim")};border-color:{T("border")};}}')
+
+
+def _apply_txn(btn, playing):
+    """모든 트랜스포트(Start/Play/Stop) 통일 — 시작/재생=로고블루 틴트, 정지=레드 틴트 + 아이콘."""
+    if playing:
+        btn.setStyleSheet(_txn_style('red'));    btn.setIcon(_icon('stop', 14, color=T('red')))
+    else:
+        btn.setStyleSheet(_txn_style('accent')); btn.setIcon(_icon('play', 14, color=T('accent')))
 
 
 class _DarkTitleBar(QWidget):
@@ -2932,7 +2951,7 @@ class LeqWindow(QWidget):
         self.dur_cb.setStyleSheet(f'background:{T("panel")};color:{T("text")};border:1px solid {T("border")};padding:3px;min-width:70px;')
         self.dur_cb.currentIndexChanged.connect(self._dur_changed)
         top.addWidget(self.dur_cb)
-        self.leq_start_btn = QPushButton('Start'); self.leq_start_btn.setIcon(_txn_icon(False))
+        self.leq_start_btn = QPushButton('Start'); _apply_txn(self.leq_start_btn, False)
         self.leq_start_btn.setStyleSheet(f'background:rgba(48,209,88,25);color:{T("green")};border:1px solid rgba(48,209,88,100);padding:4px 10px;border-radius:8px;')
         self.leq_start_btn.clicked.connect(self._toggle_leq)
         top.addWidget(self.leq_start_btn)
@@ -2995,10 +3014,10 @@ class LeqWindow(QWidget):
         if self._running:
             self._start_time=time.time()
             self._leq_a_buf.clear(); self._leq_c_buf.clear()
-            self.leq_start_btn.setText('Stop'); self.leq_start_btn.setIcon(_txn_icon(True))
+            self.leq_start_btn.setText('Stop'); _apply_txn(self.leq_start_btn, True)
             self.leq_start_btn.setStyleSheet(f'background:rgba(255,69,58,25);color:{T("red")};border:1px solid rgba(255,69,58,100);padding:4px 10px;border-radius:8px;')
         else:
-            self.leq_start_btn.setText('Start'); self.leq_start_btn.setIcon(_txn_icon(False))
+            self.leq_start_btn.setText('Start'); _apply_txn(self.leq_start_btn, False)
             self.leq_start_btn.setStyleSheet(f'background:rgba(48,209,88,25);color:{T("green")};border:1px solid rgba(48,209,88,100);padding:4px 10px;border-radius:8px;')
 
     def _reset_leq(self):
@@ -3007,7 +3026,7 @@ class LeqWindow(QWidget):
         for lbl in [self.leq_a_lbl,self.leq_c_lbl,self.inst_a_lbl,self.inst_c_lbl]:
             lbl.setText('—')
         self.progress_lbl.setText('Standby')
-        self.leq_start_btn.setText('Start'); self.leq_start_btn.setIcon(_txn_icon(False))
+        self.leq_start_btn.setText('Start'); _apply_txn(self.leq_start_btn, False)
         self.leq_start_btn.setStyleSheet(f'background:rgba(48,209,88,25);color:{T("green")};border:1px solid rgba(48,209,88,100);padding:4px 10px;border-radius:8px;')
 
     def push_sample(self, dba, dbc):
@@ -3040,7 +3059,7 @@ class LeqWindow(QWidget):
             self.progress_lbl.setText(f'Elapsed: {mins:02d}:{secs:02d} / {self._duration_min:02d}:00  ({pct:.0f}%)')
             if elapsed>=total:
                 self._running=False
-                self.leq_start_btn.setText('Start'); self.leq_start_btn.setIcon(_txn_icon(False))
+                self.leq_start_btn.setText('Start'); _apply_txn(self.leq_start_btn, False)
                 self.progress_lbl.setText(f'✓ Done  LEQ(A)={leq_a:.1f}  LEQ(C)={leq_c:.1f}')
 
 # ───────────────────────────────────────────
@@ -6178,7 +6197,7 @@ class _MeasCard(QFrame):
         self._db_lbl = QLabel('—')
         self._db_lbl.setStyleSheet(f'color:{color};background:transparent;font-size:{FS_XS}px;font-weight:bold;')
         self._db_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self._start_btn = QPushButton('Start'); self._start_btn.setIcon(_txn_icon(False))
+        self._start_btn = QPushButton('Start'); _apply_txn(self._start_btn, False)
         self._start_btn.setFixedHeight(20)
         _g = QColor(T('green')); _gr, _gg, _gb = _g.red(), _g.green(), _g.blue()
         self._start_btn.setStyleSheet(
@@ -6332,7 +6351,7 @@ class _MeasCard(QFrame):
         self._running = running
         self._display_on = running  # backward-compat
         if running:
-            self._start_btn.setText('Stop'); self._start_btn.setIcon(_txn_icon(True))
+            self._start_btn.setText('Stop'); _apply_txn(self._start_btn, True)
             _r = QColor(T('red')); rr, rg, rb = _r.red(), _r.green(), _r.blue()
             self._start_btn.setStyleSheet(
                 f'QPushButton{{background:transparent;color:{T("red")};'
@@ -6341,7 +6360,7 @@ class _MeasCard(QFrame):
                 f'QPushButton:hover{{border-color:{T("red")};}}')
         else:
             _g = QColor(T('green')); gr, gg, gb = _g.red(), _g.green(), _g.blue()
-            self._start_btn.setText('Start'); self._start_btn.setIcon(_txn_icon(False))
+            self._start_btn.setText('Start'); _apply_txn(self._start_btn, False)
             self._start_btn.setStyleSheet(
                 f'QPushButton{{background:transparent;color:{T("green")};'
                 f'border:1px solid rgba({gr},{gg},{gb},120);'
@@ -7850,8 +7869,7 @@ class TransferFunctionWindow(QWidget):
             if _sig_gen_active():
                 self._stop_sig_gen()
                 self.sig_on_btn.setChecked(False)
-                self.sig_on_btn.setText('Play'); self.sig_on_btn.setIcon(_txn_icon(False))
-                self.sig_on_btn.setStyleSheet('')
+                self.sig_on_btn.setText('Play'); _apply_txn(self.sig_on_btn, False)
 
         def _sel_pink():
             _stop_if_playing()
@@ -7928,7 +7946,7 @@ class TransferFunctionWindow(QWidget):
         sgl.addLayout(or_)
         self.sig_out_cb.currentIndexChanged.connect(self._sig_out_device_changed)
         self.sig_out_ch2_cb.currentIndexChanged.connect(lambda _: self._save_tf_devices())
-        self.sig_on_btn = QPushButton('Play  [G]'); self.sig_on_btn.setIcon(_txn_icon(False)); self.sig_on_btn.setCheckable(True)
+        self.sig_on_btn = QPushButton('Play  [G]'); _apply_txn(self.sig_on_btn, False); self.sig_on_btn.setCheckable(True)
         self.sig_on_btn.setStyleSheet(f'background:{T("panel")};color:{T("text_dim")};'
                                        f'border:1px solid {T("border")};padding:4px;border-radius:{RADIUS_CTRL}px;font-weight:bold;')
         self.sig_on_btn.clicked.connect(self._toggle_sig_gen); sgl.addWidget(self.sig_on_btn)
@@ -8062,7 +8080,7 @@ class TransferFunctionWindow(QWidget):
         tl.addWidget(self._drawer_btn)
         tl.addSpacing(4)
         # Start 버튼 — 제너레이터 자동 연동으로 대체됨. 숨김 처리(코드 참조용으로만 존재)
-        self.start_btn = QPushButton('Start'); self.start_btn.setIcon(_txn_icon(False)); self.start_btn.setFixedWidth(92); self.start_btn.setFixedHeight(34)
+        self.start_btn = QPushButton('Start'); _apply_txn(self.start_btn, False); self.start_btn.setFixedWidth(92); self.start_btn.setFixedHeight(34)
         self.start_btn.setStyleSheet(
             f'background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
             f'stop:0 rgba({_gr},{_gg},{_gb},55),stop:1 rgba({_gr},{_gg},{_gb},22));'
@@ -8693,7 +8711,7 @@ class TransferFunctionWindow(QWidget):
                 if self._duplex_thread._muted:
                     self._duplex_thread.unmute()   # Stop 후 재시작 시 무음 해제
                     # Play 버튼도 함께 활성화 (muted→unmuted 시 UI 동기화)
-                    self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); self.sig_on_btn.setIcon(_txn_icon(True))
+                    self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); _apply_txn(self.sig_on_btn, True)
                     _sg = QColor(T('green')); _sgr,_sgg,_sgb = _sg.red(),_sg.green(),_sg.blue()
                     self.sig_on_btn.setStyleSheet(
                         f'background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
@@ -8850,7 +8868,7 @@ class TransferFunctionWindow(QWidget):
 
         self._running = True
         _r = QColor(T('red')); _rr,_rg,_rb = _r.red(),_r.green(),_r.blue()
-        self.start_btn.setText('Stop'); self.start_btn.setIcon(_txn_icon(True))
+        self.start_btn.setText('Stop'); _apply_txn(self.start_btn, True)
         self.start_btn.setStyleSheet(
             f'background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
             f'stop:0 rgba({_rr},{_rg},{_rb},55),stop:1 rgba({_rr},{_rg},{_rb},22));'
@@ -8892,7 +8910,7 @@ class TransferFunctionWindow(QWidget):
         if hasattr(self, '_level_cards'):
             for card in self._level_cards:
                 card.reset()
-        self.start_btn.setText('Start'); self.start_btn.setIcon(_txn_icon(False))
+        self.start_btn.setText('Start'); _apply_txn(self.start_btn, False)
         _g2 = QColor(T('green')); _g2r,_g2g,_g2b = _g2.red(),_g2.green(),_g2.blue()
         self.start_btn.setStyleSheet(
             f'background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
@@ -9336,8 +9354,7 @@ class TransferFunctionWindow(QWidget):
         # 자동 Stop
         self._stop_sig_gen()
         self.sig_on_btn.setChecked(False)
-        self.sig_on_btn.setText('Play'); self.sig_on_btn.setIcon(_txn_icon(False))
-        self.sig_on_btn.setStyleSheet('')
+        self.sig_on_btn.setText('Play'); _apply_txn(self.sig_on_btn, False)
         _alog.debug(f'_on_sweep_captured: n={n} deconv done')
 
     def _find_delay(self):
@@ -10135,7 +10152,7 @@ class TransferFunctionWindow(QWidget):
                 # ref 버퍼 리셋: stale ref + ambient 마이크로 EMA 오염 방지
                 self._int_ref_buf[:] = 0; self._int_ref_pos[0] = 0; self._int_ref_filled = False
                 self._standalone_muted[0] = True   # 콜백이 즉시 outdata[:]=0 반환
-                self.sig_on_btn.setText('Play'); self.sig_on_btn.setIcon(_txn_icon(False)); self.sig_on_btn.setStyleSheet('')
+                self.sig_on_btn.setText('Play'); _apply_txn(self.sig_on_btn, False);
                 _alog.debug('_toggle_sig_gen → standalone muted instantly (streams kept alive)')
             else:
                 # 스트림 없음: 완전 정지
@@ -10155,8 +10172,7 @@ class TransferFunctionWindow(QWidget):
                 (self._sig_stream is not None):
             self._stop_sig_gen()
             self.sig_on_btn.setChecked(False)
-            self.sig_on_btn.setText('Play'); self.sig_on_btn.setIcon(_txn_icon(False))
-            self.sig_on_btn.setStyleSheet('')
+            self.sig_on_btn.setText('Play'); _apply_txn(self.sig_on_btn, False)
         from PyQt5.QtWidgets import QFileDialog, QMessageBox
         path, _ = QFileDialog.getOpenFileName(
             self, '오디오 파일 선택', '',
@@ -10236,7 +10252,7 @@ class TransferFunctionWindow(QWidget):
             self._duplex_thread.swap_buf(self._pink_buf)
             self._duplex_thread.unmute()
             _alog.debug('_start_sig_gen() → duplex unmuted (stream already alive)')
-            self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); self.sig_on_btn.setIcon(_txn_icon(True))
+            self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); _apply_txn(self.sig_on_btn, True)
             _sg = QColor(T('green')); _sgr,_sgg,_sgb = _sg.red(),_sg.green(),_sg.blue()
             self.sig_on_btn.setStyleSheet(
                 f'background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
@@ -10332,7 +10348,7 @@ class TransferFunctionWindow(QWidget):
                 self._int_ref_buf[:] = 0; self._int_ref_pos[0] = 0; self._int_ref_filled = False
                 self._reset_avg()
                 _alog.debug('_start_sig_gen() → standalone unmuted (stream kept alive)')
-                self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); self.sig_on_btn.setIcon(_txn_icon(True))
+                self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); _apply_txn(self.sig_on_btn, True)
                 _sg = QColor(T('green')); _sgr,_sgg,_sgb = _sg.red(),_sg.green(),_sg.blue()
                 self.sig_on_btn.setStyleSheet(
                     f'background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
@@ -10442,7 +10458,7 @@ class TransferFunctionWindow(QWidget):
                 self._meas_thread.start()
                 self._reset_avg()
 
-        self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); self.sig_on_btn.setIcon(_txn_icon(True))
+        self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); _apply_txn(self.sig_on_btn, True)
         _sg = QColor(T('green')); _sgr,_sgg,_sgb = _sg.red(),_sg.green(),_sg.blue()
         self.sig_on_btn.setStyleSheet(
             f'background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
@@ -10462,7 +10478,7 @@ class TransferFunctionWindow(QWidget):
             try: self._sig_stream.stop(); self._sig_stream.close()
             except Exception: pass
             self._sig_stream = None; self._sig_lvl_ref = None
-        self.sig_on_btn.setText('Play'); self.sig_on_btn.setIcon(_txn_icon(False)); self.sig_on_btn.setChecked(False)
+        self.sig_on_btn.setText('Play'); _apply_txn(self.sig_on_btn, False); self.sig_on_btn.setChecked(False)
         self.sig_on_btn.setStyleSheet(f'background:{T("panel")};color:{T("text_dim")};'
                                        f'border:1px solid {T("border")};padding:4px;border-radius:{RADIUS_CTRL}px;font-weight:bold;')
 
@@ -10480,7 +10496,7 @@ class TransferFunctionWindow(QWidget):
             except Exception: pass
             self._duplex_thread.stop(); self._duplex_thread = None
             _alog.debug('  TFDuplexThread closed')
-        self.sig_on_btn.setText('Play'); self.sig_on_btn.setIcon(_txn_icon(False)); self.sig_on_btn.setChecked(False)
+        self.sig_on_btn.setText('Play'); _apply_txn(self.sig_on_btn, False); self.sig_on_btn.setChecked(False)
         self.sig_on_btn.setStyleSheet(f'background:{T("panel")};color:{T("text_dim")};'
                                        f'border:1px solid {T("border")};padding:4px;border-radius:{RADIUS_CTRL}px;font-weight:bold;')
         self._stop_input_monitor()   # 제너레이터 정지 → 입력 모니터도 정지
@@ -11785,7 +11801,7 @@ class MainWindow(QMainWindow):
         sl2.setContentsMargins(8,6,8,6); sl2.setSpacing(4)   # 3탭 툴바 메트릭 통일(Spectrum 기준)
 
         # Start/Stop 버튼
-        self._st_start_btn=QPushButton('Start'); self._st_start_btn.setIcon(_txn_icon(False))
+        self._st_start_btn=QPushButton('Start'); _apply_txn(self._st_start_btn, False)
         self._st_start_btn.setFixedWidth(92); self._st_start_btn.setFixedHeight(30)
         self._st_start_btn.clicked.connect(self._st_toggle)
         sl2.addWidget(self._st_start_btn)
@@ -12476,24 +12492,8 @@ class MainWindow(QMainWindow):
         # 캡처 드로어 행 재빌드 (테마 전환 시 T() 색상 갱신)
         self._refresh_capture_drawer()
 
-    def _go_style(self, b):
-        g = QColor(T('green')); gr, gg, gb_ = g.red(), g.green(), g.blue()
-        b.setIcon(_icon('play', 14, color=T('green')))
-        b.setStyleSheet(
-            f'background: qlineargradient(x1:0,y1:0,x2:0,y2:1,'
-            f'stop:0 rgba({gr},{gg},{gb_},55), stop:1 rgba({gr},{gg},{gb_},22));'
-            f'color:{T("green")};'
-            f'border:1px solid rgba({gr},{gg},{gb_},140);'
-            f'font-weight:700;padding:3px 12px;border-radius:7px;')
-    def _stop_style(self, b):
-        r = QColor(T('red')); rr, rg, rb_ = r.red(), r.green(), r.blue()
-        b.setIcon(_icon('stop', 14, color=T('red')))
-        b.setStyleSheet(
-            f'background: qlineargradient(x1:0,y1:0,x2:0,y2:1,'
-            f'stop:0 rgba({rr},{rg},{rb_},55), stop:1 rgba({rr},{rg},{rb_},22));'
-            f'color:{T("red")};'
-            f'border:1px solid rgba({rr},{rg},{rb_},140);'
-            f'font-weight:700;padding:3px 12px;border-radius:7px;')
+    def _go_style(self, b):   _apply_txn(b, False)   # 시작=로고블루 틴트
+    def _stop_style(self, b): _apply_txn(b, True)    # 정지=레드 틴트
 
     def _toggle_capture_drawer(self):
         visible = not self._capture_drawer.isVisible()
