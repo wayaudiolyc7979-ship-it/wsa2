@@ -2952,7 +2952,7 @@ class LeqWindow(QWidget):
         self.dur_cb.currentIndexChanged.connect(self._dur_changed)
         top.addWidget(self.dur_cb)
         self.leq_start_btn = QPushButton('Start'); _apply_txn(self.leq_start_btn, False)
-        self.leq_start_btn.setStyleSheet(f'background:rgba(48,209,88,25);color:{T("green")};border:1px solid rgba(48,209,88,100);padding:4px 10px;border-radius:8px;')
+        self.leq_start_btn.setStyleSheet(f'background:rgba(78,125,240,25);color:{T("accent")};border:1px solid rgba(78,125,240,100);padding:4px 10px;border-radius:8px;')
         self.leq_start_btn.clicked.connect(self._toggle_leq)
         top.addWidget(self.leq_start_btn)
         top.addStretch()
@@ -3018,7 +3018,7 @@ class LeqWindow(QWidget):
             self.leq_start_btn.setStyleSheet(f'background:rgba(255,69,58,25);color:{T("red")};border:1px solid rgba(255,69,58,100);padding:4px 10px;border-radius:8px;')
         else:
             self.leq_start_btn.setText('Start'); _apply_txn(self.leq_start_btn, False)
-            self.leq_start_btn.setStyleSheet(f'background:rgba(48,209,88,25);color:{T("green")};border:1px solid rgba(48,209,88,100);padding:4px 10px;border-radius:8px;')
+            self.leq_start_btn.setStyleSheet(f'background:rgba(78,125,240,25);color:{T("accent")};border:1px solid rgba(78,125,240,100);padding:4px 10px;border-radius:8px;')
 
     def _reset_leq(self):
         self._running=False; self._leq_a_buf.clear(); self._leq_c_buf.clear()
@@ -3027,7 +3027,7 @@ class LeqWindow(QWidget):
             lbl.setText('—')
         self.progress_lbl.setText('Standby')
         self.leq_start_btn.setText('Start'); _apply_txn(self.leq_start_btn, False)
-        self.leq_start_btn.setStyleSheet(f'background:rgba(48,209,88,25);color:{T("green")};border:1px solid rgba(48,209,88,100);padding:4px 10px;border-radius:8px;')
+        self.leq_start_btn.setStyleSheet(f'background:rgba(78,125,240,25);color:{T("accent")};border:1px solid rgba(78,125,240,100);padding:4px 10px;border-radius:8px;')
 
     def push_sample(self, dba, dbc):
         if not self._running: return
@@ -6199,12 +6199,12 @@ class _MeasCard(QFrame):
         self._db_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self._start_btn = QPushButton('Start'); _apply_txn(self._start_btn, False)
         self._start_btn.setFixedHeight(20)
-        _g = QColor(T('green')); _gr, _gg, _gb = _g.red(), _g.green(), _g.blue()
+        _g = QColor(T('accent')); _gr, _gg, _gb = _g.red(), _g.green(), _g.blue()
         self._start_btn.setStyleSheet(
-            f'QPushButton{{background:transparent;color:{T("green")};'
+            f'QPushButton{{background:transparent;color:{T("accent")};'
             f'border:1px solid rgba({_gr},{_gg},{_gb},120);'
             f'font-size:{FS_XS}px;padding:0 5px;border-radius:{RADIUS_SM}px;font-weight:bold;}}'
-            f'QPushButton:hover{{border-color:{T("green")};}}')
+            f'QPushButton:hover{{border-color:{T("accent")};}}')
         self._start_btn.clicked.connect(self._on_start_stop)
         hdr.addWidget(self._vis_chk); hdr.addWidget(dot); hdr.addWidget(num_lbl); hdr.addStretch()
         hdr.addWidget(self._db_lbl); hdr.addWidget(self._start_btn)
@@ -6359,13 +6359,13 @@ class _MeasCard(QFrame):
                 f'font-size:{FS_XS}px;padding:0 5px;border-radius:{RADIUS_SM}px;font-weight:bold;}}'
                 f'QPushButton:hover{{border-color:{T("red")};}}')
         else:
-            _g = QColor(T('green')); gr, gg, gb = _g.red(), _g.green(), _g.blue()
+            _g = QColor(T('accent')); gr, gg, gb = _g.red(), _g.green(), _g.blue()
             self._start_btn.setText('Start'); _apply_txn(self._start_btn, False)
             self._start_btn.setStyleSheet(
-                f'QPushButton{{background:transparent;color:{T("green")};'
+                f'QPushButton{{background:transparent;color:{T("accent")};'
                 f'border:1px solid rgba({gr},{gg},{gb},120);'
                 f'font-size:{FS_XS}px;padding:0 5px;border-radius:{RADIUS_SM}px;font-weight:bold;}}'
-                f'QPushButton:hover{{border-color:{T("green")};}}')
+                f'QPushButton:hover{{border-color:{T("accent")};}}')
 
 
 # backward-compat alias
@@ -8074,7 +8074,7 @@ class TransferFunctionWindow(QWidget):
             l=QLabel(t); l.setStyleSheet(ss_text(FS_BODY))
             l.setAlignment(Qt.AlignVCenter | Qt.AlignHCenter); return l
 
-        _g = QColor(T('green')); _gr,_gg,_gb = _g.red(),_g.green(),_g.blue()
+        _g = QColor(T('accent')); _gr,_gg,_gb = _g.red(),_g.green(),_g.blue()
         self._drawer_btn = _DrawerToggleBtn()
         self._drawer_btn.setChecked(False)
         tl.addWidget(self._drawer_btn)
@@ -8084,7 +8084,7 @@ class TransferFunctionWindow(QWidget):
         self.start_btn.setStyleSheet(
             f'background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
             f'stop:0 rgba({_gr},{_gg},{_gb},55),stop:1 rgba({_gr},{_gg},{_gb},22));'
-            f'color:{T("green")};border:1px solid rgba({_gr},{_gg},{_gb},140);'
+            f'color:{T("accent")};border:1px solid rgba({_gr},{_gg},{_gb},140);'
             f'padding:3px 12px;border-radius:{RADIUS_CTRL}px;font-weight:bold;')
         self.start_btn.clicked.connect(self._toggle)
         self.start_btn.hide()  # 제너레이터 ON/OFF가 자동으로 start/stop 제어
@@ -8712,11 +8712,11 @@ class TransferFunctionWindow(QWidget):
                     self._duplex_thread.unmute()   # Stop 후 재시작 시 무음 해제
                     # Play 버튼도 함께 활성화 (muted→unmuted 시 UI 동기화)
                     self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); _apply_txn(self.sig_on_btn, True)
-                    _sg = QColor(T('green')); _sgr,_sgg,_sgb = _sg.red(),_sg.green(),_sg.blue()
+                    _sg = QColor(T('accent')); _sgr,_sgg,_sgb = _sg.red(),_sg.green(),_sg.blue()
                     self.sig_on_btn.setStyleSheet(
                         f'background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
                         f'stop:0 rgba({_sgr},{_sgg},{_sgb},55),stop:1 rgba({_sgr},{_sgg},{_sgb},22));'
-                        f'color:{T("green")};border:1px solid rgba({_sgr},{_sgg},{_sgb},140);'
+                        f'color:{T("accent")};border:1px solid rgba({_sgr},{_sgg},{_sgb},140);'
                         f'padding:4px;border-radius:7px;font-weight:bold;')
                 _alog.debug('  TFDuplexThread running → zero gap Start')
             elif self._sig_stream is not None:
@@ -8911,11 +8911,11 @@ class TransferFunctionWindow(QWidget):
             for card in self._level_cards:
                 card.reset()
         self.start_btn.setText('Start'); _apply_txn(self.start_btn, False)
-        _g2 = QColor(T('green')); _g2r,_g2g,_g2b = _g2.red(),_g2.green(),_g2.blue()
+        _g2 = QColor(T('accent')); _g2r,_g2g,_g2b = _g2.red(),_g2.green(),_g2.blue()
         self.start_btn.setStyleSheet(
             f'background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
             f'stop:0 rgba({_g2r},{_g2g},{_g2b},55),stop:1 rgba({_g2r},{_g2g},{_g2b},22));'
-            f'color:{T("green")};border:1px solid rgba({_g2r},{_g2g},{_g2b},140);'
+            f'color:{T("accent")};border:1px solid rgba({_g2r},{_g2g},{_g2b},140);'
             f'padding:3px 12px;border-radius:7px;font-weight:bold;')
         self.status_lbl.setText('● Standby')
         self.status_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:11px;')
@@ -10253,11 +10253,11 @@ class TransferFunctionWindow(QWidget):
             self._duplex_thread.unmute()
             _alog.debug('_start_sig_gen() → duplex unmuted (stream already alive)')
             self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); _apply_txn(self.sig_on_btn, True)
-            _sg = QColor(T('green')); _sgr,_sgg,_sgb = _sg.red(),_sg.green(),_sg.blue()
+            _sg = QColor(T('accent')); _sgr,_sgg,_sgb = _sg.red(),_sg.green(),_sg.blue()
             self.sig_on_btn.setStyleSheet(
                 f'background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
                 f'stop:0 rgba({_sgr},{_sgg},{_sgb},55),stop:1 rgba({_sgr},{_sgg},{_sgb},22));'
-                f'color:{T("green")};border:1px solid rgba({_sgr},{_sgg},{_sgb},140);'
+                f'color:{T("accent")};border:1px solid rgba({_sgr},{_sgg},{_sgb},140);'
                 f'padding:4px;border-radius:7px;font-weight:bold;')
             return
 
@@ -10349,11 +10349,11 @@ class TransferFunctionWindow(QWidget):
                 self._reset_avg()
                 _alog.debug('_start_sig_gen() → standalone unmuted (stream kept alive)')
                 self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); _apply_txn(self.sig_on_btn, True)
-                _sg = QColor(T('green')); _sgr,_sgg,_sgb = _sg.red(),_sg.green(),_sg.blue()
+                _sg = QColor(T('accent')); _sgr,_sgg,_sgb = _sg.red(),_sg.green(),_sg.blue()
                 self.sig_on_btn.setStyleSheet(
                     f'background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
                     f'stop:0 rgba({_sgr},{_sgg},{_sgb},55),stop:1 rgba({_sgr},{_sgg},{_sgb},22));'
-                    f'color:{T("green")};border:1px solid rgba({_sgr},{_sgg},{_sgb},140);'
+                    f'color:{T("accent")};border:1px solid rgba({_sgr},{_sgg},{_sgb},140);'
                     f'padding:4px;border-radius:7px;font-weight:bold;')
                 return
 
@@ -10459,11 +10459,11 @@ class TransferFunctionWindow(QWidget):
                 self._reset_avg()
 
         self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); _apply_txn(self.sig_on_btn, True)
-        _sg = QColor(T('green')); _sgr,_sgg,_sgb = _sg.red(),_sg.green(),_sg.blue()
+        _sg = QColor(T('accent')); _sgr,_sgg,_sgb = _sg.red(),_sg.green(),_sg.blue()
         self.sig_on_btn.setStyleSheet(
             f'background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
             f'stop:0 rgba({_sgr},{_sgg},{_sgb},55),stop:1 rgba({_sgr},{_sgg},{_sgb},22));'
-            f'color:{T("green")};border:1px solid rgba({_sgr},{_sgg},{_sgb},140);'
+            f'color:{T("accent")};border:1px solid rgba({_sgr},{_sgg},{_sgb},140);'
             f'padding:4px;border-radius:7px;font-weight:bold;')
         # 제너레이터 재생 시작 → 분석 미실행이면 입력 레벨 모니터 시작 (정지 카드도 레벨 표시)
         if not self._running:
