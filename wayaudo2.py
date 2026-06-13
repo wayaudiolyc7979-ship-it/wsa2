@@ -4250,18 +4250,16 @@ class _SplMeterBtn(QPushButton):
         p.setBrush(bg)
         p.drawRoundedRect(QRectF(self.rect()), 5, 5)
 
-        # Icon: open-in-new-window (창 박스 + 우상단 ↗ 화살표)
+        # Icon: open-in-new (온전한 둥근 창 박스 + 우상단으로 빠져나가는 ↗ 화살표). 깔끔·표준.
         w, h = self.width(), self.height()
         col  = QColor(255, 255, 255, 220) if _theme == 'dark' else QColor(T('text_dim'))
         pen  = QPen(col, 1.7, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
         p.setPen(pen); p.setBrush(Qt.NoBrush)
         m = 6
-        # 창(박스) — 좌하단
-        p.drawRoundedRect(QRectF(m, m + 4, w - 2 * m - 4, h - 2 * m - 4), 2.5, 2.5)
-        # 우상단으로 나가는 화살표
-        ax1 = QPointF(w - m, m)
-        p.drawLine(QPointF(w * 0.5, h * 0.5), ax1)
-        p.drawLine(ax1, QPointF(ax1.x() - 5.5, ax1.y())); p.drawLine(ax1, QPointF(ax1.x(), ax1.y() + 5.5))
+        p.drawRoundedRect(QRectF(m, m + 5, w - 2 * m - 6, h - 2 * m - 6), 2.5, 2.5)   # 창(좌하단)
+        tip = QPointF(w - m, m); tail = QPointF(w - m - 9, m + 9)                      # ↗ (우상단)
+        p.drawLine(tail, tip)
+        p.drawLine(tip, QPointF(tip.x() - 6, tip.y())); p.drawLine(tip, QPointF(tip.x(), tip.y() + 6))
         p.end()
 
 
