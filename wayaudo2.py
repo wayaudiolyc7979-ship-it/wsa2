@@ -3755,6 +3755,31 @@ class _RightPanelToggleBtn(_DrawerToggleBtn):
         self.setToolTip('우측 패널 표시/숨김')
 
 
+class _ToolbarToggleBtn(QPushButton):
+    """툴바(컨트롤 바) 접기/펴기 토글 — 탭바에 위치. 셰브론(표시=⌃접기 / 숨김=⌄펴기)."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCheckable(True); self.setChecked(True)
+        self.setFixedSize(30, 28); self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip('툴바 접기/펴기')
+        self.setStyleSheet('QPushButton{border:none;background:transparent;border-radius:6px;}'
+                           'QPushButton:hover{background:rgba(255,255,255,28);}')
+
+    def paintEvent(self, e):
+        super().paintEvent(e)   # hover 배경
+        shown = self.isChecked()
+        col = QColor(T('accent')) if shown else QColor(T('text_dim'))
+        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
+        pen = QPen(col, 1.8); pen.setCapStyle(Qt.RoundCap); pen.setJoinStyle(Qt.RoundJoin)
+        p.setPen(pen); p.setBrush(Qt.NoBrush)
+        cx, cy = self.width()/2, self.height()/2; d = 4.5
+        if shown:   # ⌃ 접기
+            p.drawPolyline(QPolygonF([QPointF(cx-d, cy+d*0.6), QPointF(cx, cy-d*0.6), QPointF(cx+d, cy+d*0.6)]))
+        else:       # ⌄ 펴기
+            p.drawPolyline(QPolygonF([QPointF(cx-d, cy-d*0.6), QPointF(cx, cy+d*0.6), QPointF(cx+d, cy-d*0.6)]))
+        p.end()
+
+
 class _MiniMeterBar(QWidget):
     """채널 팝업 안의 미니 수평 레벨 미터."""
     def __init__(self):
@@ -11721,6 +11746,11 @@ class MainWindow(QMainWindow):
             b.clicked.connect(lambda _,i=idx: self._switch_tab(i))
             tbl.addWidget(b, 1); self._tab_btns[key]=b
         tbl_outer.addWidget(self._main_seg_pill, 1)
+        # 툴바 접기/펴기 토글 — 탭바 우측(툴바를 숨겨도 항상 보이게)
+        tbl_outer.addSpacing(8)
+        self._toolbar_btn = _ToolbarToggleBtn()
+        self._toolbar_btn.clicked.connect(self._toggle_toolbar)
+        tbl_outer.addWidget(self._toolbar_btn)
         root.addWidget(self.tab_bar)
 
         # ── toolbar_wrapper: ctrl_bar + sub_stack를 하나의 그라디언트 영역으로 감쌈
@@ -11983,6 +12013,11 @@ class MainWindow(QMainWindow):
         _spv = self._settings.get('spec_panel_visible', True)
         self._info_panel.setVisible(_spv)
         self._spec_panel_btn.setChecked(_spv); self._spec_panel_btn.update()
+
+        # 툴바 표시/숨김 상태 복원
+        _tbv = bool(self._settings.get('toolbar_visible', True))
+        self.toolbar_wrapper.setVisible(_tbv); self.toolbar_underline.setVisible(_tbv)
+        self._toolbar_btn.setChecked(_tbv); self._toolbar_btn.update()
 
         # TF 캡처 변경 시 드로어도 갱신
         self.tf_win._on_captures_changed = self._refresh_capture_drawer
@@ -12422,6 +12457,8 @@ class MainWindow(QMainWindow):
             f'#toolbarUnderline {{ background: {accent}; border: none; }}')
         if hasattr(self, '_view_seg'):
             self._view_seg.apply_theme(); self._scale_seg.apply_theme()
+        if hasattr(self, '_toolbar_btn'):
+            self._toolbar_btn.update()
         self.sub_stack.setStyleSheet(
             f'#subStack {{ background: transparent; border: none; }}')
         # ctrl_bar bare-property cascade로 dev_cb 테두리가 사라지는 문제 → 명시 재부여
@@ -12576,6 +12613,13 @@ class MainWindow(QMainWindow):
         self._info_panel.setVisible(vis)
         self._spec_panel_btn.setChecked(vis); self._spec_panel_btn.update()
         self._settings['spec_panel_visible'] = vis
+        _save_settings(self._settings)
+
+    def _toggle_toolbar(self):
+        vis = not self.toolbar_wrapper.isVisible()
+        self.toolbar_wrapper.setVisible(vis); self.toolbar_underline.setVisible(vis)
+        self._toolbar_btn.setChecked(vis); self._toolbar_btn.update()
+        self._settings['toolbar_visible'] = vis
         _save_settings(self._settings)
 
     def eventFilter(self, obj, event):
