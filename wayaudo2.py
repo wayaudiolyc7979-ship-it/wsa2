@@ -718,6 +718,19 @@ def hsep(color_key='border'):
     f.setStyleSheet(f'background:{T(color_key)};border:none;')
     return f
 
+
+def _sep_line_color():
+    return '#4A4A4A' if _theme == 'dark' else T('border')
+
+
+def _splitter_qss():
+    """3탭 공통 스플리터 핸들 — 얇고 차분한 하이라인 구분선(테마 적응). 분석창 구분선 통일용."""
+    sep = _sep_line_color()
+    return (f'QSplitter::handle{{background:{T("bg")};}}'
+            f'QSplitter::handle:vertical{{border-top:1px solid {sep};}}'
+            f'QSplitter::handle:horizontal{{border-left:1px solid {sep};}}'
+            f'QSplitter::handle:hover{{background:{T("bg3")};}}')
+
 # ───────────────────────────────────────────
 #  Bar gradient presets
 # ───────────────────────────────────────────
@@ -7777,12 +7790,9 @@ class TransferFunctionWindow(QWidget):
         # 바디 (캔버스 + 우측 패널)
         body = QWidget(); bl = QHBoxLayout(body); bl.setSpacing(0); bl.setContentsMargins(0,0,0,0)
 
-        cvs_w = QSplitter(Qt.Vertical)
-        cvs_w.setHandleWidth(5)
-        cvs_w.setStyleSheet(
-            'QSplitter::handle{background:#2a2a2a;border-top:1px solid #444;}'
-            'QSplitter::handle:hover{background:#3a3a3a;}'
-        )
+        self.cvs_w = cvs_w = QSplitter(Qt.Vertical)
+        cvs_w.setHandleWidth(7)                 # 3탭 스플리터 핸들 폭 통일
+        cvs_w.setStyleSheet(_splitter_qss())    # 공통 구분선 스타일
         self.ir_cvs = TFIRCanvas()
         self.phase_cvs = TFPhaseCanvas(); self.mag_cvs = TFMagCanvas()
         # 커서 동기화: 한 캔버스에서 마우스 움직이면 양쪽 모두 크로스헤어 표시
@@ -8004,6 +8014,10 @@ class TransferFunctionWindow(QWidget):
         mpl.addWidget(self._add_pair_btn)
         self.sig_out_ch_cb.currentIndexChanged.connect(lambda _: self._save_tf_devices())
         rl.addWidget(mp, 1)          # 그룹박스가 Signal Generator 아래 남은 세로 공간을 모두 차지
+        # 그래프↔우측패널 구분선 — Spectrum infoPanel border-left와 통일(1px)
+        self._rp_sep = QFrame(); self._rp_sep.setFrameShape(QFrame.VLine); self._rp_sep.setFixedWidth(1)
+        self._rp_sep.setStyleSheet(f'background:{_sep_line_color()};border:none;')
+        bl.addWidget(self._rp_sep)
         bl.addWidget(self.rp)
         root.addWidget(body, 1)
 
@@ -11822,7 +11836,7 @@ class MainWindow(QMainWindow):
         self.oct_cvs=OctaveCanvas(); self.oct_cvs.set_mode('oct12')
         self.spectro_cvs=SpectrogramCanvas(); self.spectro_cvs.hide()
         self.cvs_splitter=QSplitter(Qt.Vertical)
-        self.cvs_splitter.setHandleWidth(8)
+        self.cvs_splitter.setHandleWidth(7)   # 3탭 스플리터 핸들 폭 통일
         self.cvs_splitter.setMouseTracking(True)
         self.cvs_splitter.addWidget(self.fft_cvs)
         self.cvs_splitter.addWidget(self.oct_cvs)
@@ -12370,7 +12384,7 @@ class MainWindow(QMainWindow):
         # 오른쪽 사이드 패널 배경 + 왼쪽 경계선 (셀렉터 지정으로 자식 위젯 미영향)
         if hasattr(self, '_info_panel'):
             self._info_panel.setStyleSheet(
-                f'#infoPanel {{ background:{panel}; border-left:2px solid {sep_line}; border-top:1px solid {sep_line}; }}'
+                f'#infoPanel {{ background:{panel}; border-left:1px solid {sep_line}; }}'
                 f'#levelBox {{ background:transparent; border:1px solid {sep_line}; border-radius:8px; }}'
                 f'#levelBox QLabel {{ background:transparent; border:none; }}'
                 f'#infoBox  {{ background:transparent; border:1px solid {sep_line}; border-radius:8px; }}'
@@ -12378,10 +12392,12 @@ class MainWindow(QMainWindow):
         # 캡처 드로어 오른쪽 경계선 (셀렉터 지정으로 자식 위젯 미영향)
         self._capture_drawer._panel.setStyleSheet(
             f'#capturePanel {{ background:{bg2}; border: 1px solid {border}; border-radius: 8px; }}')
-        # 스플리터 핸들 — 뚜렷한 구획선
-        self.cvs_splitter.setStyleSheet(
-            f'QSplitter::handle{{background:{sep_line};}}'
-            f'QSplitter::handle:hover{{background:#606060;}}')
+        # 스플리터 핸들 — 3탭 공통 구분선(얇은 하이라인)
+        self.cvs_splitter.setStyleSheet(_splitter_qss())
+        if self.tf_win is not None and hasattr(self.tf_win, 'cvs_w'):
+            self.tf_win.cvs_w.setStyleSheet(_splitter_qss())
+        if self.tf_win is not None and hasattr(self.tf_win, '_rp_sep'):
+            self.tf_win._rp_sep.setStyleSheet(f'background:{sep_line};border:none;')
         # 푸터 경계선
         self.ft.setStyleSheet(
             f'background:{bg2};border-top:1px solid {sep_line};')
