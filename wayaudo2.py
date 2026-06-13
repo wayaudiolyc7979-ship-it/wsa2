@@ -6194,7 +6194,7 @@ class _MiniVU(QWidget):
 class _HorizBarVU(QWidget):
     """Smaart 스타일 수평 레벨 바."""
     def __init__(self):
-        super().__init__(); self.setFixedHeight(7)
+        super().__init__(); self.setFixedHeight(8)
         self._db = -80.0; self._pk = -80.0; self._pk_hold = 0
 
     def set_rms(self, db):
@@ -6207,18 +6207,21 @@ class _HorizBarVU(QWidget):
         self._db = -80.0; self._pk = -80.0; self._pk_hold = 0; self.update()
 
     def paintEvent(self, ev):
-        p = QPainter(self); W = self.width(); H = self.height()
+        # _MiniMeterBar(Spectrum 카드)와 동일한 모던 룩: 둥근 트랙 + 둥근 채움 + peak tick.
+        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
+        W = self.width(); H = self.height(); rr = H / 2.0
         DB_MIN = -60.0; DB_MAX = 0.0; rng = DB_MAX - DB_MIN
-        p.fillRect(0, 0, W, H, QColor(T('border')))
-        fill = max(0.0, min(1.0, (self._db - DB_MIN) / rng))
-        fw = int(W * fill)
-        if fw > 0:
-            c = T('red') if self._db > -6 else T('yellow') if self._db > -18 else T('accent')
-            p.fillRect(0, 0, fw, H, QColor(c))
-        pk = max(0.0, min(1.0, (self._pk - DB_MIN) / rng))
-        px_ = min(int(W * pk), W - 1)
-        if pk > 0.01:
-            p.setPen(QPen(QColor(T('yellow')), 1)); p.drawLine(px_, 0, px_, H - 1)
+        bg = QColor(T('bg'))
+        track = QColor(min(bg.red()+14, 255), min(bg.green()+14, 255), min(bg.blue()+16, 255))
+        p.setPen(Qt.NoPen); p.setBrush(track); p.drawRoundedRect(QRectF(0, 0, W, H), rr, rr)
+        ratio = max(0.0, min(1.0, (self._db - DB_MIN) / rng))
+        bar_w = W * ratio
+        if bar_w > 1.5:
+            col = QColor(T('red')) if self._db > -3 else QColor(T('yellow')) if self._db > -9 else QColor(T('green'))
+            p.setBrush(col); p.drawRoundedRect(QRectF(0, 0, bar_w, H), rr, rr)
+        if self._pk > DB_MIN:
+            px = W * max(0.0, min(1.0, (self._pk - DB_MIN) / rng))
+            p.setPen(QPen(QColor(T('text_dim')), 1)); p.drawLine(int(px), 1, int(px), int(H - 1))
         p.end()
 
 
