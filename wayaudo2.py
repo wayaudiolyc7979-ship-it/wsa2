@@ -6278,6 +6278,7 @@ class _MeasCard(QFrame):
         self._is_selected = False
         self._default_name = str(number)
         self._name = ''
+        self._del_btn = None; self._meas_cb = None; self._meas_ch_cb = None; self._auto_btn = None
         self.setObjectName('measCard')
         # 세로 Fixed: 컨테이너가 좁아도 카드를 자연 높이 이하로 압축하지 않음 → 행 겹침 방지
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
@@ -6304,12 +6305,7 @@ class _MeasCard(QFrame):
         self._db_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self._start_btn = QPushButton('Start'); _apply_txn(self._start_btn, False)
         self._start_btn.setFixedHeight(20)
-        _g = QColor(T('accent')); _gr, _gg, _gb = _g.red(), _g.green(), _g.blue()
-        self._start_btn.setStyleSheet(
-            f'QPushButton{{background:transparent;color:{T("accent")};'
-            f'border:1px solid rgba({_gr},{_gg},{_gb},120);'
-            f'font-size:{FS_XS}px;padding:0 5px;border-radius:{RADIUS_SM}px;font-weight:bold;}}'
-            f'QPushButton:hover{{border-color:{T("accent")};}}')
+        self._start_btn.setStyleSheet(self._start_btn_ss())
         self._start_btn.clicked.connect(self._on_start_stop)
         hdr.addWidget(self._vis_chk); hdr.addWidget(dot); hdr.addWidget(num_lbl); hdr.addStretch()
         hdr.addWidget(self._db_lbl); hdr.addWidget(self._start_btn)
@@ -6317,21 +6313,58 @@ class _MeasCard(QFrame):
         # macOS에서 독립 top-level 창으로 떠 전체화면 Space 전환되는 버그. 조건부 생성으로 해결.)
         if deletable:
             del_btn = QPushButton('－'); del_btn.setFixedSize(18, 18)
-            del_btn.setStyleSheet(
-                f'QPushButton{{background:transparent;color:{T("text_dim")};border:none;'
-                f'font-size:{FS_LG}px;padding:0;font-weight:bold;}}'
-                f'QPushButton:hover{{color:{T("red")};}}')
+            self._del_btn = del_btn
+            del_btn.setStyleSheet(self._del_btn_ss())
             del_btn.clicked.connect(self.delete_clicked)
             hdr.addWidget(del_btn)
         self._lay.addLayout(hdr)
 
         # M (Measurement) VU 바
         mr = QHBoxLayout(); mr.setContentsMargins(0, 0, 0, 0); mr.setSpacing(4)
-        ml = QLabel('M'); ml.setFixedWidth(10)
-        ml.setStyleSheet(ss_text(FS_XS))
+        self._ml = QLabel('M'); self._ml.setFixedWidth(10)
+        self._ml.setStyleSheet(ss_text(FS_XS))
         self._m_bar = _HorizBarVU()
-        mr.addWidget(ml); mr.addWidget(self._m_bar, 1)
+        mr.addWidget(self._ml); mr.addWidget(self._m_bar, 1)
         self._lay.addLayout(mr)
+
+    def _del_btn_ss(self):
+        return (f'QPushButton{{background:transparent;color:{T("text_dim")};border:none;'
+                f'font-size:{FS_LG}px;padding:0;font-weight:bold;}}'
+                f'QPushButton:hover{{color:{T("red")};}}')
+
+    def _start_btn_ss(self):
+        _g = QColor(T('accent')); _gr, _gg, _gb = _g.red(), _g.green(), _g.blue()
+        return (f'QPushButton{{background:transparent;color:{T("accent")};'
+                f'border:1px solid rgba({_gr},{_gg},{_gb},120);'
+                f'font-size:{FS_XS}px;padding:0 5px;border-radius:{RADIUS_SM}px;font-weight:bold;}}'
+                f'QPushButton:hover{{border-color:{T("accent")};}}')
+
+    def _cb_style(self):
+        return (f'QComboBox{{background:{T("bg3")};color:{T("text")};border:1px solid {T("border")};'
+                f'border-radius:{RADIUS_SM}px;padding:1px 8px;font-size:{FS_SM}px;min-height:22px;}}'
+                f'QComboBox:hover{{border-color:{T("accent")};}}'
+                f'QComboBox::drop-down{{width:0;border:none;}}'
+                f'QComboBox::down-arrow{{width:0;height:0;image:none;}}')
+
+    def _delay_spin_ss(self):
+        return (f'QDoubleSpinBox{{background:{T("bg3")};color:{T("text")};border:1px solid {T("border")};'
+                f'border-radius:{RADIUS_SM}px;padding:{PAD_SM};font-size:{FS_SM}px;}}')
+
+    def _auto_btn_ss(self):
+        return (f'QPushButton{{background:transparent;color:{T("text_dim")};'
+                f'border:1px solid {T("border")};font-size:{FS_XS}px;padding:0 5px;border-radius:{RADIUS_SM}px;}}'
+                f'QPushButton:hover{{color:{T("text")};border-color:{T("accent")};}}')
+
+    def restyle(self):
+        """테마 토글(다크↔라이트) 시 인라인-구운 색 재적용 — 카드 프레임/콤보/딜레이/버튼."""
+        self._apply_card_style()
+        self._start_btn.setStyleSheet(self._start_btn_ss())
+        self._ml.setStyleSheet(ss_text(FS_XS))
+        if self._del_btn is not None: self._del_btn.setStyleSheet(self._del_btn_ss())
+        if self._meas_cb is not None:
+            _ss = self._cb_style(); self._meas_cb.setStyleSheet(_ss); self._meas_ch_cb.setStyleSheet(_ss)
+        if hasattr(self, '_delay_spin'): self._delay_spin.setStyleSheet(self._delay_spin_ss())
+        if self._auto_btn is not None: self._auto_btn.setStyleSheet(self._auto_btn_ss())
 
     def add_device_row(self, meas_cb, meas_ch_cb):
         """Meas 장치 선택 드롭다운 + 딜레이 행을 카드 내부로 임베드."""
@@ -6341,13 +6374,9 @@ class _MeasCard(QFrame):
         lbl = QLabel('Meas'); lbl.setFixedWidth(30)
         lbl.setStyleSheet(ss_text(FS_XS))
         # 카드 내부 콤보 — 전역 QSS의 반투명 그라디언트(검정 바탕 위에서 까맣게 보임)를
-        # 카드와 어울리는 불투명 배경으로 덮어쓴다.
-        _cb_ss = (
-            f'QComboBox{{background:{T("bg3")};color:{T("text")};border:1px solid {T("border")};'
-            f'border-radius:{RADIUS_SM}px;padding:1px 8px;font-size:{FS_SM}px;min-height:22px;}}'
-            f'QComboBox:hover{{border-color:{T("accent")};}}'
-            f'QComboBox::drop-down{{width:0;border:none;}}'
-            f'QComboBox::down-arrow{{width:0;height:0;image:none;}}')
+        # 카드와 어울리는 불투명 배경으로 덮어쓴다. (restyle()로 테마 토글 시 재적용)
+        self._meas_cb = meas_cb; self._meas_ch_cb = meas_ch_cb
+        _cb_ss = self._cb_style()
         meas_cb.setStyleSheet(_cb_ss); meas_ch_cb.setStyleSheet(_cb_ss)
         meas_cb.setMinimumWidth(100); meas_ch_cb.setMinimumWidth(44)
         row.addWidget(lbl); row.addWidget(meas_cb, 1); row.addWidget(meas_ch_cb)
@@ -6363,14 +6392,10 @@ class _MeasCard(QFrame):
         self._delay_spin.setMinimumWidth(82); self._delay_spin.setFixedHeight(22)
         self._delay_spin.setButtonSymbols(QDoubleSpinBox.NoButtons)
         self._delay_spin.setAlignment(Qt.AlignCenter)
-        self._delay_spin.setStyleSheet(
-            f'QDoubleSpinBox{{background:{T("bg3")};color:{T("text")};border:1px solid {T("border")};'
-            f'border-radius:{RADIUS_SM}px;padding:{PAD_SM};font-size:{FS_SM}px;}}')
+        self._delay_spin.setStyleSheet(self._delay_spin_ss())
         auto_btn = QPushButton(' Auto'); auto_btn.setIcon(_icon('search',13)); auto_btn.setFixedHeight(22)
-        auto_btn.setStyleSheet(
-            f'QPushButton{{background:transparent;color:{T("text_dim")};'
-            f'border:1px solid {T("border")};font-size:{FS_XS}px;padding:0 5px;border-radius:{RADIUS_SM}px;}}'
-            f'QPushButton:hover{{color:{T("text")};border-color:{T("accent")};}}')
+        self._auto_btn = auto_btn
+        auto_btn.setStyleSheet(self._auto_btn_ss())
         auto_btn.clicked.connect(self.find_delay_clicked)
         d_row.addWidget(d_lbl); d_row.addWidget(self._delay_spin, 1); d_row.addWidget(auto_btn)
         self._lay.addLayout(d_row)
@@ -8695,6 +8720,15 @@ class TransferFunctionWindow(QWidget):
             self.ir_cvs.clear_tf_extra(idx)
             card.reset()   # 체크 해제 → 레벨도 숨김
         self._refresh_input_monitor()   # 모니터 채널 갱신 (체크 ON/OFF 반영)
+
+    def restyle_theme(self):
+        """테마 토글(다크↔라이트) 시 측정 카드들의 인라인-구운 색을 재적용."""
+        if not hasattr(self, '_cards_layout'):
+            return
+        for i in range(self._cards_layout.count()):
+            w = self._cards_layout.itemAt(i).widget()
+            if isinstance(w, _MeasCard):
+                w.restyle()
 
     def _on_card_select(self, card):
         """카드 본문 클릭 → 해당 카드 곡선을 Mag/Phase/IR 분석 화면 맨 앞으로."""
@@ -12517,6 +12551,11 @@ class MainWindow(QMainWindow):
                                   ('_export_btn', 'download', 13)]:
                 _b = getattr(self.tf_win, _bn, None)
                 if _b is not None and not _b.icon().isNull(): _b.setIcon(_icon(_ic, _sz))
+            # TF 측정 카드 인라인색 재적용 (다크↔라이트 토글 시 카드/콤보/딜레이가 검정으로 남는 문제)
+            self.tf_win.restyle_theme()
+        # Spectrum 입력 카드 — 인라인-구운 색이 토글에 안 따라옴 → 통째로 재생성
+        if hasattr(self, '_rebuild_ch_cards') and hasattr(self, '_ch_cards'):
+            self._rebuild_ch_cards()
         self._apply_tab_styles()
         self.logo_lbl.setStyleSheet(
             f'font-size:17px;font-weight:700;letter-spacing:5px;color:{text};background:transparent;')
