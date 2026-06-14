@@ -866,6 +866,24 @@ def draw_dom_badge(p, plot_right, plot_top, dom_fs, dom_db, unit='dB'):
     p.setPen(QColor(T('accent')))
     p.drawText(bx, by, bw, bh, Qt.AlignHCenter | Qt.AlignVCenter, txt)
 
+def _draw_idle_hint(p, pl, pt, dw, dh):
+    """시작 전(무신호) 메인 그래프 중앙에 은은한 SPECTRA 마크 + 안내 — 브랜드 엠프티 스테이트."""
+    cx = pl + dw / 2.0; cy = pt + dh / 2.0
+    pm = _spectra_mark(50)
+    dpr = pm.devicePixelRatio() or 1.0
+    lw = pm.width() / dpr; lh = pm.height() / dpr
+    p.save()
+    p.setOpacity(0.15)
+    p.drawPixmap(int(cx - lw / 2), int(cy - lh / 2 - 12), int(lw), int(lh), pm)
+    p.restore()
+    p.save()
+    p.setOpacity(0.5)
+    p.setFont(_qfont(CF_ANNO))
+    p.setPen(QColor(T('graph_txt')))
+    p.drawText(QRectF(cx - 160, cy + lh / 2 - 2, 320, 22),
+               Qt.AlignHCenter | Qt.AlignVCenter, 'Press  Start  to begin')
+    p.restore()
+
 def _auto_capture_color(n):
     """황금 비율 HSV 순환으로 구분이 잘 되는 색 자동 반환."""
     hue = (n * 0.618033988) % 1.0
@@ -1504,6 +1522,7 @@ class FFTCanvas(QWidget):
     PAD_L=40; PAD_R=10; PAD_T=12; PAD_B=28
     MAX_POINTS=600   # primary 곡선 포인트 수
     MAX_POINTS_EXTRA=600   # 추가 곡선 포인트 수 (원복: primary 와 동일)
+    _idle_hint=True   # 시작 전 브랜드 엠프티 스테이트 표시
     _cap_built = pyqtSignal()
 
     def __init__(self):
@@ -1855,6 +1874,7 @@ class FFTCanvas(QWidget):
         dh=H-pt-pb; uw=W-pl-pr; ny=min(self.sample_rate/2, 20000)
 
         if self._ds_f is None or len(self._ds_f)<2:
+            if self._idle_hint: _draw_idle_hint(p, pl, pt, uw, dh)
             p.end(); return
         f_arr=self._ds_f; a_arr=self._ds_avg
         if a_arr is None or len(a_arr)!=len(f_arr):
@@ -1909,6 +1929,7 @@ class FFTCanvas(QWidget):
 # ───────────────────────────────────────────
 class OctaveCanvas(QWidget):
     PAD_L=40; PAD_R=10; PAD_T=12; PAD_B=28
+    _idle_hint=True   # 시작 전 브랜드 엠프티 스테이트 표시
     _cap_built = pyqtSignal()
     def __init__(self):
         super().__init__()
@@ -2258,6 +2279,8 @@ class OctaveCanvas(QWidget):
             p.drawRect(bx2,pt,bw2,dh)
             fs=f'{fc/1000:.2f} kHz' if fc>=1000 else f'{fc:.0f} Hz'
             draw_info_box(p,W,fs,f'{db2:.1f} {unit}')
+        if self._idle_hint:
+            _draw_idle_hint(p, pl, pt, W-pl-pr, dh)
         p.end()
 
 # ───────────────────────────────────────────
@@ -13109,6 +13132,8 @@ class MainWindow(QMainWindow):
     def _start(self):
         idx=self.dev_cb.currentData()
         if idx is None or idx<0: return
+        # 브랜드 엠프티 스테이트 숨김 (분석 시작)
+        self.fft_cvs._idle_hint = False; self.oct_cvs._idle_hint = False
         # USB 재연결 후 macOS가 device index를 재할당할 수 있으므로 이름으로 재조회
         dev_name = self.dev_cb.currentText()
         try:
