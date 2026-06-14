@@ -62,6 +62,10 @@
   .pill{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:6px;
     padding:1px 9px;font-size:13px;color:#cfd3da;margin:1px 2px}
   .q{color:var(--accent);font-weight:650}
+  .shot{margin:18px 0 10px}
+  .shot img{width:100%;border:1px solid var(--line);border-radius:12px;display:block;background:#0a0b0e}
+  .shot figcaption{color:var(--dim);font-size:13px;margin-top:9px;text-align:center}
+  .shot figcaption b{color:var(--accent)}
   footer{margin-top:60px;padding-top:24px;border-top:1px solid var(--line);color:#6b7079;font-size:13px;text-align:center}
   @media(max-width:860px){nav{display:none}main{padding:28px 20px 80px}.hero h1{font-size:32px;letter-spacing:6px}}
 </style>
@@ -167,6 +171,8 @@
   <!-- 4 -->
   <h2 id="spectrum"><span class="n">4</span>Spectrum 탭 — 실시간 주파수 분석</h2>
   <p class="lead">지금 들어오는 소리에 어떤 음들이 얼마나 들어있는지 실시간으로 봅니다.</p>
+  <figure class="shot"><img src="docs/img/spectrum.png" alt="Spectrum 탭 전체화면">
+    <figcaption>▲ <b>Spectrum 탭</b> 전체화면 — 위 툴바의 각 버튼과 우측 패널 설명은 아래에 이어집니다.</figcaption></figure>
 
   <h3>화면 읽는 법</h3>
   <p>가로축이 주파수(저음 왼쪽 → 고음 오른쪽), 세로축이 크기(dB)예요. 소리가 들어오면 울퉁불퉁한 곡선이 춤춥니다. 봉우리가 솟은 곳 = 그 음이 강한 것.</p>
@@ -205,6 +211,8 @@
   <h2 id="tf"><span class="n">5</span>Transfer Function 탭 — 스피커·방 음향 측정</h2>
   <p class="lead">스피커나 방이 소리를 "어떻게 바꾸는지"를 측정합니다. (Smaart 같은 전문 측정과 같은 원리)</p>
   <div class="tip"><b>쉽게 말하면</b> — 한쪽으로 <b>기준 신호를 내보내고</b>, 다른 쪽 마이크로 <b>실제로 들리는 소리를 받아서</b>, 둘을 비교합니다. "원본 대비 어디가 커지고/작아지고/늦게 도착했나"를 그래프로 보여줘요. 스피커 EQ 잡거나 방 음향 진단할 때 핵심 도구예요.</div>
+  <figure class="shot"><img src="docs/img/tf.png" alt="Transfer Function 탭 전체화면">
+    <figcaption>▲ <b>Transfer Function 탭</b> — 왼쪽 3단 그래프(IR·위상·매그니튜드), 오른쪽 신호 발생기·측정 패널.</figcaption></figure>
 
   <h3>① 신호 발생기 (Signal Generator)</h3>
   <p>측정용 소리를 내보내는 부분이에요.</p>
@@ -248,6 +256,8 @@
   <!-- 6 -->
   <h2 id="stereo"><span class="n">6</span>Stereo Loudness 탭 — 스테레오 & 음량(LUFS)</h2>
   <p class="lead">좌우(L/R) 스테레오 상태와, 방송·음원에서 쓰는 "체감 음량"을 봅니다.</p>
+  <figure class="shot"><img src="docs/img/stereo.png" alt="Stereo Loudness 탭 전체화면">
+    <figcaption>▲ <b>Stereo Loudness 탭</b> — 왼쪽 벡터스코프, 오른쪽 라우드니스 레이더, 아래 M/S/I/TP/LRA 메트릭.</figcaption></figure>
 
   <h3>왼쪽 — 벡터스코프 (Vectorscope)</h3>
   <p>좌우 채널의 <b>위상/이미지 관계</b>를 동그란 그림으로 보여줘요.</p>
@@ -278,6 +288,8 @@
   <h2 id="calib"><span class="n">7</span>마이크 캘리브레이션 (정확한 소음 측정)</h2>
   <p class="lead">화면의 dBSPL 숫자를 <b>실제와 똑같이</b> 맞추는 작업입니다.</p>
   <p>마이크마다 감도가 달라서, 보정을 안 하면 화면 숫자가 실제 소음과 다를 수 있어요. <b>캘리브레이터(기준기)</b>가 있으면 정확히 맞출 수 있습니다.</p>
+  <figure class="shot"><img src="docs/img/calib.png" alt="마이크 캘리브레이션 창">
+    <figcaption>▲ <b>Calibration</b> 창 — 채널 목록 + 기준값(94/114 dBSPL) 선택 + 레벨 측정.</figcaption></figure>
   <div class="steps">
     헤더의 <b>Calibration</b> 버튼 클릭 → ① 마이크에 캘리브레이터를 끼우고 켜기 → ② 기준값(<b>94</b> 또는 <b>114 dBSPL</b>) 선택 → ③ <b>레벨 측정</b> → SPECTRA가 오프셋을 자동 계산해 맞춰줍니다.
   </div>
@@ -288,6 +300,8 @@
   <h2 id="spl"><span class="n">8</span>SPL Meter (큰 소음계 창)</h2>
   <p class="lead">멀리서도 보이는 <b>큰 숫자 소음계</b>를 별도 창으로 띄웁니다.</p>
   <p>Spectrum 탭의 <b>LEVEL</b> 패널 우측 위 <span class="pill">↗</span> 아이콘을 누르면 열려요. 공연장에서 객석 소음을 모니터하거나, 측정값을 크게 띄워둘 때 좋아요.</p>
+  <figure class="shot"><img src="docs/img/spl.png" alt="SPL Meter 창">
+    <figcaption>▲ <b>SPL Meter</b> 창 — 자유 그리드 + 칸별 지표 + Max 기록.</figcaption></figure>
   <ul>
     <li><b>자유 배치</b> — 창 안의 <b>⚙️ 설정</b>에서 행×열(1×1 ~ 4×4)을 정하고, 각 칸에 보여줄 지표(dB SPL A/C, LAeq, LCeq)를 고를 수 있어요.</li>
     <li><b>Max 표시</b> — 각 칸에 최고값을 기록. ↺ 버튼으로 리셋.</li>
