@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SPECTRA 사용 설명서</title>
+<style>
+  :root{
+    --bg:#0c0d11; --panel:#14161c; --panel2:#1b1e26; --line:#262a33;
+    --text:#e7e9ee; --dim:#9298a3; --accent:#5b8cff; --accent2:#9b5de5;
+    --g:linear-gradient(90deg,#1FA2FF,#4E7DF0,#9B5DE5,#F15BB5,#FF9F0A,#FF453A);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,"Segoe UI",Roboto,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+    line-height:1.7;font-size:16px;}
+  a{color:var(--accent);text-decoration:none}
+  .wrap{display:flex;max-width:1180px;margin:0 auto;gap:0}
+  /* ── 사이드바 ── */
+  nav{position:sticky;top:0;align-self:flex-start;width:248px;height:100vh;overflow-y:auto;
+    padding:26px 16px 40px;border-right:1px solid var(--line);flex:0 0 248px;}
+  nav .brand{display:flex;align-items:center;gap:9px;margin-bottom:4px}
+  nav .brand svg{width:34px;height:20px}
+  nav .brand b{font-size:18px;letter-spacing:3px;font-weight:800}
+  nav .tag{font-size:11px;color:var(--dim);margin:0 0 20px 2px;font-style:italic}
+  nav a{display:block;color:var(--dim);font-size:13.5px;padding:5px 10px;border-radius:7px;margin:1px 0}
+  nav a:hover{background:var(--panel2);color:var(--text)}
+  nav .sec{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#6b7079;margin:16px 10px 4px}
+  /* ── 본문 ── */
+  main{flex:1;min-width:0;padding:40px 44px 100px;}
+  .hero{text-align:center;padding:30px 0 36px;border-bottom:1px solid var(--line);margin-bottom:34px}
+  .hero svg{width:120px;height:64px}
+  .hero h1{font-size:40px;letter-spacing:9px;margin:8px 0 2px;font-weight:800}
+  .hero .tag{font-size:17px;color:var(--dim);font-style:italic;letter-spacing:1px}
+  .hero .by{font-size:12px;color:#6b7079;margin-top:10px;letter-spacing:2px}
+  .ul{height:3px;width:260px;margin:14px auto 0;background:var(--g);border-radius:2px}
+  h2{font-size:25px;margin:46px 0 6px;padding-top:14px;font-weight:700;letter-spacing:-.2px}
+  h2 .n{color:var(--accent);font-weight:800;margin-right:8px}
+  h2 + .lead{color:var(--dim);margin:0 0 16px;font-size:15px}
+  h3{font-size:18.5px;margin:28px 0 6px;font-weight:650;color:#fff}
+  h4{font-size:15.5px;margin:18px 0 4px;color:var(--accent)}
+  p{margin:8px 0}
+  ul,ol{margin:8px 0 8px 4px;padding-left:22px}
+  li{margin:4px 0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 22px;margin:16px 0}
+  .tip,.note,.warn,.steps{border-radius:10px;padding:13px 16px 13px 46px;margin:14px 0;position:relative;font-size:14.5px}
+  .tip{background:rgba(91,140,255,.09);border:1px solid rgba(91,140,255,.28)}
+  .note{background:rgba(155,93,229,.09);border:1px solid rgba(155,93,229,.28)}
+  .warn{background:rgba(255,159,10,.09);border:1px solid rgba(255,159,10,.3)}
+  .steps{background:var(--panel2);border:1px solid var(--line);padding:13px 18px}
+  .tip::before{content:"💡";position:absolute;left:15px;top:12px}
+  .note::before{content:"📌";position:absolute;left:15px;top:12px}
+  .warn::before{content:"⚠️";position:absolute;left:15px;top:12px}
+  .tip b,.note b,.warn b{color:#fff}
+  kbd{background:#2a2e38;border:1px solid #3a3f4b;border-bottom-width:2px;border-radius:6px;
+    padding:1px 8px;font-family:ui-monospace,Menlo,monospace;font-size:13px;color:#fff}
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14.5px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--dim);font-weight:600;font-size:12.5px;text-transform:uppercase;letter-spacing:.5px}
+  td b{color:#fff}
+  .pill{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:6px;
+    padding:1px 9px;font-size:13px;color:#cfd3da;margin:1px 2px}
+  .q{color:var(--accent);font-weight:650}
+  footer{margin-top:60px;padding-top:24px;border-top:1px solid var(--line);color:#6b7079;font-size:13px;text-align:center}
+  @media(max-width:860px){nav{display:none}main{padding:28px 20px 80px}.hero h1{font-size:32px;letter-spacing:6px}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute"><defs>
+  <linearGradient id="wave" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#1FA2FF"/><stop offset=".28" stop-color="#4E7DF0"/>
+    <stop offset=".5" stop-color="#9B5DE5"/><stop offset=".7" stop-color="#F15BB5"/>
+    <stop offset=".85" stop-color="#FF9F0A"/><stop offset="1" stop-color="#FF453A"/>
+  </linearGradient></defs></svg>
+<script type="text/template" id="mark">
+  <svg viewBox="0 0 110 60"><path d="M2 30 Q14 30 20 18 T38 30 Q48 6 56 30 T74 30 Q84 48 92 30 T108 30"
+    fill="none" stroke="url(#wave)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</script>
+
+<div class="wrap">
+<!-- ───────── 사이드바 ───────── -->
+<nav>
+  <div class="brand"><svg viewBox="0 0 110 60"><path d="M2 30 Q14 30 20 18 T38 30 Q48 6 56 30 T74 30 Q84 48 92 30 T108 30" fill="none" stroke="url(#wave)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg><b>SPECTRA</b></div>
+  <div class="tag">See your sound.</div>
+  <div class="sec">시작</div>
+  <a href="#intro">1. SPECTRA가 뭐예요?</a>
+  <a href="#start">2. 처음 시작하기</a>
+  <a href="#basics">3. 알아두면 좋은 기초</a>
+  <div class="sec">3개의 탭</div>
+  <a href="#spectrum">4. Spectrum (실시간 분석)</a>
+  <a href="#tf">5. Transfer Function</a>
+  <a href="#stereo">6. Stereo Loudness</a>
+  <div class="sec">도구 & 기타</div>
+  <a href="#calib">7. 마이크 캘리브레이션</a>
+  <a href="#spl">8. SPL Meter</a>
+  <a href="#keys">9. 단축키</a>
+  <a href="#license">10. 라이선스 & About</a>
+  <a href="#trouble">11. 문제 해결</a>
+</nav>
+
+<!-- ───────── 본문 ───────── -->
+<main>
+  <div class="hero">
+    <svg viewBox="0 0 110 60"><path d="M2 30 Q14 30 20 18 T38 30 Q48 6 56 30 T74 30 Q84 48 92 30 T108 30" fill="none" stroke="url(#wave)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <h1>SPECTRA</h1>
+    <div class="tag">See your sound.</div>
+    <div class="ul"></div>
+    <div class="by">SPECTRUM ANALYZER · by WAYAUDIO</div>
+  </div>
+
+  <p style="font-size:17px;color:var(--dim)">이 설명서는 <b style="color:#fff">처음 쓰는 분</b>도 따라 할 수 있게 만들었어요.
+  어려운 오디오 용어는 그때그때 쉬운 말로 풀어드릴게요. 순서대로 읽으셔도 좋고, 왼쪽 목차에서 필요한 부분만 보셔도 됩니다.</p>
+
+  <!-- 1 -->
+  <h2 id="intro"><span class="n">1</span>SPECTRA가 뭐예요?</h2>
+  <p class="lead">한마디로 — <b>소리를 눈으로 보는 도구</b>입니다.</p>
+  <p>우리 귀에는 소리가 그냥 "크다 / 작다"로 들리지만, 사실 소리 안에는 <b>낮은 음(저음)부터 높은 음(고음)까지</b> 수많은 성분이 섞여 있어요.
+  SPECTRA는 마이크나 오디오 신호를 받아서 <b>어느 음이 얼마나 크게 들어있는지</b>를 실시간 그래프로 보여줍니다.</p>
+  <div class="tip"><b>이런 분께 좋아요</b> — 음향 엔지니어, 공연/설치 음향, 스튜디오, 방송 라우드니스 관리, 스피커·방 음향 튜닝, 그리고 "내 소리가 어떻게 생겼나" 궁금한 누구나.</div>
+  <p><b>3개의 탭</b>으로 나뉘어 있어요. 각각 다른 일을 합니다:</p>
+  <table>
+    <tr><th>탭</th><th>한 줄 설명</th><th>이럴 때 써요</th></tr>
+    <tr><td><b>Spectrum</b></td><td>지금 들어오는 소리의 주파수 분석</td><td>"이 소리에 저음/고음이 얼마나 있나?"</td></tr>
+    <tr><td><b>Transfer Function</b></td><td>스피커·방이 소리를 어떻게 바꾸는지 측정</td><td>"이 스피커/방의 음향 특성은?"</td></tr>
+    <tr><td><b>Stereo Loudness</b></td><td>좌우 스테레오 + 방송용 음량(LUFS) 측정</td><td>"방송/음원 규격에 맞나?"</td></tr>
+  </table>
+
+  <!-- 2 -->
+  <h2 id="start"><span class="n">2</span>처음 시작하기</h2>
+
+  <h3>설치</h3>
+  <div class="steps">
+    ① 받은 <b>SPECTRA 설치 파일(.dmg)</b>을 더블클릭 → ② 열린 창에서 <b>SPECTRA 아이콘을 Applications 폴더로 드래그</b> → ③ 끝! 응용 프로그램에서 실행하세요.
+  </div>
+  <div class="warn">처음 실행 시 "확인되지 않은 개발자" 경고가 뜨면 — 응용 프로그램 폴더에서 <b>아이콘 우클릭 → 열기</b>를 한 번만 해주면 그 다음부터 정상적으로 열립니다.</div>
+
+  <h3>라이선스 활성화</h3>
+  <p>처음 켜면 활성화 창이 나옵니다.</p>
+  <ol>
+    <li>화면에 보이는 <b>머신 ID</b>를 복사해서 판매자에게 전달하세요. (이 PC 전용 ID예요)</li>
+    <li>받은 <b>시리얼 키</b>를 입력칸에 붙여넣고 <b>활성화</b>를 누르면 끝.</li>
+  </ol>
+  <div class="note">라이선스는 <b>이 컴퓨터에 한 번만</b> 등록하면 됩니다. 나중에 정보는 우측 아래 <b>License</b> 버튼(About 화면)에서 다시 볼 수 있어요.</div>
+
+  <h3>화면 살펴보기</h3>
+  <ul>
+    <li><b>맨 위 (헤더)</b> — 가운데 SPECTRA 로고, 오른쪽에 <span class="pill">☀️ Light / 🌙 Dark</span>(밝은/어두운 화면 전환)와 <span class="pill">Calibration</span>(마이크 보정) 버튼.</li>
+    <li><b>탭 줄</b> — Spectrum / Transfer Function / Stereo Loudness 3개 탭.</li>
+    <li><b>툴바</b> — 그 탭의 설정 버튼들이 한 줄로.</li>
+    <li><b>그래프</b> — 가운데 큰 영역. 여기에 소리가 그려져요.</li>
+    <li><b>우측 패널</b> — 레벨 수치, 정보, 입력 장치 선택.</li>
+  </ul>
+  <div class="tip"><b>가장 먼저 할 일</b> — 우측 <b>INPUT</b>에서 <b>오디오 장치(마이크/인터페이스)</b>와 <b>채널</b>을 고른 뒤, 왼쪽 위 <b>▶ Start</b>를 누르면 분석이 시작됩니다.</div>
+
+  <!-- 3 -->
+  <h2 id="basics"><span class="n">3</span>알아두면 좋은 기초 (1분 컷)</h2>
+  <p class="lead">그래프를 읽으려면 이 3가지만 알면 돼요.</p>
+  <table>
+    <tr><th>용어</th><th>쉽게 말하면</th></tr>
+    <tr><td><b>주파수 (Hz)</b></td><td>음의 <b>높낮이</b>. 숫자가 작으면 저음(둥둥), 크면 고음(쨍). 그래프의 <b>가로축</b>이에요. (20Hz~20kHz가 사람 귀 범위)</td></tr>
+    <tr><td><b>레벨 (dB)</b></td><td>소리의 <b>크기</b>. 위로 갈수록 큼. 그래프의 <b>세로축</b>이에요. dB는 0에 가까울수록 크고, 음수(-60 등)로 갈수록 작아요.</td></tr>
+    <tr><td><b>dBSPL</b></td><td>실제 공기 중 <b>소음 크기</b>(데시벨). 도서관 ~40, 대화 ~60, 콘서트 ~100. 정확히 보려면 마이크 <b>캘리브레이션</b>이 필요해요(7번).</td></tr>
+  </table>
+  <div class="tip">정리하면 — <b>가로 = 음의 높낮이</b>, <b>세로 = 소리 크기</b>. 산봉우리가 높이 솟은 위치가 "그 음이 강하게 들어있다"는 뜻이에요.</div>
+
+  <!-- 4 -->
+  <h2 id="spectrum"><span class="n">4</span>Spectrum 탭 — 실시간 주파수 분석</h2>
+  <p class="lead">지금 들어오는 소리에 어떤 음들이 얼마나 들어있는지 실시간으로 봅니다.</p>
+
+  <h3>화면 읽는 법</h3>
+  <p>가로축이 주파수(저음 왼쪽 → 고음 오른쪽), 세로축이 크기(dB)예요. 소리가 들어오면 울퉁불퉁한 곡선이 춤춥니다. 봉우리가 솟은 곳 = 그 음이 강한 것.</p>
+
+  <h3>뷰 모드 (어떻게 보여줄까)</h3>
+  <table>
+    <tr><th>버튼</th><th>뜻</th><th>쉽게</th></tr>
+    <tr><td><b>FFT</b></td><td>가장 정밀한 분석</td><td>아주 촘촘하게 본다. 정확한 주파수 찾을 때.</td></tr>
+    <tr><td><b>1/3 · 1/12 · 1/24</b></td><td>옥타브 밴드</td><td>주파수를 <b>귀에 가깝게 묶어서</b> 본다. 1/3은 큼직하게, 1/24는 곱게. 방/스피커 튜닝엔 1/12·1/24가 보기 좋아요.</td></tr>
+    <tr><td><b>+Spectro</b></td><td>스펙트로그램 추가</td><td>시간에 따라 소리가 어떻게 변했는지 <b>히트맵(색)</b>으로. 아래로 흘러내려요.</td></tr>
+    <tr><td><b>Log / Lin</b></td><td>가로축 눈금 방식</td><td><b>Log</b>=사람 귀처럼 저음을 넓게(추천), <b>Lin</b>=고르게.</td></tr>
+  </table>
+
+  <h3>컨트롤 버튼들</h3>
+  <table>
+    <tr><th>버튼</th><th>무엇</th><th>언제/왜</th></tr>
+    <tr><td><b>SR</b></td><td>샘플레이트(44.1~96kHz)</td><td>보통 그대로. 장치에 맞춰 자동.</td></tr>
+    <tr><td><b>Avg</b></td><td>평균 (None/4x/8x/16x)</td><td>곡선이 너무 떨리면 평균을 올려 <b>부드럽게</b>. 정밀히 보려면 낮게.</td></tr>
+    <tr><td><b>Peak</b></td><td>피크 홀드 ON/Reset</td><td>지나간 <b>최고값을 선으로 남겨</b> 보여줘요. Reset으로 지움.</td></tr>
+    <tr><td><b>Hold</b></td><td>피크 유지 시간</td><td>최고값을 몇 초 붙잡을지.</td></tr>
+    <tr><td><b>Range</b></td><td>세로축 범위(예: 96dB)</td><td>표시할 dB 폭. <kbd>↑</kbd><kbd>↓</kbd>로 위아래 이동도 가능.</td></tr>
+    <tr><td><b>Speed</b></td><td>반응 속도</td><td>곡선이 따라오는 빠르기.</td></tr>
+    <tr><td><b>Color</b></td><td>곡선/색 설정</td><td>취향대로 색 변경.</td></tr>
+    <tr><td><b>Capture</b></td><td>현재 화면 스냅샷 저장</td><td>지금 곡선을 <b>찰칵 박제</b>해서 나중과 비교. <kbd>Space</kbd>로도 가능.</td></tr>
+  </table>
+
+  <h3>우측 패널 (LEVEL · INFO · INPUT)</h3>
+  <ul>
+    <li><b>LEVEL</b> — 현재 SPL(소음 크기), Peak Hold(최고값), Dominant(가장 강한 주파수), <b>dBA/dBC</b>(사람 귀 보정 소음치), <b>LAeq/LCeq</b>(평균 소음). 우측 위 <span class="pill">↗</span> 아이콘으로 <b>큰 SPL 미터 창</b>을 따로 띄울 수 있어요(8번).</li>
+    <li><b>INFO</b> — 샘플레이트·FFT 크기·해상도·캘리브 값 등 현재 설정 정보.</li>
+    <li><b>INPUT</b> — 분석할 <b>장치와 채널</b> 선택. <b>+ Add Source</b>로 여러 장치/채널을 동시에 겹쳐 볼 수 있어요(각 카드 색으로 구분).</li>
+  </ul>
+  <div class="tip"><b>A/C 가중이 뭐예요?</b> — 사람 귀는 모든 음을 똑같이 듣지 않아요. <b>dBA</b>는 사람 귀 느낌에 맞춘 소음치(소음 측정 표준), <b>dBC</b>는 저음까지 포함한 값입니다.</div>
+
+  <!-- 5 -->
+  <h2 id="tf"><span class="n">5</span>Transfer Function 탭 — 스피커·방 음향 측정</h2>
+  <p class="lead">스피커나 방이 소리를 "어떻게 바꾸는지"를 측정합니다. (Smaart 같은 전문 측정과 같은 원리)</p>
+  <div class="tip"><b>쉽게 말하면</b> — 한쪽으로 <b>기준 신호를 내보내고</b>, 다른 쪽 마이크로 <b>실제로 들리는 소리를 받아서</b>, 둘을 비교합니다. "원본 대비 어디가 커지고/작아지고/늦게 도착했나"를 그래프로 보여줘요. 스피커 EQ 잡거나 방 음향 진단할 때 핵심 도구예요.</div>
+
+  <h3>① 신호 발생기 (Signal Generator)</h3>
+  <p>측정용 소리를 내보내는 부분이에요.</p>
+  <ul>
+    <li><b>Pink / White / Sweep</b> — 측정 신호 종류. <b>Pink(핑크 노이즈)</b>가 일반적인 음향 측정용 "쉬익~" 소리예요. <b>Sweep</b>는 저음→고음으로 훑는 신호.</li>
+    <li><b>File…</b> — 직접 만든 음원 파일로 측정.</li>
+    <li><b>Level</b> — 내보내는 소리 크기. − / + 로 조절.</li>
+    <li><b>Out</b> — 어느 출력 채널로 내보낼지.</li>
+    <li><b>▶ Play</b> (<kbd>G</kbd>) — 신호 재생/정지.</li>
+  </ul>
+
+  <h3>② 기준(Reference)과 측정(Measurement)</h3>
+  <ul>
+    <li><b>Reference</b> — "원본" 신호. 보통 <b>Internal (SigGen)</b>(방금 그 발생기 소리)로 둡니다.</li>
+    <li><b>Measurement</b> — 마이크로 받은 "실제" 소리. <b>Meas</b>에서 마이크 장치/채널을 고르세요.</li>
+  </ul>
+  <div class="note">즉 SPECTRA가 <b>원본(Reference) ↔ 마이크 소리(Measurement)</b>를 비교해서 결과를 그립니다.</div>
+
+  <h3>③ 딜레이(Delay) 맞추기 — 중요!</h3>
+  <p>마이크가 스피커에서 떨어져 있으면 소리가 <b>조금 늦게</b> 도착해요. 이 시간차를 맞춰줘야 정확한 측정이 됩니다.</p>
+  <div class="steps">신호를 재생한 상태에서 <b>Auto</b> 버튼(<kbd>L</kbd>)을 누르면 — SPECTRA가 <b>딜레이를 자동으로 찾아</b> 맞춰줍니다. 끝!</div>
+
+  <h3>④ 결과 그래프 3종</h3>
+  <table>
+    <tr><th>그래프</th><th>무엇을 보나</th><th>쉽게</th></tr>
+    <tr><td><b>Live IR</b><br>(임펄스 응답)</td><td>소리가 도착하는 모양/시점</td><td>맨 위. 뾰족한 봉우리 = 소리가 도착한 순간. 딜레이 확인용.</td></tr>
+    <tr><td><b>Phase</b><br>(위상)</td><td>주파수별 타이밍 어긋남</td><td>가운데. <b>Wrapped/Unwrapped</b>로 표시 방식 전환. 스피커 정렬·크로스오버 점검.</td></tr>
+    <tr><td><b>Magnitude + Coherence</b><br>(크기 + 신뢰도)</td><td>주파수별로 커졌나/작아졌나 + 그 측정이 믿을 만한가</td><td>맨 아래. 곡선이 평평하면 "착색 없이 고르게" = 좋음. <b>코히어런스</b>는 0~1, 1에 가까울수록 신뢰도 높음.</td></tr>
+  </table>
+  <div class="tip"><b>코히어런스(Coherence)가 뭐예요?</b> — "이 측정값을 믿어도 되나"를 0~1로 나타낸 점수예요. 주변이 시끄럽거나 신호가 약하면 낮아집니다. <b>높은(1에 가까운) 구간의 결과만</b> 신뢰하세요.</div>
+
+  <h3>⑤ 그 외 컨트롤</h3>
+  <ul>
+    <li><b>FFT / Avg / Smooth</b> — 분석 정밀도/평균/곡선 매끄럽기. Avg를 올리면 안정적, Smooth는 보기 좋게 다듬어요.</li>
+    <li><b>Find</b> (<kbd>L</kbd>) — 딜레이 자동 찾기(위와 동일).</li>
+    <li><b>Capture</b> — 현재 측정 곡선 저장(비교용).</li>
+    <li><b>△ (델타)</b> — 저장한 곡선 대비 <b>차이</b>만 보기. EQ 전후 비교에 유용.</li>
+    <li><b>측정 채널 추가</b> — 여러 지점을 동시에 측정/비교(각 색으로).</li>
+  </ul>
+
+  <!-- 6 -->
+  <h2 id="stereo"><span class="n">6</span>Stereo Loudness 탭 — 스테레오 & 음량(LUFS)</h2>
+  <p class="lead">좌우(L/R) 스테레오 상태와, 방송·음원에서 쓰는 "체감 음량"을 봅니다.</p>
+
+  <h3>왼쪽 — 벡터스코프 (Vectorscope)</h3>
+  <p>좌우 채널의 <b>위상/이미지 관계</b>를 동그란 그림으로 보여줘요.</p>
+  <ul>
+    <li>점들이 <b>세로(위아래)로 모이면</b> — 좌우가 잘 맞는 좋은 스테레오.</li>
+    <li><b>가로로 퍼지면</b> — 좌우 위상이 어긋남(모노로 합치면 소리가 깨질 수 있음).</li>
+    <li>아래 <b>상관도(+1 ~ −1)</b> — +1=완벽히 같음(모노 안전), 0=넓은 스테레오, −1=위상 반전(주의).</li>
+  </ul>
+
+  <h3>오른쪽 — 라우드니스 레이더</h3>
+  <p>시간에 따른 음량을 원형(레이더)으로 그려요. 방송 규격 맞출 때 핵심.</p>
+  <div class="tip"><b>LUFS가 뭐예요?</b> — 사람이 실제로 느끼는 <b>"체감 음량"</b> 단위예요. 단순 피크가 아니라 "전체적으로 얼마나 크게 들리나". 방송/스트리밍은 이 값으로 규격을 정합니다(예: 방송 −23 LUFS, 유튜브 −14 등).</div>
+  <table>
+    <tr><th>지표</th><th>뜻</th><th>쉽게</th></tr>
+    <tr><td><b>M</b> (Momentary)</td><td>순간 음량(~0.4초)</td><td>지금 이 순간 얼마나 큰가</td></tr>
+    <tr><td><b>S</b> (Short-term)</td><td>단기 음량(3초)</td><td>최근 몇 초 평균</td></tr>
+    <tr><td><b>I / Program</b></td><td>통합 음량(전체)</td><td><b>제일 중요</b> — 처음부터 지금까지 전체 평균. 규격과 비교하는 값.</td></tr>
+    <tr><td><b>TP</b> (True Peak)</td><td>실제 최고 피크(dBTP)</td><td>클리핑(찌그러짐) 위험 체크. 보통 −1dBTP 이하 권장.</td></tr>
+    <tr><td><b>LRA</b></td><td>음량 범위(다이내믹)</td><td>조용한 곳과 큰 곳의 차이. 클수록 다이내믹.</td></tr>
+  </table>
+  <ul>
+    <li><b>Target</b> — 목표 음량(−23 LUFS 등) 설정. 레이더에 기준선으로 표시.</li>
+    <li><b>Reset I / Reset TP</b> — 통합 음량 / 트루피크 측정을 초기화(새로 시작).</li>
+    <li><b>L · R</b> — 좌/우로 쓸 입력 채널 지정.</li>
+  </ul>
+
+  <!-- 7 -->
+  <h2 id="calib"><span class="n">7</span>마이크 캘리브레이션 (정확한 소음 측정)</h2>
+  <p class="lead">화면의 dBSPL 숫자를 <b>실제와 똑같이</b> 맞추는 작업입니다.</p>
+  <p>마이크마다 감도가 달라서, 보정을 안 하면 화면 숫자가 실제 소음과 다를 수 있어요. <b>캘리브레이터(기준기)</b>가 있으면 정확히 맞출 수 있습니다.</p>
+  <div class="steps">
+    헤더의 <b>Calibration</b> 버튼 클릭 → ① 마이크에 캘리브레이터를 끼우고 켜기 → ② 기준값(<b>94</b> 또는 <b>114 dBSPL</b>) 선택 → ③ <b>레벨 측정</b> → SPECTRA가 오프셋을 자동 계산해 맞춰줍니다.
+  </div>
+  <div class="note"><b>다채널 인터페이스</b>를 쓰면 채널마다 따로 보정할 수 있어요. 채널 목록에서 채널을 고른 뒤 각각 측정하면, 설정값이 채널별로 저장됩니다.</div>
+  <div class="tip">캘리브레이터가 없어도 SPECTRA는 잘 작동해요. 다만 dBSPL <b>절대값</b>이 정확하지 않을 뿐, 주파수 분석·상대 비교는 문제없습니다.</div>
+
+  <!-- 8 -->
+  <h2 id="spl"><span class="n">8</span>SPL Meter (큰 소음계 창)</h2>
+  <p class="lead">멀리서도 보이는 <b>큰 숫자 소음계</b>를 별도 창으로 띄웁니다.</p>
+  <p>Spectrum 탭의 <b>LEVEL</b> 패널 우측 위 <span class="pill">↗</span> 아이콘을 누르면 열려요. 공연장에서 객석 소음을 모니터하거나, 측정값을 크게 띄워둘 때 좋아요.</p>
+  <ul>
+    <li><b>자유 배치</b> — 창 안의 <b>⚙️ 설정</b>에서 행×열(1×1 ~ 4×4)을 정하고, 각 칸에 보여줄 지표(dB SPL A/C, LAeq, LCeq)를 고를 수 있어요.</li>
+    <li><b>Max 표시</b> — 각 칸에 최고값을 기록. ↺ 버튼으로 리셋.</li>
+    <li><b>LEQ 시간</b> — 평균을 낼 시간(1분~3시간) 설정.</li>
+    <li>창 크기는 자유롭게 늘리거나 줄일 수 있고, 글자도 따라 커집니다.</li>
+  </ul>
+
+  <!-- 9 -->
+  <h2 id="keys"><span class="n">9</span>단축키</h2>
+  <table>
+    <tr><th>키</th><th>기능</th></tr>
+    <tr><td><kbd>Space</kbd></td><td>현재 화면 캡쳐(스냅샷 저장)</td></tr>
+    <tr><td><kbd>L</kbd></td><td>(Transfer Function) 딜레이 자동 찾기 = Find/Auto</td></tr>
+    <tr><td><kbd>G</kbd></td><td>(Transfer Function) 신호 발생기 재생/정지</td></tr>
+    <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>그래프 dB 범위 위/아래로 이동(±6dB) — Spectrum·TF</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>Ctrl</kbd>+<kbd>−</kbd></td><td>(TF) 임펄스 응답(IR) 시간축 확대/축소</td></tr>
+  </table>
+  <div class="tip">마우스로 그래프 위를 움직이면 <b>그 지점의 주파수·dB 값</b>이 작은 정보창으로 떠요. 그래프를 <b>더블클릭</b>하면 세로축이 데이터에 맞게 자동 정렬됩니다.</div>
+
+  <!-- 10 -->
+  <h2 id="license"><span class="n">10</span>라이선스 & About</h2>
+  <p>우측 아래 <b>License</b> 버튼을 누르면 <b>About SPECTRA</b> 창이 열려요 — 버전, 머신 ID, 라이선스 상태, 로그 위치를 볼 수 있고 <b>Copy Machine ID</b>로 머신 ID를 복사할 수 있습니다.</p>
+  <p>옆 <b>Log</b> 버튼은 문제 발생 시 진단용 기록 파일을 엽니다(문의할 때 함께 보내면 좋아요).</p>
+
+  <!-- 11 -->
+  <h2 id="trouble"><span class="n">11</span>문제 해결</h2>
+  <table>
+    <tr><th>증상</th><th>해결</th></tr>
+    <tr><td>그래프가 안 움직여요</td><td>① 왼쪽 위 <b>▶ Start</b>를 눌렀는지 ② 우측 <b>INPUT</b>에서 올바른 장치/채널을 골랐는지 확인.</td></tr>
+    <tr><td>장치(마이크)가 목록에 없어요</td><td>케이블 연결 후, 장치 선택 콤보를 다시 열어보세요. USB는 뽑았다 끼우면 자동으로 다시 잡습니다.</td></tr>
+    <tr><td>USB 인터페이스를 뽑았더니 멈췄어요</td><td>다시 꽂으면 자동 복구됩니다. 안 되면 장치를 다시 선택하세요.</td></tr>
+    <tr><td>소음(dBSPL) 숫자가 실제와 달라요</td><td>마이크 <b>캘리브레이션</b>(7번)을 하세요.</td></tr>
+    <tr><td>Transfer Function 결과가 이상/불안정</td><td>신호를 재생하고 <b>Auto(딜레이)</b>를 먼저 맞추세요. <b>코히어런스</b>가 낮은 구간은 신뢰하지 마세요(주변 소음↓, 신호 레벨↑).</td></tr>
+    <tr><td>매그니튜드 곡선이 화면 밖(아래)에 있어요</td><td>마이크 입력 레벨이 낮아서예요. 그래프를 <b>더블클릭</b>하면 자동으로 맞춰지고, 인터페이스에서 마이크 게인을 올리면 0dB 쪽으로 올라옵니다.</td></tr>
+  </table>
+
+  <footer>
+    SPECTRA — Spectrum Analyzer · by WAYAUDIO<br>
+    <span style="color:#4E7DF0">See your sound.</span>
+  </footer>
+</main>
+</div>
+</body>
+</html>
