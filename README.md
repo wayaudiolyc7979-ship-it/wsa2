@@ -17,9 +17,15 @@ Spectrum Analyzer · by **WAYAUDIO**
 
 SPECTRA는 소리를 **눈으로 보는** 음향 측정 도구입니다. 실시간 스펙트럼 분석부터 스피커·룸 전달함수(Transfer Function), 방송 라우드니스(LUFS)까지 — 프로 현장의 측정을 하나의 앱에 담았습니다.
 
-![SPECTRA](docs/img/spectrum.png)
+![SPECTRA — Spectrum](docs/img/spectrum.png)
 
-> 위 이미지는 플레이스홀더입니다. 실제 스크린샷은 `docs/img/` 에 채웁니다.
+<div align="center">
+
+| Transfer Function | Stereo Loudness |
+|:---:|:---:|
+| ![Transfer Function](docs/img/tf.png) | ![Stereo Loudness](docs/img/stereo.png) |
+
+</div>
 
 ## ✨ 기능
 
