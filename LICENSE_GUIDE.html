@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SPECTRA 라이선스 — 쉬운 설명서</title>
+<style>
+  :root{ --accent:#00c9a7; --ink:#1d2733; --dim:#6b7785; --bg:#f7f9fb; --card:#fff; --line:#e3e8ee; --warn:#e7575c; }
+  *{ box-sizing:border-box; }
+  body{ font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Segoe UI",sans-serif;
+        margin:0; background:var(--bg); color:var(--ink); line-height:1.7; }
+  .wrap{ max-width:780px; margin:0 auto; padding:40px 24px 80px; }
+  header h1{ font-size:30px; margin:0 0 6px; letter-spacing:-.5px; }
+  header p.sub{ color:var(--dim); margin:0 0 4px; font-size:15px; }
+  .badge{ display:inline-block; background:#fff4f4; color:var(--warn); border:1px solid #f3cdce;
+          font-size:12px; font-weight:600; padding:3px 10px; border-radius:999px; margin-top:8px; }
+  h2{ font-size:21px; margin:42px 0 14px; padding-bottom:8px; border-bottom:2px solid var(--accent); }
+  h3{ font-size:16px; margin:24px 0 8px; }
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px 22px; margin:14px 0;
+         box-shadow:0 1px 3px rgba(20,40,60,.04); }
+  .analogy{ background:linear-gradient(135deg,#eafaf6,#f0f7ff); border:1px solid #cdeee6; }
+  table{ width:100%; border-collapse:collapse; margin:10px 0; font-size:15px; }
+  th,td{ text-align:left; padding:11px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th{ background:#eef3f7; font-weight:600; }
+  td.yes{ color:#149c7e; font-weight:600; }
+  .steps{ counter-reset:s; list-style:none; padding:0; margin:0; }
+  .steps>li{ counter-increment:s; position:relative; padding:14px 16px 14px 56px; margin:10px 0;
+             background:var(--card); border:1px solid var(--line); border-radius:12px; }
+  .steps>li::before{ content:counter(s); position:absolute; left:14px; top:14px; width:30px; height:30px;
+             background:var(--accent); color:#fff; font-weight:700; border-radius:50%;
+             display:flex; align-items:center; justify-content:center; font-size:15px; }
+  .steps>li b{ display:block; margin-bottom:2px; }
+  code,kbd{ background:#eef2f6; border:1px solid var(--line); border-radius:6px; padding:2px 7px;
+            font-family:"SF Mono",Menlo,Consolas,monospace; font-size:13.5px; }
+  pre{ background:#10171f; color:#d6e2ee; padding:14px 16px; border-radius:10px; overflow:auto; font-size:13.5px; }
+  pre code{ background:none; border:none; color:inherit; padding:0; }
+  .warn{ background:#fff6f6; border:1px solid #f3cdce; border-left:4px solid var(--warn); border-radius:10px;
+         padding:16px 18px; margin:16px 0; }
+  .warn b{ color:var(--warn); }
+  .tip{ background:#f0f8ff; border:1px solid #cfe4f5; border-left:4px solid #2b8fd6; border-radius:10px;
+        padding:14px 18px; margin:14px 0; }
+  .pill{ display:inline-block; background:var(--accent); color:#fff; font-size:12px; font-weight:600;
+         padding:2px 9px; border-radius:999px; vertical-align:middle; }
+  .muted{ color:var(--dim); font-size:14px; }
+  hr{ border:none; border-top:1px solid var(--line); margin:40px 0; }
+  footer{ text-align:center; color:var(--dim); font-size:13px; margin-top:50px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>SPECTRA 라이선스 — 쉬운 설명서</h1>
+  <p class="sub">손님에게 "열쇠"를 만들어 파는 방법, 처음부터 끝까지.</p>
+  <span class="badge">⚠ 내부용 — 손님에게 주지 마세요</span>
+</header>
+
+<!-- 0. 한 문장 -->
+<h2>① 라이선스가 뭐예요?</h2>
+<div class="card">
+  손님이 SPECTRA를 사면, <b>그 손님 컴퓨터에서만</b> 앱이 켜지도록 해주는 <b>"열쇠"</b>입니다.<br>
+  아무나 복사해서 공짜로 못 쓰게 막는 장치예요.
+</div>
+
+<div class="card analogy">
+  <h3>🔑 도장(인감) 비유로 이해하기</h3>
+  <table>
+    <tr><th>이름</th><th>비유</th><th>누가 가짐</th></tr>
+    <tr><td><b>개인키</b><br><span class="muted">license_ed25519_private.key</span></td>
+        <td><b>도장(인감)</b> — 이걸로 열쇠를 "찍어서" 만듦</td>
+        <td>👤 <b>사장님 맥에만</b></td></tr>
+    <tr><td><b>공개키</b><br><span class="muted">앱 안에 들어있음</span></td>
+        <td><b>도장 검사기</b> — 진짜 도장인지 확인만 함</td>
+        <td>📦 앱(손님 컴퓨터)</td></tr>
+  </table>
+  <p style="margin:8px 0 0">핵심: <b>도장(개인키)이 없으면 아무도 가짜 열쇠를 못 만듭니다.</b>
+  그래서 개인키 백업이 제일 중요해요.</p>
+</div>
+
+<!-- 1. 전 vs 지금 -->
+<h2>② "전에는 프로그램 방식인데… 지금은?"</h2>
+<div class="card">
+  <p style="margin-top:0"><b>걱정 마세요. 그 프로그램 그대로 있고, 사용법도 똑같습니다.</b>
+  바뀐 건 <u>자물쇠 종류</u>뿐이에요 (더 튼튼해짐).</p>
+  <table>
+    <tr><th></th><th>전 (v1.0)</th><th>지금</th></tr>
+    <tr><td>발급 프로그램</td><td>있었음</td><td class="yes">그대로 있음 ✓</td></tr>
+    <tr><td>앱의 활성화 창</td><td>있었음</td><td class="yes">그대로 있음 ✓</td></tr>
+    <tr><td>자물쇠 방식</td><td>HMAC (옛 방식)</td><td>Ed25519 (새 방식) + 옛 방식</td></tr>
+    <tr><td>옛날 손님 열쇠</td><td>—</td><td class="yes">지금도 작동함 ✓</td></tr>
+  </table>
+  <p class="muted" style="margin-bottom:0">왜 바꿨나: 옛 방식은 앱 코드 안에 "비밀번호"가 들어있어서, 코드를 뜯어보면 가짜 열쇠를 만들 수 있었어요.
+  새 방식은 진짜 도장이 사장님 맥에만 있어 <b>코드를 털려도 위조 불가</b>합니다.</p>
+</div>
+
+<!-- 2. 발급 두 가지 방법 -->
+<h2>③ 열쇠 만드는 2가지 방법</h2>
+
+<h3>방법 A. 프로그램(클릭) 방식 <span class="pill">쉬움 · 추천</span></h3>
+<div class="card">
+  <p style="margin-top:0">터미널 안 치고, 창에서 칸 채우고 버튼만 누르면 됩니다. 발급 내역도 자동 기록돼요.</p>
+  <pre><code>python3 wsa2_license_tool.py</code></pre>
+  <p>창이 뜨면:</p>
+  <ol class="steps">
+    <li><b>머신 ID 칸</b>에 손님이 보낸 12글자 입력 <span class="muted">(예: 8BDFC136A562)</span></li>
+    <li><b>고객 이름</b> 입력 <span class="muted">(선택 — 나중에 누구 키인지 알아보려고)</span></li>
+    <li><b>만료 연도</b>: <code>0</code> = 영구, 또는 <code>2027</code> 같은 연도</li>
+    <li><b>[키 생성]</b> 버튼 클릭 → 열쇠가 나옴 → <b>[클립보드 복사]</b></li>
+    <li>아래 <b>발급 내역 표</b>에 자동 저장 (CSV로 내보내기도 가능)</li>
+  </ol>
+</div>
+
+<h3>방법 B. 터미널(타이핑) 방식</h3>
+<div class="card">
+  <p style="margin-top:0">간단히 한 명만 빠르게 발급할 때.</p>
+  <pre><code>python3 generate_license.py</code></pre>
+  <p style="margin-bottom:0">물어보는 대로 답하면 됩니다 → ① 머신 ID 입력 → ② 만료 연도(0=영구) → 열쇠 출력.</p>
+</div>
+
+<!-- 3. 손님 한 명 전체 흐름 -->
+<h2>④ 손님 한 명 처리 — 전체 흐름</h2>
+<ol class="steps">
+  <li><b>손님</b> — 앱을 켜고 우측 아래 <kbd>License</kbd> → <b>[머신 ID 복사]</b> →
+      나온 12글자를 카톡/메일로 사장님께 보냄</li>
+  <li><b>사장님</b> — 위 방법 A 또는 B로 그 머신 ID를 넣고 열쇠 발급</li>
+  <li><b>사장님</b> — 만든 열쇠(긴 글자)를 손님에게 보냄</li>
+  <li><b>손님</b> — 앱 활성화 창에 열쇠 붙여넣고 <b>[활성화]</b> → 끝! 그 컴퓨터에서 영구 사용</li>
+</ol>
+<div class="tip">
+  💡 열쇠는 <b>그 손님 컴퓨터 1대 전용</b>이에요. 다른 PC에 넣으면 <i>"이 컴퓨터에 발급된 키가 아닙니다"</i>라고 뜹니다 — 불법 복제 차단.
+</div>
+
+<!-- 4. 개인키 백업 -->
+<h2>⑤ ⚠️ 제일 중요 — 개인키(도장) 백업</h2>
+<div class="warn">
+  <p style="margin-top:0"><b>license_ed25519_private.key</b> = 라이선스 마스터 도장 (64글자 텍스트).
+  <b>이 맥에만</b> 있습니다.</p>
+  <ul style="margin:8px 0 0">
+    <li>✅ <b>비밀번호 관리자</b>(1Password 등)에 "보안 노트"로 저장 — 추천</li>
+    <li>✅ 또는 암호화 USB / 안전한 외장 백업</li>
+    <li>🚫 git 커밋·이메일·클라우드 평문 저장 <b>금지</b></li>
+  </ul>
+  <p style="margin-bottom:0"><b>잃어버리면:</b> 기존 손님은 계속 쓸 수 있지만 <b>새 열쇠를 영영 못 만듭니다.</b>
+  (복구는 "키 교체" 작업 필요 — 그때 Claude에게 요청)</p>
+</div>
+
+<!-- 5. 자주 묻는 것 -->
+<h2>⑥ 자주 묻는 것</h2>
+<div class="card">
+  <h3 style="margin-top:0">Q. 옛날 v1.0 손님들 열쇠는 이제 안 되나요?</h3>
+  <p>잘 됩니다. 앱이 <b>새 열쇠·옛 열쇠 둘 다 받아주는</b> 방식이라, v1.0 때 받은 열쇠도 그대로 작동해요.</p>
+  <h3>Q. 손님이 컴퓨터를 바꾸면요?</h3>
+  <p>새 컴퓨터의 머신 ID를 다시 받아서 <b>새 열쇠를 발급</b>해주면 됩니다.</p>
+  <h3>Q. 머신 ID가 뭐예요?</h3>
+  <p>손님 컴퓨터의 하드웨어로 만든 <b>12자리 지문</b>이에요. 컴퓨터마다 달라서, 열쇠를 그 컴퓨터에 묶는 데 씁니다.</p>
+  <h3 style="margin-bottom:0">Q. 만료 연도는 뭘 넣나요?</h3>
+  <p style="margin-bottom:0"><code>0</code>이면 영구(평생). <code>2027</code>을 넣으면 2027년 12월 31일까지만 작동해요. 보통은 <code>0</code>.</p>
+</div>
+
+<hr>
+<p class="muted">더 기술적인 내용(키 형식, 개인키 분실 시 키 교체 절차 등)은 개발자 문서 <code>LICENSING.md</code>를 보세요.</p>
+
+<footer>SPECTRA · by WAYAUDIO — See your sound.</footer>
+
+</div>
+</body>
+</html>
