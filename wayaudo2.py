@@ -12563,6 +12563,10 @@ class MainWindow(QMainWindow):
         self._st_l_cb.setStyleSheet(_cb_ss)
         self._st_r_cb.setStyleSheet(_cb_ss)
         self._st_target_cb.setStyleSheet(_cb_ss)
+        # Spectrum 툴바 콤보도 전역 cascade 대신 _cb_ss 직접 적용 → 3탭 콤보 100% 동일 보장
+        for _spc in ('sr_cb', 'avg_cb', 'hold_cb', 'db_cb', 'spd_cb'):
+            _w = getattr(self, _spc, None)
+            if _w is not None: _w.setStyleSheet(_cb_ss)
         # sub_stack의 bare-property cascade가 tf_win.tb 자식 버튼/콤보박스에
         # border:none을 덮어쓰는 문제 → tb에 typed selector로 명시 스타일 재부여
         if hasattr(self, 'tf_win') and self.tf_win is not None:
