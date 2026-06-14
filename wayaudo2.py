@@ -1,6 +1,6 @@
 11#!/usr/bin/env python3
 # ═══════════════════════════════════════════════════
-#  SPECTRA — Spectrum Analyzer  (by WAYAUDIO)  v1.4
+#  SPECTRA — Spectrum Analyzer  (by WAYAUDIO)  v1.5
 #  ✅ FFT 버벅임 수정 (포인트 다운샘플링)
 #  ✅ 마이크 캘리브레이션 (94/114dB @ 1kHz)
 #  ✅ dBA / dBC 실시간 레벨
@@ -12129,7 +12129,7 @@ class MainWindow(QMainWindow):
         # ── 푸터
         self.ft=QWidget(); self.ft.setFixedHeight(22)
         fl=QHBoxLayout(self.ft); fl.setContentsMargins(16,0,16,0)
-        fl.addWidget(QLabel('SPECTRA  |  v1.4'))
+        fl.addWidget(QLabel('SPECTRA  |  v1.5'))
         fl.addStretch()
         jordan_lbl=QLabel('Design by Jordan')
         jordan_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:10px;font-style:italic;')
@@ -14192,7 +14192,7 @@ class MainWindow(QMainWindow):
         sep.setStyleSheet(f'#aboutSep{{background:{_SPECTRA_GRAD_QSS};border:none;border-radius:1px;}}')
         root.addWidget(sep)
         root.addSpacing(13)
-        ver = QLabel('Version 1.4    ·    by WAYAUDIO')
+        ver = QLabel('Version 1.5    ·    by WAYAUDIO')
         ver.setStyleSheet(f'font-size:12px;font-weight:600;color:{T("text_dim")};background:transparent;')
         root.addWidget(ver)
         root.addSpacing(16)
@@ -14251,7 +14251,7 @@ if __name__=='__main__':
 
     # ── 세션 시작 로그 헤더
     _alog.info('=' * 60)
-    _alog.info(f'SPECTRA v1.4  시작  {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+    _alog.info(f'SPECTRA v1.5  시작  {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
     _alog.info(f'OS: {_pl.platform()}')
     _alog.info(f'Machine: {_pl.machine()}  Processor: {_pl.processor()}')
     _alog.info(f'Python: {_pl.python_version()}')
