@@ -12075,6 +12075,12 @@ class MainWindow(QMainWindow):
         _rst_pk.clicked.connect(lambda: self.stereo_page.reset_peak())
         sl2.addWidget(_rst_pk)
         sl2.addStretch()
+        # 우측 토글 — 하단 메트릭 바 표시/숨김 (Spectrum/TF 우측 토글과 프레임 통일)
+        self._st_metricbar_btn = _RightPanelToggleBtn()
+        self._st_metricbar_btn.setChecked(True)
+        self._st_metricbar_btn.setToolTip('하단 메트릭 바 표시/숨김')
+        self._st_metricbar_btn.clicked.connect(self._toggle_st_metricbar)
+        sl2.addWidget(self._st_metricbar_btn)
         self.sub_stack.addWidget(self._toolbar_scroll(sp2))   # index 2
 
         tw_lay.addWidget(self.sub_stack)
@@ -12776,6 +12782,14 @@ class MainWindow(QMainWindow):
         self._spec_panel_btn.setChecked(vis); self._spec_panel_btn.update()
         self._settings['spec_panel_visible'] = vis
         _save_settings(self._settings)
+
+    def _toggle_st_metricbar(self):
+        """Stereo 하단 메트릭 바 표시/숨김 (우측 토글)."""
+        sp = getattr(self, 'stereo_page', None)
+        if sp is None or not hasattr(sp, '_num_bar'): return
+        vis = not sp._num_bar.isVisible()
+        sp._num_bar.setVisible(vis)
+        self._st_metricbar_btn.setChecked(vis); self._st_metricbar_btn.update()
 
     def _toggle_toolbar(self):
         vis = not self.toolbar_wrapper.isVisible()
