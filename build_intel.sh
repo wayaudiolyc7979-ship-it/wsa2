@@ -94,13 +94,12 @@ SPEC
 echo "PyInstaller(x86_64) 빌드 시작..."
 $PY -m PyInstaller WSA2_Intel.spec --clean --noconfirm
 
-echo "DMG 생성 중..."
-rm -rf /tmp/WSA2_intel_dmg && mkdir -p /tmp/WSA2_intel_dmg
-cp -R dist/WSA2_Intel.app /tmp/WSA2_intel_dmg/
-ln -sf /Applications /tmp/WSA2_intel_dmg/Applications
-hdiutil create -volname "WSA2 Installer (Intel)" \
-    -srcfolder /tmp/WSA2_intel_dmg -ov -format UDZO -fs HFS+ \
-    dist/WSA2_Intel.dmg
+echo "브랜드 DMG 생성 중..."
+bash make_dmg.sh dist/WSA2_Intel.app "SPECTRA Installer (Intel)" dist/WSA2_Intel.dmg
+# ── fallback (브랜드 실패 시 plain): ──
+# rm -rf /tmp/WSA2_intel_dmg && mkdir -p /tmp/WSA2_intel_dmg
+# cp -R dist/WSA2_Intel.app /tmp/WSA2_intel_dmg/; ln -sf /Applications /tmp/WSA2_intel_dmg/Applications
+# hdiutil create -volname "SPECTRA Installer (Intel)" -srcfolder /tmp/WSA2_intel_dmg -ov -format UDZO -fs HFS+ dist/WSA2_Intel.dmg
 
 echo ""
 echo "=== Intel 빌드 완료 ==="
