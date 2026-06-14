@@ -13891,12 +13891,30 @@ class MainWindow(QMainWindow):
     def _reset_peak(self):
         self.fft_cvs.reset_peak(); self.oct_cvs.reset_peak()
 
+    def _flash_toast(self, text='✓ Captured', ms=1100):
+        """화면 상단 중앙에 잠깐 뜨는 안내(토스트) — 캡쳐 등 즉각 피드백."""
+        from PyQt5.QtCore import QTimer
+        lbl = getattr(self, '_toast_lbl', None)
+        if lbl is None:
+            lbl = self._toast_lbl = QLabel(self)
+            lbl.setAlignment(Qt.AlignCenter)
+            self._toast_timer = QTimer(self); self._toast_timer.setSingleShot(True)
+            self._toast_timer.timeout.connect(lbl.hide)
+        a = QColor(T('accent')); ar, ag, ab = a.red(), a.green(), a.blue()
+        lbl.setStyleSheet(f'background:rgba({ar},{ag},{ab},235);color:#FFFFFF;font-size:13px;'
+                          f'font-weight:700;padding:8px 20px;border-radius:9px;')
+        lbl.setText(text); lbl.adjustSize()
+        lbl.move(max(0, (self.width() - lbl.width()) // 2), 165)
+        lbl.show(); lbl.raise_()
+        self._toast_timer.start(ms)
+
     def _space_capture(self):
         idx = self.main_stack.currentIndex()
         if idx == 2:
             return  # Stereo Loudness 탭에서는 스페이스바 무시
         if idx == 1:
             self.tf_win._do_tf_capture(prompt=False)  # 스페이스바 = 빠른 캡쳐 (자동 이름)
+            self._flash_toast()
         else:
             self._do_spec_capture()
 
@@ -13916,6 +13934,7 @@ class MainWindow(QMainWindow):
         _alog.info(f'스펙트럼 캡처 추가  label="{label}"  mode={m}  total={n+1}')
         self._refresh_spec_capture_bar()
         self._save_spec_captures()
+        self._flash_toast()
 
     def _refresh_spec_capture_bar(self):
         self._refresh_capture_drawer()
