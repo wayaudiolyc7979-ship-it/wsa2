@@ -5,3 +5,4 @@ dist/
 __pycache__/
 *.pyc
 .DS_Store
+WSA2_Intel.spec
