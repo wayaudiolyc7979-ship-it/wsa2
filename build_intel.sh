@@ -46,6 +46,8 @@ a = Analysis(
     ],
     datas=[
         ('splash.png', '.'),
+        ('MANUAL.html', '.'),
+        ('docs/img', 'docs/img'),
         (os.path.join(SITE, 'soundfile.py'), '.'),
         (os.path.join(SITE, '_soundfile.py'), '.'),
         (os.path.join(SITE, '_soundfile_data'), '_soundfile_data'),

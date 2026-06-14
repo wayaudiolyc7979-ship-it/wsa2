@@ -12325,6 +12325,10 @@ class MainWindow(QMainWindow):
 
         # ── 하단 유틸리티 버튼 ──
         util_row = QHBoxLayout(); util_row.setSpacing(4)
+        help_btn = self._help_btn = QPushButton('Help')
+        help_btn.setFixedHeight(22)
+        help_btn.setToolTip('사용 설명서(메뉴얼) 열기')
+        help_btn.clicked.connect(self._open_manual)
         log_btn = self._log_btn = QPushButton('Log')
         log_btn.setFixedHeight(22)
         log_btn.setToolTip(f'로그 폴더 열기\n{_LOG_DIR}')
@@ -12335,7 +12339,7 @@ class MainWindow(QMainWindow):
         lic_btn.setToolTip('About SPECTRA · 라이선스 정보')
         lic_btn.clicked.connect(self._show_license_info)
         self._restyle_util_btns()
-        util_row.addWidget(log_btn); util_row.addWidget(lic_btn)
+        util_row.addWidget(help_btn); util_row.addWidget(log_btn); util_row.addWidget(lic_btn)
         layout.addLayout(util_row)
 
         layout.addStretch(); return panel
@@ -12344,7 +12348,7 @@ class MainWindow(QMainWindow):
         """Log/License 유틸 버튼 — 테마 적응 스타일 (다크↔라이트 토글 시 갱신)."""
         _ss = (f'font-size:{FS_XS}px;color:{T("text_dim")};background:{T("panel")};'
                f'border:1px solid {T("border")};border-radius:{RADIUS_SM}px;padding:1px 6px;')
-        for _b in (getattr(self, '_log_btn', None), getattr(self, '_lic_btn', None)):
+        for _b in (getattr(self, '_help_btn', None), getattr(self, '_log_btn', None), getattr(self, '_lic_btn', None)):
             if _b is not None: _b.setStyleSheet(_ss)
 
     # ─────────────────────────────────────
@@ -14161,6 +14165,19 @@ class MainWindow(QMainWindow):
             _bar_preset_idx = 0
             self.fft_cvs._cache = None; self.oct_cvs._cache = None
             self.fft_cvs.update(); self.oct_cvs.update()
+
+    def _open_manual(self):
+        """우측 하단 Help 버튼 — 사용 설명서(MANUAL.html)를 기본 브라우저로 연다.
+        번들(.app/.exe)에선 _MEIPASS, 소스 실행 시엔 스크립트 폴더에서 찾는다."""
+        from PyQt5.QtGui import QDesktopServices
+        from PyQt5.QtCore import QUrl
+        base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(base, 'MANUAL.html')
+        if os.path.exists(path):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+        else:
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.information(self, 'SPECTRA', '설명서 파일(MANUAL.html)을 찾을 수 없습니다.')
 
     def _show_license_info(self):
         from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
