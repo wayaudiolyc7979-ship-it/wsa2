@@ -12548,6 +12548,9 @@ class MainWindow(QMainWindow):
             f'color:{text}; border:1px solid {cb_bd};'
             f'border-radius:{RADIUS_CTRL}px; padding:2px 10px; font-size:{FS_BODY}px;'
             f'min-height:26px; max-height:26px; combobox-popup:0;}}'
+            f'QComboBox::drop-down{{width:0;border:none;}}'
+            f'QComboBox::down-arrow{{width:0;height:0;image:none;}}'
+            f'QComboBox:hover{{border:1px solid rgba({ar},{ag},{ab},160);}}'
             f'QComboBox QAbstractItemView{{background:{bg2};color:{text};'
             f'border:1px solid {cb_bd};border-radius:7px;outline:none;font-size:11px;'
             f'selection-background-color:rgba({ar},{ag},{ab},55);selection-color:{accent};}}'
@@ -12579,6 +12582,11 @@ class MainWindow(QMainWindow):
                 f'QComboBox::down-arrow {{ width:0; height:0; image:none; }}'
                 f'QComboBox:hover {{ border:1px solid rgba({ar},{ag},{ab},160); }}'
             )
+            # TF 툴바 콤보는 부모(tb) 상속만으론 drawComplexControl이 Fusion 기본 프레임
+            # (두꺼운 테두리+화살표+진한 배경)을 그려 Spectrum과 달라 보임 → _cb_ss 직접 적용해 통일.
+            for _cbn in ('fft_cb', 'avg_cb', 'sm_cb', 'ir_cb', 'phase_cb'):
+                _cbw = getattr(self.tf_win, _cbn, None)
+                if _cbw is not None: _cbw.setStyleSheet(_cb_ss)
             # Δ·stable 토글 버튼 — 테마 적응(라이트에서 다크박스 방지)
             _tgss = (
                 f'QPushButton{{background:{panel};color:{text_dim};border:1px solid {border};'
