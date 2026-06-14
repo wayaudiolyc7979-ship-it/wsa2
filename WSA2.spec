@@ -86,7 +86,7 @@ app = BUNDLE(
         'CFBundleShortVersionString': '1.4',
         'CFBundleVersion': '1.4.0',
         'CFBundleName': 'WSA2',
-        'CFBundleDisplayName': 'WAYAUDIO Spectrum Analyzer 2',
+        'CFBundleDisplayName': 'SPECTRA',
         'CFBundleExecutable': 'WSA2',
         'NSRequiresAquaSystemAppearance': False,
         'NSSupportsAutomaticGraphicsSwitching': True,

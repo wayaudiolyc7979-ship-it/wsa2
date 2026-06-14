@@ -12309,7 +12309,7 @@ class MainWindow(QMainWindow):
                                          else _sp.Popen(['open', _LOG_DIR])))
         lic_btn = self._lic_btn = QPushButton('License')
         lic_btn.setFixedHeight(22)
-        lic_btn.setToolTip('라이선스 정보')
+        lic_btn.setToolTip('About SPECTRA · 라이선스 정보')
         lic_btn.clicked.connect(self._show_license_info)
         self._restyle_util_btns()
         util_row.addWidget(log_btn); util_row.addWidget(lic_btn)
@@ -14138,16 +14138,64 @@ class MainWindow(QMainWindow):
             self.fft_cvs.update(); self.oct_cvs.update()
 
     def _show_license_info(self):
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
         mid = _get_machine_id()
         key = load_license() or '(없음)'
-        valid, reason = verify_license(key) if key != '(없음)' else (False, '')
-        status = '활성화됨' if valid else '미활성화'
-        from PyQt5.QtWidgets import QMessageBox
-        QMessageBox.information(self, 'SPECTRA 라이선스 정보',
-            f'머신 ID:  {mid}\n'
-            f'시리얼 키: {key[:28]}…\n'
-            f'상태:  {status}\n\n'
-            f'로그 위치:\n{_LOG_DIR}')
+        valid, _r = verify_license(key) if key != '(없음)' else (False, '')
+        status = '활성화됨 (Activated)' if valid else '미활성화 (Not activated)'
+        status_col = T('green') if valid else T('text_dim')
+
+        dlg = QDialog(self); dlg.setWindowTitle('About SPECTRA')
+        _apply_dark_titlebar(dlg)
+        dlg.setStyleSheet(f'QDialog{{background:{T("bg2")};}}')
+        root = QVBoxLayout(dlg); root.setContentsMargins(30, 24, 30, 22); root.setSpacing(0)
+
+        # ── 브랜드 헤더: 마크 + 워드마크 ──
+        hdr = QHBoxLayout(); hdr.setSpacing(13)
+        mark = QLabel(); mark.setPixmap(_spectra_mark(42)); mark.setStyleSheet('background:transparent;')
+        hdr.addWidget(mark)
+        wm = QVBoxLayout(); wm.setSpacing(1)
+        name = QLabel('SPECTRA')
+        name.setStyleSheet(f'font-size:24px;font-weight:700;letter-spacing:5px;color:{T("text")};background:transparent;')
+        sub = QLabel('Spectrum Analyzer')
+        sub.setStyleSheet(f'font-size:11px;color:{T("text_dim")};letter-spacing:1px;background:transparent;')
+        wm.addWidget(name); wm.addWidget(sub)
+        hdr.addLayout(wm); hdr.addStretch()
+        root.addLayout(hdr)
+        root.addSpacing(6)
+        sep = QFrame(); sep.setFixedHeight(3); sep.setObjectName('aboutSep')
+        sep.setStyleSheet(f'#aboutSep{{background:{_SPECTRA_GRAD_QSS};border:none;border-radius:1px;}}')
+        root.addWidget(sep)
+        root.addSpacing(13)
+        ver = QLabel('Version 1.4    ·    by WAYAUDIO')
+        ver.setStyleSheet(f'font-size:12px;font-weight:600;color:{T("text_dim")};background:transparent;')
+        root.addWidget(ver)
+        root.addSpacing(16)
+
+        def _row(label, value, vcol=None):
+            r = QHBoxLayout(); r.setSpacing(8)
+            l = QLabel(label); l.setFixedWidth(92)
+            l.setStyleSheet(f'font-size:11px;color:{T("text_dim")};background:transparent;')
+            v = QLabel(value); v.setStyleSheet(f'font-size:11px;color:{vcol or T("text")};background:transparent;')
+            v.setTextInteractionFlags(Qt.TextSelectableByMouse); v.setWordWrap(True)
+            r.addWidget(l, 0, Qt.AlignTop); r.addWidget(v, 1)
+            root.addLayout(r); root.addSpacing(7)
+        _row('License', status, status_col)
+        _row('Machine ID', mid)
+        _row('Serial', f'{key[:24]}…' if key != '(없음)' else '(없음)')
+        _row('Log', _LOG_DIR)
+
+        root.addSpacing(12)
+        btns = QHBoxLayout(); btns.addStretch()
+        copy_btn = QPushButton('Copy Machine ID'); copy_btn.setStyleSheet(ss_btn_neutral())
+        copy_btn.clicked.connect(lambda: QApplication.clipboard().setText(mid))
+        close_btn = QPushButton('Close'); close_btn.setStyleSheet(ss_btn_primary())
+        close_btn.clicked.connect(dlg.accept)
+        btns.addWidget(copy_btn); btns.addWidget(close_btn)
+        root.addLayout(btns)
+
+        dlg.setFixedWidth(430)
+        dlg.exec_()
 
     def closeEvent(self,e):
         self._render_t.stop()
