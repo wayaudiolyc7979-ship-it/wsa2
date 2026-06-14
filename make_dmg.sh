@@ -21,6 +21,9 @@ STAGE=$(mktemp -d)
 cp -R "$APP" "$STAGE/$APPNAME"
 ln -s /Applications "$STAGE/Applications"
 mkdir "$STAGE/.background"; cp "$BG" "$STAGE/.background/bg.png"
+# 배경(1200x800)을 Retina @2x(144 DPI)로 표시 → Finder가 600x400 포인트로 렌더.
+# (DPI가 100이면 통짜로 펼쳐져 아이콘이 좌측에 몰림)
+sips -s dpiWidth 144 -s dpiHeight 144 "$STAGE/.background/bg.png" >/dev/null 2>&1 || true
 
 TMP="$(mktemp -u).dmg"
 hdiutil create -volname "$VOL" -srcfolder "$STAGE" -fs HFS+ -format UDRW -ov "$TMP" >/dev/null
@@ -34,13 +37,13 @@ tell application "Finder"
     set current view of container window to icon view
     set toolbar visible of container window to false
     set statusbar visible of container window to false
-    set the bounds of container window to {200, 120, 800, 520}
+    set the bounds of container window to {200, 120, 800, 548}
     set vo to the icon view options of container window
     set arrangement of vo to not arranged
     set icon size of vo to 104
     set background picture of vo to file ".background:bg.png"
-    set position of item "$APPNAME" of container window to {150, 235}
-    set position of item "Applications" of container window to {450, 235}
+    set position of item "$APPNAME" of container window to {148, 238}
+    set position of item "Applications" of container window to {451, 238}
     update without registering applications
     delay 1
     close
