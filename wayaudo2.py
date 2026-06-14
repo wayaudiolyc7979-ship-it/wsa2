@@ -7956,6 +7956,7 @@ class TransferFunctionWindow(QWidget):
         self._monitor_threads = {}   # 입력 레벨 모니터(분석 미실행 시) dev -> MultiChannelAudioThread
         self._monitor_chmap = {}     # dev -> {ch: card}
         self._build_ui(); self._load_devices(); self._restore_tf_extra_pairs()
+        self.setAcceptDrops(True)   # 오디오 파일 드래그&드롭 → File 측정 신호 로드
         self._find_result_sig.connect(self._apply_find_result)
         self._find_pair_result_sig.connect(self._apply_find_pair_result)
         self._timer = QTimer(self); self._timer.timeout.connect(self._render); self._timer.start(100)
@@ -10360,18 +10361,23 @@ class TransferFunctionWindow(QWidget):
             if not self.sig_white_btn.isChecked() and not self.sig_sweep_btn.isChecked():
                 self.sig_pink_btn.setChecked(True)
             return
+        self._load_audio_file(path)
+
+    def _load_audio_file(self, path):
+        """경로의 오디오 파일을 측정 버퍼로 로드 (파일선택·드래그드롭 공용). True=성공."""
+        from PyQt5.QtWidgets import QMessageBox
+        import os
         data = None; sr = None
         try:
             import soundfile as sf
             data, sr = sf.read(path, dtype='float32', always_2d=False)
         except ImportError:
             # soundfile 없음 → scipy로 WAV만 지원
-            import os
             if os.path.splitext(path)[1].lower() not in ('.wav',):
                 QMessageBox.warning(self, '파일 오류',
                     'WAV 이외 형식은 soundfile 패키지가 필요합니다.\n'
                     '터미널에서 설치 후 재시작:\n  pip install soundfile')
-                self.sig_file_btn.setChecked(False); return
+                self.sig_file_btn.setChecked(False); return False
             try:
                 from scipy.io import wavfile as wf
                 sr, raw = wf.read(path)
@@ -10385,10 +10391,10 @@ class TransferFunctionWindow(QWidget):
                     data = raw.astype(np.float32)
             except Exception as e2:
                 QMessageBox.warning(self, '파일 오류', f'WAV 읽기 실패:\n{e2}')
-                self.sig_file_btn.setChecked(False); return
+                self.sig_file_btn.setChecked(False); return False
         except Exception as e:
             QMessageBox.warning(self, '파일 오류', f'파일을 읽을 수 없습니다:\n{e}')
-            self.sig_file_btn.setChecked(False); return
+            self.sig_file_btn.setChecked(False); return False
         if data.ndim == 2:
             data = data.mean(axis=1)      # 스테레오 → 모노 믹스다운
         if sr != self.sample_rate:        # 샘플레이트 변환 (선형 보간)
@@ -10398,12 +10404,59 @@ class TransferFunctionWindow(QWidget):
         pk = float(np.max(np.abs(data)))
         if pk > 1e-6: data = (data / pk * 0.9).astype(np.float32)  # 피크 정규화
         self._audio_file_buf = data
-        # 버튼 텍스트에 파일명 (최대 12자) 표시
-        import os; fname = os.path.basename(path)
+        fname = os.path.basename(path)
         self.sig_file_btn.setText(f'{fname[:12]}{"…" if len(fname)>12 else ""}')  # folder 아이콘 유지
         self.sig_file_btn.setChecked(True)
         self.sig_pink_btn.setChecked(False); self.sig_white_btn.setChecked(False)
         self.sig_sweep_btn.setChecked(False)
+        return True
+
+    # ── 드래그&드롭: 오디오 파일을 창에 떨궈서 File 측정 신호로 로드 ──
+    _DND_AUDIO_EXT = ('.wav', '.flac', '.aiff', '.aif', '.ogg', '.mp3', '.m4a', '.caf')
+
+    def _dnd_audio_path(self, event):
+        """드롭 이벤트에서 지원 오디오 파일 로컬 경로 1개를 추출, 없으면 None."""
+        md = event.mimeData()
+        if not md.hasUrls():
+            return None
+        import os
+        for url in md.urls():
+            if not url.isLocalFile():
+                continue
+            p = url.toLocalFile()
+            if os.path.splitext(p)[1].lower() in self._DND_AUDIO_EXT:
+                return p
+        return None
+
+    def dragEnterEvent(self, event):
+        if self._dnd_audio_path(event) is not None:
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if self._dnd_audio_path(event) is not None:
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        path = self._dnd_audio_path(event)
+        if path is None:
+            event.ignore(); return
+        event.acceptProposedAction()
+        # 신호 스트림이 열려 있으면 완전 종료 후 버튼 리셋 (_pick_audio_file과 동일 패턴)
+        if (self._duplex_thread is not None and self._duplex_thread.isRunning()) or \
+                (self._sig_stream is not None):
+            self._stop_sig_gen()
+            self.sig_on_btn.setChecked(False)
+            self.sig_on_btn.setText('Play'); _apply_txn(self.sig_on_btn, False)
+        if self._load_audio_file(path):
+            # sig_file_btn 텍스트가 파일명으로 바뀌어 피드백됨. 상태줄에도 잠깐 표기.
+            if hasattr(self, 'status_lbl'):
+                self.status_lbl.setText('● File loaded')
+                QTimer.singleShot(1400, lambda: self.status_lbl.setText(
+                    '● Running' if self._running else '● Standby'))
 
     def _start_sig_gen(self):
         _alog.debug(f'_start_sig_gen() called  sig_stream={self._sig_stream}  duplex={self._duplex_thread}')
