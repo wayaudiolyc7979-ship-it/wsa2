@@ -95,6 +95,10 @@ from PyQt5.QtGui   import (
 )
 import math as _math
 
+# ── 앱 버전 (단일 소스) ── 버전 올릴 땐 `bash bump_version.sh 1.6` 한 줄로 전부 갱신.
+#   (이 상수 + 상단 주석 + WSA2.spec/build_intel.sh/version_info.txt 까지 스크립트가 처리)
+_APP_VERSION = '1.5'
+
 # ═══════════════════════════════════════════════════════════════════
 #  라이선스 관리
 # ═══════════════════════════════════════════════════════════════════
@@ -12129,7 +12133,7 @@ class MainWindow(QMainWindow):
         # ── 푸터
         self.ft=QWidget(); self.ft.setFixedHeight(22)
         fl=QHBoxLayout(self.ft); fl.setContentsMargins(16,0,16,0)
-        fl.addWidget(QLabel('SPECTRA  |  v1.5'))
+        fl.addWidget(QLabel(f'SPECTRA  |  v{_APP_VERSION}'))
         fl.addStretch()
         jordan_lbl=QLabel('Design by Jordan')
         jordan_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:10px;font-style:italic;')
@@ -14209,7 +14213,7 @@ class MainWindow(QMainWindow):
         sep.setStyleSheet(f'#aboutSep{{background:{_SPECTRA_GRAD_QSS};border:none;border-radius:1px;}}')
         root.addWidget(sep)
         root.addSpacing(13)
-        ver = QLabel('Version 1.5    ·    by WAYAUDIO')
+        ver = QLabel(f'Version {_APP_VERSION}    ·    by WAYAUDIO')
         ver.setStyleSheet(f'font-size:12px;font-weight:600;color:{T("text_dim")};background:transparent;')
         root.addWidget(ver)
         root.addSpacing(16)
@@ -14268,7 +14272,7 @@ if __name__=='__main__':
 
     # ── 세션 시작 로그 헤더
     _alog.info('=' * 60)
-    _alog.info(f'SPECTRA v1.5  시작  {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+    _alog.info(f'SPECTRA v{_APP_VERSION}  시작  {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
     _alog.info(f'OS: {_pl.platform()}')
     _alog.info(f'Machine: {_pl.machine()}  Processor: {_pl.processor()}')
     _alog.info(f'Python: {_pl.python_version()}')
