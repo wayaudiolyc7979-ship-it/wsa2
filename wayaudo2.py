@@ -11760,6 +11760,7 @@ class MainWindow(QMainWindow):
         self._settings = _load_settings()
 
         self._build_ui()
+        self._build_menubar()          # macOS 네이티브 메뉴바 (About/Quit/Help)
         self._load_devices()
         self._restore_spec_sources()   # 저장된 멀티-장치 추가 소스 카드 복원
         self._apply_theme()
@@ -14191,6 +14192,24 @@ class MainWindow(QMainWindow):
             _bar_preset_idx = 0
             self.fft_cvs._cache = None; self.oct_cvs._cache = None
             self.fft_cvs.update(); self.oct_cvs.update()
+
+    def _build_menubar(self):
+        """macOS 네이티브 메뉴바. About/Quit은 role로 macOS '앱 메뉴'에 자동 배치되고
+        Help 메뉴에 설명서·로그. (Windows에선 Help 메뉴에 모두 표시 — 창 상단 메뉴)."""
+        from PyQt5.QtWidgets import QAction
+        mb = self.menuBar()
+        help_menu = mb.addMenu('Help')
+        about_act = QAction('About SPECTRA', self); about_act.setMenuRole(QAction.AboutRole)
+        about_act.triggered.connect(self._show_license_info); help_menu.addAction(about_act)
+        man_act = QAction('사용 설명서 (Manual)', self); man_act.setShortcut('Ctrl+?')
+        man_act.triggered.connect(self._open_manual); help_menu.addAction(man_act)
+        log_act = QAction('로그 폴더 열기', self)
+        log_act.triggered.connect(lambda: (os.startfile(_LOG_DIR) if _pl.system() == 'Windows'
+                                           else _sp.Popen(['open', _LOG_DIR])))
+        help_menu.addAction(log_act)
+        quit_act = QAction('Quit SPECTRA', self); quit_act.setMenuRole(QAction.QuitRole)
+        quit_act.setShortcut('Ctrl+Q'); quit_act.triggered.connect(self.close)
+        help_menu.addAction(quit_act)
 
     def _open_manual(self):
         """우측 하단 Help 버튼 — 사용 설명서(MANUAL.html)를 기본 브라우저로 연다.
