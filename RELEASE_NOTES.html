@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SPECTRA — 릴리스 노트</title>
+<style>
+  :root{--bg:#0a0b0e;--panel:#14161c;--line:#23262f;--text:#eef0f4;--dim:#969ca7;--accent:#5b8cff;
+    --g:linear-gradient(90deg,#1FA2FF,#4E7DF0,#9B5DE5,#F15BB5,#FF9F0A,#FF453A);}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);line-height:1.66;
+    font-family:-apple-system,"Segoe UI",Roboto,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:760px;margin:0 auto;padding:0 22px}
+  header{text-align:center;padding:54px 0 30px;border-bottom:1px solid var(--line);margin-bottom:14px}
+  header svg{width:104px;height:56px}
+  header .name{font-size:30px;font-weight:800;letter-spacing:7px;margin-top:4px}
+  header .ttl{font-size:14px;color:var(--accent);letter-spacing:4px;text-transform:uppercase;margin-top:10px;font-weight:700}
+  header .tag{color:var(--dim);font-style:italic;margin-top:6px}
+  .ul{height:3px;width:220px;margin:14px auto 0;background:var(--g);border-radius:2px}
+
+  .rel{position:relative;padding:26px 0 8px;margin-left:8px;border-left:2px solid var(--line);padding-left:28px}
+  .rel::before{content:"";position:absolute;left:-7px;top:34px;width:12px;height:12px;border-radius:50%;
+    background:var(--accent);box-shadow:0 0 0 4px rgba(91,140,255,.16)}
+  .rel.latest::before{background:#fff;box-shadow:0 0 0 4px rgba(91,140,255,.3)}
+  .head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:3px}
+  .ver{font-size:13px;font-weight:800;color:#fff;background:linear-gradient(90deg,#4E7DF0,#9B5DE5);
+    padding:3px 12px;border-radius:999px;letter-spacing:.5px}
+  .ver.now{background:var(--g)}
+  .date{font-size:12.5px;color:#6b7079}
+  .badge{font-size:11px;color:#0a0b0e;background:#9b5de5;padding:2px 8px;border-radius:5px;font-weight:700}
+  h2{font-size:21px;font-weight:700;margin:6px 0 4px;letter-spacing:-.01em}
+  .sub{color:var(--dim);font-size:14px;margin-bottom:10px}
+  ul{list-style:none;margin:6px 0 8px}
+  li{position:relative;padding-left:20px;margin:6px 0;color:#d5d9e0;font-size:14.5px}
+  li::before{content:"";position:absolute;left:2px;top:9px;width:6px;height:6px;border-radius:50%;background:var(--accent);opacity:.8}
+  li b{color:#fff}
+  footer{margin-top:40px;padding:26px 0 50px;border-top:1px solid var(--line);text-align:center;color:#6b7079;font-size:13px}
+  footer .fg{color:var(--accent);font-style:italic;margin-top:4px}
+</style>
+</head>
+<body>
+<svg width="0" height="0"><defs><linearGradient id="wave" x1="0" y1="0" x2="1" y2="0">
+  <stop offset="0" stop-color="#1FA2FF"/><stop offset=".28" stop-color="#4E7DF0"/><stop offset=".5" stop-color="#9B5DE5"/>
+  <stop offset=".7" stop-color="#F15BB5"/><stop offset=".85" stop-color="#FF9F0A"/><stop offset="1" stop-color="#FF453A"/>
+</linearGradient></defs></svg>
+
+<div class="wrap">
+  <header>
+    <svg viewBox="0 0 110 60"><path d="M2 30 Q14 30 20 18 T38 30 Q48 6 56 30 T74 30 Q84 48 92 30 T108 30" fill="none" stroke="url(#wave)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div class="name">SPECTRA</div>
+    <div class="ttl">Release Notes</div>
+    <div class="tag">See your sound.</div>
+    <div class="ul"></div>
+  </header>
+
+  <!-- v1.5 -->
+  <div class="rel latest">
+    <div class="head"><span class="ver now">v1.5</span><span class="date">2026.06</span><span class="badge">최신</span></div>
+    <h2>다듬어진 첫인상</h2>
+    <p class="sub">설치부터 실행까지, 모든 접점에 SPECTRA를 입혔습니다.</p>
+    <ul>
+      <li><b>브랜드 About 화면</b> — 버전·라이선스·머신 ID를 한눈에. (우측 아래 License)</li>
+      <li><b>앱 이름 SPECTRA로 통일</b> — 메뉴 막대·Finder에서 SPECTRA로 표시</li>
+      <li><b>시작 안내 화면</b> — 측정 전 그래프에 은은한 가이드</li>
+      <li><b>브랜드 설치 화면(DMG)</b> — "Applications로 드래그" 한 번에 설치</li>
+      <li>코드 서명·노타라이즈 준비 (배포 신뢰성 강화)</li>
+    </ul>
+  </div>
+
+  <!-- v1.4 -->
+  <div class="rel">
+    <div class="head"><span class="ver">v1.4</span><span class="date">2026.06</span></div>
+    <h2>선이 또렷해지다</h2>
+    <p class="sub">아이콘 하나까지 다시 그렸습니다.</p>
+    <ul>
+      <li>전 UI 아이콘을 <b>정교한 라인 아이콘</b>으로 교체 — 더 깔끔하고 일관되게</li>
+      <li>우측 패널(정보·입력)·팝아웃 아이콘 리프레시</li>
+      <li><b>3개 탭 드롭다운 스타일 완전 통일</b> — 어느 탭에서도 같은 손맛</li>
+    </ul>
+  </div>
+
+  <!-- v1.3 -->
+  <div class="rel">
+    <div class="head"><span class="ver">v1.3</span><span class="date">2026.06</span></div>
+    <h2>빛 속에서도 선명하게</h2>
+    <p class="sub">라이트 테마를 처음부터 다시 설계했습니다.</p>
+    <ul>
+      <li><b>라이트 테마 'Crisp White'</b> — 흰 패널이 떠 보이는 레이어드 디자인</li>
+      <li>벡터스코프·라우드니스 레이더 <b>본격 라이트 전환</b> (보석톤 컬러)</li>
+      <li>라이트 모드 곳곳의 가독성·색 일관성 정리</li>
+    </ul>
+  </div>
+
+  <!-- v1.2 -->
+  <div class="rel">
+    <div class="head"><span class="ver">v1.2</span><span class="date">2026.06</span></div>
+    <h2>한 끗의 차이</h2>
+    <ul>
+      <li>레벨 미터 디자인 통일 (Spectrum ↔ Transfer Function)</li>
+      <li>재생·정지 버튼과 아이콘을 브랜드 톤으로 정리</li>
+      <li>팝아웃(새 창) 아이콘 개선</li>
+    </ul>
+  </div>
+
+  <!-- v1.1 -->
+  <div class="rel">
+    <div class="head"><span class="ver">v1.1</span><span class="date">2026.06</span></div>
+    <h2>측정이 편해지다</h2>
+    <ul>
+      <li><b>SPL Meter 자유 배치</b> — 행×열 그리드로 원하는 지표만 크게</li>
+      <li>마이크 캘리브레이션 <b>채널별 관리</b> (다채널 인터페이스 대응)</li>
+      <li>라우드니스 팝아웃 전체화면 정렬 개선</li>
+    </ul>
+  </div>
+
+  <!-- v1.0 -->
+  <div class="rel">
+    <div class="head"><span class="ver">v1.0</span><span class="date">2026.06</span><span class="badge" style="background:#FF9F0A">정식 출발</span></div>
+    <h2>SPECTRA, 정식 출발</h2>
+    <p class="sub">측정 도구에 이름과 얼굴을 갖췄습니다.</p>
+    <ul>
+      <li><b>제품 브랜딩 'SPECTRA'</b> 확립 — 로고·색·타이포그래피</li>
+      <li>라이트 / 다크 테마</li>
+      <li><b>Transfer Function 측정 안정화</b> (노이즈 근본 해결)</li>
+      <li>macOS <b>Apple Silicon · Intel</b> · Windows 지원</li>
+    </ul>
+  </div>
+
+  <footer>
+    SPECTRA — Spectrum Analyzer · by WAYAUDIO
+    <div class="fg">See your sound.</div>
+  </footer>
+</div>
+</body>
+</html>
