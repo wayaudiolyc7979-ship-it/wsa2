@@ -12421,9 +12421,8 @@ class MainWindow(QMainWindow):
         help_btn.clicked.connect(self._open_manual)
         log_btn = self._log_btn = QPushButton('Log')
         log_btn.setFixedHeight(22)
-        log_btn.setToolTip(f'로그 폴더 열기\n{_LOG_DIR}')
-        log_btn.clicked.connect(lambda: (os.startfile(_LOG_DIR) if _pl.system() == 'Windows'
-                                         else _sp.Popen(['open', _LOG_DIR])))
+        log_btn.setToolTip('문제 발생 시 최근 로그를 zip 한 파일로 묶어 저장합니다.\n그 파일을 개발자에게 보내주세요. (개인정보·라이선스 키 미포함)')
+        log_btn.clicked.connect(self._export_logs)
         lic_btn = self._lic_btn = QPushButton('License')
         lic_btn.setFixedHeight(22)
         lic_btn.setToolTip('About SPECTRA · 라이선스 정보')
@@ -12440,6 +12439,36 @@ class MainWindow(QMainWindow):
                f'border:1px solid {T("border")};border-radius:{RADIUS_SM}px;padding:1px 6px;')
         for _b in (getattr(self, '_help_btn', None), getattr(self, '_log_btn', None), getattr(self, '_lic_btn', None)):
             if _b is not None: _b.setStyleSheet(_ss)
+
+    def _export_logs(self):
+        """최근 로그를 zip 한 파일로 묶어 바탕화면에 저장 + 위치 표시.
+        사용자가 그 파일 하나만 첨부해 보내면 됨 (지원/원격 디버깅용)."""
+        from PyQt5.QtWidgets import QMessageBox
+        import zipfile, glob
+        try:
+            logs = sorted(glob.glob(os.path.join(_LOG_DIR, 'wsa2_*.log')))[-10:]  # 최근 10세션
+            if not logs:
+                QMessageBox.information(self, '로그 보내기', '아직 저장된 로그가 없습니다.')
+                return
+            _dest = os.path.join(os.path.expanduser('~'), 'Desktop')
+            if not os.path.isdir(_dest): _dest = os.path.expanduser('~')
+            out = os.path.join(_dest, f'SPECTRA_logs_{_dt.datetime.now().strftime("%Y%m%d_%H%M%S")}.zip')
+            with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
+                for lp in logs:
+                    z.write(lp, os.path.basename(lp))
+            _alog.info(f'로그 내보내기: {out}  ({len(logs)}개)')
+            if _pl.system() == 'Windows':
+                _sp.Popen(['explorer', '/select,', os.path.normpath(out)])
+            else:
+                _sp.Popen(['open', '-R', out])
+            QMessageBox.information(
+                self, '로그 보내기',
+                f'최근 로그 {len(logs)}개를 묶었습니다:\n\n{out}\n\n'
+                '이 파일을 개발자/판매처에 보내주세요.\n(개인정보·라이선스 키는 들어있지 않습니다.)')
+        except Exception as e:
+            _alog.warning(f'로그 내보내기 실패: {e}')
+            QMessageBox.warning(self, '로그 보내기 실패',
+                                f'{e}\n\n로그 폴더를 직접 열어 보내주세요:\n{_LOG_DIR}')
 
     # ─────────────────────────────────────
     def _apply_theme(self):
@@ -14388,6 +14417,73 @@ class MainWindow(QMainWindow):
         e.accept()
 
 
+# ═══════════════════════════════════════════════════════════════════
+#  원격 지원용 진단 로깅 — 사용자가 보낸 로그만으로 환경/오디오를 파악
+#  (개인정보·라이선스 키는 절대 기록하지 않음. 머신ID는 라이선스 대조용)
+# ═══════════════════════════════════════════════════════════════════
+def _log_startup_diagnostics(app=None):
+    """앱 시작 시 사용자 환경(빌드형태·RAM·오디오 라이브러리·화면·라이선스 상태)을 로그에 남김."""
+    try:
+        _form = '번들앱(설치본)' if getattr(sys, 'frozen', False) else '소스실행'
+        _alog.info(f'실행형태: {_form}   머신ID: {_get_machine_id()}')
+    except Exception as e:
+        _alog.warning(f'[diag] 머신ID 실패: {e}')
+    try:
+        _sys = _pl.system()
+        if _sys == 'Darwin':
+            _ram = int(_sp.check_output(['sysctl', '-n', 'hw.memsize'], text=True).strip())
+            _alog.info(f'RAM: {_ram / 1024**3:.1f} GB')
+        elif _sys == 'Windows':
+            class _MEMSTAT(_ctypes.Structure):
+                _fields_ = [('dwLength', _ctypes.c_ulong), ('dwMemoryLoad', _ctypes.c_ulong),
+                            ('ullTotalPhys', _ctypes.c_ulonglong), ('ullAvailPhys', _ctypes.c_ulonglong),
+                            ('ullTotalPageFile', _ctypes.c_ulonglong), ('ullAvailPageFile', _ctypes.c_ulonglong),
+                            ('ullTotalVirtual', _ctypes.c_ulonglong), ('ullAvailVirtual', _ctypes.c_ulonglong),
+                            ('ullAvailExtendedVirtual', _ctypes.c_ulonglong)]
+            _ms = _MEMSTAT(); _ms.dwLength = _ctypes.sizeof(_MEMSTAT)
+            _ctypes.windll.kernel32.GlobalMemoryStatusEx(_ctypes.byref(_ms))
+            _alog.info(f'RAM: {_ms.ullTotalPhys / 1024**3:.1f} GB')
+    except Exception as e:
+        _alog.warning(f'[diag] RAM 실패: {e}')
+    try:
+        _pa = sd.get_portaudio_version()
+        _pa_s = _pa[1] if isinstance(_pa, (tuple, list)) and len(_pa) > 1 else _pa
+        _alog.info(f'오디오: sounddevice {getattr(sd, "__version__", "?")}  |  {_pa_s}')
+    except Exception as e:
+        _alog.warning(f'[diag] 오디오 라이브러리 버전 실패: {e}')
+    try:
+        if app is not None:
+            for _i, _scr in enumerate(app.screens()):
+                _g = _scr.geometry()
+                _alog.info(f'화면{_i}: {_g.width()}x{_g.height()} @{_scr.devicePixelRatio():.1f}x  ({_scr.name()})')
+    except Exception as e:
+        _alog.warning(f'[diag] 화면 정보 실패: {e}')
+    try:
+        _alog.info(f'라이선스 상태: {"유효" if check_license_at_startup() else "없음/무효"}')  # 키 자체는 기록 안 함
+    except Exception as e:
+        _alog.warning(f'[diag] 라이선스 상태 실패: {e}')
+
+def _log_audio_devices():
+    """오디오 장치 전체 목록 — 오디오 문제(장치 안 잡힘/채널/샘플레이트) 진단의 핵심."""
+    try:
+        _alog.info('───── 오디오 장치 목록 ─────')
+        try:    _has = sd.query_hostapis()
+        except Exception: _has = []
+        try:    _din, _dout = sd.default.device
+        except Exception: _din = _dout = -1
+        for _i, _d in enumerate(sd.query_devices()):
+            _ha = _has[_d['hostapi']]['name'] if 0 <= _d['hostapi'] < len(_has) else '?'
+            _tags = []
+            if _i == _din:  _tags.append('기본입력')
+            if _i == _dout: _tags.append('기본출력')
+            _t = ('  *' + ','.join(_tags)) if _tags else ''
+            _alog.info(f"  [{_i:2d}] in={_d['max_input_channels']} out={_d['max_output_channels']} "
+                       f"sr={int(_d['default_samplerate'])} ({_ha})  {_d['name']}{_t}")
+        _alog.info('────────────────────────────')
+    except Exception as e:
+        _alog.warning(f'[diag] 오디오 장치 목록 실패: {e}')
+
+
 if __name__=='__main__':
     from PyQt5.QtGui import QPixmap
 
@@ -14408,6 +14504,8 @@ if __name__=='__main__':
     _alog.info(f'Machine: {_pl.machine()}  Processor: {_pl.processor()}')
     _alog.info(f'Python: {_pl.python_version()}')
     _alog.info(f'Log: {_LOG_PATH}')
+    _log_startup_diagnostics(app)   # 실행형태·머신ID·RAM·오디오라이브러리·화면·라이선스
+    _log_audio_devices()            # 오디오 장치 전체 목록 (지원 디버깅 핵심)
     _alog.info('=' * 60)
 
     # ── PyInstaller 번들 내 리소스 경로
