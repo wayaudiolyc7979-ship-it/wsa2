@@ -28,6 +28,7 @@ a = Analysis(
         'scipy.fft', 'scipy.fftpack',
         'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets', 'PyQt5.QtSvg',
         'PyQt5.sip',
+        'ed25519_min',
         'numpy', 'numpy.core', 'numpy.fft',
         'collections', 'collections.abc',
         'importlib.resources', 'importlib.metadata',

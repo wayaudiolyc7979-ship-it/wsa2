@@ -2,9 +2,16 @@
 """WSA2 라이선스 키 생성 도구 (개발자 전용)"""
 
 import sys, os, hmac, hashlib, base64, json, datetime, platform
+import ed25519_min as _ed
 
-# ── SECRET: wayaudo2.py 의 _LIC_SECRET 과 반드시 동일 ──────────────────────
+# ── 레거시 HMAC SECRET (v1.0 발급 키 검증용) ──────────────────────
 _SECRET = b'W4y4ud10_WSA2_Lic_\xde\xad\xbe\xef\x01\x23\x45\x67'
+# ── Ed25519 마스터 개인키 (신규 키 서명용) ──
+_PRIV = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'license_ed25519_private.key')
+def _load_seed():
+    if not os.path.exists(_PRIV):
+        raise FileNotFoundError(f'개인키 없음: {_PRIV} (마스터 키 파일을 이 경로에 두세요)')
+    return bytes.fromhex(open(_PRIV).read().strip())
 
 if platform.system() == 'Windows':
     _RECORDS_DIR = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'WAYAUDIO')
@@ -16,29 +23,45 @@ _RECORDS_PATH = os.path.join(_RECORDS_DIR, 'issued_keys.json')
 #  라이선스 로직
 # ─────────────────────────────────────────────────────────────────────────────
 def generate_key(machine_id: str, expiry_year: int = 0) -> str:
+    """신규 = Ed25519 비대칭 서명."""
     mid = machine_id.upper().strip()[:12].ljust(12, '0')
     payload = f'{mid}:{expiry_year:04d}'.encode()
-    sig = hmac.new(_SECRET, payload, hashlib.sha256).digest()[:10]
-    b32 = base64.b32encode(sig + payload).decode().rstrip('=')
+    seed = _load_seed()
+    sig = _ed.sign(payload, seed, _ed.public_key(seed))
+    b32 = base64.b32encode(b'\x01' + payload + sig).decode().rstrip('=')
     return '-'.join(b32[i:i+5] for i in range(0, len(b32), 5))
 
+def _check_payload(payload, machine_id):
+    key_mid, expiry_str = payload.decode().split(':')[:2]
+    if key_mid != machine_id.upper()[:12]:
+        return False, '머신 ID 불일치'
+    expiry = int(expiry_str)
+    if expiry > 0 and datetime.date.today().year > expiry:
+        return False, f'{expiry}년 만료'
+    return True, '유효'
+
 def verify_key(key: str, machine_id: str) -> tuple:
+    """듀얼: 신규 Ed25519 → 레거시 HMAC."""
+    clean = key.upper().replace('-', '').replace(' ', '')
     try:
-        clean = key.upper().replace('-', '').replace(' ', '')
-        pad = (8 - len(clean) % 8) % 8
-        data = base64.b32decode(clean + '=' * pad)
-        sig = data[:10]; payload = data[10:]
+        data = base64.b32decode(clean + '=' * ((8 - len(clean) % 8) % 8))
+    except Exception as e:
+        return False, f'형식 오류: {e}'
+    # 신규 Ed25519
+    if len(data) >= 65 and data[0] == 1:
+        try:
+            payload, sig = data[1:-64], data[-64:]
+            if _ed.verify(sig, payload, _ed.public_key(_load_seed())):
+                return _check_payload(payload, machine_id)
+        except Exception:
+            pass
+    # 레거시 HMAC
+    try:
+        sig, payload = data[:10], data[10:]
         expected = hmac.new(_SECRET, payload, hashlib.sha256).digest()[:10]
         if not hmac.compare_digest(sig, expected):
             return False, '서명 불일치'
-        parts = payload.decode().split(':')
-        key_mid, expiry_str = parts[0], parts[1]
-        if key_mid != machine_id.upper()[:12]:
-            return False, '머신 ID 불일치'
-        expiry = int(expiry_str)
-        if expiry > 0 and datetime.date.today().year > expiry:
-            return False, f'{expiry}년 만료'
-        return True, '유효'
+        return _check_payload(payload, machine_id)
     except Exception as e:
         return False, f'형식 오류: {e}'
 
