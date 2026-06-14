@@ -892,7 +892,7 @@ def draw_dom_badge(p, plot_right, plot_top, dom_fs, dom_db, unit='dB'):
     p.setPen(QColor(T('accent')))
     p.drawText(bx, by, bw, bh, Qt.AlignHCenter | Qt.AlignVCenter, txt)
 
-def _draw_idle_hint(p, pl, pt, dw, dh):
+def _draw_idle_hint(p, pl, pt, dw, dh, text='Press  Start  to begin'):
     """시작 전(무신호) 메인 그래프 중앙에 은은한 SPECTRA 마크 + 안내 — 브랜드 엠프티 스테이트."""
     cx = pl + dw / 2.0; cy = pt + dh / 2.0
     pm = _spectra_mark(50)
@@ -906,8 +906,8 @@ def _draw_idle_hint(p, pl, pt, dw, dh):
     p.setOpacity(0.5)
     p.setFont(_qfont(CF_ANNO))
     p.setPen(QColor(T('graph_txt')))
-    p.drawText(QRectF(cx - 160, cy + lh / 2 - 2, 320, 22),
-               Qt.AlignHCenter | Qt.AlignVCenter, 'Press  Start  to begin')
+    p.drawText(QRectF(cx - 190, cy + lh / 2 - 2, 380, 22),
+               Qt.AlignHCenter | Qt.AlignVCenter, text)
     p.restore()
 
 def _auto_capture_color(n):
@@ -6070,6 +6070,9 @@ class TFMagCanvas(QWidget):
 
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B; uw=W-pl-pr; ny=20000
         dh=H-pt-pb; rng=max(self.db_max-self.db_min,1.0)
+        # 무신호(측정 곡선 없음) → 브랜드 엠프티 스테이트 안내
+        if self.mag is None and not self._tf_extra:
+            _draw_idle_hint(p, pl, pt, uw, dh, text='신호 재생 후 측정을 시작하세요')
         _CUR  = QColor(255,220,50,210)
         _PEER = QColor(255,220,50,100)
         # 피어 커서: 수직선 + 수평선 (자기 데이터로 y 계산)
