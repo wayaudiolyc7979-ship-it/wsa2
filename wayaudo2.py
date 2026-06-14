@@ -8281,7 +8281,7 @@ class TransferFunctionWindow(QWidget):
         self.find_btn.clicked.connect(self._find_all_delays); tl.addWidget(self.find_btn); tl.addSpacing(10)
 
         self.tf_cap_btn = QPushButton('Capture'); self.tf_cap_btn.setFixedWidth(68); self.tf_cap_btn.setFixedHeight(30)
-        self.tf_cap_btn.setToolTip('현재 TF 스냅샷 캡처 (Mag + Phase + IR)')
+        self.tf_cap_btn.setToolTip('현재 TF 스냅샷 캡처 (Mag + Phase + IR)   ·   빠른 캡처: Space')
         self.tf_cap_btn.clicked.connect(lambda: self._do_tf_capture(prompt=True)); tl.addWidget(self.tf_cap_btn)
         # 토글 버튼 전용 스타일 — ON 시 확실히 채워져 보이게 (버튼별 직접 지정 → 전역 스타일에 안 묻힘)
         _toggle_ss = (
@@ -11970,7 +11970,7 @@ class MainWindow(QMainWindow):
         sl0.addSpacing(12)
         self.spec_cap_btn = QPushButton('Capture')
         self.spec_cap_btn.setFixedWidth(68); self.spec_cap_btn.setFixedHeight(30)
-        self.spec_cap_btn.setToolTip('현재 스펙트럼 캡처')
+        self.spec_cap_btn.setToolTip('현재 스펙트럼 캡처   ·   단축키: Space')
         self.spec_cap_btn.clicked.connect(self._do_spec_capture)
         sl0.addWidget(self.spec_cap_btn)
         sl0.addSpacing(12)
@@ -11987,6 +11987,7 @@ class MainWindow(QMainWindow):
         self.db_cb=RoundComboBox(); self.db_cb._align_center=True; self.db_cb.addItems(['72 dB','96 dB','120 dB'])
         self.db_cb.setCurrentIndex(1); self.db_cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.db_cb.setMinimumWidth(62); self.db_cb.setFixedHeight(30)
+        self.db_cb.setToolTip('표시 dB 범위   ·   그래프에서 ↑/↓ 키로 위아래 이동')
         self.db_cb.currentIndexChanged.connect(self._db_changed)
         sl0.addWidget(self.db_cb)
         sl0.addSpacing(12)
