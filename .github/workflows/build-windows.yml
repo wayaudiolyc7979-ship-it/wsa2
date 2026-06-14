@@ -25,8 +25,8 @@ jobs:
       - name: Build with PyInstaller
         run: python -m PyInstaller WSA2_Windows.spec --clean --noconfirm
 
-      - name: Upload WSA2.exe artifact
+      - name: Upload SPECTRA.exe artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WSA2-Windows-x64
-          path: dist/WSA2.exe
+          name: SPECTRA-Windows-x64
+          path: dist/SPECTRA.exe

@@ -22,12 +22,12 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
-# onefile — 단일 WSA2.exe 로 배포 (PyQt5/numpy/scipy 자동 수집은 PyInstaller hook 사용)
+# onefile — 단일 SPECTRA.exe 로 배포 (PyQt5/numpy/scipy 자동 수집은 PyInstaller hook 사용)
 exe = EXE(
     pyz, a.scripts, a.binaries, a.datas, [],
-    name='WSA2',
+    name='SPECTRA',                       # 사용자에게 보이는 exe명 (브랜딩). 내부 식별자 WSA2와 무관
     debug=False, bootloader_ignore_signals=False, strip=False, upx=False,
     runtime_tmpdir=None, console=False,
     icon='icon.ico' if os.path.exists('icon.ico') else None,
-    version_file=None,
+    version_file='version_info.txt' if os.path.exists('version_info.txt') else None,
 )
