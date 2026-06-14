@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SPECTRA — See your sound.</title>
+<style>
+  :root{
+    --bg:#0a0b0e; --bg2:#101218; --panel:#15171f; --line:#23262f;
+    --text:#eef0f4; --dim:#969ca7; --accent:#5b8cff;
+    --g:linear-gradient(90deg,#1FA2FF,#4E7DF0,#9B5DE5,#F15BB5,#FF9F0A,#FF453A);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:var(--text);
+    font-family:-apple-system,"Segoe UI",Roboto,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+    line-height:1.65;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 22px}
+  a{text-decoration:none;color:inherit}
+
+  /* glow background */
+  .bgglow{position:fixed;inset:0;z-index:-1;pointer-events:none;
+    background:
+      radial-gradient(600px 360px at 50% -8%, rgba(78,125,240,.22), transparent 70%),
+      radial-gradient(500px 320px at 88% 16%, rgba(241,91,181,.12), transparent 70%),
+      radial-gradient(500px 320px at 10% 22%, rgba(31,162,255,.12), transparent 70%);}
+
+  /* HERO */
+  header{padding:62px 0 36px;text-align:center}
+  .mark{width:124px;height:66px;margin:0 auto 6px;display:block}
+  .name{font-size:clamp(40px,11vw,76px);font-weight:800;letter-spacing:.16em;line-height:1.02}
+  .tag{font-size:clamp(17px,4.4vw,24px);color:var(--dim);font-style:italic;letter-spacing:.04em;margin-top:8px}
+  .ul{height:3px;width:min(300px,68%);margin:18px auto 0;background:var(--g);border-radius:2px}
+  .sub{max-width:560px;margin:26px auto 0;color:var(--dim);font-size:clamp(15px,3.6vw,18px)}
+  .sub b{color:#fff;font-weight:600}
+  .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:30px}
+  .btn{padding:13px 26px;border-radius:11px;font-weight:650;font-size:15px;border:1px solid transparent;transition:.15s}
+  .btn.primary{background:var(--accent);color:#fff}
+  .btn.primary:hover{background:#6f9bff;transform:translateY(-1px)}
+  .btn.ghost{border-color:var(--line);color:var(--text);background:rgba(255,255,255,.02)}
+  .btn.ghost:hover{border-color:var(--accent);color:#fff}
+
+  /* APP PREVIEW MOCK */
+  .preview{margin:46px auto 0;max-width:860px;border:1px solid var(--line);border-radius:16px;
+    overflow:hidden;background:#0c0d11;box-shadow:0 30px 80px -30px rgba(0,0,0,.8)}
+  .pbar{height:38px;display:flex;align-items:center;gap:7px;padding:0 14px;border-bottom:1px solid var(--line);background:var(--bg2)}
+  .pbar i{width:11px;height:11px;border-radius:50%}
+  .pbar .r{background:#ff5f57}.pbar .y{background:#febc2e}.pbar .gn{background:#28c840}
+  .pbar span{margin-left:10px;font-size:12px;color:var(--dim);letter-spacing:3px}
+  .pbody{padding:18px}
+  .grid{width:100%;height:230px;border-radius:8px;background:
+    linear-gradient(0deg,#0c0d11,#0c0d11),
+    repeating-linear-gradient(90deg,transparent 0 11.1%, rgba(255,255,255,.045) 11.1% calc(11.1% + 1px)),
+    repeating-linear-gradient(0deg,transparent 0 20%, rgba(255,255,255,.045) 20% calc(20% + 1px));
+    position:relative}
+  .grid svg{position:absolute;inset:0;width:100%;height:100%}
+
+  /* SECTIONS */
+  section{padding:54px 0}
+  .eyebrow{text-align:center;font-size:12px;letter-spacing:3px;color:var(--accent);text-transform:uppercase;font-weight:700}
+  h2{text-align:center;font-size:clamp(26px,6vw,38px);font-weight:750;margin:8px 0 6px;letter-spacing:-.01em}
+  .lead{text-align:center;color:var(--dim);max-width:560px;margin:0 auto 30px;font-size:16px}
+
+  .feats{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .feat{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px 22px;transition:.18s}
+  .feat:hover{border-color:rgba(91,140,255,.5);transform:translateY(-3px)}
+  .feat .ic{width:42px;height:42px;border-radius:11px;display:grid;place-items:center;margin-bottom:14px;
+    background:rgba(91,140,255,.12);border:1px solid rgba(91,140,255,.3)}
+  .feat .ic svg{width:22px;height:22px;stroke:var(--accent);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .feat h3{font-size:18px;margin-bottom:5px}
+  .feat p{color:var(--dim);font-size:14.5px}
+
+  .chips{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;max-width:760px;margin:0 auto}
+  .chip{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:9px 17px;font-size:14px;color:#d4d8df}
+  .chip b{color:var(--accent)}
+
+  .final{text-align:center;background:linear-gradient(180deg,transparent,rgba(78,125,240,.06));border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  footer{padding:30px 0 50px;text-align:center;color:#666c76;font-size:13px}
+  footer .fg{font-style:italic;color:var(--accent);margin-top:4px}
+
+  @media(max-width:720px){
+    .feats{grid-template-columns:1fr}
+    header{padding:46px 0 26px}
+    .grid{height:170px}
+  }
+</style>
+</head>
+<body>
+<div class="bgglow"></div>
+<svg width="0" height="0"><defs>
+  <linearGradient id="wave" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#1FA2FF"/><stop offset=".28" stop-color="#4E7DF0"/>
+    <stop offset=".5" stop-color="#9B5DE5"/><stop offset=".7" stop-color="#F15BB5"/>
+    <stop offset=".85" stop-color="#FF9F0A"/><stop offset="1" stop-color="#FF453A"/>
+  </linearGradient>
+  <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#4E7DF0" stop-opacity=".55"/><stop offset="1" stop-color="#4E7DF0" stop-opacity="0"/>
+  </linearGradient>
+</defs></svg>
+
+<!-- HERO -->
+<header>
+  <div class="wrap">
+    <svg class="mark" viewBox="0 0 110 60"><path d="M2 30 Q14 30 20 18 T38 30 Q48 6 56 30 T74 30 Q84 48 92 30 T108 30" fill="none" stroke="url(#wave)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div class="name">SPECTRA</div>
+    <div class="tag">See your sound.</div>
+    <div class="ul"></div>
+    <p class="sub"><b>정밀 음향 측정을, 가장 세련되게.</b> 실시간 스펙트럼 분석부터 전달함수(Transfer Function), 방송 라우드니스까지 — 프로의 측정 도구를 하나의 앱에서.</p>
+    <div class="cta">
+      <a class="btn primary" href="#download">다운로드</a>
+      <a class="btn ghost" href="#features">기능 둘러보기</a>
+    </div>
+
+    <!-- 앱 미리보기 mockup -->
+    <div class="preview">
+      <div class="pbar"><i class="r"></i><i class="y"></i><i class="gn"></i><span>S P E C T R A</span></div>
+      <div class="pbody">
+        <div class="grid">
+          <svg viewBox="0 0 800 230" preserveAspectRatio="none">
+            <path d="M0,205 L40,200 L80,150 L120,170 L160,90 L200,120 L240,60 L280,95 L320,130 L360,75 L400,110 L440,150 L480,100 L520,135 L560,165 L600,120 L640,155 L680,180 L720,150 L760,185 L800,200 L800,230 L0,230 Z" fill="url(#fill)"/>
+            <path d="M0,205 L40,200 L80,150 L120,170 L160,90 L200,120 L240,60 L280,95 L320,130 L360,75 L400,110 L440,150 L480,100 L520,135 L560,165 L600,120 L640,155 L680,180 L720,150 L760,185 L800,200" fill="none" stroke="url(#wave)" stroke-width="2.5" stroke-linejoin="round"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="wrap">
+    <div class="eyebrow">세 가지 측정, 하나의 앱</div>
+    <h2>측정의 모든 것</h2>
+    <p class="lead">현장·스튜디오·방송에서 필요한 핵심 측정을 전부 담았습니다.</p>
+    <div class="feats">
+      <div class="feat">
+        <div class="ic"><svg viewBox="0 0 24 24"><path d="M2 10v3"/><path d="M6 6v11"/><path d="M10 3v18"/><path d="M14 8v7"/><path d="M18 5v13"/><path d="M22 10v3"/></svg></div>
+        <h3>Spectrum</h3>
+        <p>실시간 주파수 분석. FFT·1/3~1/24 옥타브·스펙트로그램, 멀티채널 동시 비교, 정밀 SPL/LAeq 측정.</p>
+      </div>
+      <div class="feat">
+        <div class="ic"><svg viewBox="0 0 24 24"><path d="M16 3h5v5"/><path d="M8 21H3v-5"/><path d="M21 3l-8 8"/><path d="M3 21l8-8"/></svg></div>
+        <h3>Transfer Function</h3>
+        <p>스피커·룸 음향 측정. 매그니튜드·위상·코히어런스·임펄스 응답, 자동 딜레이, 다지점 비교.</p>
+      </div>
+      <div class="feat">
+        <div class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+        <h3>Stereo Loudness</h3>
+        <p>방송·음원 라우드니스(LUFS). 벡터스코프, 라우드니스 레이더, M/S/I·True Peak·LRA, 타겟 관리.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HIGHLIGHTS -->
+<section style="padding-top:10px">
+  <div class="wrap">
+    <div class="eyebrow">디테일까지</div>
+    <h2>프로가 원하는 것들</h2>
+    <p class="lead">측정 정확도는 기본, 쓰는 경험까지 다듬었습니다.</p>
+    <div class="chips">
+      <span class="chip"><b>·</b> 다크 / 라이트 테마</span>
+      <span class="chip"><b>·</b> 멀티채널 동시 측정</span>
+      <span class="chip"><b>·</b> 마이크 캘리브레이션</span>
+      <span class="chip"><b>·</b> 자유배치 SPL 미터</span>
+      <span class="chip"><b>·</b> 캡쳐 & 비교 (Δ)</span>
+      <span class="chip"><b>·</b> 신호 발생기 내장</span>
+      <span class="chip"><b>·</b> 핑크·화이트·스윕</span>
+      <span class="chip"><b>·</b> True Peak 라우드니스</span>
+      <span class="chip"><b>·</b> macOS Universal</span>
+    </div>
+  </div>
+</section>
+
+<!-- FINAL CTA -->
+<section class="final" id="download">
+  <div class="wrap">
+    <div class="eyebrow">시작하기</div>
+    <h2>당신의 소리를 보세요</h2>
+    <p class="lead">SPECTRA로 측정의 기준을 다시 그려보세요.</p>
+    <div class="cta">
+      <a class="btn primary" href="#">macOS용 다운로드</a>
+      <a class="btn ghost" href="#">문의하기</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <svg width="64" height="34" viewBox="0 0 110 60" style="opacity:.85"><path d="M2 30 Q14 30 20 18 T38 30 Q48 6 56 30 T74 30 Q84 48 92 30 T108 30" fill="none" stroke="url(#wave)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <div style="letter-spacing:4px;margin-top:6px;font-weight:700">SPECTRA</div>
+  <div>Spectrum Analyzer · by WAYAUDIO</div>
+  <div class="fg">See your sound.</div>
+</footer>
+</body>
+</html>
