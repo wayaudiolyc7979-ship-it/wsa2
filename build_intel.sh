@@ -94,8 +94,14 @@ SPEC
 echo "PyInstaller(x86_64) 빌드 시작..."
 $PY -m PyInstaller WSA2_Intel.spec --clean --noconfirm
 
+# 코드서명 (SPECTRA_SIGN_ID 설정 시)
+bash sign_app.sh dist/WSA2_Intel.app
+
 echo "브랜드 DMG 생성 중..."
 bash make_dmg.sh dist/WSA2_Intel.app "SPECTRA Installer (Intel)" dist/WSA2_Intel.dmg
+
+# 노타라이즈 + staple (자격 설정 시)
+bash notarize_dmg.sh dist/WSA2_Intel.dmg
 # ── fallback (브랜드 실패 시 plain): ──
 # rm -rf /tmp/WSA2_intel_dmg && mkdir -p /tmp/WSA2_intel_dmg
 # cp -R dist/WSA2_Intel.app /tmp/WSA2_intel_dmg/; ln -sf /Applications /tmp/WSA2_intel_dmg/Applications
