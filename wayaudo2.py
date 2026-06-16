@@ -14817,16 +14817,21 @@ class MainWindow(QMainWindow):
         self.leq_win.show(); self.leq_win.raise_()
 
     def _shrink_if_fullscreen(self, win, w, h):
-        """자식 창이 메인 풀스크린 위에서 '풀스크린 크기'로 뜨면 정상 크기로 줄임.
-        크기만(resize) 보정 — 위치/Space/상태는 안 건드림(자식이라 풀스크린 추종 유지)."""
+        """자식 창이 메인 풀스크린 위에서 '풀스크린 상태'로 떠 창 프레임이 전체화면이 되는 것 방지.
+        ①풀스크린/맥시마이즈 윈도우 상태 해제(자식이라 Space 이탈 없음) ②정상 크기로 resize.
+        macOS 풀스크린 전환이 비동기라 0/160/400ms 반복 적용."""
         w = int(w); h = int(h)
         def _fix():
             try:
                 if win.width() > w * 1.4 or win.height() > h * 1.4:
-                    win.resize(w, h)
+                    win.setWindowState(Qt.WindowNoState)   # 풀스크린/맥시 상태 해제(자식이라 안전)
+                    scr = self.screen().geometry() if self.screen() else QApplication.primaryScreen().geometry()
+                    x = scr.x() + (scr.width() - w) // 2
+                    y = scr.y() + (scr.height() - h) // 2
+                    win.setGeometry(x, y, w, h)   # 메인이 있는 화면 중앙에 정확히 (자식→같은 Space 유지)
             except Exception:
                 pass
-        for ms in (0, 160, 400):
+        for ms in (0, 120, 300, 600):
             QTimer.singleShot(ms, _fix)
 
     def _open_spl_meter(self):
