@@ -3624,39 +3624,81 @@ class _GradTimeBar(QWidget):
         p.end()
 
 
-class _SplAlarmBar(QWidget):
-    """SPL 임계 신호등 바 — SplMeterWindow 상단 풀폭, FOH에서 멀리서도 보이게.
-    마스터 지표 1개를 한계값과 비교해 초록/노랑/빨강 신호등 + 큰 숫자 + 여유/초과 표시.
-    빨강(초과)일 때 0.4s 주기 깜빡임. 200ms _update_display 타이머에서 set_value 호출."""
-    GREEN  = QColor('#34C759')
-    YELLOW = QColor('#FFD60A')
-    RED    = QColor('#FF453A')
-    _H = 64
+class _SplMetricEngine:
+    """SPL 지표 계산 엔진 — push(순간 Z/A/C calibrated + dBFS peak) → Fast/Slow EMA + LEQ + 피크홀드.
+    SplAlarmWindow가 독립 소유(SPL 미터 없이도 동작). 호출은 _process_audio(GUI 스레드)에서만."""
+    _RATE = 50
+    _EMA_IDS = ('dba', 'dbc', 'spl_slow', 'dba_fast', 'dbc_fast', 'spl_fast')
 
-    def __init__(self, parent=None, big=False):
+    def __init__(self, leq_secs=900, calib=0.0):
+        self._ema = {}; self._peak = {}
+        self._buf_a = deque(maxlen=self._RATE * 3600 * 3)
+        self._buf_c = deque(maxlen=self._RATE * 3600 * 3)
+        self._last_t = None
+        self._leq_secs = max(1, int(leq_secs))
+        self._calib = calib
+
+    def set_calib(self, c): self._calib = c
+    def set_leq_secs(self, s): self._leq_secs = max(1, int(s))
+
+    def reset(self):
+        self._ema.clear(); self._peak.clear()
+        self._buf_a.clear(); self._buf_c.clear(); self._last_t = None
+
+    def push(self, dbz, dba, dbc, fs_peak):
+        now = time.time()
+        dt = (now - self._last_t) if self._last_t else 0.02
+        self._last_t = now
+        dt = min(max(dt, 0.001), 0.5)
+        af = 1.0 - math.exp(-dt / 0.125); asw = 1.0 - math.exp(-dt / 1.0)
+
+        def _e(k, x, a):
+            v = self._ema.get(k); v = x if v is None else v + (x - v) * a
+            self._ema[k] = v; return v
+        a_s = _e('dba', dba, asw); _e('dba_fast', dba, af)
+        c_s = _e('dbc', dbc, asw); _e('dbc_fast', dbc, af)
+        _e('spl_slow', dbz, asw);  _e('spl_fast', dbz, af)
+
+        decay = dt * 6.0
+        def _h(k, x):
+            v = self._peak.get(k)
+            self._peak[k] = x if (v is None or x > v) else max(x, v - decay)
+        _h('peak', fs_peak + self._calib); _h('peak_c', dbc); _h('fs_peak', fs_peak)
+
+        if dba > -100:
+            self._buf_a.append(a_s); self._buf_c.append(c_s)
+
+    def value(self, mid):
+        if mid in ('laeq', 'lceq'):
+            buf = self._buf_a if mid == 'laeq' else self._buf_c
+            n = min(len(buf), self._leq_secs * self._RATE)
+            if not n:
+                return None
+            arr = np.array(list(buf)[-n:])
+            return float(10 * np.log10(np.mean(10 ** (arr / 10))))
+        if mid in self._peak:
+            return self._peak.get(mid)
+        return self._ema.get(mid)
+
+
+class _SplAlarmDisplay(QWidget):
+    """SPL 임계 신호등 — 창 크기에 맞춰 스케일되는 큰 중앙정렬(3구 신호등+거대 숫자+상태).
+    빨강(초과) 시 0.4s 깜빡임."""
+    GREEN  = QColor('#34C759'); YELLOW = QColor('#FFD60A'); RED = QColor('#FF453A')
+
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self._big = big
-        if big:
-            self.setMinimumSize(220, 130)
-            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        else:
-            self.setFixedHeight(self._H)
-        self._label = 'LAeq'
-        self._unit  = 'dBA'
-        self._value = None
-        self._limit = 100.0
-        self._amber = 3.0    # 한계 -amber dB 이내 = 노랑
-        self._over_since = None
-        self._blink_n = 0    # 200ms 틱 카운터 (빨강 깜빡임 = 2틱마다 토글)
+        self.setMinimumSize(220, 150)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._label = 'LAeq'; self._unit = 'dBA'; self._value = None
+        self._limit = 100.0; self._amber = 3.0; self._over_since = None; self._blink_n = 0
 
     def configure(self, label, unit, limit, amber):
         self._label = label; self._unit = unit
-        self._limit = float(limit); self._amber = float(amber)
-        self.update()
+        self._limit = float(limit); self._amber = float(amber); self.update()
 
     def set_value(self, v):
-        self._value = v
-        self._blink_n += 1
+        self._value = v; self._blink_n += 1
         if v is not None and v >= self._limit:
             if self._over_since is None:
                 self._over_since = time.time()
@@ -3665,7 +3707,6 @@ class _SplAlarmBar(QWidget):
         self.update()
 
     def _state(self):
-        """returns (idx, color, over)  idx: 0=green 1=amber 2=red"""
         v = self._value
         if v is None:
             return 0, self.GREEN, False
@@ -3675,8 +3716,11 @@ class _SplAlarmBar(QWidget):
             return 1, self.YELLOW, False
         return 0, self.GREEN, False
 
-    def _paint_big(self, p, idx, color, over, dim_blink):
-        """별도 팝업 창용 — 창 크기에 맞춰 스케일되는 큰 중앙정렬 레이아웃."""
+    def paintEvent(self, e):
+        idx, color, over = self._state()
+        dim_blink = over and ((self._blink_n // 2) % 2 == 0)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True); p.setRenderHint(QPainter.TextAntialiasing, True)
         W = self.width(); H = self.height()
         m = max(8, int(min(W, H) * 0.05))
         x, y, w, h = m, m, W - 2 * m, H - 2 * m
@@ -3684,15 +3728,12 @@ class _SplAlarmBar(QWidget):
         p.fillPath(path, QColor(color.red(), color.green(), color.blue(), 26 if not dim_blink else 52))
         p.setPen(QPen(QColor(color.red(), color.green(), color.blue(), 160 if not dim_blink else 230), 2.5))
         p.setBrush(Qt.NoBrush); p.drawPath(path)
-
         cx = W / 2
 
         def pf(px, bold=True):
             f = QFont(); f.setPixelSize(max(8, int(px))); f.setBold(bold); return f
 
-        # ── 신호등 3구 (상단 중앙)
-        R = max(7, h * 0.075); gap = R * 1.4
-        ly = y + h * 0.17
+        R = max(7, h * 0.075); gap = R * 1.4; ly = y + h * 0.17
         for i, c in enumerate((self.GREEN, self.YELLOW, self.RED)):
             on = (i == idx) and not dim_blink
             cxp = cx + (i - 1) * (2 * R + gap)
@@ -3707,7 +3748,6 @@ class _SplAlarmBar(QWidget):
                 p.setBrush(QBrush(d)); p.setPen(QPen(QColor(255, 255, 255, 18), 1))
             p.drawEllipse(QPointF(cxp, ly), R, R)
 
-        # ── 큰 숫자 (중앙) — 폭 넘치면 축소
         vstr = '—' if self._value is None else f'{self._value:.1f}'
         vpx = h * 0.30; fv = pf(vpx); p.setFont(fv)
         while p.fontMetrics().horizontalAdvance(vstr) > w * 0.86 and vpx > 12:
@@ -3715,12 +3755,10 @@ class _SplAlarmBar(QWidget):
         p.setPen(QPen(QColor(T('text')) if idx == 0 else color))
         p.drawText(QRectF(x, y + h * 0.27, w, vpx * 1.3), Qt.AlignHCenter | Qt.AlignVCenter, vstr)
 
-        # ── /한계 단위
         p.setFont(pf(h * 0.085, bold=False)); p.setPen(QPen(QColor(T('text_dim'))))
         p.drawText(QRectF(x, y + h * 0.55, w, h * 0.11), Qt.AlignHCenter | Qt.AlignVCenter,
                    f'/ {self._limit:.0f} {self._unit}')
 
-        # ── 여유/초과
         if self._value is not None:
             p.setFont(pf(h * 0.085))
             if over:
@@ -3729,7 +3767,6 @@ class _SplAlarmBar(QWidget):
                 p.setPen(QPen(color)); mtxt = f'▼ 여유 {self._limit - self._value:.1f} dB'
             p.drawText(QRectF(x, y + h * 0.66, w, h * 0.11), Qt.AlignHCenter | Qt.AlignVCenter, mtxt)
 
-        # ── 상태 (하단 큰 글씨)
         status = ('OK', 'AMBER', 'OVER')[idx]
         if over and self._over_since is not None:
             status += f'  ·  {int(time.time() - self._over_since)}초째'
@@ -3739,142 +3776,154 @@ class _SplAlarmBar(QWidget):
                 status += f'  ·  {sub}'
         p.setFont(pf(h * 0.105)); p.setPen(QPen(color))
         p.drawText(QRectF(x, y + h * 0.80, w, h * 0.16), Qt.AlignHCenter | Qt.AlignVCenter, status)
-
-    def paintEvent(self, e):
-        idx, color, over = self._state()
-        # 빨강 깜빡임: 2틱(~400ms)마다 밝기 토글
-        dim_blink = over and ((self._blink_n // 2) % 2 == 0)
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing, True)
-        p.setRenderHint(QPainter.TextAntialiasing, True)
-        if self._big:
-            self._paint_big(p, idx, color, over, dim_blink); p.end(); return
-        W = self.width(); H = self.height()
-        m = 6
-        x, y, w, h = m, m, W - 2 * m, H - 2 * m
-        path = QPainterPath(); path.addRoundedRect(QRectF(x, y, w, h), 12, 12)
-        # 배경 틴트 (깜빡일 때 더 짙게)
-        ta = 22 if not dim_blink else 46
-        p.fillPath(path, QColor(color.red(), color.green(), color.blue(), ta))
-        p.setPen(QPen(QColor(color.red(), color.green(), color.blue(), 150 if not dim_blink else 220), 2))
-        p.setBrush(Qt.NoBrush); p.drawPath(path)
-        # 좌측 액센트 스트라이프
-        p.save(); p.setClipPath(path)
-        p.fillRect(QRectF(x, y, 5, h), QBrush(color)); p.restore()
-
-        cy = H / 2
-        txt_col = QColor(T('text'))
-        narrow = w < 250
-        r = 7; sp = 22
-
-        # ── 좌측 신호등 (좁으면 현재색 1개만, 넓으면 3구)
-        lx = x + 16
-        if narrow:
-            on = not dim_blink
-            if on:
-                p.setBrush(QBrush(color)); p.setPen(QPen(color.lighter(130), 1.4))
-            else:
-                d = QColor(color.red(), color.green(), color.blue(), 60)
-                p.setBrush(QBrush(d)); p.setPen(QPen(QColor(255, 255, 255, 16), 1))
-            p.drawEllipse(QPointF(lx + r, cy), r, r)
-            lx += 2 * r + 12
-        else:
-            dot_x = lx + r
-            for i, c in enumerate((self.GREEN, self.YELLOW, self.RED)):
-                on = (i == idx) and not dim_blink
-                if on:
-                    p.setBrush(QBrush(c)); p.setPen(QPen(c.lighter(130), 1.4))
-                else:
-                    d = QColor(c.red(), c.green(), c.blue(), 45)
-                    p.setBrush(QBrush(d)); p.setPen(QPen(QColor(255, 255, 255, 16), 1))
-                p.drawEllipse(QPointF(dot_x + i * sp, cy), r, r)
-            lx = dot_x + 2 * sp + r + 16
-
-        # ── 우측 상태 알약 (너비 충분할 때만; 좁으면 점/값 색이 상태를 대신)
-        rx = x + w - 14
-        status = ('OK', 'AMBER', 'OVER')[idx]
-        if over and self._over_since is not None:
-            sub = f'{int(time.time() - self._over_since)}초째'
-        else:
-            sub = ('안전 구간', '살짝 줄이세요', '')[idx]
-        if w >= 470:
-            pill_w = 138; pill_h = h - 14
-            pxr = rx - pill_w; pyr = y + (h - pill_h) / 2
-            pp = QPainterPath(); pp.addRoundedRect(QRectF(pxr, pyr, pill_w, pill_h), 10, 10)
-            p.fillPath(pp, QColor(color.red(), color.green(), color.blue(), 40))
-            p.setPen(QPen(QColor(color.red(), color.green(), color.blue(), 120), 1.4))
-            p.setBrush(Qt.NoBrush); p.drawPath(pp)
-            p.setPen(QPen(color)); fp = QFont(); fp.setPointSize(14); fp.setBold(True); p.setFont(fp)
-            sub_h = 16 if sub else 0
-            p.drawText(QRectF(pxr, pyr + 4, pill_w, pill_h - 4 - sub_h), Qt.AlignCenter, status)
-            if sub:
-                p.setPen(QPen(QColor(T('text_dim')))); fsub = QFont(); fsub.setPointSize(9); p.setFont(fsub)
-                p.drawText(QRectF(pxr, pyr + pill_h - sub_h - 2, pill_w, sub_h), Qt.AlignCenter, sub)
-            rx = pxr - 12
-
-        # ── 중앙 콘텐츠 (왼→오, 들어갈 자리 있을 때만). 우선순위: 값 > /한계 > 여유 > 라벨
-        vstr = '—' if self._value is None else f'{self._value:.1f}'
-        fV = QFont(); fV.setPointSize(22 if narrow else 24); fV.setBold(True)
-        p.setFont(fV); vw = p.fontMetrics().horizontalAdvance(vstr)
-
-        cur = lx
-        # 라벨 — 값 들어갈 자리까지 확보될 때만
-        if w >= 340:
-            fL = QFont(); fL.setPointSize(11); fL.setBold(True); p.setFont(fL)
-            lw = p.fontMetrics().horizontalAdvance(self._label)
-            if lx + lw + 12 + vw <= rx:
-                p.setPen(QPen(QColor(T('text_dim'))))
-                p.drawText(QRectF(lx, y, lw + 10, h), Qt.AlignLeft | Qt.AlignVCenter, self._label)
-                cur = lx + lw + 12
-        # 큰 값 (항상)
-        p.setFont(fV); p.setPen(QPen(txt_col if idx == 0 else color))
-        p.drawText(QRectF(cur, y, vw + 8, h), Qt.AlignLeft | Qt.AlignVCenter, vstr)
-        cur += vw + 10
-        # /한계 단위
-        fU = QFont(); fU.setPointSize(13); p.setFont(fU)
-        lim_str = f'/ {self._limit:.0f} {self._unit}'
-        lim_w = p.fontMetrics().horizontalAdvance(lim_str)
-        if cur + lim_w + 4 <= rx:
-            p.setPen(QPen(QColor(T('text_dim'))))
-            p.drawText(QRectF(cur, y, lim_w + 8, h), Qt.AlignLeft | Qt.AlignVCenter, lim_str)
-            cur += lim_w + 14
-        # 여유/초과
-        if self._value is not None:
-            fM = QFont(); fM.setPointSize(13); fM.setBold(True); p.setFont(fM)
-            if over:
-                mcol = self.RED; mtxt = f'▲ 초과 +{self._value - self._limit:.1f} dB'
-            else:
-                mcol = color; mtxt = f'▼ 여유 {self._limit - self._value:.1f} dB'
-            mw = p.fontMetrics().horizontalAdvance(mtxt)
-            if cur + mw + 4 <= rx:
-                p.setPen(QPen(mcol))
-                p.drawText(QRectF(cur, y, mw + 8, h), Qt.AlignLeft | Qt.AlignVCenter, mtxt)
         p.end()
 
 
+class SplAlarmConfigDialog(QDialog):
+    """SPL 알람 설정 — 마스터 지표 / 한계 / 노랑 여유 / LEQ time."""
+    def __init__(self, metrics, leq_labels, cfg, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('SPL 알람 설정'); _apply_dark_titlebar(self)
+        self.setMinimumWidth(320)
+        self.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
+        self._metric_ids = list(metrics.keys())
+
+        def cstyle():
+            return (f"QComboBox{{background:{T('panel')};color:{T('text')};"
+                    f"border:1px solid {T('border')};border-radius:6px;padding:3px 8px;font-size:11px;}}"
+                    f"QComboBox QAbstractItemView{{background:{T('bg2')};color:{T('text')};"
+                    f"border:1px solid {T('accent')};selection-background-color:rgba(78,125,240,80);}}")
+
+        root = QVBoxLayout(self); root.setSpacing(12); root.setContentsMargins(18, 16, 18, 16)
+
+        mrow = QHBoxLayout(); mrow.addStretch(); mrow.addWidget(QLabel('마스터 지표:'))
+        self._metric_cb = QComboBox(); self._metric_cb.setStyleSheet(cstyle()); self._metric_cb.setMinimumWidth(150)
+        for mid in self._metric_ids:
+            self._metric_cb.addItem(metrics[mid])
+        cm = cfg.get('metric', 'laeq')
+        self._metric_cb.setCurrentIndex(self._metric_ids.index(cm) if cm in self._metric_ids else 0)
+        mrow.addWidget(self._metric_cb); mrow.addStretch(); root.addLayout(mrow)
+
+        lrow = QHBoxLayout(); lrow.addStretch(); lrow.addWidget(QLabel('한계:'))
+        self._limit_sp = QDoubleSpinBox(); self._limit_sp.setStyleSheet(ss_spin(FS_LG, 6, 80))
+        self._limit_sp.setRange(30.0, 160.0); self._limit_sp.setDecimals(1); self._limit_sp.setSingleStep(0.5)
+        self._limit_sp.setSuffix(' dB'); self._limit_sp.setValue(float(cfg.get('limit', 100.0)))
+        lrow.addWidget(self._limit_sp); lrow.addSpacing(14); lrow.addWidget(QLabel('노랑 여유:'))
+        self._amber_sp = QDoubleSpinBox(); self._amber_sp.setStyleSheet(ss_spin(FS_LG, 6, 70))
+        self._amber_sp.setRange(0.5, 15.0); self._amber_sp.setDecimals(1); self._amber_sp.setSingleStep(0.5)
+        self._amber_sp.setPrefix('-'); self._amber_sp.setSuffix(' dB'); self._amber_sp.setValue(float(cfg.get('amber', 3.0)))
+        lrow.addWidget(self._amber_sp); lrow.addStretch(); root.addLayout(lrow)
+
+        qrow = QHBoxLayout(); qrow.addStretch(); qrow.addWidget(QLabel('LEQ time:'))
+        self._leq_cb = QComboBox(); self._leq_cb.setStyleSheet(cstyle()); self._leq_cb.setMinimumWidth(120)
+        for lbl in leq_labels:
+            self._leq_cb.addItem(lbl)
+        self._leq_cb.setCurrentIndex(max(0, min(self._leq_cb.count() - 1, int(cfg.get('leq_idx', 3)))))
+        qrow.addWidget(self._leq_cb); qrow.addStretch(); root.addLayout(qrow)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.setStyleSheet(ss_dialog_btns())
+        btns.accepted.connect(self.accept); btns.rejected.connect(self.reject)
+        root.addWidget(btns)
+
+    def get_cfg(self):
+        return {
+            'metric': self._metric_ids[self._metric_cb.currentIndex()],
+            'limit':  float(self._limit_sp.value()),
+            'amber':  float(self._amber_sp.value()),
+            'leq_idx': self._leq_cb.currentIndex(),
+        }
+
+
 class SplAlarmWindow(QWidget):
-    """SPL 임계 알람 — 별도 팝업 창(부모 없는 독립 top-level).
-    SplMeterWindow가 _update_alarm에서 값을 push. 크기 조절 시 글자/신호등이 스케일."""
-    def __init__(self, spl_win):
-        self._spl = spl_win
+    """SPL 임계 알람 — 독립 top-level 창. 메인 메뉴에서 직접 열고, SPL 미터와 무관하게
+    _process_audio가 push_levels로 급전. 자체 _SplMetricEngine + 200ms 타이머."""
+    _METRICS = {
+        'laeq': 'dB LAeq', 'lceq': 'dB LCeq',
+        'dba': 'SPL A Slow', 'dbc': 'SPL C Slow',
+        'spl_slow': 'SPL Slow', 'dba_fast': 'SPL A Fast', 'dbc_fast': 'SPL C Fast',
+        'spl_fast': 'SPL Fast', 'peak': 'Peak', 'peak_c': 'Peak C', 'fs_peak': 'FS Peak',
+    }
+    _UNIT = {'laeq': 'dBA', 'dba': 'dBA', 'dba_fast': 'dBA',
+             'lceq': 'dBC', 'dbc': 'dBC', 'dbc_fast': 'dBC', 'peak_c': 'dBC'}
+    _LEQ_PRESETS = [('1 min', 60), ('5 min', 300), ('10 min', 600),
+                    ('15 min', 900), ('30 min', 1800), ('1 hr', 3600)]
+
+    def __init__(self, main):
+        self._main = main
         super().__init__(None, Qt.Window)
         self.setWindowTitle('SPL 알람')
         self.setAttribute(Qt.WA_DeleteOnClose, False)
         self.setStyleSheet(f'background:{T("bg")};')
-        lay = QVBoxLayout(self); lay.setContentsMargins(8, 8, 8, 8)
-        self.bar = _SplAlarmBar(big=True)
-        lay.addWidget(self.bar)
-        _apply_dark_titlebar(self, resizable=True)
+        self._cfg = self._load_cfg()
+        calib = 0.0
+        try:
+            calib = main._spl_source_calib(0)
+        except Exception:
+            pass
+        self._eng = _SplMetricEngine(self._leq_secs(), calib)
+
+        self._set_btn = _SettingsBtn(); self._set_btn.setToolTip('알람 설정')
+        self._set_btn.clicked.connect(self._open_config)
+
+        lay = QVBoxLayout(self); lay.setContentsMargins(10, 10, 10, 10)
+        self.disp = _SplAlarmDisplay()
+        lay.addWidget(self.disp)
+        _apply_dark_titlebar(self, resizable=True, aux=[self._set_btn])
         self.setWindowState(Qt.WindowNoState)
-        self.setMinimumSize(240, 160)
-        self.resize(440, 240)
-        self._silent_close = False   # True면 closeEvent에서 내장바 복귀 안 함(프로그램 종료용)
+        self.setMinimumSize(240, 170); self.resize(460, 260)
+        self._apply_cfg()
 
-    def configure(self, label, unit, limit, amber):
-        self.bar.configure(label, unit, limit, amber)
+        self._timer = QTimer(self); self._timer.timeout.connect(self._tick); self._timer.start(200)
 
-    def set_value(self, v):
-        self.bar.set_value(v)
+    # ── 설정 로드/저장 ──
+    def _load_cfg(self):
+        try:
+            c = dict(self._main._settings.get('spl_alarm', {}))
+        except Exception:
+            c = {}
+        return {
+            'metric':  c.get('metric', 'laeq'),
+            'limit':   float(c.get('limit', 100.0)),
+            'amber':   float(c.get('amber', 3.0)),
+            'leq_idx': int(c.get('leq_idx', 3)),
+        }
+
+    def _save_cfg(self):
+        try:
+            self._main._settings['spl_alarm'] = dict(self._cfg)
+            _save_settings(self._main._settings)
+        except Exception as e:
+            _alog.warning(f'SPL 알람 설정 저장 실패: {e}')
+
+    def _leq_secs(self):
+        i = max(0, min(len(self._LEQ_PRESETS) - 1, int(self._cfg.get('leq_idx', 3))))
+        return self._LEQ_PRESETS[i][1]
+
+    def _apply_cfg(self):
+        mid = self._cfg.get('metric', 'laeq')
+        title = self._METRICS.get(mid, 'LAeq')
+        unit = self._UNIT.get(mid, 'dB SPL')
+        self._eng.set_leq_secs(self._leq_secs())
+        self.disp.configure(title, unit, self._cfg.get('limit', 100.0), self._cfg.get('amber', 3.0))
+
+    def _open_config(self):
+        leq_labels = [lbl for lbl, _ in self._LEQ_PRESETS]
+        dlg = SplAlarmConfigDialog(self._METRICS, leq_labels, self._cfg, self)
+        if dlg.exec() == QDialog.Accepted:
+            self._cfg = dlg.get_cfg()
+            self._apply_cfg()
+            self._save_cfg()
+
+    # ── 메인 앱이 호출 ──
+    def set_calib_offset(self, offset):
+        self._eng.set_calib(offset)
+
+    def push_levels(self, dbz, dba, dbc, fs_peak):
+        self._eng.push(dbz, dba, dbc, fs_peak)
+
+    def _tick(self):
+        self.disp.set_value(self._eng.value(self._cfg.get('metric', 'laeq')))
 
     def restyle_theme(self):
         self.setStyleSheet(f'background:{T("bg")};')
@@ -3884,21 +3933,19 @@ class SplAlarmWindow(QWidget):
             t = getattr(b, '_title', None)
             if t is not None:
                 t.setStyleSheet(f'color:{T("text")};font-size:12px;font-weight:bold;background:transparent;')
-        self.bar.update()
+        self.disp.update()
 
     def showEvent(self, e):
         super().showEvent(e)
-        _set_float_above_fullscreen(self)   # 풀스크린 위 + 최소화 생존
+        if not self._timer.isActive():
+            self._timer.start(200)
+        _set_float_above_fullscreen(self)
 
     def closeEvent(self, e):
-        # 사용자가 ✕ → 내장 바 모드로 되돌림(설정 popup=False 영속).
-        # _silent_close(SPL미터 창 종료에 따른 정리)면 설정 안 건드림.
-        if not self._silent_close:
-            try:
-                self._spl._on_alarm_popup_closed()
-            except Exception:
-                pass
-        super().closeEvent(e)
+        self._timer.stop()
+        if hasattr(self._main, 'spl_alarm_win'):
+            self._main.spl_alarm_win = None
+        e.accept()
 
 
 class SplMeterWindow(QWidget):
@@ -3953,7 +4000,6 @@ class SplMeterWindow(QWidget):
 
         # ── 저장된 레이아웃 복원 (없으면 4×1 기본 = 기존 모습)
         self._rows, self._cols, self._cells = self._load_layout()
-        self._alarm_cfg = self._load_alarm()
         try:
             self._leq_idx = int(self._main._settings.get('spl_meter', {}).get('leq_idx', 0))
         except Exception:
@@ -3981,12 +4027,6 @@ class SplMeterWindow(QWidget):
         self._grid = QGridLayout(panels_w)
         self._grid.setContentsMargins(6, 6, 6, 6); self._grid.setSpacing(6)
         root.addWidget(panels_w, 1)
-
-        # ── 상단 임계 신호등 바 (타이틀바 아래 / 카드 그리드 위) + 별도 팝업 옵션
-        self._alarm_bar = _SplAlarmBar()
-        self._alarm_win = None
-        root.insertWidget(0, self._alarm_bar)
-        self._apply_alarm_cfg()
 
         self._rebuild_grid()
         self.setMinimumSize(self._min_w(), self._min_h())
@@ -4019,74 +4059,10 @@ class SplMeterWindow(QWidget):
         try:
             self._main._settings['spl_meter'] = {
                 'rows': self._rows, 'cols': self._cols, 'cells': self._cells,
-                'leq_idx': self._leq_idx, 'alarm': self._alarm_cfg}
+                'leq_idx': self._leq_idx}
             _save_settings(self._main._settings)
         except Exception as e:
             _alog.warning(f'SPL 레이아웃 저장 실패: {e}')
-
-    # ── 임계 알람 (신호등 바) ─────────────────────
-    def _load_alarm(self):
-        try:
-            cfg = self._main._settings.get('spl_meter', {}).get('alarm', {})
-        except Exception:
-            cfg = {}
-        return {
-            'enabled': bool(cfg.get('enabled', True)),
-            'metric':  cfg.get('metric', 'laeq'),
-            'limit':   float(cfg.get('limit', 100.0)),
-            'amber':   float(cfg.get('amber', 3.0)),
-            'popup':   bool(cfg.get('popup', False)),
-        }
-
-    _ALARM_UNIT = {  # 마스터 지표 → 표시 단위
-        'laeq': 'dBA', 'dba': 'dBA', 'dba_fast': 'dBA',
-        'lceq': 'dBC', 'dbc': 'dBC', 'dbc_fast': 'dBC', 'peak_c': 'dBC',
-    }
-
-    def _alarm_titletext(self):
-        mid = self._alarm_cfg.get('metric', 'laeq')
-        title = self._METRICS.get(mid, ('LAeq', '#4E7DF0'))[0]
-        unit = self._ALARM_UNIT.get(mid, 'dB SPL')
-        return title, unit
-
-    def _apply_alarm_cfg(self):
-        cfg = self._alarm_cfg
-        title, unit = self._alarm_titletext()
-        lim = cfg.get('limit', 100.0); amb = cfg.get('amber', 3.0)
-        enabled = bool(cfg.get('enabled', True))
-        popup = bool(cfg.get('popup', False))
-        # 내장 바: enabled & not popup 일 때만
-        self._alarm_bar.configure(title, unit, lim, amb)
-        self._alarm_bar.setVisible(enabled and not popup)
-        # 별도 팝업 창
-        if enabled and popup:
-            if self._alarm_win is None:
-                self._alarm_win = SplAlarmWindow(self)
-            self._alarm_win.configure(title, unit, lim, amb)
-            self._alarm_win.show(); self._alarm_win.raise_()
-        elif self._alarm_win is not None:
-            self._alarm_win.hide()
-
-    def _on_alarm_popup_closed(self):
-        """팝업 창의 ✕ → 내장 바 모드로 복귀(설정 영속)."""
-        self._alarm_cfg['popup'] = False
-        self._alarm_bar.setVisible(bool(self._alarm_cfg.get('enabled', True)))
-        self._save_layout()
-
-    def _update_alarm(self, value_for):
-        cfg = self._alarm_cfg
-        v = value_for.get(cfg.get('metric', 'laeq')) if cfg.get('enabled', True) else None
-        if not cfg.get('enabled', True):
-            if self._alarm_bar.isVisible():
-                self._alarm_bar.setVisible(False)
-            return
-        if cfg.get('popup', False):
-            if self._alarm_win is not None and self._alarm_win.isVisible():
-                self._alarm_win.set_value(v)
-        else:
-            if not self._alarm_bar.isVisible():
-                self._alarm_bar.setVisible(True)
-            self._alarm_bar.set_value(v)
 
     def restyle_theme(self):
         """테마 토글(다크↔라이트) 시 창/그리드 배경 + 다크타이틀바 + 패널 색 재적용."""
@@ -4101,8 +4077,6 @@ class SplMeterWindow(QWidget):
                 _t.setStyleSheet(f'color:{T("text")};font-size:12px;font-weight:bold;background:transparent;')
         for p in self._panels:
             p.restyle()
-        if getattr(self, '_alarm_win', None) is not None:
-            self._alarm_win.restyle_theme()
 
     def _chrome_h(self):
         return 12   # 그리드 상하 여백
@@ -4120,12 +4094,8 @@ class SplMeterWindow(QWidget):
         return max(150 * self._cols, 160)
 
     def _open_h(self):
-        # 처음 열 때 높이 — 세로로 길게(숫자 큼직 + 위아래 여백) + 내장 알람 바 높이
-        show_bar = (getattr(self, '_alarm_bar', None)
-                    and self._alarm_cfg.get('enabled', True)
-                    and not self._alarm_cfg.get('popup', False))
-        bar = self._alarm_bar.height() if show_bar else 0
-        return self._chrome_h() + 150 * self._rows + bar
+        # 처음 열 때 높이 — 세로로 길게(숫자 큼직 + 위아래 여백)
+        return self._chrome_h() + 150 * self._rows
 
     # ── 그리드 재구성 ───────────────────────────
     def _rebuild_grid(self):
@@ -4167,14 +4137,11 @@ class SplMeterWindow(QWidget):
             sources, cur_src = None, 0
         dlg = SplLayoutDialog(self._rows, self._cols, self._cells, self._METRICS,
                               leq_labels, self._leq_idx, self,
-                              sources=sources, source_id=cur_src,
-                              alarm_cfg=self._alarm_cfg)
+                              sources=sources, source_id=cur_src)
         if dlg.exec() == QDialog.Accepted:
             self._rows, self._cols, self._cells = dlg.get_layout()
             self._leq_idx = dlg.get_leq_idx()
             self._leq_secs = self._PRESETS[self._leq_idx][1]
-            self._alarm_cfg = dlg.get_alarm()
-            self._apply_alarm_cfg()
             self._rebuild_grid()
             self._scale_panels()
             self._save_layout()
@@ -4254,8 +4221,6 @@ class SplMeterWindow(QWidget):
         max_for = dict(maxv)
         max_for['laeq'] = self._max_laeq; max_for['lceq'] = self._max_lceq
 
-        self._update_alarm(value_for)
-
         for pnl in self._panels:
             mid = pnl.metric_id
             if mid == 'clock':
@@ -4309,9 +4274,6 @@ class SplMeterWindow(QWidget):
 
     def closeEvent(self, e):
         self._timer.stop()
-        if self._alarm_win is not None:
-            self._alarm_win._silent_close = True
-            self._alarm_win.close(); self._alarm_win.deleteLater(); self._alarm_win = None
         if hasattr(self._main, 'spl_meter_win'):
             self._main.spl_meter_win = None
         e.accept()
@@ -4320,7 +4282,7 @@ class SplMeterWindow(QWidget):
 class SplLayoutDialog(QDialog):
     """SPL Meter 레이아웃 편집 — 행/열 개수 + 칸별 지표 지정."""
     def __init__(self, rows, cols, cells, metrics, leq_labels=None, leq_idx=0, parent=None,
-                 sources=None, source_id=0, alarm_cfg=None):
+                 sources=None, source_id=0):
         super().__init__(parent)
         self.setWindowTitle('SPL 설정'); _apply_dark_titlebar(self)
         self.setMinimumWidth(360)
@@ -4384,50 +4346,6 @@ class SplLayoutDialog(QDialog):
         self._cells_grid.setSpacing(6); self._cells_grid.setContentsMargins(2, 2, 2, 2)
         root.addWidget(self._cells_wrap)
 
-        # ── 임계 알람(신호등 바) 설정
-        al = alarm_cfg or {}
-        sep = QFrame(); sep.setFrameShape(QFrame.HLine); sep.setFixedHeight(1)
-        sep.setStyleSheet(f'background:{T("border")};border:none;'); root.addWidget(sep)
-
-        self._alarm_on = QCheckBox('임계 알람 표시 (신호등)')
-        self._alarm_on.setChecked(bool(al.get('enabled', True)))
-        self._alarm_on.setStyleSheet(f'color:{T("text")};font-size:12px;font-weight:bold;')
-        root.addWidget(self._alarm_on)
-
-        self._alarm_popup = QCheckBox('별도 팝업 창으로 표시 (다른 모니터/구석에 띄우기)')
-        self._alarm_popup.setChecked(bool(al.get('popup', False)))
-        self._alarm_popup.setStyleSheet(f'color:{T("text_dim")};font-size:11px;')
-        root.addWidget(self._alarm_popup)
-
-        self._alarm_metric_ids = [m for m in metrics if m != 'clock']
-        am_row = QHBoxLayout(); am_row.addStretch()
-        am_row.addWidget(QLabel('마스터 지표:'))
-        self._alarm_cb = QComboBox(); self._alarm_cb.setStyleSheet(self._combo_style())
-        self._alarm_cb.setMinimumWidth(150)
-        for mid in self._alarm_metric_ids:
-            self._alarm_cb.addItem(metrics[mid][0])
-        cur_m = al.get('metric', 'laeq')
-        self._alarm_cb.setCurrentIndex(self._alarm_metric_ids.index(cur_m)
-                                       if cur_m in self._alarm_metric_ids else 0)
-        am_row.addWidget(self._alarm_cb); am_row.addStretch()
-        root.addLayout(am_row)
-
-        lim_row = QHBoxLayout(); lim_row.addStretch()
-        lim_row.addWidget(QLabel('한계:'))
-        self._limit_sp = QDoubleSpinBox(); self._limit_sp.setStyleSheet(ss_spin(FS_LG, 6, 80))
-        self._limit_sp.setRange(30.0, 160.0); self._limit_sp.setDecimals(1)
-        self._limit_sp.setSingleStep(0.5); self._limit_sp.setSuffix(' dB')
-        self._limit_sp.setValue(float(al.get('limit', 100.0)))
-        lim_row.addWidget(self._limit_sp)
-        lim_row.addSpacing(14)
-        lim_row.addWidget(QLabel('노랑 여유:'))
-        self._amber_sp = QDoubleSpinBox(); self._amber_sp.setStyleSheet(ss_spin(FS_LG, 6, 70))
-        self._amber_sp.setRange(0.5, 15.0); self._amber_sp.setDecimals(1)
-        self._amber_sp.setSingleStep(0.5); self._amber_sp.setPrefix('-'); self._amber_sp.setSuffix(' dB')
-        self._amber_sp.setValue(float(al.get('amber', 3.0)))
-        lim_row.addWidget(self._amber_sp); lim_row.addStretch()
-        root.addLayout(lim_row)
-
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.setStyleSheet(ss_dialog_btns())
         btns.accepted.connect(self.accept); btns.rejected.connect(self.reject)
@@ -4473,15 +4391,6 @@ class SplLayoutDialog(QDialog):
 
     def get_leq_idx(self):
         return self._leq_cb.currentIndex()
-
-    def get_alarm(self):
-        return {
-            'enabled': self._alarm_on.isChecked(),
-            'metric':  self._alarm_metric_ids[self._alarm_cb.currentIndex()],
-            'limit':   float(self._limit_sp.value()),
-            'amber':   float(self._amber_sp.value()),
-            'popup':   self._alarm_popup.isChecked(),
-        }
 
     def get_source_id(self):
         """선택된 측정 소스 카드 id (셀렉터 없으면 0=primary)."""
@@ -13206,6 +13115,7 @@ class MainWindow(QMainWindow):
         self.leq_win = None
         self.tf_win = None
         self.spl_meter_win = None
+        self.spl_alarm_win = None
 
         self._disconnected_dev_name = ''   # USB 뽑힌 장치 이름 (Refresh 시 필터링용)
         self._first_device_load = True     # 시작 시 내장 마이크 폴백 여부 판단용
@@ -14260,6 +14170,8 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'stereo_page'): self.stereo_page.restyle_theme()
         _spl = getattr(self, 'spl_meter_win', None)
         if _spl is not None: _spl.restyle_theme()
+        _spla = getattr(self, 'spl_alarm_win', None)
+        if _spla is not None: _spla.restyle_theme()
         # 캡처 드로어 행 재빌드 (테마 전환 시 T() 색상 갱신)
         self._refresh_capture_drawer()
 
@@ -14514,6 +14426,13 @@ class MainWindow(QMainWindow):
             self.spl_meter_win = SplMeterWindow(self)
             self.spl_meter_win.set_calib_offset(self._spl_source_calib(self._spl_source_id))
         self.spl_meter_win.show(); self.spl_meter_win.raise_()
+
+    def _open_spl_alarm(self):
+        """SPL 임계 알람 — 독립 창. SPL 미터와 무관하게 _process_audio가 직접 급전."""
+        if self.spl_alarm_win is None:
+            self.spl_alarm_win = SplAlarmWindow(self)
+            self.spl_alarm_win.set_calib_offset(self.calib_offset)
+        self.spl_alarm_win.show(); self.spl_alarm_win.raise_()
 
     def _open_tf_window(self):
         self._switch_tab(1)
@@ -15048,6 +14967,9 @@ class MainWindow(QMainWindow):
         if self.spl_meter_win and self._spl_source_id == 0 and dba_db>-100:
             # Smaart식 확장 지표 — 순간 calibrated Z/A/C + 풀스케일 디지털 피크 (소스=primary일 때만)
             self.spl_meter_win.push_levels(raw_dbfs+self.calib_offset, raw_dba, raw_dbc, fs_peak)
+        if self.spl_alarm_win and dba_db>-100:
+            # 독립 알람 창 — SPL 미터 유무·소스선택과 무관하게 primary 레벨로 급전
+            self.spl_alarm_win.push_levels(raw_dbfs+self.calib_offset, raw_dba, raw_dbc, fs_peak)
 
     # ── 렌더링 타이머 (30fps)
     def _render_frame(self):
@@ -15899,6 +15821,8 @@ class MainWindow(QMainWindow):
         # SPL 미터는 선택된 소스 기준 calib — 소스가 primary일 때만 primary calib 반영
         if hasattr(self, 'spl_meter_win') and self.spl_meter_win and getattr(self, '_spl_source_id', 0) == 0:
             self.spl_meter_win.set_calib_offset(offset)
+        if getattr(self, 'spl_alarm_win', None):
+            self.spl_alarm_win.set_calib_offset(offset)   # 독립 알람은 항상 primary calib
         self._i_warn_db = -20.0 + offset
         self._i_peak_db = -10.0 + offset
 
@@ -15935,6 +15859,11 @@ class MainWindow(QMainWindow):
         Help 메뉴에 설명서·로그. (Windows에선 Help 메뉴에 모두 표시 — 창 상단 메뉴)."""
         from PyQt5.QtWidgets import QAction
         mb = self.menuBar()
+        view_menu = mb.addMenu('View')
+        spl_act = QAction('SPL Meter', self)
+        spl_act.triggered.connect(self._open_spl_meter); view_menu.addAction(spl_act)
+        alarm_act = QAction('SPL 알람 창 (SPL Alarm)', self)
+        alarm_act.triggered.connect(self._open_spl_alarm); view_menu.addAction(alarm_act)
         help_menu = mb.addMenu('Help')
         about_act = QAction('About SPECTRA', self); about_act.setMenuRole(QAction.AboutRole)
         about_act.triggered.connect(self._show_license_info); help_menu.addAction(about_act)
@@ -16055,6 +15984,7 @@ class MainWindow(QMainWindow):
         self._stop()
         # 부모 없는 독립 창(SPL 미터 + 라우드니스/벡터스코프 팝아웃) → 메인 종료 시 직접 닫아 고아 방지
         for _wn in (getattr(self, 'spl_meter_win', None),
+                    getattr(self, 'spl_alarm_win', None),
                     getattr(self.stereo_page, '_vs_win', None),
                     getattr(self.stereo_page, '_radar_win', None)):
             if _wn is not None:
