@@ -4017,7 +4017,7 @@ class SplAlarmWindow(QWidget):
 
     def __init__(self, main):
         self._main = main
-        super().__init__(None, Qt.Window)
+        super().__init__(main, Qt.Window)   # 메인의 자식 창 → 풀스크린 SPECTRA 위에 따라 뜸
         self.setWindowTitle('SPL Alarm')
         self.setAttribute(Qt.WA_DeleteOnClose, False)
         self.setStyleSheet(f'background:{T("bg")};')
@@ -4129,8 +4129,7 @@ class SplAlarmWindow(QWidget):
         super().showEvent(e)
         if not self._timer.isActive():
             self._timer.start(200)
-        _set_float_above_fullscreen(self)
-        _apply_on_top(self, self._always_top)   # macOS 네이티브 레벨 적용
+        _apply_on_top(self, self._always_top)   # macOS 네이티브 레벨 적용 (자식이라 풀스크린은 자동 추종)
 
     def closeEvent(self, e):
         self._timer.stop()
@@ -4168,10 +4167,10 @@ class SplMeterWindow(QWidget):
     _DEFAULT_CELLS = ['dba', 'dbc', 'laeq', 'lceq']
 
     def __init__(self, parent=None):
-        # 부모 없는 독립 top-level 창 (Qt.Tool 제거) → 메인창을 덕(최소화)에 넣어도
-        # SPL 미터는 그대로 떠 있음 (Smaart 방식). 메인창 참조는 _main 으로 보관.
+        # 메인의 자식 창 → 풀스크린 SPECTRA 위에 확실히 따라 뜸(별도 Space 분리 방지).
+        # 트레이드오프: 메인 최소화 시 함께 숨겨짐(사용자 선택 2026-06-17). 메인참조는 _main.
         self._main = parent
-        super().__init__(None, Qt.Window)
+        super().__init__(parent, Qt.Window)
         try:
             self._always_top = bool(self._main._settings.get('spl_meter', {}).get('on_top', True))
         except Exception:
@@ -4482,8 +4481,7 @@ class SplMeterWindow(QWidget):
         super().showEvent(e)
         if not self._timer.isActive(): self._timer.start(200)
         self._scale_panels()
-        _set_float_above_fullscreen(self)   # 풀스크린 위 + 최소화 생존
-        _apply_on_top(self, self._always_top)   # macOS 네이티브 레벨 적용
+        _apply_on_top(self, self._always_top)   # macOS 네이티브 레벨 (자식이라 풀스크린 자동 추종)
 
     def closeEvent(self, e):
         self._timer.stop()
@@ -14817,39 +14815,19 @@ class MainWindow(QMainWindow):
             self.leq_win.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
         self.leq_win.show(); self.leq_win.raise_()
 
-    def _force_float_normal(self, win, w, h):
-        """메인이 풀스크린일 때 떠 있는 창(SPL미터/알람)이 '풀스크린 크기'로 뜨면 정상 크기로 줄임.
-        ⚠️Space/위치는 건드리지 않음(setGeometry·move·NoState 미사용) → 풀스크린 SPECTRA 위에
-        그대로 떠 있게(다른 Space로 새지 않게). 크기만 보정."""
-        w = int(w); h = int(h)
-        def _fix():
-            try:
-                if win.width() > w * 1.4 or win.height() > h * 1.4:
-                    win.resize(w, h)
-            except Exception:
-                pass
-        QTimer.singleShot(0, _fix)
-        QTimer.singleShot(160, _fix)
-
     def _open_spl_meter(self):
-        new = self.spl_meter_win is None
-        if new:
+        # 자식 창 → 풀스크린 SPECTRA 위에 정상 크기로 따라 뜸
+        if self.spl_meter_win is None:
             self.spl_meter_win = SplMeterWindow(self)
             self.spl_meter_win.set_calib_offset(self._spl_source_calib(self._spl_source_id))
         self.spl_meter_win.show(); self.spl_meter_win.raise_()
-        if new:
-            self._force_float_normal(self.spl_meter_win,
-                                     self.spl_meter_win._open_w(), self.spl_meter_win._open_h())
 
     def _open_spl_alarm(self):
-        """SPL 임계 알람 — 독립 창. SPL 미터와 무관하게 _process_audio가 직접 급전."""
-        new = self.spl_alarm_win is None
-        if new:
+        """SPL 임계 알람 — 메인의 자식 창. _process_audio가 직접 급전(SPL 미터와 무관)."""
+        if self.spl_alarm_win is None:
             self.spl_alarm_win = SplAlarmWindow(self)
             self.spl_alarm_win.set_calib_offset(self.calib_offset)
         self.spl_alarm_win.show(); self.spl_alarm_win.raise_()
-        if new:
-            self._force_float_normal(self.spl_alarm_win, 210, 150)
 
     def _open_tf_window(self):
         self._switch_tab(1)
