@@ -13252,27 +13252,14 @@ class StereoLoudnessPage(QWidget):
         return '#3a3a52' if _theme != 'light' else T('text_dim')
 
     def _build_target_ctrl(self):
-        """우측 컨트롤 — 타겟 프리셋 콤보 + LU(상대) 토글."""
-        self._targets = [('EBU R128  −23', -23.0), ('ATSC A/85  −24', -24.0),
-                         ('Streaming  −14', -14.0), ('Apple Music  −16', -16.0)]
+        """우측 컨트롤 — LU(타겟 상대) 표시 토글. 타겟 프리셋 선택은 상단 툴바 콤보가 담당."""
         w = QWidget(); w.setStyleSheet('background:transparent;')
         vl = QVBoxLayout(w); vl.setContentsMargins(0, 0, 0, 0); vl.setSpacing(3)
-        tl = QLabel('Target')
+        tl = QLabel('Units')
         tl.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};'
                          f'letter-spacing:1px;background:transparent;')
         tl.setAlignment(Qt.AlignHCenter)
-        row = QWidget(); row.setStyleSheet('background:transparent;')
-        rl = QHBoxLayout(row); rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(6)
-        self._target_cb = QComboBox()
-        for name, _v in self._targets:
-            self._target_cb.addItem(name)
-        self._target_cb.setStyleSheet(
-            f"QComboBox{{background:{T('panel')};color:{T('text')};border:1px solid {T('border')};"
-            f"border-radius:6px;padding:2px 8px;font-size:11px;}}"
-            f"QComboBox QAbstractItemView{{background:{T('bg2')};color:{T('text')};"
-            f"border:1px solid {T('accent')};selection-background-color:rgba(78,125,240,80);}}")
-        self._target_cb.currentIndexChanged.connect(self._on_target_changed)
-        self._lu_btn = QPushButton('LU'); self._lu_btn.setCheckable(True); self._lu_btn.setFixedSize(38, 24)
+        self._lu_btn = QPushButton('LU'); self._lu_btn.setCheckable(True); self._lu_btn.setFixedSize(54, 24)
         self._lu_btn.setToolTip('LUFS ↔ LU (타겟 기준 상대값으로 표시)')
         self._lu_btn.setStyleSheet(
             f"QPushButton{{background:{T('panel')};color:{T('text_dim')};border:1px solid {T('border')};"
@@ -13280,15 +13267,14 @@ class StereoLoudnessPage(QWidget):
             f"QPushButton:checked{{background:rgba(78,125,240,40);color:{T('accent')};"
             f"border:1px solid {T('accent')};}}")
         self._lu_btn.toggled.connect(self._on_lu_toggled)
-        rl.addWidget(self._target_cb); rl.addWidget(self._lu_btn)
-        vl.addWidget(tl); vl.addWidget(row)
+        vl.addWidget(tl); vl.addWidget(self._lu_btn, 0, Qt.AlignHCenter)
         return w
 
-    def _on_target_changed(self, idx):
-        if 0 <= idx < len(self._targets):
-            self._target = self._targets[idx][1]
-            self._radar.set_target(self._target)   # ★ 즉시 반영 — Start 안 눌러도 타겟 링 갱신
-            self._refresh_display(force=True)
+    def set_target(self, val):
+        """상단 툴바 콤보가 호출 — 타겟 동기화 + 편차/표시 즉시 갱신."""
+        self._target = float(val)
+        self._radar.set_target(self._target)        # ★ 즉시 반영 (Start 불필요)
+        self._refresh_display(force=True)
 
     def _on_lu_toggled(self, on):
         self._lu_mode = bool(on)
@@ -13836,8 +13822,8 @@ class MainWindow(QMainWindow):
         self._st_target_cb=RoundComboBox(); self._st_target_cb._align_center=True
         self._st_target_cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self._st_target_cb.setMinimumWidth(84); self._st_target_cb.setFixedHeight(30)
-        for lbl,val in [('-23 LUFS',-23.0),('-16 LUFS',-16.0),('-14 LUFS',-14.0),
-                        ('-18 LUFS',-18.0),('-24 LUFS',-24.0)]:
+        for lbl,val in [('EBU R128  −23',-23.0),('Apple Music  −16',-16.0),
+                        ('Streaming  −14',-14.0),('−18 LUFS',-18.0),('ATSC A/85  −24',-24.0)]:
             self._st_target_cb.addItem(lbl,val)
         self._st_target_cb.currentIndexChanged.connect(self._on_st_target_changed)
         sl2.addWidget(self._st_target_cb)
@@ -14990,7 +14976,7 @@ class MainWindow(QMainWindow):
 
     def _on_st_target_changed(self, _):
         val=self._st_target_cb.currentData() or -23.0
-        self.stereo_page._radar.target=val
+        self.stereo_page.set_target(val)   # 타겟 동기화 + 즉시 재그리기(Start 불필요) + 편차 갱신
 
     def _st_toggle(self):
         if self.stereo_page._running:
