@@ -731,8 +731,8 @@ class _SettingsBtn(QPushButton):
 
 
 class _PinBtn(QPushButton):
-    """타이틀바용 always-on-top 토글 — 압정(thumbtack) 라인 아이콘.
-    ON=브랜드 액센트 채움, OFF=회색 외곽. 브랜드 톤(라운드 라인)에 맞춤."""
+    """타이틀바용 always-on-top 토글 — '상단 고정' 아이콘(위쪽 바 + 위로 향한 화살표).
+    ON=브랜드 액센트, OFF=회색. 깔끔한 라인+채운 화살촉(브랜드 톤)."""
     def __init__(self):
         super().__init__()
         self.setCheckable(True)
@@ -746,19 +746,16 @@ class _PinBtn(QPushButton):
         col = QColor(T('accent')) if on else QColor('#9A9AA0')
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
         cx = 13.0
-        pen = QPen(col, 1.5); pen.setCapStyle(Qt.RoundCap); pen.setJoinStyle(Qt.RoundJoin)
+        pen = QPen(col, 1.8); pen.setCapStyle(Qt.RoundCap); pen.setJoinStyle(Qt.RoundJoin)
         p.setPen(pen)
-        # 머리(가로 캡)
-        cap = QPainterPath(); cap.addRoundedRect(QRectF(cx - 5.5, 4.8, 11, 3.6), 1.8, 1.8)
-        if on: p.fillPath(cap, col)
-        p.drawPath(cap)
-        # 목(사다리꼴) — 캡에서 바늘로 좁아짐
-        neck = QPainterPath(); neck.moveTo(cx - 3.4, 8.4); neck.lineTo(cx + 3.4, 8.4)
-        neck.lineTo(cx + 1.7, 11.6); neck.lineTo(cx - 1.7, 11.6); neck.closeSubpath()
-        if on: p.fillPath(neck, col)
-        p.drawPath(neck)
-        # 바늘
-        p.drawLine(QPointF(cx, 11.6), QPointF(cx, 18.4))
+        # 위쪽 고정 바
+        p.drawLine(QPointF(cx - 6, 6.2), QPointF(cx + 6, 6.2))
+        # 화살대(아래로) + 위로 향한 채운 화살촉
+        p.drawLine(QPointF(cx, 18.2), QPointF(cx, 12.0))
+        p.setPen(Qt.NoPen); p.setBrush(col)
+        head = QPainterPath(); head.moveTo(cx, 8.6)
+        head.lineTo(cx - 4.0, 13.0); head.lineTo(cx + 4.0, 13.0); head.closeSubpath()
+        p.drawPath(head)
         p.end()
 
 
@@ -4059,7 +4056,12 @@ class SplMeterWindow(QWidget):
         # SPL 미터는 그대로 떠 있음 (Smaart 방식). 메인창 참조는 _main 으로 보관.
         self._main = parent
         super().__init__(None, Qt.Window)
-        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)  # 본화면 위 항상
+        try:
+            self._always_top = bool(self._main._settings.get('spl_meter', {}).get('on_top', True))
+        except Exception:
+            self._always_top = True
+        if self._always_top:
+            self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)  # 본화면 위
         self.setWindowTitle('SPL Meter')
         self.setAttribute(Qt.WA_DeleteOnClose, False)
 
@@ -4086,14 +4088,17 @@ class SplMeterWindow(QWidget):
         self._leq_idx = max(0, min(len(self._PRESETS) - 1, self._leq_idx))
         self._leq_secs = self._PRESETS[self._leq_idx][1]
 
-        # ── 타이틀바(✕ 옆): 설정(슬라이더 아이콘) + Reset Max(아이콘)
+        # ── 타이틀바(✕ 옆): 상단고정 토글 + 설정(슬라이더) + Reset Max
+        self._pin_btn = _PinBtn(); self._pin_btn.setChecked(self._always_top)
+        self._pin_btn.setToolTip('Keep on top')
+        self._pin_btn.clicked.connect(self._toggle_on_top)
         self._set_btn = _SettingsBtn()
         self._set_btn.setToolTip('설정')
         self._set_btn.clicked.connect(self._open_layout_dialog)
         self._reset_btn = _ResetMaxBtn()
         self._reset_btn.setToolTip('Reset Max')
         self._reset_btn.clicked.connect(self._reset_max)
-        _apply_dark_titlebar(self, resizable=True, aux=[self._set_btn, self._reset_btn])
+        _apply_dark_titlebar(self, resizable=True, aux=[self._pin_btn, self._set_btn, self._reset_btn])
 
         self.setStyleSheet(f'SplMeterWindow{{background:{T("bg")};}}')
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
@@ -4138,10 +4143,23 @@ class SplMeterWindow(QWidget):
         try:
             self._main._settings['spl_meter'] = {
                 'rows': self._rows, 'cols': self._cols, 'cells': self._cells,
-                'leq_idx': self._leq_idx}
+                'leq_idx': self._leq_idx, 'on_top': self._always_top}
             _save_settings(self._main._settings)
         except Exception as e:
             _alog.warning(f'SPL 레이아웃 저장 실패: {e}')
+
+    def _toggle_on_top(self):
+        """always-on-top 켜고 끄기 — 프레임리스 유지하며 플래그 토글 후 재표시."""
+        self._always_top = not self._always_top
+        self._pin_btn.setChecked(self._always_top)
+        flags = self.windowFlags()
+        if self._always_top:
+            flags |= Qt.WindowStaysOnTopHint
+        else:
+            flags &= ~Qt.WindowStaysOnTopHint
+        self.setWindowFlags(flags)
+        self.show()
+        self._save_layout()
 
     def restyle_theme(self):
         """테마 토글(다크↔라이트) 시 창/그리드 배경 + 다크타이틀바 + 패널 색 재적용."""
