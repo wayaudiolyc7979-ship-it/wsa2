@@ -14818,18 +14818,18 @@ class MainWindow(QMainWindow):
         self.leq_win.show(); self.leq_win.raise_()
 
     def _force_float_normal(self, win, w, h):
-        """메인이 풀스크린일 때 떠 있는 창(SPL미터/알람)이 풀스크린 크기로 뜨는 것 방지.
-        show 직후 + 지연 콜백으로 NoState + 정상 크기/중앙 위치 강제(벡터스코프 팝아웃과 동일 방식)."""
+        """메인이 풀스크린일 때 떠 있는 창(SPL미터/알람)이 '풀스크린 크기'로 뜨면 정상 크기로 줄임.
+        ⚠️Space/위치는 건드리지 않음(setGeometry·move·NoState 미사용) → 풀스크린 SPECTRA 위에
+        그대로 떠 있게(다른 Space로 새지 않게). 크기만 보정."""
+        w = int(w); h = int(h)
         def _fix():
             try:
-                win.setWindowState(Qt.WindowNoState)
-                scr = QApplication.primaryScreen().availableGeometry()
-                x = int(scr.center().x() - w / 2); y = int(scr.center().y() - h / 2)
-                win.setGeometry(x, y, int(w), int(h))
+                if win.width() > w * 1.4 or win.height() > h * 1.4:
+                    win.resize(w, h)
             except Exception:
                 pass
         QTimer.singleShot(0, _fix)
-        QTimer.singleShot(140, _fix)
+        QTimer.singleShot(160, _fix)
 
     def _open_spl_meter(self):
         new = self.spl_meter_win is None
