@@ -14817,18 +14817,39 @@ class MainWindow(QMainWindow):
             self.leq_win.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
         self.leq_win.show(); self.leq_win.raise_()
 
+    def _force_float_normal(self, win, w, h):
+        """메인이 풀스크린일 때 떠 있는 창(SPL미터/알람)이 풀스크린 크기로 뜨는 것 방지.
+        show 직후 + 지연 콜백으로 NoState + 정상 크기/중앙 위치 강제(벡터스코프 팝아웃과 동일 방식)."""
+        def _fix():
+            try:
+                win.setWindowState(Qt.WindowNoState)
+                scr = QApplication.primaryScreen().availableGeometry()
+                x = int(scr.center().x() - w / 2); y = int(scr.center().y() - h / 2)
+                win.setGeometry(x, y, int(w), int(h))
+            except Exception:
+                pass
+        QTimer.singleShot(0, _fix)
+        QTimer.singleShot(140, _fix)
+
     def _open_spl_meter(self):
-        if self.spl_meter_win is None:
+        new = self.spl_meter_win is None
+        if new:
             self.spl_meter_win = SplMeterWindow(self)
             self.spl_meter_win.set_calib_offset(self._spl_source_calib(self._spl_source_id))
         self.spl_meter_win.show(); self.spl_meter_win.raise_()
+        if new:
+            self._force_float_normal(self.spl_meter_win,
+                                     self.spl_meter_win._open_w(), self.spl_meter_win._open_h())
 
     def _open_spl_alarm(self):
         """SPL 임계 알람 — 독립 창. SPL 미터와 무관하게 _process_audio가 직접 급전."""
-        if self.spl_alarm_win is None:
+        new = self.spl_alarm_win is None
+        if new:
             self.spl_alarm_win = SplAlarmWindow(self)
             self.spl_alarm_win.set_calib_offset(self.calib_offset)
         self.spl_alarm_win.show(); self.spl_alarm_win.raise_()
+        if new:
+            self._force_float_normal(self.spl_alarm_win, 210, 150)
 
     def _open_tf_window(self):
         self._switch_tab(1)
