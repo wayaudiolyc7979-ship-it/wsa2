@@ -12637,7 +12637,8 @@ class VectorscopeCanvas(QWidget):
         dark = (_theme != 'light')
         def ov(a): return QColor(255, 255, 255, a) if dark else QColor(26, 38, 62, a)
         p.fillRect(0, 0, W, H, QColor(2, 2, 4) if dark else QColor(T('bg')))
-        sz = min(W, H) - 56; cx = W // 2; cy = (H - 24) // 2 + 14
+        # 라우드니스 레이더(PAD_H=46·PAD_T=28·PAD_B=54)와 동일 여백 → 원 크기 통일
+        sz = min(W - 92, H - 82); cx = W // 2; cy = 28 + sz // 2
         r = sz // 2
 
         # ── Background halo ───────────────────────────────────────────
@@ -14815,19 +14816,39 @@ class MainWindow(QMainWindow):
             self.leq_win.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
         self.leq_win.show(); self.leq_win.raise_()
 
+    def _shrink_if_fullscreen(self, win, w, h):
+        """자식 창이 메인 풀스크린 위에서 '풀스크린 크기'로 뜨면 정상 크기로 줄임.
+        크기만(resize) 보정 — 위치/Space/상태는 안 건드림(자식이라 풀스크린 추종 유지)."""
+        w = int(w); h = int(h)
+        def _fix():
+            try:
+                if win.width() > w * 1.4 or win.height() > h * 1.4:
+                    win.resize(w, h)
+            except Exception:
+                pass
+        for ms in (0, 160, 400):
+            QTimer.singleShot(ms, _fix)
+
     def _open_spl_meter(self):
-        # 자식 창 → 풀스크린 SPECTRA 위에 정상 크기로 따라 뜸
-        if self.spl_meter_win is None:
+        # 자식 창(풀스크린 추종) + show 후 크기 보정(풀스크린 크기 방지)
+        new = self.spl_meter_win is None
+        if new:
             self.spl_meter_win = SplMeterWindow(self)
             self.spl_meter_win.set_calib_offset(self._spl_source_calib(self._spl_source_id))
         self.spl_meter_win.show(); self.spl_meter_win.raise_()
+        if new:
+            self._shrink_if_fullscreen(self.spl_meter_win,
+                                       self.spl_meter_win._open_w(), self.spl_meter_win._open_h())
 
     def _open_spl_alarm(self):
         """SPL 임계 알람 — 메인의 자식 창. _process_audio가 직접 급전(SPL 미터와 무관)."""
-        if self.spl_alarm_win is None:
+        new = self.spl_alarm_win is None
+        if new:
             self.spl_alarm_win = SplAlarmWindow(self)
             self.spl_alarm_win.set_calib_offset(self.calib_offset)
         self.spl_alarm_win.show(); self.spl_alarm_win.raise_()
+        if new:
+            self._shrink_if_fullscreen(self.spl_alarm_win, 210, 150)
 
     def _open_tf_window(self):
         self._switch_tab(1)
