@@ -692,19 +692,68 @@ def _set_float_above_fullscreen(win):
 
 
 def _glance_chrome_update(win):
-    """글랜스 창(SPL 미터/알람) — 마우스가 창 밖이면 타이틀바/리사이즈 그립 숨겨 '카드만',
-    창 안이면 다시 표시. 200ms 타이머에서 호출(자식 위젯 enter/leave 영향 없이 전역 커서로 판정)."""
+    """글랜스 창(SPL 미터/알람) — 마우스가 창 밖이면 타이틀바를 부드럽게 접어 '카드만',
+    창 안이면 부드럽게 펼침. 200ms 타이머에서 호출(전역 커서로 판정, 자식 enter/leave 무관)."""
     from PyQt5.QtGui import QCursor
     try:
         inside = win.geometry().contains(QCursor.pos())
     except Exception:
         inside = True
+    _glance_set_chrome(win, inside)
+
+
+def _glance_set_chrome(win, show):
+    """타이틀바를 부드럽게 페이드+높이접기(0↔34px)로 표시/숨김. 카드가 따라 늘어남."""
     tb = getattr(win, '_dark_titlebar', None)
-    if tb is not None and tb.isVisible() != inside:
-        tb.setVisible(inside)
-    grip = getattr(win, '_dark_grip', None)
-    if grip is not None and grip.isVisible() != inside:
-        grip.setVisible(inside)
+    if tb is None:
+        return
+    target = 1.0 if show else 0.0
+    if getattr(win, '_chrome_target', None) == target:
+        return
+    win._chrome_target = target
+
+    full_h = getattr(tb, '_full_h', None)
+    if full_h is None:
+        full_h = tb.height() or 34
+        tb._full_h = full_h
+        tb.setMinimumHeight(0)   # 0까지 접히게(원래 setFixedHeight라 min=max=34였음)
+
+    eff = getattr(tb, '_opacity_eff', None)
+    if eff is None:
+        from PyQt5.QtWidgets import QGraphicsOpacityEffect
+        eff = QGraphicsOpacityEffect(tb); eff.setOpacity(1.0)
+        tb.setGraphicsEffect(eff); tb._opacity_eff = eff
+
+    anim = getattr(win, '_chrome_anim', None)
+    if anim is None:
+        from PyQt5.QtCore import QVariantAnimation, QEasingCurve
+        anim = QVariantAnimation(win); anim.setDuration(190)
+        anim.setEasingCurve(QEasingCurve.InOutQuad)
+
+        def _on_val(v):
+            try:
+                t = float(v)
+                tb.setFixedHeight(max(0, int(round(tb._full_h * t))))
+                tb._opacity_eff.setOpacity(t)
+                grip = getattr(win, '_dark_grip', None)
+                if grip is not None:
+                    grip.setVisible(t > 0.55)
+            except Exception:
+                pass
+        anim.valueChanged.connect(_on_val)
+
+        def _on_fin():
+            if getattr(win, '_chrome_target', 1.0) <= 0.0:
+                tb.setVisible(False)
+        anim.finished.connect(_on_fin)
+        win._chrome_anim = anim
+
+    if show:
+        tb.setVisible(True)
+    anim.stop()
+    anim.setStartValue(float(eff.opacity()))
+    anim.setEndValue(target)
+    anim.start()
 
 
 class _SettingsBtn(QPushButton):
@@ -731,8 +780,8 @@ class _SettingsBtn(QPushButton):
 
 
 class _PinBtn(QPushButton):
-    """타이틀바용 always-on-top 토글 — '상단 고정' 아이콘(위쪽 바 + 위로 향한 화살표).
-    ON=브랜드 액센트, OFF=회색. 깔끔한 라인+채운 화살촉(브랜드 톤)."""
+    """타이틀바용 always-on-top 토글 — 자물쇠 아이콘.
+    ON=잠김(고리 닫힘, 브랜드 액센트 채움) / OFF=열림(고리 들림, 회색 외곽)."""
     def __init__(self):
         super().__init__()
         self.setCheckable(True)
@@ -746,16 +795,32 @@ class _PinBtn(QPushButton):
         col = QColor(T('accent')) if on else QColor('#9A9AA0')
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
         cx = 13.0
-        pen = QPen(col, 1.8); pen.setCapStyle(Qt.RoundCap); pen.setJoinStyle(Qt.RoundJoin)
-        p.setPen(pen)
-        # 위쪽 고정 바
-        p.drawLine(QPointF(cx - 6, 6.2), QPointF(cx + 6, 6.2))
-        # 화살대(아래로) + 위로 향한 채운 화살촉
-        p.drawLine(QPointF(cx, 18.2), QPointF(cx, 12.0))
-        p.setPen(Qt.NoPen); p.setBrush(col)
-        head = QPainterPath(); head.moveTo(cx, 8.6)
-        head.lineTo(cx - 4.0, 13.0); head.lineTo(cx + 4.0, 13.0); head.closeSubpath()
-        p.drawPath(head)
+        body = QRectF(cx - 5.3, 11.2, 10.6, 8.8)   # 자물쇠 몸통
+        lx = cx - 3.1                               # 고리 왼다리 x
+        # ── 고리(shackle): 왼다리↑ + 반원 + 오른다리↓ (열림이면 왼쪽 피벗으로 회전)
+        sh = QPainterPath()
+        sh.moveTo(lx, 11.4); sh.lineTo(lx, 7.4)
+        sh.arcTo(lx, 4.3, 6.2, 6.2, 180, -180)
+        sh.lineTo(cx + 3.1, 11.4)
+        pen = QPen(col, 1.7); pen.setCapStyle(Qt.RoundCap); pen.setJoinStyle(Qt.RoundJoin)
+        p.setPen(pen); p.setBrush(Qt.NoBrush)
+        p.save()
+        if not on:
+            p.translate(lx, 11.4); p.rotate(-26); p.translate(-lx, -11.4)  # 왼쪽 경첩으로 들림
+        p.drawPath(sh)
+        p.restore()
+        # ── 몸통
+        bpath = QPainterPath(); bpath.addRoundedRect(body, 2.3, 2.3)
+        if on:
+            p.fillPath(bpath, col)
+            khc = QColor(T('bg2'))   # 키홀 = 타이틀바 배경색(파인 느낌)
+        else:
+            p.setPen(pen); p.setBrush(Qt.NoBrush); p.drawPath(bpath)
+            khc = col
+        # ── 키홀(원 + 짧은 슬롯)
+        p.setPen(Qt.NoPen); p.setBrush(khc)
+        p.drawEllipse(QPointF(cx, 14.9), 1.35, 1.35)
+        p.drawRoundedRect(QRectF(cx - 0.7, 14.9, 1.4, 3.1), 0.6, 0.6)
         p.end()
 
 
