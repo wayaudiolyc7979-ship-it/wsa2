@@ -730,6 +730,38 @@ class _SettingsBtn(QPushButton):
         p.end()
 
 
+class _PinBtn(QPushButton):
+    """타이틀바용 always-on-top 토글 — 압정(thumbtack) 라인 아이콘.
+    ON=브랜드 액센트 채움, OFF=회색 외곽. 브랜드 톤(라운드 라인)에 맞춤."""
+    def __init__(self):
+        super().__init__()
+        self.setCheckable(True)
+        self.setFixedSize(26, 24); self.setCursor(Qt.PointingHandCursor)
+        self.setStyleSheet('QPushButton{border:none;background:transparent;border-radius:6px;}'
+                           'QPushButton:hover{background:rgba(255,255,255,30);}')
+
+    def paintEvent(self, e):
+        super().paintEvent(e)   # hover 배경
+        on = self.isChecked()
+        col = QColor(T('accent')) if on else QColor('#9A9AA0')
+        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
+        cx = 13.0
+        pen = QPen(col, 1.5); pen.setCapStyle(Qt.RoundCap); pen.setJoinStyle(Qt.RoundJoin)
+        p.setPen(pen)
+        # 머리(가로 캡)
+        cap = QPainterPath(); cap.addRoundedRect(QRectF(cx - 5.5, 4.8, 11, 3.6), 1.8, 1.8)
+        if on: p.fillPath(cap, col)
+        p.drawPath(cap)
+        # 목(사다리꼴) — 캡에서 바늘로 좁아짐
+        neck = QPainterPath(); neck.moveTo(cx - 3.4, 8.4); neck.lineTo(cx + 3.4, 8.4)
+        neck.lineTo(cx + 1.7, 11.6); neck.lineTo(cx - 1.7, 11.6); neck.closeSubpath()
+        if on: p.fillPath(neck, col)
+        p.drawPath(neck)
+        # 바늘
+        p.drawLine(QPointF(cx, 11.6), QPointF(cx, 18.4))
+        p.end()
+
+
 class _ResetMaxBtn(QPushButton):
     """타이틀바용 컴팩트 아이콘 — Max 리셋. 원형 리셋 화살표(↺)를 직접 그림."""
     def __init__(self):
@@ -3872,11 +3904,13 @@ class SplAlarmWindow(QWidget):
     def __init__(self, main):
         self._main = main
         super().__init__(None, Qt.Window)
-        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)  # 본화면 위 항상
         self.setWindowTitle('SPL Alarm')
         self.setAttribute(Qt.WA_DeleteOnClose, False)
         self.setStyleSheet(f'background:{T("bg")};')
         self._cfg = self._load_cfg()
+        self._always_top = bool(self._cfg.get('on_top', True))
+        if self._always_top:
+            self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)  # 본화면 위
         calib = 0.0
         try:
             calib = main._spl_source_calib(0)
@@ -3884,19 +3918,37 @@ class SplAlarmWindow(QWidget):
             pass
         self._eng = _SplMetricEngine(self._leq_secs(), calib)
 
+        self._pin_btn = _PinBtn(); self._pin_btn.setChecked(self._always_top)
+        self._pin_btn.setToolTip('Keep on top')
+        self._pin_btn.clicked.connect(self._toggle_on_top)
         self._set_btn = _SettingsBtn(); self._set_btn.setToolTip('Alarm settings')
         self._set_btn.clicked.connect(self._open_config)
 
         lay = QVBoxLayout(self); lay.setContentsMargins(10, 10, 10, 10)
         self.disp = _SplAlarmDisplay()
         lay.addWidget(self.disp)
-        _apply_dark_titlebar(self, resizable=True, aux=[self._set_btn])
+        _apply_dark_titlebar(self, resizable=True, aux=[self._pin_btn, self._set_btn])
         self.setWindowState(Qt.WindowNoState)
         # 최소높이는 타이틀바34+여백20+카드최소80 = 134 이상이면 카드 안 잘림 → 여유두고 150
-        self.setMinimumSize(210, 150); self.resize(460, 260)
+        # 기본 열림 크기 = 최소(컴팩트) — 사용자가 필요시 키움
+        self.setMinimumSize(210, 150); self.resize(210, 150)
         self._apply_cfg()
 
         self._timer = QTimer(self); self._timer.timeout.connect(self._tick); self._timer.start(200)
+
+    def _toggle_on_top(self):
+        """always-on-top 켜고 끄기 — 프레임리스 유지하며 플래그 토글 후 재표시."""
+        self._always_top = not self._always_top
+        self._pin_btn.setChecked(self._always_top)
+        flags = self.windowFlags()
+        if self._always_top:
+            flags |= Qt.WindowStaysOnTopHint
+        else:
+            flags &= ~Qt.WindowStaysOnTopHint
+        self.setWindowFlags(flags)   # FramelessWindowHint는 flags에 이미 포함 → 유지
+        self.show()                  # setWindowFlags가 창을 숨기므로 다시 표시
+        self._cfg['on_top'] = self._always_top
+        self._save_cfg()
 
     # ── 설정 로드/저장 ──
     def _load_cfg(self):
@@ -3909,6 +3961,7 @@ class SplAlarmWindow(QWidget):
             'limit':   float(c.get('limit', 100.0)),
             'amber':   float(c.get('amber', 3.0)),
             'leq_idx': int(c.get('leq_idx', 3)),
+            'on_top':  bool(c.get('on_top', True)),
         }
 
     def _save_cfg(self):
