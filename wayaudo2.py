@@ -693,17 +693,28 @@ def _set_float_above_fullscreen(win):
 
 def _glance_chrome_update(win):
     """글랜스 창(SPL 미터/알람) — 마우스가 창 밖이면 타이틀바를 부드럽게 접어 '카드만',
-    창 안이면 부드럽게 펼침. 200ms 타이머에서 호출(전역 커서로 판정, 자식 enter/leave 무관)."""
+    창 안이면 부드럽게 펼침. 200ms 타이머에서 호출(전역 커서로 판정, 자식 enter/leave 무관).
+    들어오면 즉시 펼치고, 나가면 0.35s 지난 뒤에만 접음(짧은 스침엔 안 깜빡임)."""
     from PyQt5.QtGui import QCursor
     try:
         inside = win.geometry().contains(QCursor.pos())
     except Exception:
         inside = True
-    _glance_set_chrome(win, inside)
+    now = time.monotonic()
+    if inside:
+        win._chrome_outside_since = None
+        _glance_set_chrome(win, True)
+    else:
+        ts = getattr(win, '_chrome_outside_since', None)
+        if ts is None:
+            win._chrome_outside_since = now
+        elif now - ts >= 0.35:
+            _glance_set_chrome(win, False)
 
 
 def _glance_set_chrome(win, show):
-    """타이틀바를 부드럽게 페이드+높이접기(0↔34px)로 표시/숨김. 카드가 따라 늘어남."""
+    """타이틀바를 부드럽게 페이드(opacity 0↔1)로만 표시/숨김.
+    높이/레이아웃은 그대로 → 카드가 절대 안 움직임(가장 안 헷갈림). 페이드만 부드럽게."""
     tb = getattr(win, '_dark_titlebar', None)
     if tb is None:
         return
@@ -711,12 +722,6 @@ def _glance_set_chrome(win, show):
     if getattr(win, '_chrome_target', None) == target:
         return
     win._chrome_target = target
-
-    full_h = getattr(tb, '_full_h', None)
-    if full_h is None:
-        full_h = tb.height() or 34
-        tb._full_h = full_h
-        tb.setMinimumHeight(0)   # 0까지 접히게(원래 setFixedHeight라 min=max=34였음)
 
     eff = getattr(tb, '_opacity_eff', None)
     if eff is None:
@@ -727,29 +732,17 @@ def _glance_set_chrome(win, show):
     anim = getattr(win, '_chrome_anim', None)
     if anim is None:
         from PyQt5.QtCore import QVariantAnimation, QEasingCurve
-        anim = QVariantAnimation(win); anim.setDuration(190)
-        anim.setEasingCurve(QEasingCurve.InOutQuad)
+        anim = QVariantAnimation(win); anim.setDuration(280)
+        anim.setEasingCurve(QEasingCurve.InOutCubic)
 
         def _on_val(v):
             try:
-                t = float(v)
-                tb.setFixedHeight(max(0, int(round(tb._full_h * t))))
-                tb._opacity_eff.setOpacity(t)
-                grip = getattr(win, '_dark_grip', None)
-                if grip is not None:
-                    grip.setVisible(t > 0.55)
+                tb._opacity_eff.setOpacity(float(v))
             except Exception:
                 pass
         anim.valueChanged.connect(_on_val)
-
-        def _on_fin():
-            if getattr(win, '_chrome_target', 1.0) <= 0.0:
-                tb.setVisible(False)
-        anim.finished.connect(_on_fin)
         win._chrome_anim = anim
 
-    if show:
-        tb.setVisible(True)
     anim.stop()
     anim.setStartValue(float(eff.opacity()))
     anim.setEndValue(target)
