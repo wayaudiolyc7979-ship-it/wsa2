@@ -691,6 +691,34 @@ def _set_float_above_fullscreen(win):
         except Exception: pass
 
 
+def _apply_on_top(win, on):
+    """always-on-top 적용 — macOS는 NSWindow.setLevel로 (창 재생성 없음=깜빡임 없음).
+    on=True→NSFloatingWindowLevel(3) / False→NSNormalWindowLevel(0).
+    적용 성공 시 True. macOS 아니면 False(호출측이 Qt 플래그로 폴백)."""
+    if sys.platform != 'darwin':
+        return False
+    try:
+        import ctypes
+        objc = ctypes.cdll.LoadLibrary('/usr/lib/libobjc.A.dylib')
+        objc.sel_registerName.restype = ctypes.c_void_p
+        objc.sel_registerName.argtypes = [ctypes.c_char_p]
+        def sel(n): return objc.sel_registerName(n.encode())
+        def msg(restype, obj, name, *args):
+            f = objc.objc_msgSend; f.restype = restype
+            f.argtypes = [ctypes.c_void_p, ctypes.c_void_p] + [type(a) for a in args]
+            return f(obj, sel(name), *args)
+        ns_view = ctypes.c_void_p(int(win.winId()))
+        ns_window = msg(ctypes.c_void_p, ns_view, 'window')
+        if not ns_window:
+            return False
+        msg(None, ns_window, 'setLevel:', ctypes.c_long(3 if on else 0))
+        return True
+    except Exception as e:
+        try: _alog.debug(f'setLevel(on_top) 실패: {e}')
+        except Exception: pass
+        return False
+
+
 def _glance_chrome_update(win):
     """글랜스 창(SPL 미터/알람) — 마우스가 창 밖이면 타이틀바를 부드럽게 접어 '카드만',
     창 안이면 부드럽게 펼침. 200ms 타이머에서 호출(전역 커서로 판정, 자식 enter/leave 무관).
@@ -3980,8 +4008,9 @@ class SplAlarmWindow(QWidget):
         self.setStyleSheet(f'background:{T("bg")};')
         self._cfg = self._load_cfg()
         self._always_top = bool(self._cfg.get('on_top', True))
-        if self._always_top:
-            self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)  # 본화면 위
+        # macOS는 showEvent에서 네이티브 setLevel로(깜빡임 없음). 그 외 OS만 Qt 플래그.
+        if self._always_top and sys.platform != 'darwin':
+            self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
         calib = 0.0
         try:
             calib = main._spl_source_calib(0)
@@ -4008,16 +4037,13 @@ class SplAlarmWindow(QWidget):
         self._timer = QTimer(self); self._timer.timeout.connect(self._tick); self._timer.start(200)
 
     def _toggle_on_top(self):
-        """always-on-top 켜고 끄기 — 프레임리스 유지하며 플래그 토글 후 재표시."""
+        """always-on-top 켜고 끄기 — macOS는 네이티브 setLevel(깜빡임 없음), 그 외만 Qt 플래그."""
         self._always_top = not self._always_top
-        self._pin_btn.setChecked(self._always_top)
-        flags = self.windowFlags()
-        if self._always_top:
-            flags |= Qt.WindowStaysOnTopHint
-        else:
-            flags &= ~Qt.WindowStaysOnTopHint
-        self.setWindowFlags(flags)   # FramelessWindowHint는 flags에 이미 포함 → 유지
-        self.show()                  # setWindowFlags가 창을 숨기므로 다시 표시
+        self._pin_btn.setChecked(self._always_top); self._pin_btn.update()
+        if not _apply_on_top(self, self._always_top):
+            flags = self.windowFlags()
+            flags = (flags | Qt.WindowStaysOnTopHint) if self._always_top else (flags & ~Qt.WindowStaysOnTopHint)
+            self.setWindowFlags(flags); self.show()   # 폴백(비-macOS): 재생성 깜빡임 있음
         self._cfg['on_top'] = self._always_top
         self._save_cfg()
 
@@ -4089,6 +4115,7 @@ class SplAlarmWindow(QWidget):
         if not self._timer.isActive():
             self._timer.start(200)
         _set_float_above_fullscreen(self)
+        _apply_on_top(self, self._always_top)   # macOS 네이티브 레벨 적용
 
     def closeEvent(self, e):
         self._timer.stop()
@@ -4134,8 +4161,9 @@ class SplMeterWindow(QWidget):
             self._always_top = bool(self._main._settings.get('spl_meter', {}).get('on_top', True))
         except Exception:
             self._always_top = True
-        if self._always_top:
-            self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)  # 본화면 위
+        # macOS는 showEvent에서 네이티브 setLevel로(깜빡임 없음). 그 외 OS만 Qt 플래그.
+        if self._always_top and sys.platform != 'darwin':
+            self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
         self.setWindowTitle('SPL Meter')
         self.setAttribute(Qt.WA_DeleteOnClose, False)
 
@@ -4223,16 +4251,13 @@ class SplMeterWindow(QWidget):
             _alog.warning(f'SPL 레이아웃 저장 실패: {e}')
 
     def _toggle_on_top(self):
-        """always-on-top 켜고 끄기 — 프레임리스 유지하며 플래그 토글 후 재표시."""
+        """always-on-top 켜고 끄기 — macOS는 네이티브 setLevel(깜빡임 없음), 그 외만 Qt 플래그."""
         self._always_top = not self._always_top
-        self._pin_btn.setChecked(self._always_top)
-        flags = self.windowFlags()
-        if self._always_top:
-            flags |= Qt.WindowStaysOnTopHint
-        else:
-            flags &= ~Qt.WindowStaysOnTopHint
-        self.setWindowFlags(flags)
-        self.show()
+        self._pin_btn.setChecked(self._always_top); self._pin_btn.update()
+        if not _apply_on_top(self, self._always_top):
+            flags = self.windowFlags()
+            flags = (flags | Qt.WindowStaysOnTopHint) if self._always_top else (flags & ~Qt.WindowStaysOnTopHint)
+            self.setWindowFlags(flags); self.show()   # 폴백(비-macOS)
         self._save_layout()
 
     def restyle_theme(self):
@@ -4443,6 +4468,7 @@ class SplMeterWindow(QWidget):
         if not self._timer.isActive(): self._timer.start(200)
         self._scale_panels()
         _set_float_above_fullscreen(self)   # 풀스크린 위 + 최소화 생존
+        _apply_on_top(self, self._always_top)   # macOS 네이티브 레벨 적용
 
     def closeEvent(self, e):
         self._timer.stop()
