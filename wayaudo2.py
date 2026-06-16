@@ -1,6 +1,6 @@
 11#!/usr/bin/env python3
 # ═══════════════════════════════════════════════════
-#  SPECTRA — Spectrum Analyzer  (by WAYAUDIO)  v1.5
+#  SPECTRA — Spectrum Analyzer  (by WAYAUDIO)  v1.6
 #  ✅ FFT 버벅임 수정 (포인트 다운샘플링)
 #  ✅ 마이크 캘리브레이션 (94/114dB @ 1kHz)
 #  ✅ dBA / dBC 실시간 레벨
@@ -97,7 +97,7 @@ import math as _math
 
 # ── 앱 버전 (단일 소스) ── 버전 올릴 땐 `bash bump_version.sh 1.6` 한 줄로 전부 갱신.
 #   (이 상수 + 상단 주석 + WSA2.spec/build_intel.sh/version_info.txt 까지 스크립트가 처리)
-_APP_VERSION = '1.5'
+_APP_VERSION = '1.6'
 
 # ═══════════════════════════════════════════════════════════════════
 #  라이선스 관리
@@ -214,8 +214,7 @@ class LicenseDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle('SPECTRA — 라이선스 활성화'); _apply_dark_titlebar(self)
-        self.setFixedSize(460, 310)
-        self.setWindowFlags(Qt.Dialog | Qt.MSWindowsFixedSizeDialogHint)
+        self.setFixedSize(460, 310)   # 고정크기(프레임리스 유지) — setWindowFlags 재호출 금지(이중 타이틀바 방지)
         self._mid = _get_machine_id()
         self._build_ui()
 
@@ -375,6 +374,27 @@ def c_weight_db(f):
     rc = (12200**2 * f2) / ((f2+20.6**2)*(f2+12200**2))
     return 20*math.log10(max(rc,1e-20)) + 0.06
 
+_HANN_CACHE = {}   # {n: (hanning_win, Σw²)} — power_spectrum_db 윈도우 메모이즈
+def power_spectrum_db(buf):
+    """단측(one-sided) 파워 스펙트럼 → 빈별 dBFS 배열.
+    Hanning 윈도우 파워 보정(Σw², ENBW) + 단측 ×2 정규화 → 밴드 파워 합산값이
+    실제 RMS 파워와 정합(Parseval). 톤/광대역 정규화가 일치하고 FFT 해상도·
+    윈도우 종류에 무관 → Smaart 등 표준 RTA와 절대 레벨이 맞음.
+    (FS 사인파 = -3 dBFS, 즉 RMS 기준)"""
+    n = len(buf)
+    cached = _HANN_CACHE.get(n)                 # n별 윈도우·Σw² 캐시 (매 청크 재계산 방지)
+    if cached is None:
+        win = np.hanning(n).astype(np.float32)
+        cached = (win, float(np.dot(win, win)))  # Σw² (Hanning ≈ 0.375·n)
+        _HANN_CACHE[n] = cached
+    win, win_pow = cached
+    ps = np.abs(np.fft.rfft(buf * win)) ** 2
+    ps *= 2.0 / (n * win_pow)                   # 단측 파워 정규화 (윈도우/해상도 무관)
+    ps[0] *= 0.5
+    if n % 2 == 0: ps[-1] *= 0.5               # DC·Nyquist는 단측 ×2 제외
+    np.maximum(ps, 1e-20, out=ps)
+    return 10.0 * np.log10(ps)
+
 # ───────────────────────────────────────────
 #  테마
 # ───────────────────────────────────────────
@@ -468,6 +488,8 @@ _LUCIDE_ICONS = {
     'info':     ('<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>', False),
     'audio-lines':('<path d="M2 10v3"/><path d="M6 6v11"/><path d="M10 3v18"/><path d="M14 8v7"/><path d="M18 5v13"/><path d="M22 10v3"/>', False),
     'extlink':  ('<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>', False),
+    'alert-triangle':('<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>', False),
+    'help-circle':('<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>', False),
 }
 
 def _svg_render(p, inner, color, size, filled=False):
@@ -502,6 +524,23 @@ def _icon(name, size=16, color=None):
     QSvgRenderer(QByteArray(svg.encode())).render(p, QRectF(0, 0, s, s))
     p.end()
     return QIcon(pm)
+
+
+def _draw_reload_arrow(p, cx, cy, r, col, lw=2.0):
+    """리셋/리로드용 둥근 화살표 — 거의 꽉 찬 원(상단 작은 틈)+깔끔한 삼각 화살촉. 공용."""
+    p.setRenderHint(QPainter.Antialiasing, True)
+    pen = QPen(col, lw); pen.setCapStyle(Qt.RoundCap)
+    p.setPen(pen); p.setBrush(Qt.NoBrush)
+    p.drawArc(QRectF(cx - r, cy - r, 2 * r, 2 * r), 110 * 16, 320 * 16)
+    # 화살촉 — 원호 시작점(상단 좌측 틈)에 삼각형 (반지름 비례)
+    k = r / 8.0
+    a = math.radians(110)
+    ax, ay = cx + r * math.cos(a), cy - r * math.sin(a)
+    p.setPen(Qt.NoPen); p.setBrush(col)
+    p.drawPolygon(QPolygonF([
+        QPointF(ax - 2.5 * k, ay - 1.5 * k),
+        QPointF(ax + 2.5 * k, ay - 2.5 * k),
+        QPointF(ax + 0.5 * k, ay + 3.0 * k)]))
 
 
 def _txn_icon(playing, sz=14):
@@ -621,6 +660,37 @@ def _apply_dark_titlebar(win, resizable=False, aux=None):
         _add_resize_grip(win)
 
 
+def _set_float_above_fullscreen(win):
+    """macOS: 부모 없는 독립 창을 (1) 메인창이 풀스크린이어도 그 위에 뜨고
+    (2) 모든 Space에 표시 + 메인창 최소화에도 살아남게 한다 (Smaart SPL 미터 방식).
+    네이티브 NSWindow.collectionBehavior 에 FullScreenAuxiliary | CanJoinAllSpaces 추가.
+    winId()가 유효해야 하므로 반드시 show() 이후 호출."""
+    if sys.platform != 'darwin':
+        return
+    try:
+        import ctypes
+        objc = ctypes.cdll.LoadLibrary('/usr/lib/libobjc.A.dylib')
+        objc.sel_registerName.restype = ctypes.c_void_p
+        objc.sel_registerName.argtypes = [ctypes.c_char_p]
+        def sel(name): return objc.sel_registerName(name.encode())
+        def msg(restype, obj, sel_name, *args):
+            f = objc.objc_msgSend
+            f.restype = restype
+            f.argtypes = [ctypes.c_void_p, ctypes.c_void_p] + [type(a) for a in args]
+            return f(obj, sel(sel_name), *args)
+        ns_view = ctypes.c_void_p(int(win.winId()))
+        ns_window = msg(ctypes.c_void_p, ns_view, 'window')
+        if not ns_window:
+            return
+        # NSWindowCollectionBehaviorCanJoinAllSpaces=1<<0, FullScreenAuxiliary=1<<8
+        beh = msg(ctypes.c_ulong, ns_window, 'collectionBehavior')
+        beh |= (1 << 0) | (1 << 8)
+        msg(None, ns_window, 'setCollectionBehavior:', ctypes.c_ulong(beh))
+    except Exception as e:
+        try: _alog.debug(f'float-above-fullscreen 실패: {e}')
+        except Exception: pass
+
+
 class _SettingsBtn(QPushButton):
     """타이틀바용 설정 버튼 — 누르면 SPL 설정창 오픈. 슬라이더(컨트롤) 아이콘을 직접 그림."""
     def __init__(self):
@@ -654,18 +724,25 @@ class _ResetMaxBtn(QPushButton):
 
     def paintEvent(self, e):
         super().paintEvent(e)   # hover 배경
-        col = QColor('#9A9AA0')
-        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        pen = QPen(col, 1.6); pen.setCapStyle(Qt.RoundCap)
-        p.setPen(pen); p.setBrush(Qt.NoBrush)
-        # 원호(약 300°, 위쪽 틈) — 중심(13,12) 반지름 6
-        rect = QRectF(7, 6, 12, 12)
-        p.drawArc(rect, 60 * 16, 280 * 16)
-        # 화살촉 — 원호 시작점(우상단 틈) 근처에 작은 삼각형
-        p.setPen(Qt.NoPen); p.setBrush(col)
-        ax, ay = 13 + 6 * math.cos(math.radians(60)), 12 - 6 * math.sin(math.radians(60))
-        p.drawPolygon(QPolygonF([
-            QPointF(ax, ay - 1), QPointF(ax + 4, ay), QPointF(ax, ay + 4)]))
+        p = QPainter(self)
+        _draw_reload_arrow(p, 13, 12, 6, QColor('#9A9AA0'), 1.7)
+        p.end()
+
+
+class _ReloadBtn(QPushButton):
+    """둥근 화살표 리셋 버튼 — 위젯 크기에 맞춰 직접 그림(아이콘 스케일 찌그러짐 방지)."""
+    def __init__(self, color=None):
+        super().__init__()
+        self._col = color
+        self.setCursor(Qt.PointingHandCursor)
+
+    def paintEvent(self, e):
+        super().paintEvent(e)   # hover 배경
+        col = QColor(self._col) if self._col else QColor('#C7CAD1' if _theme == 'dark' else '#46566e')
+        p = QPainter(self)
+        d = float(min(self.width(), self.height()))
+        _draw_reload_arrow(p, self.width() / 2.0, self.height() / 2.0,
+                           d * 0.34, col, max(1.3, d * 0.11))
         p.end()
 
 
@@ -685,6 +762,28 @@ _SPECTRA_MARK_SVG = (
 _SPECTRA_GRAD_QSS = ('qlineargradient(x1:0,y1:0,x2:1,y2:0,'
                      'stop:0 #1FA2FF, stop:0.28 #4E7DF0, stop:0.52 #9B5DE5,'
                      'stop:0.72 #F15BB5, stop:0.86 #FF9F0A, stop:1 #FF453A)')
+# 시그니처 그라디언트 — SVG <defs>용 (아이콘 stroke="url(#g)")
+_SPECTRA_GRAD_DEFS = (
+    '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="0">'
+    '<stop offset="0" stop-color="#1FA2FF"/><stop offset="0.28" stop-color="#4E7DF0"/>'
+    '<stop offset="0.52" stop-color="#9B5DE5"/><stop offset="0.72" stop-color="#F15BB5"/>'
+    '<stop offset="0.86" stop-color="#FF9F0A"/><stop offset="1" stop-color="#FF453A"/>'
+    '</linearGradient></defs>')
+# 시그니처 그라디언트 stops — QLinearGradient용 (스펙트럼 곡선 등 라이브 렌더; 브러시라 부담 0)
+_SPECTRA_GRAD_STOPS = [(0.0,'#1FA2FF'),(0.28,'#4E7DF0'),(0.52,'#9B5DE5'),
+                       (0.72,'#F15BB5'),(0.86,'#FF9F0A'),(1.0,'#FF453A')]
+def _spectra_grad_obj(x0, x1, alpha=255):
+    """가로(주파수축) SPECTRA QLinearGradient — 저역(파랑)→고역(빨강)."""
+    g = QLinearGradient(float(x0), 0.0, float(x1), 0.0)
+    for o, c in _SPECTRA_GRAD_STOPS:
+        qc = QColor(c); qc.setAlpha(alpha); g.setColorAt(o, qc)
+    return g
+def _spectra_grad_pen(x0, x1, width=2.2, alpha=255):
+    """가로 SPECTRA 그라디언트 펜 (선)."""
+    return QPen(QBrush(_spectra_grad_obj(x0, x1, alpha)), width)
+def _spectra_grad_brush(x0, x1, alpha=255):
+    """가로 SPECTRA 그라디언트 브러시 (채움)."""
+    return QBrush(_spectra_grad_obj(x0, x1, alpha))
 _spectra_mark_cache = {}
 def _spectra_mark(h=22):
     """그라디언트 웨이브 마크 QPixmap(높이 h px). 한 번만 렌더 후 캐시 (속도 영향 0)."""
@@ -708,6 +807,40 @@ def _spectra_mark(h=22):
         pm = QPixmap(1, 1); pm.fill(Qt.transparent)   # QtSvg 없으면 빈 마크(워드마크만 표시)
     _spectra_mark_cache[key] = pm
     return pm
+
+
+# 캡쳐 일괄 표시/숨김 토글 전용 아이콘 — SPECTRA 시그니처 웨이브(캡쳐=스펙트럼 곡선 은유).
+# 기존 Lucide 아이콘 재사용 금지(브랜드 정체성) → 그라디언트 마크를 미니 글리프로 자체 렌더.
+_WAVE_TOGGLE_PATH = 'M2,12 C5,12 5,7 8,7 S11,17 14,12 S17,7 20,7 S22,12 22,12'
+_wave_toggle_icon_cache = {}
+def _wave_toggle_icon(on, size=16):
+    """ON=브랜드 그라디언트 웨이브(=모두 표시), OFF=흐린 회색 웨이브+사선(=모두 숨김).
+    OFF 회색은 테마 적응. 한 번 렌더 후 (on,size,theme)로 캐시."""
+    from PyQt5.QtGui import QIcon
+    from PyQt5.QtSvg import QSvgRenderer
+    from PyQt5.QtCore import QByteArray
+    key = (on, size, _theme)
+    ic = _wave_toggle_icon_cache.get(key)
+    if ic is not None:
+        return ic
+    if on:
+        body = (f'{_SPECTRA_GRAD_DEFS}'
+                f'<path d="{_WAVE_TOGGLE_PATH}" fill="none" stroke="url(#g)" stroke-width="2.4" '
+                f'stroke-linecap="round" stroke-linejoin="round"/>')
+    else:
+        gray  = '#6B6B70' if _theme == 'dark' else '#9AA0AA'
+        slash = '#9A9AA0' if _theme == 'dark' else '#6B7280'
+        body = (f'<path d="{_WAVE_TOGGLE_PATH}" fill="none" stroke="{gray}" stroke-width="2.2" '
+                f'stroke-linecap="round" stroke-linejoin="round"/>'
+                f'<line x1="5" y1="19" x2="19" y2="5" stroke="{slash}" stroke-width="2.2" stroke-linecap="round"/>')
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">{body}</svg>'
+    dpr = 2
+    pm = QPixmap(size * dpr, size * dpr); pm.setDevicePixelRatio(dpr); pm.fill(Qt.transparent)
+    p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing, True)
+    QSvgRenderer(QByteArray(svg.encode())).render(p, QRectF(0, 0, size, size))
+    p.end()
+    ic = QIcon(pm); _wave_toggle_icon_cache[key] = ic
+    return ic
 
 
 def ss_text(size=FS_BODY, color_key='text_dim', bold=False):
@@ -760,6 +893,14 @@ def ss_btn_neutral(size=12):
             f'font-size:{size}px;min-width:60px;}}'
             f'QPushButton:hover{{border-color:{T("accent")};}}'
             f'QPushButton:disabled{{color:{T("text_dim")};}}')
+
+def ss_btn_danger(size=12):
+    """다이얼로그 위험(삭제 등) 주동작 버튼 — 빨강 채움."""
+    r = QColor(T('red')); rr, rg, rb = r.red(), r.green(), r.blue()
+    return (f'QPushButton{{background:{T("red")};color:#FFFFFF;'
+            f'border:1px solid {T("red")};border-radius:6px;padding:5px 16px;'
+            f'font-size:{size}px;font-weight:600;min-width:60px;}}'
+            f'QPushButton:hover{{background:rgba({rr},{rg},{rb},210);}}')
 
 def hsep(color_key='border'):
     """1px 수평 구분선. QFrame.HLine 의 베벨/이중선 없이 깔끔한 단색 라인."""
@@ -892,6 +1033,21 @@ def draw_dom_badge(p, plot_right, plot_top, dom_fs, dom_db, unit='dB'):
     p.setPen(QColor(T('accent')))
     p.drawText(bx, by, bw, bh, Qt.AlignHCenter | Qt.AlignVCenter, txt)
 
+def _focused_capture_visible(c):
+    """캡쳐 포커스가 유효하고(인덱스 범위 내) 그 캡쳐가 보이는 상태인지 — 라이브 dim 판단용.
+    FFT/Octave/TF Phase/Mag/IR 캔버스가 공유하는 '_front_idx + _captures' 규약 기반."""
+    return (c._front_idx is not None
+            and 0 <= c._front_idx < len(c._captures)
+            and c._captures[c._front_idx].get('visible', True))
+
+
+def _grad_topline():
+    """브랜드 다이얼로그 상단의 SPECTRA 그라디언트 3px 라인 QFrame."""
+    f = QFrame(); f.setFixedHeight(3)
+    f.setStyleSheet(f'background:{_SPECTRA_GRAD_QSS};border:none;')
+    return f
+
+
 def _draw_idle_hint(p, pl, pt, dw, dh, text='Press  Start  to begin'):
     """시작 전(무신호) 메인 그래프 중앙에 은은한 SPECTRA 마크 + 안내 — 브랜드 엠프티 스테이트."""
     cx = pl + dw / 2.0; cy = pt + dh / 2.0
@@ -910,10 +1066,42 @@ def _draw_idle_hint(p, pl, pt, dw, dh, text='Press  Start  to begin'):
                Qt.AlignHCenter | Qt.AlignVCenter, text)
     p.restore()
 
+_capture_palette_cache = None
+def _capture_palette(count=48):
+    """캡쳐 색 팔레트 — 라이브 카드 색(_MC_COLORS)과도, 서로와도 최대한 멀리 떨어지게.
+    최원점(farthest-point) 선택: 색공간(hue+채도+밝기) 후보 중 '이미 뽑힌 색 + 라이브 색'과
+    RGB 거리가 가장 먼 색을 차례로 고른다. 라이브 색을 시드로 넣어 캡쳐가 라이브를 회피.
+    채도/밝기 하한을 둬 다크·라이트 양 테마에서 모두 잘 보이게. 1회 계산 후 캐시(결정론적).
+    color 그룹만으론 hue 공간이 부족해 22개+에서 비슷해지던 문제 해결."""
+    global _capture_palette_cache
+    if _capture_palette_cache is not None and len(_capture_palette_cache) >= count:
+        return _capture_palette_cache
+    # 후보 색공간 (hue×채도×밝기) 생성
+    cand_rgb = []; cand_name = []
+    H = 120
+    for i in range(H):
+        h = i / H
+        for s in (0.65, 0.85, 1.0):
+            for v in (0.82, 0.93, 1.0):
+                c = QColor.fromHsvF(h, s, v)
+                cand_rgb.append((c.red(), c.green(), c.blue())); cand_name.append(c.name())
+    cand = np.asarray(cand_rgb, dtype=np.float64)
+    live = np.asarray([[QColor(c).red(), QColor(c).green(), QColor(c).blue()]
+                       for c in _MC_COLORS], dtype=np.float64)
+    # 벡터화 farthest-point: 라이브 시드까지 최소거리²에서 시작 → 매 단계 argmax 선택 후 선택색 거리로 갱신
+    min_d = ((cand[:, None, :] - live[None, :, :]) ** 2).sum(-1).min(axis=1)
+    out = []
+    for _ in range(count):
+        i = int(np.argmax(min_d))
+        out.append(cand_name[i])
+        min_d = np.minimum(min_d, ((cand - cand[i]) ** 2).sum(-1))
+    _capture_palette_cache = out
+    return out
+
 def _auto_capture_color(n):
-    """황금 비율 HSV 순환으로 구분이 잘 되는 색 자동 반환."""
-    hue = (n * 0.618033988) % 1.0
-    return QColor.fromHsvF(hue, 0.90, 0.98).name()
+    """캡쳐 색 — 라이브 카드·다른 캡쳐와 최대한 구분되는 팔레트의 n번째(초과 시 순환)."""
+    pal = _capture_palette()
+    return pal[n % len(pal)]
 
 def _catmull_seg(px, py):
     """Catmull-Rom 스플라인 → QPainterPath.  직선 lineTo 대신 cubicTo 로 부드러운 곡선."""
@@ -1567,6 +1755,7 @@ class FFTCanvas(QWidget):
         self.peak_decay_rate_pk=20.0/30.0  # 20 dB/s 고정 낙하
         self._peak_age=None
         self._cache=None
+        self._grad_fill_pix=None; self._grad_fill_key=None   # 그라디언트 채움 캐시(픽셀별 계산 회피)
         self._ds_f=None; self._ds_avg=None; self._ds_pk=None
         self._captures=[]
         self._cap_pix=None; self._cap_pix_key=None
@@ -1577,6 +1766,7 @@ class FFTCanvas(QWidget):
         self._cap_img_pending = None; self._cap_key_pending = None
         self._cap_built.connect(self._apply_cap_built)
         self._ch_curves = {}   # {card_id: {'color', 'ds_f', 'ds_avg', 'visible'}}
+        self._ch_visible = {}  # {card_id: bool} — 데이터 도착 전에도 유지되는 채널 가시성(소스 카드와 동기화)
         self._primary_visible = True
         self._front_id = 0     # 0=primary; 선택된 카드가 맨 앞
 
@@ -1590,13 +1780,19 @@ class FFTCanvas(QWidget):
             ds_f = log_f; ds_avg = np.interp(log_f, f_sel, a_sel)
         else:
             ds_f = f_sel; ds_avg = a_sel
-        prev = self._ch_curves.get(ch_idx, {})
         self._ch_curves[ch_idx] = {'color': color, 'ds_f': ds_f, 'ds_avg': ds_avg,
-                                   'visible': prev.get('visible', True)}
+                                   'visible': self._ch_visible.get(ch_idx, True)}
+        self.update()
+
+    def set_channel_visible(self, ch_idx, vis):
+        """채널 가시성 — 데이터 도착 전에도 유지(소스 카드 체크박스와 동기화)."""
+        self._ch_visible[ch_idx] = vis
+        if ch_idx in self._ch_curves:
+            self._ch_curves[ch_idx]['visible'] = vis
         self.update()
 
     def clear_channel(self, ch_idx):
-        self._ch_curves.pop(ch_idx, None); self.update()
+        self._ch_curves.pop(ch_idx, None); self._ch_visible.pop(ch_idx, None); self.update()
 
     def clear_all_channels(self):
         self._ch_curves.clear(); self.update()
@@ -1680,6 +1876,15 @@ class FFTCanvas(QWidget):
         })
         self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
 
+    def recapture(self, idx):
+        """기존 캡쳐 idx 의 곡선만 현재 라이브값으로 덮어쓰기 (색/이름/그룹/가시성 유지)."""
+        if self._ds_f is None or self._ds_avg is None: return False
+        if not (0 <= idx < len(self._captures)): return False
+        c = self._captures[idx]
+        c['f'] = self._ds_f.copy(); c['db'] = self._ds_avg.copy()
+        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
+        return True
+
     def remove_capture(self, idx):
         if 0 <= idx < len(self._captures):
             self._captures.pop(idx)
@@ -1692,6 +1897,15 @@ class FFTCanvas(QWidget):
         if 0 <= idx < len(self._captures):
             self._front_idx=idx; self._live_on_top=False
             self._cap_pix=None; self.update()
+
+    def _grad_fill_pixmap(self, W, H, x0, x1, alpha):
+        """브랜드 그라디언트 채움용 캐시 픽스맵 — 픽셀별 그라디언트 계산을 1회로(크기/색 동일 시 재사용)."""
+        key=(W, H, x0, x1, alpha)
+        if self._grad_fill_key != key or self._grad_fill_pix is None:
+            pm=QPixmap(W, H); pm.fill(Qt.transparent)
+            gp=QPainter(pm); gp.fillRect(0, 0, W, H, _spectra_grad_brush(x0, x1, alpha)); gp.end()
+            self._grad_fill_pix=pm; self._grad_fill_key=key
+        return self._grad_fill_pix
 
     def _draw_live(self, p, W, H, dim=False):
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
@@ -1707,12 +1921,13 @@ class FFTCanvas(QWidget):
         if f_arr is None or len(f_arr)<2 or a_arr is None or len(a_arr)!=len(f_arr): return
         if not self._primary_visible:
             # 추가 채널만 그리고 종료 (front 인 소스가 맨 마지막)
+            # 선 AA OFF — Retina 전체화면 성능(float 좌표라 계단현상은 없음)
             for cid, ch_data in sorted(self._ch_curves.items(), key=lambda kv: kv[0]==self._front_id):
                 if not ch_data.get('visible', True): continue
                 f_c=ch_data['ds_f']; a_c=ch_data['ds_avg']
                 if f_c is None or len(f_c)<2: continue
                 xc=pl+(np.log10(np.maximum(f_c,1)/20)/math.log10(ny/20))*uw if self.scale_log else pl+(f_c/ny)*uw
-                yc=pt+np.clip(((self.db_max-a_c)/(self.db_max-self.db_min)*dh).astype(int),0,dh)
+                yc=pt+np.clip((self.db_max-a_c)/(self.db_max-self.db_min)*dh,0,dh)
                 sc=QPainterPath(); sc.moveTo(float(xc[0]),float(yc[0]))
                 for x,y in zip(xc[1:],yc[1:]): sc.lineTo(float(x),float(y))
                 p.setPen(QPen(_ch_col(ch_data['color']),1.8)); p.drawPath(sc)
@@ -1721,24 +1936,44 @@ class FFTCanvas(QWidget):
             xs=pl+(np.log10(np.maximum(f_arr,1)/20)/math.log10(ny/20))*uw
         else:
             xs=pl+(f_arr/ny)*uw
-        ys=pt+np.clip(((self.db_max-a_arr)/(self.db_max-self.db_min)*dh).astype(int),0,dh)
+        ys=pt+np.clip((self.db_max-a_arr)/(self.db_max-self.db_min)*dh,0,dh)
         if self.clipping:
             top_col=QColor(T('red')); line_col=QColor(T('red')); pk_col=QColor(T('red'))
         else:
             top_col=QColor(*bar_top()); line_col=QColor(T('spec_line')); pk_col=QColor(T('peak_line'))
+            top_col.setAlpha(50)   # 그라디언트 선이 주인공 — 채움은 연하게(은은한 배경)
         if dim:   # 캡쳐 포커스 시 라이브 채움/선 흐리게
-            top_col.setAlpha(36); line_col.setAlpha(70); pk_col.setAlpha(70)
-        path=QPainterPath()
-        path.moveTo(float(xs[0]),float(H-pb))
-        for x,y in zip(xs,ys): path.lineTo(float(x),float(y))
-        path.lineTo(float(xs[-1]),float(H-pb)); path.closeSubpath()
-        p.fillPath(path,QBrush(top_col))
+            top_col.setAlpha(28); line_col.setAlpha(70); pk_col.setAlpha(70)
+        if self.clipping:
+            # 클리핑: 전체 빨강 채움 경고 (드물어서 비용 무관)
+            path=QPainterPath()
+            path.moveTo(float(xs[0]),float(H-pb))
+            for x,y in zip(xs,ys): path.lineTo(float(x),float(y))
+            path.lineTo(float(xs[-1]),float(H-pb)); path.closeSubpath()
+            p.fillPath(path,QBrush(top_col))
+        else:
+            # 글로우 밴드: 선 아래 일정 높이(BAND)만 그라디언트 채움 → 채운 면적이 음량과 무관하게 일정
+            #   = 전체화면/큰소리에서도 안 무거움. 캐시 그라디언트 픽스맵을 밴드 모양으로 잘라 blit.
+            BAND = 72.0
+            bot = np.minimum(ys + BAND, float(H-pb))
+            bandpath = QPainterPath()
+            bandpath.moveTo(float(xs[0]), float(ys[0]))
+            for x,y in zip(xs, ys): bandpath.lineTo(float(x), float(y))
+            for x,y in zip(xs[::-1], bot[::-1]): bandpath.lineTo(float(x), float(y))
+            bandpath.closeSubpath()
+            _gpm=self._grad_fill_pixmap(W, H, pl, W-pr, 18 if dim else 60)
+            p.save(); p.setClipPath(bandpath); p.drawPixmap(0,0,_gpm); p.restore()
+        # 선 AA OFF — Retina 전체화면 성능 (float 좌표라 계단현상 없음, 채움/선 모두 AA 미사용)
         stroke=QPainterPath()
         stroke.moveTo(float(xs[0]),float(ys[0]))
         for x,y in zip(xs[1:],ys[1:]): stroke.lineTo(float(x),float(y))
-        p.setPen(QPen(line_col,2.0)); p.drawPath(stroke)
+        if self.clipping:
+            p.setPen(QPen(line_col,2.0))   # 클리핑: 전체 빨강 경고 유지(브랜드 그라디언트 미적용)
+        else:
+            p.setPen(_spectra_grad_pen(pl, pl+uw, 2.2, 70 if dim else 255))   # SPECTRA 그라디언트 곡선
+        p.drawPath(stroke)
         if self.peak_hold and self._ds_pk is not None:
-            py_arr=pt+np.clip(((self.db_max-self._ds_pk)/(self.db_max-self.db_min)*dh).astype(int),0,dh)
+            py_arr=pt+np.clip((self.db_max-self._ds_pk)/(self.db_max-self.db_min)*dh,0,dh)
             visible=self._ds_pk>self._ds_avg+1.5
             if visible.any():
                 pk_path=QPainterPath(); in_seg=False
@@ -1757,14 +1992,19 @@ class FFTCanvas(QWidget):
                 xc = pl + (np.log10(np.maximum(f_c, 1) / 20) / math.log10(ny / 20)) * uw
             else:
                 xc = pl + (f_c / ny) * uw
-            yc = pt + np.clip(((self.db_max - a_c) / (self.db_max - self.db_min) * dh).astype(int), 0, dh)
+            yc = pt + np.clip((self.db_max - a_c) / (self.db_max - self.db_min) * dh, 0, dh)
             sc = QPainterPath()
             sc.moveTo(float(xc[0]), float(yc[0]))
             for x, y in zip(xc[1:], yc[1:]): sc.lineTo(float(x), float(y))
             p.setPen(QPen(_ch_col(ch_data['color']), 1.8)); p.drawPath(sc)
-        # front 가 primary 면 primary 라인을 맨 위에 다시
-        if self._front_id == 0:
-            p.setPen(QPen(line_col, 2.4)); p.drawPath(stroke)
+        # front 가 primary 면 primary 라인을 맨 위에 다시 (그라디언트 유지).
+        # 단 채널 오버레이가 있을 때만 — 채널이 없으면 메인 곡선이 이미 맨 위라 중복(전체화면 버벅임 방지).
+        if self._front_id == 0 and self._ch_curves:
+            if self.clipping:
+                p.setPen(QPen(line_col, 2.4))
+            else:
+                p.setPen(_spectra_grad_pen(pl, pl+uw, 2.4, 70 if dim else 255))
+            p.drawPath(stroke)
 
     def clear(self):
         self.freqs=None; self.avg=None; self.peak=None
@@ -1907,7 +2147,8 @@ class FFTCanvas(QWidget):
             p.end(); return
 
         # E 포커스: 캡쳐 선택 → 라이브 흐리게 + 선택 캡쳐 밝게(위) / 라이브 포커스 → 캡쳐 흐리게 + 라이브(위)
-        _cap_focus = (self._front_idx is not None)
+        # 단 포커스된 캡쳐가 '보이는' 상태일 때만 — 숨긴 캡쳐가 포커스면 라이브를 흐리게 두지 않음
+        _cap_focus = _focused_capture_visible(self)
         def _draw_caps():
             if not self._captures: return
             _cap_key=(W,H,self.db_max,self.db_min,self.scale_log,int(ny),self._front_idx,self._live_on_top)
@@ -1939,14 +2180,16 @@ class FFTCanvas(QWidget):
 
         # 커서
         if pl<=self._mx<=W-pr:
-            cx,cy=self._mx,self._my
-            p.setPen(QPen(QColor(T('accent')).lighter(80) if _theme=='light' else QColor(T('accent')),
-                         1,Qt.DashLine))
-            p.drawLine(cx,pt,cx,H-pb); p.drawLine(pl,cy,W-pr,cy)
+            cx=self._mx
             freq=x_to_freq(cx,pl,uw,ny) if self.scale_log else (cx-pl)/uw*ny
             fs=f'{freq/1000:.2f} kHz' if freq>=1000 else f'{freq:.0f} Hz'
             idx=int(np.clip(np.argmin(np.abs(f_arr-freq)),0,len(a_arr)-1))
             db=float(a_arr[idx])
+            # 가로선은 마우스 Y가 아니라 곡선 값 위치에 (매그니튜드 방식)
+            cy=int(pt+np.clip((self.db_max-db)/(self.db_max-self.db_min)*(H-pt-pb),0,H-pt-pb))
+            p.setPen(QPen(QColor(T('accent')).lighter(80) if _theme=='light' else QColor(T('accent')),
+                         1,Qt.DashLine))
+            p.drawLine(cx,pt,cx,H-pb); p.drawLine(pl,cy,W-pr,cy)
             draw_info_box(p,W,fs,f'{db:.1f} {unit}')
         p.end()
 
@@ -1974,6 +2217,7 @@ class OctaveCanvas(QWidget):
         self._cache=None
         self._mx=-1; self._my=-1
         self._ch_oct={}   # {card_id: {'color','values'(oct band dB array),'visible'}} — 멀티-소스 막대 오버레이
+        self._ch_visible={}  # {card_id: bool} — 데이터 도착 전에도 유지되는 채널 가시성
         self._front_id=0  # 0=primary; 선택된 카드가 맨 앞
         self._captures=[]
         self._cap_pix=None; self._cap_pix_key=None
@@ -2068,6 +2312,14 @@ class OctaveCanvas(QWidget):
         })
         self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
 
+    def recapture(self, idx):
+        """기존 옥타브 캡쳐 idx 를 현재 라이브값으로 덮어쓰기 (색/이름/그룹/가시성 유지)."""
+        if not (0 <= idx < len(self._captures)): return False
+        c = self._captures[idx]
+        c['values'] = self.smooth[self.mode].copy(); c['mode'] = self.mode
+        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
+        return True
+
     def remove_capture(self, idx):
         if 0 <= idx < len(self._captures):
             self._captures.pop(idx)
@@ -2107,12 +2359,16 @@ class OctaveCanvas(QWidget):
 
     # ── 멀티-소스 라인 오버레이 (추가 장치/채널 카드) ──
     def set_channel_oct(self, cid, color, values):
-        prev = self._ch_oct.get(cid, {})
         self._ch_oct[cid] = {'color': color, 'values': np.asarray(values, dtype=np.float64),
-                             'visible': prev.get('visible', True)}
+                             'visible': self._ch_visible.get(cid, True)}
+        self.update()
+    def set_channel_visible(self, cid, vis):
+        self._ch_visible[cid] = vis
+        if cid in self._ch_oct:
+            self._ch_oct[cid]['visible'] = vis
         self.update()
     def clear_channel(self, cid):
-        self._ch_oct.pop(cid, None); self.update()
+        self._ch_oct.pop(cid, None); self._ch_visible.pop(cid, None); self.update()
     def clear_all_channels(self):
         self._ch_oct.clear(); self.update()
 
@@ -2248,7 +2504,7 @@ class OctaveCanvas(QWidget):
 
         # E 포커스: 캡쳐 선택(_front_idx 있음) → 라이브 그룹 흐리게 + 선택 캡쳐 솔리드(위).
         # 라이브 포커스(_front_idx None) → 캡쳐 흐리게 + 라이브 솔리드(위).
-        _cap_focus = (self._front_idx is not None)
+        _cap_focus = _focused_capture_visible(self)
         def _draw_src_bars(ch, dim=False):
             vals = ch['values']
             if vals is None or len(vals) != n: return
@@ -2707,6 +2963,82 @@ def _text_input_dialog(parent, title, label, default=''):
     return le.text(), ok
 
 
+def _brand_msg(parent, title, text, kind='info', ok_text='OK', cancel_text=None, danger=False):
+    """SPECTRA 브랜드 메시지/확인 다이얼로그 (시스템 QMessageBox 대체).
+    kind: 'info'(파랑 i) / 'warn'(주황 △!) / 'question'(파랑 ?). 상단 그라디언트 라인 + 라인 아이콘.
+    cancel_text 지정 시 확인/취소 2버튼(확인=True), 아니면 OK 1버튼. danger=True면 주동작 빨강.
+    반환: True(확인/OK) / False(취소)."""
+    dlg = QDialog(parent)
+    dlg.setWindowTitle(title); _apply_dark_titlebar(dlg)
+    dlg.setMinimumWidth(360); dlg.setMaximumWidth(540)
+    dlg.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
+    lay = QVBoxLayout(dlg); lay.setSpacing(0); lay.setContentsMargins(0, 0, 0, 0)
+    lay.addWidget(_grad_topline())
+    body = QWidget(); bl = QVBoxLayout(body)
+    bl.setContentsMargins(20, 18, 20, 16); bl.setSpacing(18)
+    row = QHBoxLayout(); row.setSpacing(14)
+    _ic_name, _ic_col = {'info': ('info', T('accent')),
+                         'warn': ('alert-triangle', '#FF9F0A'),
+                         'question': ('help-circle', T('accent'))}.get(kind, ('info', T('accent')))
+    ic = QLabel(); ic.setPixmap(_icon(_ic_name, 30, color=_ic_col).pixmap(30, 30))
+    ic.setFixedWidth(34); ic.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+    row.addWidget(ic, 0, Qt.AlignTop)
+    msg = QLabel(text); msg.setWordWrap(True)
+    msg.setStyleSheet(f'color:{T("text")};font-size:13px;font-weight:600;background:transparent;')
+    row.addWidget(msg, 1)
+    bl.addLayout(row)
+    btn_row = QHBoxLayout(); btn_row.setSpacing(8); btn_row.addStretch()
+    if cancel_text:
+        cb = QPushButton(cancel_text); cb.setStyleSheet(ss_btn_neutral())
+        cb.clicked.connect(dlg.reject); btn_row.addWidget(cb)
+    ob = QPushButton(ok_text)
+    ob.setStyleSheet(ss_btn_danger() if danger else ss_btn_primary())
+    ob.setDefault(True); ob.clicked.connect(dlg.accept); btn_row.addWidget(ob)
+    bl.addLayout(btn_row)
+    lay.addWidget(body)
+    return dlg.exec_() == QDialog.Accepted
+
+
+class _BrandBox:
+    """QMessageBox 드롭인 대체 — 브랜드 다이얼로그로 표시 (information/warning)."""
+    @staticmethod
+    def information(parent, title, text):
+        _brand_msg(parent, title, text, kind='info')
+    @staticmethod
+    def warning(parent, title, text):
+        _brand_msg(parent, title, text, kind='warn')
+
+
+def _md_to_html(md):
+    """릴리즈 노트용 경량 마크다운→HTML (##/###, - 불릿, **굵게**, `코드`, > 인용, ---).
+    외부 라이브러리 없이 우리 노트 형식만 처리."""
+    import html as _h, re
+    acc = T('accent'); dim = T('text_dim'); txt = T('text')
+    def inline(s):
+        s = _h.escape(s)
+        s = re.sub(r'\[([^\]]+)\]\([^)]+\)', rf'<span style="color:{acc}">\1</span>', s)  # [text](url) → text
+        s = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', s)
+        s = re.sub(r'`(.+?)`', rf'<code style="color:{acc}">\1</code>', s)
+        s = re.sub(r'\*(.+?)\*', r'<i>\1</i>', s)
+        return s
+    out = []; in_ul = False
+    for ln in md.split('\n'):
+        st = ln.strip()
+        if st.startswith('- '):
+            if not in_ul: out.append('<ul style="margin:4px 0 10px 0;">'); in_ul = True
+            out.append(f'<li style="margin:3px 0;">{inline(st[2:])}</li>'); continue
+        if in_ul: out.append('</ul>'); in_ul = False
+        if   st.startswith('### '): out.append(f'<h3 style="color:{txt};margin:10px 0 4px;">{inline(st[4:])}</h3>')
+        elif st.startswith('## '):  out.append(f'<h2 style="color:{acc};margin:16px 0 6px;">{inline(st[3:])}</h2>')
+        elif st.startswith('# '):   out.append(f'<h1 style="color:{txt};margin:4px 0 10px;">{inline(st[2:])}</h1>')
+        elif st.startswith('> '):   out.append(f'<p style="color:{dim};margin:2px 0;">{inline(st[2:])}</p>')
+        elif st == '---':           out.append(f'<hr style="border:none;border-top:1px solid {T("border")};margin:12px 0;"/>')
+        elif st == '':              out.append('')
+        else:                       out.append(f'<p style="color:{txt};margin:3px 0;">{inline(st)}</p>')
+    if in_ul: out.append('</ul>')
+    return f'<div style="font-family:{FONT_FAMILY};">' + ''.join(out) + '</div>'
+
+
 class CalibDialog(QDialog):
     def __init__(self, device_name, n_channels, offsets, active_ch,
                  current_spl_func, set_channel_func, parent=None):
@@ -2832,7 +3164,7 @@ class CalibDialog(QDialog):
         off_row = QHBoxLayout(); off_row.addStretch()
         off_row.addWidget(QLabel('적용할 오프셋 (dB):'))
         self.offset_spin = QDoubleSpinBox()
-        self.offset_spin.setRange(-30, 150)
+        self.offset_spin.setRange(-30, 200)
         self.offset_spin.setDecimals(1); self.offset_spin.setSingleStep(0.5)
         self.offset_spin.setValue(self._offsets.get(self._cur_ch, 0.0))
         self.offset_spin.valueChanged.connect(self._on_offset_edited)
@@ -3093,7 +3425,8 @@ class LeqWindow(QWidget):
 class _SplPanel(QWidget):
     """Single measurement panel inside SplMeterWindow — Smaart-style centered layout."""
     _BASE_W = 200  # reference width for font scaling
-    _BASE_H = 132  # reference height — scale 1 폰트가 세로로 여유있게 맞는 높이(짤림 방지)
+
+    reset_time_requested = pyqtSignal()   # LEQ 카드(laeq/lceq)의 시간 리셋 버튼
 
     def __init__(self, title, tc, vc, bg_hex='#0d0d1a', border_hex='#2a3060', parent=None, metric_id=None):
         super().__init__(parent)
@@ -3101,10 +3434,14 @@ class _SplPanel(QWidget):
         self._tc = tc; self._vc = vc; self._base_vc = vc
         self._warn_db = -20.0   # yellow above this
         self._peak_db = -10.0   # red above this
+        if metric_id == 'fs_peak':   # dBFS 절대값 — 0=풀스케일. 클립 근접 경고
+            self._warn_db = -6.0; self._peak_db = -1.0
         self._bg    = QColor(bg_hex)
         self._bord  = QColor(border_hex)
         self._val_fs = 46  # current font size for value label
         self._max_fs = 15  # current font size for Max/dot (리사이즈 후 재적용용)
+        # 너비 기준 스케일(Smaart식) — _FIT_H 는 클리핑 직전 빠듯한 콘텐츠 높이(높이 상한 클램프용)
+        self._fit_h = 116 if metric_id in ('laeq', 'lceq') else 92
         self.setAttribute(Qt.WA_OpaquePaintEvent, False)
         self.setMinimumHeight(20)   # 아주 작게까지 허용 (최소 크기 탐색용)
         layout = QVBoxLayout(self)
@@ -3121,12 +3458,14 @@ class _SplPanel(QWidget):
         self._sep.setStyleSheet(f'background:{T("border")};border:none;')
         layout.addWidget(self._sep)
 
+        layout.addStretch(1)   # value 세로 중앙 정렬 (Smaart식)
         self._val_lbl = QLabel('—')
         self._val_lbl.setAlignment(Qt.AlignCenter)
         self._val_lbl.setStyleSheet(
             f'color:{vc};font-size:46px;font-weight:bold;'
             f'background:transparent;')
         layout.addWidget(self._val_lbl)
+        layout.addStretch(1)
 
         max_row = QHBoxLayout(); max_row.setContentsMargins(0, 0, 0, 0)
         max_row.addStretch()
@@ -3138,10 +3477,51 @@ class _SplPanel(QWidget):
         max_row.addStretch()
         layout.addLayout(max_row)
 
+        # ── 시계/피크 카드: Max 행 숨김 (시각 또는 피크 홀드값만 크게)
+        if metric_id in ('clock', 'peak', 'peak_c', 'fs_peak'):
+            self._dot.hide(); self._max_lbl.hide()
+
+        # ── LEQ 카드 전용: SPECTRA 그라디언트 시간 진행 미터 + 리셋(숫자 없음)
+        self._timebar = None
+        self._time_reset_btn = None
+        if metric_id in ('laeq', 'lceq'):
+            time_row = QHBoxLayout(); time_row.setContentsMargins(0, 0, 0, 0); time_row.setSpacing(6)
+            self._timebar = _GradTimeBar()
+            self._time_reset_btn = _ReloadBtn()
+            self._time_reset_btn.setFixedSize(18, 18); self._time_reset_btn.setToolTip('LEQ 시간 리셋')
+            self._time_reset_btn.setStyleSheet('QPushButton{border:none;background:transparent;padding:0;}'
+                                               f'QPushButton:hover{{background:{T("bg3")};border-radius:4px;}}')
+            self._time_reset_btn.clicked.connect(lambda: self.reset_time_requested.emit())
+            time_row.addWidget(self._timebar, 1)
+            time_row.addWidget(self._time_reset_btn)
+            layout.addLayout(time_row)
+
+    def set_time_progress(self, p):
+        if self._timebar is not None:
+            self._timebar.set_progress(p)
+
+    def set_clock(self, text):
+        """시계 카드 — 현재 시각 문자열(HH:MM) 표시."""
+        self._val_lbl.setText(text)
+
+    def _relayout(self):
+        """Smaart식 — 카드는 셀을 꽉 채우고, 숫자는 너비 기준으로 스케일(세로로 길면 가운데 정렬).
+        아주 넓고 낮을 때만 높이(_fit_h)로 상한을 둬 클리핑 방지."""
+        w = self.width(); h = self.height()
+        if w <= 0 or h <= 0:
+            return
+        scale = min(w / self._BASE_W, h / self._fit_h)   # 너비 주동인 + 높이 상한 클램프
+        self.set_font_scale(scale)
+        self.update()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._relayout()
+
     def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        r = QRectF(self.rect()).adjusted(2, 2, -2, -2)
+        r = QRectF(self.rect()).adjusted(2, 2, -2, -2)   # 셀 전체 채움 (여백 없음)
         # 테마 토큰 사용 → 다크/라이트 토글 시 update()만으로 카드 배경이 따라감
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(T('panel')))
@@ -3159,6 +3539,8 @@ class _SplPanel(QWidget):
         self.update()
 
     def set_calib_offset(self, offset):
+        if self.metric_id == 'fs_peak':
+            return   # dBFS 절대값 — 캘리브 오프셋 영향 없음
         self._warn_db = -20.0 + offset
         self._peak_db = -10.0 + offset
 
@@ -3203,6 +3585,8 @@ class _SplPanel(QWidget):
             self._max_lbl.setText(f'Max: {max_val:.1f}')
 
     def reset(self):
+        if self.metric_id == 'clock':
+            return   # 시계는 Reset Max 대상 아님 (다음 틱에 시간 그대로 유지)
         self._vc = self._base_vc
         self._val_lbl.setStyleSheet(
             f'color:{self._base_vc};font-size:{self._val_fs}px;font-weight:bold;'
@@ -3210,6 +3594,34 @@ class _SplPanel(QWidget):
         self._val_lbl.setText('—'); self._max_lbl.setText('Max: —')
         self._dot.setStyleSheet(f'color:#33FF66;font-size:{self._max_fs}px;background:transparent;')
         self._max_lbl.setStyleSheet(f'color:#8E8E93;font-size:{self._max_fs}px;background:transparent;')
+
+
+class _GradTimeBar(QWidget):
+    """SPECTRA 그라디언트 시간 진행 미터 — set_progress(0..1)로 왼쪽부터 채움."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._p = 0.0
+        self.setFixedHeight(6)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    def set_progress(self, p):
+        p = max(0.0, min(1.0, float(p)))
+        if abs(p - self._p) > 0.002:
+            self._p = p; self.update()
+    def paintEvent(self, e):
+        W = self.width(); H = self.height()
+        if W <= 0: return
+        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing, True)
+        r = H / 2.0
+        track = QPainterPath(); track.addRoundedRect(QRectF(0, 0, W, H), r, r)
+        p.fillPath(track, QColor(T('bg3')))
+        fw = int(W * self._p)
+        if fw > 1:
+            p.save()
+            clip = QPainterPath(); clip.addRoundedRect(QRectF(0, 0, fw, H), r, r)
+            p.setClipPath(clip)
+            p.fillRect(0, 0, W, H, _spectra_grad_brush(0, W, 255))   # 전폭 그라디언트를 진행도만큼 노출
+            p.restore()
+        p.end()
 
 
 class SplMeterWindow(QWidget):
@@ -3221,17 +3633,30 @@ class SplMeterWindow(QWidget):
         ('1 hr',   3600), ('1.5 hr', 5400), ('2 hr',   7200),
         ('3 hr',  10800),
     ]
-    # 표시 가능한 지표:  id -> (제목, 색)
+    # 표시 가능한 지표:  id -> (제목, 색)  ── Smaart 스타일 확장 세트
     _METRICS = {
-        'dba':  ('dB SPL A Slow', '#4E7DF0'),
-        'dbc':  ('dB SPL C Slow', '#9B5DE5'),
-        'laeq': ('dB LAeq',       '#4E7DF0'),
-        'lceq': ('dB LCeq',       '#9B5DE5'),
+        'dba':     ('SPL A Slow', '#4E7DF0'),   # A가중 Slow(1s)  ← 기존
+        'dbc':     ('SPL C Slow', '#9B5DE5'),   # C가중 Slow(1s)  ← 기존
+        'spl_slow':('SPL Slow',   '#30D158'),   # Z(flat) Slow
+        'dba_fast':('SPL A Fast', '#5AC8FA'),   # A가중 Fast(125ms)
+        'dbc_fast':('SPL C Fast', '#BF5AF2'),   # C가중 Fast
+        'spl_fast':('SPL Fast',   '#64D2FF'),   # Z(flat) Fast
+        'peak':    ('Peak',       '#FF9F0A'),   # Z 피크 홀드(디지털 피크→SPL)
+        'peak_c':  ('Peak C',     '#FF375F'),   # C가중 최대 홀드(근사)
+        'fs_peak': ('FS Peak',    '#FF453A'),   # 풀스케일 디지털 피크(dBFS)
+        'laeq':    ('dB LAeq',    '#4E7DF0'),
+        'lceq':    ('dB LCeq',    '#9B5DE5'),
+        'clock':   ('Clock',      '#5AC8FA'),   # 24시간 시계 (HH:MM)
     }
+    _EMA_IDS  = ('dba', 'dbc', 'spl_slow', 'dba_fast', 'dbc_fast', 'spl_fast')
+    _PEAK_IDS = ('peak', 'peak_c', 'fs_peak')
     _DEFAULT_CELLS = ['dba', 'dbc', 'laeq', 'lceq']
 
     def __init__(self, parent=None):
-        super().__init__(parent, Qt.Window | Qt.Tool)
+        # 부모 없는 독립 top-level 창 (Qt.Tool 제거) → 메인창을 덕(최소화)에 넣어도
+        # SPL 미터는 그대로 떠 있음 (Smaart 방식). 메인창 참조는 _main 으로 보관.
+        self._main = parent
+        super().__init__(None, Qt.Window)
         self.setWindowTitle('SPL Meter')
         self.setAttribute(Qt.WA_DeleteOnClose, False)
 
@@ -3243,11 +3668,16 @@ class SplMeterWindow(QWidget):
         self._mutex = QMutex()
         self._panels = []     # 현재 그리드에 배치된 _SplPanel 목록
         self._calib_offset = 0.0
+        # ── Smaart식 확장 지표 상태 (push_levels에서 갱신, _update_display에서 읽음)
+        self._ema = {}        # EMA 값 (Fast/Slow Z·A·C)
+        self._maxv = {}       # EMA 지표별 러닝 최대 (Max 행용)
+        self._peak_hold = {}  # Peak / Peak C / FS Peak 홀드값
+        self._last_push_t = None
 
         # ── 저장된 레이아웃 복원 (없으면 4×1 기본 = 기존 모습)
         self._rows, self._cols, self._cells = self._load_layout()
         try:
-            self._leq_idx = int(self.parent()._settings.get('spl_meter', {}).get('leq_idx', 0))
+            self._leq_idx = int(self._main._settings.get('spl_meter', {}).get('leq_idx', 0))
         except Exception:
             self._leq_idx = 0
         self._leq_idx = max(0, min(len(self._PRESETS) - 1, self._leq_idx))
@@ -3276,8 +3706,8 @@ class SplMeterWindow(QWidget):
 
         self._rebuild_grid()
         self.setMinimumSize(self._min_w(), self._min_h())
-        # 기본(처음 열 때) 크기 — 작고 보기 좋게. 사용자가 자유롭게 늘리거나 줄일 수 있음.
-        self.resize(max(150 * self._cols, 280), self._chrome_h() + 116 * self._rows)
+        # 기본(처음 열 때) = 최소 크기로 작게 열기. 사용자가 자유롭게 늘릴 수 있음.
+        self.resize(self._open_w(), self._open_h())
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._update_display)
@@ -3286,7 +3716,7 @@ class SplMeterWindow(QWidget):
     # ── 레이아웃 로드/저장 ──────────────────────
     def _load_layout(self):
         try:
-            cfg = self.parent()._settings.get('spl_meter', {})
+            cfg = self._main._settings.get('spl_meter', {})
             rows = int(cfg.get('rows', 4)); cols = int(cfg.get('cols', 1))
             cells = list(cfg.get('cells', self._DEFAULT_CELLS))
         except Exception:
@@ -3303,10 +3733,10 @@ class SplMeterWindow(QWidget):
 
     def _save_layout(self):
         try:
-            self.parent()._settings['spl_meter'] = {
+            self._main._settings['spl_meter'] = {
                 'rows': self._rows, 'cols': self._cols, 'cells': self._cells,
                 'leq_idx': self._leq_idx}
-            _save_settings(self.parent()._settings)
+            _save_settings(self._main._settings)
         except Exception as e:
             _alog.warning(f'SPL 레이아웃 저장 실패: {e}')
 
@@ -3325,7 +3755,7 @@ class SplMeterWindow(QWidget):
             p.restyle()
 
     def _chrome_h(self):
-        return 12   # 컨트롤 줄 제거됨 — 그리드 여백만
+        return 12   # 그리드 상하 여백
 
     def _min_w(self):
         # 최소 크기 탐색용 — 거의 풀어줌(실제 하한은 타이틀바 콘텐츠 자연 최소가 결정)
@@ -3334,6 +3764,14 @@ class SplMeterWindow(QWidget):
     def _min_h(self):
         # 패널 폰트가 자동 축소되므로 아주 작게까지 허용
         return self._chrome_h() + 22 * self._rows
+
+    def _open_w(self):
+        # 처음 열 때 컴팩트 너비 — Smaart식 좁고 긴 단열
+        return max(150 * self._cols, 160)
+
+    def _open_h(self):
+        # 처음 열 때 높이 — 세로로 길게(숫자 큼직 + 위아래 여백)
+        return self._chrome_h() + 150 * self._rows
 
     # ── 그리드 재구성 ───────────────────────────
     def _rebuild_grid(self):
@@ -3354,6 +3792,8 @@ class SplMeterWindow(QWidget):
                             metric_id=mid)
             pnl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             pnl.set_calib_offset(self._calib_offset)
+            if mid in ('laeq', 'lceq'):
+                pnl.reset_time_requested.connect(self._reset_time)
             self._grid.addWidget(pnl, r, c)
             self._panels.append(pnl)
         for c in range(self._cols): self._grid.setColumnStretch(c, 1)
@@ -3365,8 +3805,15 @@ class SplMeterWindow(QWidget):
 
     def _open_layout_dialog(self):
         leq_labels = [lbl for lbl, _ in self._PRESETS]
+        # 측정 소스 목록 — 메인(Spectrum) 페이지의 입력 카드들
+        try:
+            sources = self._main._spl_source_list()
+            cur_src = getattr(self._main, '_spl_source_id', 0)
+        except Exception:
+            sources, cur_src = None, 0
         dlg = SplLayoutDialog(self._rows, self._cols, self._cells, self._METRICS,
-                              leq_labels, self._leq_idx, self)
+                              leq_labels, self._leq_idx, self,
+                              sources=sources, source_id=cur_src)
         if dlg.exec() == QDialog.Accepted:
             self._rows, self._cols, self._cells = dlg.get_layout()
             self._leq_idx = dlg.get_leq_idx()
@@ -3374,33 +3821,90 @@ class SplMeterWindow(QWidget):
             self._rebuild_grid()
             self._scale_panels()
             self._save_layout()
+            if sources is not None:
+                try: self._main._set_spl_source(dlg.get_source_id())
+                except Exception as e: _alog.warning(f'SPL 소스 변경 실패: {e}')
 
     def push_sample(self, dba, dbc):
+        # 하위호환(LEQ 적분 버퍼만). 실제 피드는 push_levels 사용.
         if dba > -100:
             with QMutexLocker(self._mutex):
                 self._buf_a.append(dba); self._buf_c.append(dbc)
 
-    def _update_display(self):
+    def push_levels(self, dbz, dba, dbc, fs_peak):
+        """Smaart식 확장 지표 입력 — 순간 calibrated Z/A/C 레벨 + 풀스케일 디지털 피크(dBFS).
+        Fast(125ms)/Slow(1s) EMA + 피크 홀드를 여기서 계산.
+        ※ 호출은 _process_audio(=GUI 스레드, QueuedConnection 경유)에서 옴 — 오디오 콜백 스레드 아님.
+          뮤텍스는 _update_display(같은 GUI 스레드)와의 일관성 보호용. 절대 오디오 콜백에서 직접 호출 금지."""
         with QMutexLocker(self._mutex):
-            if not self._buf_a: return
-            n = min(len(self._buf_a), self._leq_secs * self._PUSH_RATE)
-            arr_a = np.array(list(self._buf_a)[-n:])
-            arr_c = np.array(list(self._buf_c)[-n:])
+            now = time.time()
+            dt = (now - self._last_push_t) if self._last_push_t else 0.02
+            self._last_push_t = now
+            dt = min(max(dt, 0.001), 0.5)
+            af  = 1.0 - math.exp(-dt / 0.125)   # Fast 125ms
+            asw = 1.0 - math.exp(-dt / 1.0)     # Slow 1s
 
-        dba = float(arr_a[-1]); dbc = float(arr_c[-1])
-        laeq = float(10 * np.log10(np.mean(10 ** (arr_a / 10))))
-        lceq = float(10 * np.log10(np.mean(10 ** (arr_c / 10))))
+            def _ema(k, x, a):
+                v = self._ema.get(k)
+                v = x if v is None else v + (x - v) * a
+                self._ema[k] = v
+                return v
 
-        if self._max_a    is None or dba  > self._max_a:   self._max_a   = dba
-        if self._max_c    is None or dbc  > self._max_c:   self._max_c   = dbc
-        if self._max_laeq is None or laeq > self._max_laeq: self._max_laeq = laeq
-        if self._max_lceq is None or lceq > self._max_lceq: self._max_lceq = lceq
+            a_s = _ema('dba', dba, asw);      _ema('dba_fast', dba, af)
+            c_s = _ema('dbc', dbc, asw);      _ema('dbc_fast', dbc, af)
+            _ema('spl_slow', dbz, asw);       _ema('spl_fast', dbz, af)
 
-        value_for = {'dba': dba, 'dbc': dbc, 'laeq': laeq, 'lceq': lceq}
-        max_for   = {'dba': self._max_a, 'dbc': self._max_c,
-                     'laeq': self._max_laeq, 'lceq': self._max_lceq}
+            for k in self._EMA_IDS:                      # 러닝 최대 (Max 행)
+                v = self._ema.get(k)
+                if v is not None and (self._maxv.get(k) is None or v > self._maxv[k]):
+                    self._maxv[k] = v
+
+            decay = dt * 6.0                              # 피크 홀드 ~6 dB/s 하강
+            def _hold(k, x):
+                v = self._peak_hold.get(k)
+                self._peak_hold[k] = x if (v is None or x > v) else max(x, v - decay)
+            _hold('peak',    fs_peak + self._calib_offset)  # 디지털 피크 → SPL 환산
+            _hold('peak_c',  dbc)                            # C가중 최대 홀드(근사)
+            _hold('fs_peak', fs_peak)                        # 풀스케일 디지털 피크(dBFS)
+
+            if dba > -100:                                # LEQ 적분 버퍼 = Slow A/C
+                self._buf_a.append(a_s); self._buf_c.append(c_s)
+
+    def _update_display(self):
+        # 시계 카드는 오디오 입력과 무관하게 항상 현재 시각(24h HH:MM) 갱신
+        now = time.strftime('%H:%M')
         for pnl in self._panels:
-            pnl.set_value(value_for[pnl.metric_id], max_for[pnl.metric_id])
+            if pnl.metric_id == 'clock':
+                pnl.set_clock(now)
+
+        with QMutexLocker(self._mutex):
+            _len = len(self._buf_a)
+            n = min(_len, self._leq_secs * self._PUSH_RATE)
+            arr_a = np.array(list(self._buf_a)[-n:]) if n else None
+            arr_c = np.array(list(self._buf_c)[-n:]) if n else None
+            ema   = dict(self._ema); maxv = dict(self._maxv); peaks = dict(self._peak_hold)
+        self._update_timebar(_len)
+
+        laeq = lceq = None
+        if n:
+            laeq = float(10 * np.log10(np.mean(10 ** (arr_a / 10))))
+            lceq = float(10 * np.log10(np.mean(10 ** (arr_c / 10))))
+            if self._max_laeq is None or laeq > self._max_laeq: self._max_laeq = laeq
+            if self._max_lceq is None or lceq > self._max_lceq: self._max_lceq = lceq
+
+        value_for = dict(ema); value_for.update(peaks)
+        value_for['laeq'] = laeq; value_for['lceq'] = lceq
+        max_for = dict(maxv)
+        max_for['laeq'] = self._max_laeq; max_for['lceq'] = self._max_lceq
+
+        for pnl in self._panels:
+            mid = pnl.metric_id
+            if mid == 'clock':
+                continue   # 시계는 위에서 별도 갱신
+            v = value_for.get(mid)
+            if v is None:
+                continue
+            pnl.set_value(v, max_for.get(mid))
 
     def set_calib_offset(self, offset):
         self._calib_offset = offset
@@ -3408,17 +3912,31 @@ class SplMeterWindow(QWidget):
             pnl.set_calib_offset(offset)
 
     def _reset_max(self):
-        self._max_a = self._max_c = self._max_laeq = self._max_lceq = None
+        with QMutexLocker(self._mutex):
+            self._maxv.clear(); self._peak_hold.clear()
+            self._max_a = self._max_c = self._max_laeq = self._max_lceq = None
         for pnl in self._panels:
             pnl.reset()
 
-    def _scale_panels(self):
-        # 가로·세로 둘 다 고려해 작은 쪽 기준 → 좁거나 낮은 패널에서 글자 짤림 방지
+    def _update_timebar(self, total_len):
+        """버퍼에 쌓인 시간으로 LEQ 카드(laeq/lceq)의 진행 미터 갱신 (숫자 없음)."""
+        win = max(1, self._leq_secs)
+        p = (total_len / self._PUSH_RATE) / win
         for pnl in self._panels:
-            w = pnl.width(); h = pnl.height()
-            if w <= 0 or h <= 0:
+            pnl.set_time_progress(p)
+
+    def _reset_time(self):
+        """LEQ 시간 리셋 — 적분 버퍼 비워 진행 미터/LEQ를 0부터 다시 시작."""
+        with QMutexLocker(self._mutex):
+            self._buf_a.clear(); self._buf_c.clear()
+        self._update_timebar(0)
+
+    def _scale_panels(self):
+        # 각 카드가 종횡비를 고정한 채 회색 배경+글자를 한 비율로 스케일 (카드가 알아서 처리)
+        for pnl in self._panels:
+            if pnl.width() <= 0 or pnl.height() <= 0:
                 continue
-            pnl.set_font_scale(min(w / _SplPanel._BASE_W, h / _SplPanel._BASE_H))
+            pnl._relayout()
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
@@ -3428,17 +3946,19 @@ class SplMeterWindow(QWidget):
         super().showEvent(e)
         if not self._timer.isActive(): self._timer.start(200)
         self._scale_panels()
+        _set_float_above_fullscreen(self)   # 풀스크린 위 + 최소화 생존
 
     def closeEvent(self, e):
         self._timer.stop()
-        if hasattr(self.parent(), 'spl_meter_win'):
-            self.parent().spl_meter_win = None
+        if hasattr(self._main, 'spl_meter_win'):
+            self._main.spl_meter_win = None
         e.accept()
 
 
 class SplLayoutDialog(QDialog):
     """SPL Meter 레이아웃 편집 — 행/열 개수 + 칸별 지표 지정."""
-    def __init__(self, rows, cols, cells, metrics, leq_labels=None, leq_idx=0, parent=None):
+    def __init__(self, rows, cols, cells, metrics, leq_labels=None, leq_idx=0, parent=None,
+                 sources=None, source_id=0):
         super().__init__(parent)
         self.setWindowTitle('SPL 설정'); _apply_dark_titlebar(self)
         self.setMinimumWidth(360)
@@ -3447,6 +3967,7 @@ class SplLayoutDialog(QDialog):
         self._cells = list(cells)               # 현재 지정값 (재구성 시 보존)
         self._combos = []                       # 현재 그리드의 QComboBox 목록
         self._ids = [None] + list(metrics.keys())   # 콤보 인덱스 ↔ 지표 id
+        self._src_ids = [s[0] for s in (sources or [])]   # 소스 콤보 인덱스 ↔ 카드 id
 
         root = QVBoxLayout(self); root.setSpacing(12); root.setContentsMargins(18, 16, 18, 16)
 
@@ -3454,6 +3975,20 @@ class SplLayoutDialog(QDialog):
         info.setStyleSheet(f'color:{T("text_dim")};font-size:11px;'
                            f'background:{T("panel")};border-radius:8px;padding:10px;')
         info.setWordWrap(True); root.addWidget(info)
+
+        # ── 측정 소스(어느 입력 카드를 SPL 미터로 측정할지)
+        self._src_cb = None
+        if sources:
+            src_row = QHBoxLayout(); src_row.addStretch()
+            src_row.addWidget(QLabel('측정 소스:'))
+            self._src_cb = QComboBox(); self._src_cb.setStyleSheet(self._combo_style())
+            self._src_cb.setMinimumWidth(200)
+            for _sid, lbl in sources:
+                self._src_cb.addItem(lbl)
+            cur = self._src_ids.index(source_id) if source_id in self._src_ids else 0
+            self._src_cb.setCurrentIndex(cur)
+            src_row.addWidget(self._src_cb); src_row.addStretch()
+            root.addLayout(src_row)
 
         # ── LEQ time (적분 시간) 선택
         leq_row = QHBoxLayout(); leq_row.addStretch()
@@ -3532,6 +4067,13 @@ class SplLayoutDialog(QDialog):
 
     def get_leq_idx(self):
         return self._leq_cb.currentIndex()
+
+    def get_source_id(self):
+        """선택된 측정 소스 카드 id (셀렉터 없으면 0=primary)."""
+        if self._src_cb is None or not self._src_ids:
+            return 0
+        i = self._src_cb.currentIndex()
+        return self._src_ids[i] if 0 <= i < len(self._src_ids) else 0
 
 
 # ───────────────────────────────────────────
@@ -3849,7 +4391,7 @@ class _MiniMeterBar(QWidget):
         bg = QColor(T('bg')); d = -20 if _theme == 'light' else 14
         track = QColor(max(0, min(bg.red()+d, 255)), max(0, min(bg.green()+d, 255)), max(0, min(bg.blue()+d+2, 255)))
         p.setPen(Qt.NoPen); p.setBrush(track); p.drawRoundedRect(QRectF(0, 0, W, H), rr, rr)
-        DB_MIN = -60.0; DB_MAX = 0.0
+        DB_MIN = -84.0; DB_MAX = 0.0   # 바닥 -84dBFS (Smaart 채널 미터 채움량에 맞춤)
         ratio = max(0.0, min(1.0, (self._level - DB_MIN) / (DB_MAX - DB_MIN)))
         bar_w = W * ratio
         if bar_w > 1.5:
@@ -3909,7 +4451,7 @@ class ChannelPopup(QFrame):
             rl = QHBoxLayout(row_w); rl.setContentsMargins(0, 3, 0, 3); rl.setSpacing(5)
 
             chk = QCheckBox()
-            chk.setFixedWidth(16)
+            chk.setFixedWidth(20)
             if ch == primary_ch:
                 chk.setChecked(True); chk.setEnabled(False)
             else:
@@ -3975,7 +4517,7 @@ class ChannelCard(QFrame):
 
         # ── Row 1: [☑] [●] [device name] [×]
         row1 = QHBoxLayout(); row1.setSpacing(3)
-        self._chk = QCheckBox(); self._chk.setChecked(True); self._chk.setFixedWidth(16)
+        self._chk = QCheckBox(); self._chk.setChecked(True); self._chk.setFixedWidth(20)
         self._chk.setStyleSheet(f'''
             QCheckBox::indicator {{
                 width:13px; height:13px;
@@ -4004,8 +4546,9 @@ class ChannelCard(QFrame):
         else:
             dev_lbl = QLabel(short)
             dev_lbl.setStyleSheet(f'color:{T("text")};background:transparent;font-size:10px;')
-            rm = QPushButton('×'); rm.setFixedSize(16,16)
-            rm.setStyleSheet(f'color:{T("text_dim")};font-size:13px;border:none;padding:0;background:transparent;')
+            rm = QPushButton('✕'); rm.setFixedSize(16,16)
+            rm.setStyleSheet(f'QPushButton{{color:{T("text_dim")};font-size:12px;border:none;padding:0;background:transparent;}}'
+                             f'QPushButton:hover{{color:{T("red")};}}')
             rm.setCursor(Qt.PointingHandCursor)
             rm.clicked.connect(lambda: self.remove_requested.emit(self._ch_idx))
             row1.addWidget(self._chk); row1.addWidget(dot); row1.addWidget(dev_lbl, 1); row1.addWidget(rm)
@@ -4052,7 +4595,10 @@ def begin_inline_rename(host, label, on_done):
         f'QLineEdit{{background:{T("bg3")};color:{T("text")};border:1px solid {T("accent")};'
         f'border-radius:{RADIUS_SM}px;padding:0 4px;font-size:{FS_SM}px;}}')
     tl = label.mapTo(host, QPoint(0, 0))
-    edit.setGeometry(tl.x(), tl.y() - 1, max(label.width() + 60, 100), label.height() + 2)
+    # 카드(host) 오른쪽 경계를 넘지 않게 폭 클램프 — 넘치던 버그 수정
+    w = max(label.width() + 60, 100)
+    w = min(w, max(40, host.width() - tl.x() - 6))
+    edit.setGeometry(tl.x(), tl.y() - 1, w, label.height() + 2)
     edit.selectAll(); edit.setFocus()
     _done = {'v': False}
     def _finish():
@@ -4089,7 +4635,7 @@ class _SpecCard(QFrame):
 
         # 헤더: [가시성 체크] [●] [번호] ... [삭제]  (모든 카드 동일 레이아웃)
         hdr = QHBoxLayout(); hdr.setContentsMargins(0,0,0,0); hdr.setSpacing(3)
-        self._chk = QCheckBox(); self._chk.setChecked(True); self._chk.setFixedWidth(16)
+        self._chk = QCheckBox(); self._chk.setChecked(True); self._chk.setFixedWidth(20)
         self._chk.setStyleSheet(
             f'QCheckBox::indicator{{width:13px;height:13px;border:1.5px solid {color};'
             f'border-radius:3px;background:transparent;}}'
@@ -4101,23 +4647,24 @@ class _SpecCard(QFrame):
         self._num_label.setStyleSheet(f'color:{color};background:transparent;font-size:11px;font-weight:bold;')
         self._num_label.setToolTip('더블클릭하여 이름 변경')
         hdr.addWidget(self._chk); hdr.addWidget(dot); hdr.addWidget(self._num_label); hdr.addStretch()
+        # dBFS 값은 헤더 우측에 (TF 측정 카드와 동일) → 레벨바가 카드 끝까지 꽉 차게
+        self._db_lbl = QLabel('—')
+        self._db_lbl.setStyleSheet(f'color:{T("text_dim")};background:transparent;font-size:10px;')
+        self._db_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        hdr.addWidget(self._db_lbl)
         if not is_primary:
-            rm = QPushButton('×'); rm.setFixedSize(16,16)
+            rm = QPushButton('✕'); rm.setFixedSize(16,16)
             rm.setStyleSheet(f'QPushButton{{background:transparent;color:{T("text_dim")};border:none;'
-                             f'font-size:13px;padding:0;}}'
+                             f'font-size:12px;padding:0;}}'
                              f'QPushButton:hover{{color:{T("red")};}}')
             rm.clicked.connect(lambda: self.remove_requested.emit(self._card_id))
             hdr.addWidget(rm)
         lay.addLayout(hdr)
 
-        # 미터 행: [M] [meter] [dB]
-        mr = QHBoxLayout(); mr.setContentsMargins(0,0,0,0); mr.setSpacing(3)
-        # 'M' 라벨 제거 → 레벨미터가 그 폭만큼 넓어짐. 미터 높이도 약간 키움(7→10).
+        # 미터 행: 레벨바가 카드 폭 끝까지 꽉 차게 (TF M바와 동일)
+        mr = QHBoxLayout(); mr.setContentsMargins(0,0,0,0); mr.setSpacing(0)
         self._meter = _MiniMeterBar(); self._meter.setFixedHeight(10)
-        self._db_lbl = QLabel('—')
-        self._db_lbl.setStyleSheet(f'color:{T("text_dim")};background:transparent;font-size:10px;')
-        self._db_lbl.setFixedWidth(34); self._db_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        mr.addWidget(self._meter, 1); mr.addWidget(self._db_lbl)
+        mr.addWidget(self._meter, 1)
         lay.addLayout(mr)
 
         lay.addWidget(hsep())
@@ -4132,12 +4679,13 @@ class _SpecCard(QFrame):
         row = QHBoxLayout(); row.setContentsMargins(0,0,0,0); row.setSpacing(3)
         lbl = QLabel('In'); lbl.setFixedWidth(14); lbl.setStyleSheet(ss_text(FS_XS))
         self._dev_cb = RoundComboBox(); self._dev_cb.setStyleSheet(_cb_ss)
-        self._dev_cb.setMinimumWidth(40)               # stretch로 채워지고 긴 이름은 Qt가 … 로 생략
+        self._dev_cb.setMinimumWidth(40)               # stretch로 채워지고 긴 이름은 폭에 맞춰 … 로 생략
         self._dev_cb.setMinimumContentsLength(4)
+        self._dev_cb._elide_to_width = True            # 'MacBo' 처럼 잘리지 않고 'MacB…' 로 깔끔히
         for name, idx in dev_items:
             self._dev_cb.addItem(name, idx)
         self._ch_cb = RoundComboBox(); self._ch_cb.setStyleSheet(_cb_ss)
-        self._ch_cb.setFixedWidth(50); self._ch_cb._align_center = True
+        self._ch_cb.setFixedWidth(46); self._ch_cb._align_center = True
         row.addWidget(lbl); row.addWidget(self._dev_cb, 1); row.addWidget(self._ch_cb)
         lay.addLayout(row)
         self._dev_cb.currentIndexChanged.connect(lambda _: self.device_changed.emit(self._card_id))
@@ -4464,6 +5012,11 @@ class _CaptureDrawer(QWidget):
     reference_changed  = pyqtSignal(str, int)       # (mode, idx) — Δ 기준 캡쳐 (-1=해제)
     export_requested   = pyqtSignal(str)            # (mode) — 캡쳐 내보내기
     move_to_group_req  = pyqtSignal(str, int, str)  # (mode, idx, group_name) — 그룹 이동 ('' = 그룹 해제)
+    visibility_all_changed   = pyqtSignal(str, bool)       # (mode, visible) — 현재 탭 전체 일괄 표시/숨김
+    group_visibility_changed = pyqtSignal(str, str, bool)  # (mode, group_name, visible) — 그룹 일괄
+    capture_target_changed   = pyqtSignal(str, str)        # (mode, group_name) — 새 캡쳐가 들어갈 타겟 ('' = 미지정)
+    delete_all_requested     = pyqtSignal(str)             # (mode) — 우클릭 전체삭제(Delete All)
+    recapture_requested      = pyqtSignal(str, int)        # (mode, idx) — 제자리 다시 캡쳐(Recapture)
 
     PANEL_W = 220
 
@@ -4474,6 +5027,8 @@ class _CaptureDrawer(QWidget):
         self._panel_tab  = 'spec'
         self._spec_caps  = []
         self._tf_caps    = []
+        self._target     = {'spec': '', 'tf': ''}   # 새 캡쳐가 들어갈 활성 타겟 그룹 ('' = 미지정)
+        self._sel        = {'spec': None, 'tf': None}  # 패널에서 클릭(선택)한 캡쳐 idx (None=마지막 자동)
         self._row_registry = []
         self._group_registry = []   # [(mode, gname, header_widget)] — 드래그-투-그룹 판정용
         self._drag       = None
@@ -4492,9 +5047,22 @@ class _CaptureDrawer(QWidget):
 
         # 헤더
         hdr = QWidget(); hdr.setFixedHeight(30)
-        hl = QHBoxLayout(hdr); hl.setContentsMargins(8, 4, 4, 4); hl.setSpacing(4)
+        hl = QHBoxLayout(hdr); hl.setContentsMargins(6, 4, 4, 4); hl.setSpacing(2)
+        # 전체 표시/숨김 토글 — SPECTRA 그라디언트 웨이브 아이콘 (제목 왼쪽)
+        self._vis_all_btn = QPushButton()
+        self._vis_all_btn.setFixedSize(22, 20)
+        self._vis_all_btn.setCursor(Qt.PointingHandCursor)
+        self._vis_all_btn.setToolTip('전체 표시 / 전체 숨김 (현재 탭)')
+        self._vis_all_btn.setIcon(_wave_toggle_icon(True, 16))
+        self._vis_all_btn.setIconSize(QSize(16, 16))
+        self._vis_all_btn.setStyleSheet(
+            'QPushButton{border:1px solid #38383A;border-radius:5px;background:#1C1C1E;padding:0;}'
+            'QPushButton:hover{border-color:#4E7DF0;}'
+            'QPushButton:disabled{border-color:#2A2A2C;background:#161618;}')
+        self._vis_all_btn.clicked.connect(self._on_vis_all_clicked)
+        hl.addWidget(self._vis_all_btn)
         hl.addWidget(QLabel('CAPTURES',
-            styleSheet='color:#4E7DF0;font-size:13px;font-weight:bold;'))
+            styleSheet='color:#4E7DF0;font-size:11px;font-weight:bold;'))
         hl.addStretch()
         self._avg_btn = QPushButton('Avg')
         self._avg_btn.setFixedSize(36, 20)
@@ -4514,7 +5082,7 @@ class _CaptureDrawer(QWidget):
         self._export_btn.clicked.connect(lambda: self.export_requested.emit(self._panel_tab))
         self._export_btn.setVisible(False)
         hl.addWidget(self._export_btn)
-        grp_btn = QPushButton('+ Grp')
+        self._grp_btn = grp_btn = QPushButton('+ Grp')
         grp_btn.setFixedSize(44, 20)
         grp_btn.setToolTip('새 그룹 만들기')
         grp_btn.setStyleSheet(
@@ -4554,6 +5122,18 @@ class _CaptureDrawer(QWidget):
         self._seg_tab_bar = tab_bar
         pv.addWidget(tab_bar)
 
+        # 캡쳐 타겟 칩 — 새 캡쳐가 들어갈 위치 표시 + 클릭 시 미지정으로 복귀
+        self._target_chip = QPushButton()
+        self._target_chip.setFixedHeight(22)
+        self._target_chip.setCursor(Qt.PointingHandCursor)
+        self._target_chip.setToolTip('새 캡쳐가 들어갈 위치 — 클릭하면 미지정으로')
+        self._target_chip.clicked.connect(
+            lambda: self.capture_target_changed.emit(self._panel_tab, ''))
+        _chip_wrap = QWidget()
+        _cw = QHBoxLayout(_chip_wrap); _cw.setContentsMargins(8, 0, 8, 4); _cw.setSpacing(0)
+        _cw.addWidget(self._target_chip)
+        pv.addWidget(_chip_wrap)
+
         # 스크롤 영역
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
@@ -4571,6 +5151,10 @@ class _CaptureDrawer(QWidget):
         self._inner.setObjectName('capInner')
         self._inner.setMouseTracking(True)
         self._inner.setStyleSheet('#capInner { background:#000000; }')
+        # 빈 공간 우클릭 → 전체삭제 메뉴
+        self._inner.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._inner.customContextMenuRequested.connect(
+            lambda pos: self._show_panel_menu(self._inner.mapToGlobal(pos)))
         self._ilay = QVBoxLayout(self._inner)
         self._ilay.setContentsMargins(0, 0, 0, 0); self._ilay.setSpacing(0)
         self._ilay.addStretch()
@@ -4578,6 +5162,29 @@ class _CaptureDrawer(QWidget):
         pv.addWidget(self._scroll, 1)
 
         outer.addWidget(self._panel, 1)
+        self._restyle_chrome()   # 헤더 버튼 테마색 적용(다크/라이트)
+
+    def _restyle_chrome(self):
+        """헤더 버튼(전체토글·Avg·Export·+Grp) 테마색 적용 — 라이트에서 검정 배경 방지.
+        스크롤/이너/탭/패널은 MainWindow._apply_theme가 담당. 토글 시 거기서 이 메서드도 호출."""
+        acc = T('accent'); bd = T('border')
+        if _theme == 'dark':
+            btn_bg, grp_bg, grp_fg, dis_bg = '#1C1C1E', '#2C2C2E', '#8E8E93', '#161618'
+        else:
+            btn_bg, grp_bg, grp_fg, dis_bg = T('panel'), T('bg3'), T('text_dim'), T('bg2')
+        self._vis_all_btn.setStyleSheet(
+            f'QPushButton{{border:1px solid {bd};border-radius:5px;background:{btn_bg};padding:0;}}'
+            f'QPushButton:hover{{border-color:{acc};}}'
+            f'QPushButton:disabled{{border-color:{bd};background:{dis_bg};}}')
+        self._avg_btn.setStyleSheet(
+            f'font-size:9px;font-weight:600;border:1px solid {bd};border-radius:5px;'
+            f'background:{btn_bg};color:{acc};padding:0 2px;')
+        self._export_btn.setStyleSheet(
+            f'font-size:12px;font-weight:600;border:1px solid {bd};border-radius:5px;'
+            f'background:{btn_bg};color:{acc};padding:0;')
+        self._grp_btn.setStyleSheet(
+            f'font-size:9px;font-weight:600;border:1px solid {bd};border-radius:5px;'
+            f'background:{grp_bg};color:{grp_fg};padding:0 3px;')
 
     # ── 공개 메서드 ─────────────────────────────────
     def _switch_panel_tab(self, mode):
@@ -4592,17 +5199,65 @@ class _CaptureDrawer(QWidget):
         self._cur_mode = mode
         self._switch_panel_tab(mode)
 
-    def set_pending_group(self, mode, name):
-        self._pending_group = (mode, name)
+    # ── 일괄 표시/숨김 (전체 / 그룹) ─────────────────
+    def _cur_caps(self):
+        return self._tf_caps if self._panel_tab == 'tf' else self._spec_caps
+
+    def _on_vis_all_clicked(self):
+        """스마트 토글 — 하나라도 보이면 전부 끄고, 다 꺼져 있으면 전부 켠다."""
+        caps = self._cur_caps()
+        if not caps:
+            return
+        any_vis = any(c.get('visible', True) for c in caps)
+        self.visibility_all_changed.emit(self._panel_tab, not any_vis)
+
+    def _update_vis_all_btn(self):
+        """전체 토글 버튼 아이콘을 현재 탭의 가시성 상태로 갱신 (캡쳐 없으면 비활성)."""
+        btn = getattr(self, '_vis_all_btn', None)
+        if btn is None:
+            return
+        caps = self._cur_caps()
+        any_vis = bool(caps) and any(c.get('visible', True) for c in caps)
+        btn.setIcon(_wave_toggle_icon(any_vis, 16))
+        btn.setEnabled(bool(caps))
+
+    def set_capture_target(self, mode, name):
+        """새 캡쳐가 들어갈 타겟 그룹 설정 ('' = 미지정). MainWindow의 _current_*_group과 동기화."""
+        self._target[mode] = name or ''
 
     def _get_pending_group(self, mode):
-        pg = getattr(self, '_pending_group', None)
-        return pg[1] if pg and pg[0] == mode else None
+        # 활성 타겟 그룹(빈 그룹이어도 헤더 표시 + 이동메뉴 노출용)
+        return self._target.get(mode, '') or None
+
+    def _update_target_chip(self):
+        """타겟 칩 텍스트/스타일을 현재 탭의 활성 타겟으로 갱신."""
+        chip = getattr(self, '_target_chip', None)
+        if chip is None:
+            return
+        tgt = self._target.get(self._panel_tab, '')
+        if tgt:
+            chip.setText(f'  ▸  Capture Target:  {tgt}    ✕')
+            chip.setEnabled(True)
+            chip.setStyleSheet(
+                f'QPushButton{{text-align:left;font-size:11px;font-weight:bold;'
+                f'color:{T("accent")};background:{T("bg2")};'
+                f'border:1px solid {T("accent")};border-radius:5px;padding:0 6px;}}'
+                f'QPushButton:hover{{background:{T("bg3")};}}')
+        else:
+            chip.setText('  ▸  Capture Target:  None')
+            chip.setEnabled(False)   # 이미 미지정 → 클릭 불필요(상태 표시)
+            chip.setStyleSheet(
+                f'QPushButton{{text-align:left;font-size:11px;'
+                f'color:{T("text_dim")};background:transparent;'
+                f'border:1px solid {T("border")};border-radius:5px;padding:0 6px;}}')
 
     def toggle(self):
         self.setVisible(not self.isVisible())
 
     def refresh(self, spec_caps, tf_caps):
+        # 캡쳐 수가 바뀌면(추가/삭제) 선택 초기화 → 기본(마지막=새 캡쳐) 강조
+        if len(spec_caps) != len(self._spec_caps): self._sel['spec'] = None
+        if len(tf_caps)   != len(self._tf_caps):   self._sel['tf']   = None
         self._spec_caps = spec_caps
         self._tf_caps   = tf_caps
         if not getattr(self, '_refresh_pending', False):
@@ -4719,6 +5374,8 @@ class _CaptureDrawer(QWidget):
 
     def _redraw(self):
         self._clear_inner()
+        self._update_vis_all_btn()   # 전체 토글 아이콘을 현재 탭 상태로 동기화
+        self._update_target_chip()   # 캡쳐 타겟 칩 동기화
         self._row_registry = []
         self._group_registry = []
         pos = 0
@@ -4731,7 +5388,8 @@ class _CaptureDrawer(QWidget):
 
     def _build_section(self, caps, mode, pos, pending_group=None):
         groups = {}; seen = []; ungrouped = []
-        front_idx = len(caps) - 1 if caps else -1
+        _fi = self._sel.get(mode)   # 클릭 선택 우선, 없으면 마지막
+        front_idx = _fi if (_fi is not None and 0 <= _fi < len(caps)) else (len(caps) - 1 if caps else -1)
         for i, cap in enumerate(caps):
             g = cap.get('group', '')
             if g:
@@ -4759,23 +5417,59 @@ class _CaptureDrawer(QWidget):
             is_pending = (len(items) == 0)
             cnt_str    = '비어있음' if is_pending else str(len(items))
 
+            is_target = (self._target.get(mode, '') == gname)   # 새 캡쳐가 들어갈 활성 타겟?
             ghdr = QWidget(); ghdr.setFixedHeight(28)
             ghl  = QHBoxLayout(ghdr)
             ghl.setContentsMargins(2, 0, 2, 0); ghl.setSpacing(0)
-            gbtn = QPushButton(f'  {"▶" if collapsed else "▼"}  {gname}  ({cnt_str})')
-            gbtn.setFlat(True)
-            dim = T('text_dim')
-            gbtn.setStyleSheet(
-                f'QPushButton{{text-align:left;color:{dim};font-size:14px;font-weight:bold;'
-                f'background:{grp_bg_color};border:none;border-radius:4px;padding:0 4px;}}'
+            # 접기/펼치기 화살표 (타겟 지정과 분리)
+            arrow_btn = QPushButton('▶' if collapsed else '▼')
+            arrow_btn.setFlat(True); arrow_btn.setFixedSize(20, 26)
+            arrow_btn.setCursor(Qt.PointingHandCursor)
+            arrow_btn.setToolTip('접기 / 펼치기')
+            arrow_btn.setStyleSheet(
+                f'QPushButton{{color:{T("text_dim")};font-size:11px;border:none;'
+                f'background:{grp_bg_color};border-radius:4px;}}'
                 f'QPushButton:hover{{background:{grp_hover};}}')
-            gbtn.clicked.connect(lambda _, m=mode, g=gname: self._toggle_group(m, g))
-            ghl.addWidget(gbtn, 1)
-            gdel = QPushButton('×')
+            arrow_btn.clicked.connect(lambda _, m=mode, g=gname: self._toggle_group(m, g))
+            ghl.addWidget(arrow_btn)
+            # 그룹명 = 캡쳐 타겟 토글 (클릭: 이 그룹으로 / 활성이면 미지정으로). 활성 시 하이라이트
+            name_btn = QPushButton(f' {"◉ " if is_target else ""}{gname}  ({cnt_str})')
+            name_btn.setFlat(True); name_btn.setCursor(Qt.PointingHandCursor)
+            name_btn.setToolTip('클릭 → 새 캡쳐를 이 그룹에 넣기 (다시 클릭하면 미지정)')
+            _ac = QColor(T('accent'))
+            _nm_col = T('accent') if is_target else T('text_dim')
+            _nm_bg  = (f'rgba({_ac.red()},{_ac.green()},{_ac.blue()},30)' if is_target else grp_bg_color)
+            name_btn.setStyleSheet(
+                f'QPushButton{{text-align:left;color:{_nm_col};font-size:14px;font-weight:bold;'
+                f'background:{_nm_bg};border:none;border-radius:4px;padding:0 4px;}}'
+                f'QPushButton:hover{{background:{grp_hover};}}')
+            name_btn.clicked.connect(
+                lambda _, m=mode, g=gname:
+                    self.capture_target_changed.emit(m, '' if self._target.get(m, '') == g else g))
+            ghl.addWidget(name_btn, 1)
+            # 그룹 일괄 표시/숨김 토글 (비어있지 않은 그룹만) — × 삭제 왼쪽
+            if not is_pending:
+                _g_any_vis = any(c.get('visible', True) for _, c in items)
+                gvis = QPushButton()
+                gvis.setFixedSize(22, 22)
+                gvis.setCursor(Qt.PointingHandCursor)
+                gvis.setToolTip(f'그룹 "{gname}" 표시 / 숨김')
+                gvis.setIcon(_wave_toggle_icon(_g_any_vis, 14))
+                gvis.setIconSize(QSize(14, 14))
+                gvis.setStyleSheet(
+                    'QPushButton{border:none;background:transparent;padding:0;border-radius:4px;}'
+                    f'QPushButton:hover{{background:{grp_hover};}}')
+                gvis.clicked.connect(
+                    lambda _, m=mode, g=gname, it=items:
+                        self.group_visibility_changed.emit(
+                            m, g, not any(c.get('visible', True) for _, c in it)))
+                ghl.addWidget(gvis)
+            gdel = QPushButton('✕')
             gdel.setFixedSize(22, 22)
             gdel.setToolTip(f'그룹 "{gname}" 삭제')
             gdel.setStyleSheet(
-                f'border:none;color:{del_col};font-size:16px;background:transparent;padding:0;')
+                f'QPushButton{{border:none;color:{T("text_dim")};font-size:14px;background:transparent;padding:0;}}'
+                f'QPushButton:hover{{color:{T("red")};}}')
             gdel.clicked.connect(
                 lambda _, m=mode, g=gname: self.delete_group_req.emit(m, g))
             ghl.addWidget(gdel)
@@ -4811,10 +5505,13 @@ class _CaptureDrawer(QWidget):
         chk = QPushButton('✓' if _vis else '')
         chk.setCheckable(True); chk.setChecked(_vis)
         chk.setFixedSize(20, 20)
+        chk.setFocusPolicy(Qt.NoFocus)   # macOS 파란 포커스 링 제거
+        _ck_bg, _ck_bd, _ck_on = (('#1C1C1E', '#48484A', '#1C2A3A') if _theme == 'dark'
+                                  else (T('panel'), '#C4CCD8', '#E3ECFF'))
         chk.setStyleSheet(
-            'QPushButton{font-size:13px;font-weight:bold;border:2px solid #48484A;'
-            'border-radius:4px;background:#1C1C1E;color:#4E7DF0;padding:0;}'
-            'QPushButton:checked{border:2px solid #4E7DF0;background:#1C2A3A;}')
+            f'QPushButton{{font-size:13px;font-weight:bold;border:2px solid {_ck_bd};'
+            f'border-radius:4px;background:{_ck_bg};color:#4E7DF0;padding:0;}}'
+            f'QPushButton:checked{{border:2px solid #4E7DF0;background:{_ck_on};}}')
         def _on_vis(c, b=chk, m=mode, i=idx):
             b.setText('✓' if c else '')
             self.visibility_changed.emit(m, i, c)
@@ -4831,6 +5528,7 @@ class _CaptureDrawer(QWidget):
         lbl.setToolTip('클릭 → 맨 앞으로  |  더블클릭 → 이름 변경')
         def on_press(ev, m=mode, i=idx):
             if ev.button() == Qt.LeftButton:
+                self._sel[m] = i   # 패널에서 클릭한 캡쳐를 활성으로 표시
                 self.capture_selected.emit(m, i)
         lbl.mousePressEvent = on_press
         def on_dbl(ev, m=mode, i=idx):
@@ -4851,11 +5549,13 @@ class _CaptureDrawer(QWidget):
             ref_btn.setCheckable(True)
             ref_btn.setChecked(bool(cap.get('is_ref', False)))
             ref_btn.setFixedSize(18, 18)
+            ref_btn.setFocusPolicy(Qt.NoFocus)   # macOS 파란 포커스 링 제거
             ref_btn.setToolTip('Δ 비교 기준으로 지정 (한 번에 하나)')
+            _rb_bg, _rb_bd = (('#1C1C1E', '#48484A') if _theme == 'dark' else (T('panel'), '#C4CCD8'))
             ref_btn.setStyleSheet(
-                'QPushButton{font-size:10px;font-weight:bold;border:1px solid #48484A;'
-                'border-radius:4px;background:#1C1C1E;color:#8E8E93;padding:0;}'
-                'QPushButton:checked{border:1px solid #FF9F0A;background:#3A2A10;color:#FF9F0A;}')
+                f'QPushButton{{font-size:10px;font-weight:bold;border:1px solid {_rb_bd};'
+                f'border-radius:4px;background:{_rb_bg};color:{T("text_dim")};padding:0;}}'
+                f'QPushButton:checked{{border:1px solid #FF9F0A;background:#3A2A10;color:#FF9F0A;}}')
             def _on_ref(c, m=mode, i=idx):
                 self.reference_changed.emit(m, i if c else -1)
             ref_btn.toggled.connect(_on_ref)
@@ -4868,6 +5568,7 @@ class _CaptureDrawer(QWidget):
 
         del_btn = QPushButton('×')
         del_btn.setFixedSize(16, 16)
+        del_btn.setFocusPolicy(Qt.NoFocus)   # macOS 파란 포커스 링 제거
         del_btn.setStyleSheet(
             f'border:none;color:{T("text_dim")};font-size:14px;background:transparent;padding:0;')
         del_btn.clicked.connect(
@@ -4880,16 +5581,18 @@ class _CaptureDrawer(QWidget):
             lambda pos, m=mode, i=idx, w=row: self._show_row_menu(m, i, w.mapToGlobal(pos)))
 
         row.setObjectName(f'capRow')
-        sep_c = '#2A2A2A'
+        sep_c = '#2A2A2A' if _theme == 'dark' else '#D5DCE6'
         row_bg = T('bg')
         if is_front:
-            ac = QColor(T('accent')); ar2,ag2,ab2 = ac.red(),ac.green(),ac.blue()
+            # 선택(활성) 캡쳐 — 좌측 액센트 바 + 볼드 라벨로만 표시 (행 전체 파랑 틴트는
+            # oct12·× 쪽 빈 공간에서 박스처럼 도드라져 제거. 좌측 바+볼드로 충분히 구분).
             row.setStyleSheet(
-                f'#capRow{{background:rgba({ar2},{ag2},{ab2},18);border-bottom:1px solid {sep_c};}}'
-                f'#capRow:hover{{background:rgba({ar2},{ag2},{ab2},30);}}')
+                f'#capRow{{background:{row_bg};'
+                f'border-left:3px solid {T("accent")};border-bottom:1px solid {sep_c};}}'
+                f'#capRow:hover{{background:{T("bg3")};}}')
         else:
             row.setStyleSheet(
-                f'#capRow{{background:{row_bg};border-bottom:1px solid {sep_c};}}'
+                f'#capRow{{background:{row_bg};border-left:3px solid transparent;border-bottom:1px solid {sep_c};}}'
                 f'#capRow:hover{{background:{T("bg3")};}}')
         return row
 
@@ -4913,28 +5616,45 @@ class _CaptureDrawer(QWidget):
 
         menu = QMenu(self)
         if not names:
-            act = menu.addAction('그룹 없음 — 먼저 “+ Grp” 으로 생성')
+            act = menu.addAction('No groups — create one with “+ Grp”')
             act.setEnabled(False)
         else:
-            title = menu.addAction('그룹으로 이동'); title.setEnabled(False)
+            title = menu.addAction('Move to Group'); title.setEnabled(False)
             for g in names:
                 act = menu.addAction(('✓ ' if g == cur_group else '    ') + g)
                 act.triggered.connect(
                     lambda _=False, gg=g, m=mode, i=cap_idx: self.move_to_group_req.emit(m, i, gg))
         if cur_group:
             menu.addSeparator()
-            ung = menu.addAction('그룹에서 빼기')
+            ung = menu.addAction('Remove from Group')
             ung.triggered.connect(
                 lambda _=False, m=mode, i=cap_idx: self.move_to_group_req.emit(m, i, ''))
+        menu.addSeparator()
+        rc = menu.addAction('Recapture')
+        rc.triggered.connect(
+            lambda _=False, m=mode, i=cap_idx: self.recapture_requested.emit(m, i))
+        menu.addSeparator()
+        da = menu.addAction('Delete All')
+        da.triggered.connect(lambda _=False, m=mode: self.delete_all_requested.emit(m))
+        menu.exec_(global_pos)
+
+    def _show_panel_menu(self, global_pos):
+        """캡쳐 패널 빈 공간 우클릭 → Delete All (현재 탭 기준 — Spectrum/TF 동일)."""
+        from PyQt5.QtWidgets import QMenu
+        menu = QMenu(self)
+        da = menu.addAction('Delete All')
+        da.setEnabled(bool(self._cur_caps()))
+        da.triggered.connect(lambda _=False: self.delete_all_requested.emit(self._panel_tab))
         menu.exec_(global_pos)
 
 
 class RoundComboBox(QComboBox):
     _max_display_chars = None  # int으로 설정 시 해당 글자수+'..'로 표기 트런케이션
     _align_center = False      # True면 텍스트 가운데 정렬
+    _elide_to_width = False    # True면 필드 폭에 맞춰 '…'로 생략 (긴 장치명 깔끔히)
 
     def paintEvent(self, event):
-        if not self._align_center and self._max_display_chars is None:
+        if not self._align_center and self._max_display_chars is None and not self._elide_to_width:
             super().paintEvent(event)
             return
         painter = QStylePainter(self)
@@ -4952,6 +5672,13 @@ class RoundComboBox(QComboBox):
                 QStyle.CC_ComboBox, opt, QStyle.SC_ComboBoxEditField, self)
             painter.setPen(_tc)
             painter.drawText(rect, Qt.AlignCenter, text)
+        elif self._elide_to_width:
+            # 위젯 실폭 기준(좌우 8px 패딩)으로 '…' 생략 후 직접 그림 — 서브컨트롤 rect가
+            # 맥 콤보 스타일에서 과도하게 좁게 잡혀 'M…'처럼 잘리던 문제 회피.
+            rect = self.rect().adjusted(4, 0, -4, 0)
+            text = self.fontMetrics().elidedText(text, Qt.ElideRight, max(8, rect.width()))
+            painter.setPen(_tc)
+            painter.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter, text)
         else:
             opt.currentText = text
             opt.palette.setColor(QPalette.ButtonText, _tc)
@@ -5290,6 +6017,30 @@ class TFPhaseCanvas(QWidget):
         })
         self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
 
+    def recapture_live(self, idx):
+        """primary 위상 캡쳐 idx 를 현재 라이브로 덮어쓰기 (색/이름 유지)."""
+        if self.freqs is None or not (0 <= idx < len(self._captures)): return False
+        c = self._captures[idx]
+        c['f'] = self.freqs.copy()
+        c['ph_wrap'] = self.ph_wrap.copy() if self.ph_wrap is not None else None
+        c['ph_unwr'] = self.ph_unwr.copy() if self.ph_unwr is not None else None
+        c['grp_ms']  = self.grp_ms.copy()  if self.grp_ms  is not None else None
+        c['coh']     = self.coherence.copy() if self.coherence is not None else None
+        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
+        return True
+
+    def recapture_data(self, idx, f, ph_wrap, ph_unwr, grp_ms, coh=None):
+        """extra 카드 위상 캡쳐 idx 를 외부 데이터로 덮어쓰기."""
+        if f is None or not (0 <= idx < len(self._captures)): return False
+        c = self._captures[idx]
+        c['f'] = np.asarray(f, dtype=np.float32).copy()
+        c['ph_wrap'] = np.asarray(ph_wrap, dtype=np.float32).copy() if ph_wrap is not None else None
+        c['ph_unwr'] = np.asarray(ph_unwr, dtype=np.float32).copy() if ph_unwr is not None else None
+        c['grp_ms']  = np.asarray(grp_ms,  dtype=np.float32).copy() if grp_ms  is not None else None
+        c['coh']     = np.asarray(coh,     dtype=np.float32).copy() if coh     is not None else None
+        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
+        return True
+
     def remove_capture(self, idx):
         if 0 <= idx < len(self._captures):
             self._captures.pop(idx)
@@ -5451,7 +6202,7 @@ class TFPhaseCanvas(QWidget):
             return
         p.setRenderHint(QPainter.Antialiasing, True)
         # E 포커스: 포커스된 하나만 밝게, 나머지 라이브 곡선은 흐리게(alpha 140)
-        _capf = (self._front_idx is not None)
+        _capf = _focused_capture_visible(self)
         _fk2 = self._front_extra
         def _is_focus(key):
             if _capf: return False
@@ -5562,7 +6313,7 @@ class TFPhaseCanvas(QWidget):
         p=QPainter(self); p.drawPixmap(0,0,self._cache)
 
         # E 포커스: 캡쳐 선택 시 라이브(흐림) 먼저 → 포커스 캡쳐(밝음) 위. 라이브 포커스 시 반대.
-        _cap_focus = (self._front_idx is not None)
+        _cap_focus = _focused_capture_visible(self)
         def _draw_caps():
             if not (self._captures and not self._delta): return  # 델타 모드 절대값 캡쳐 숨김
             _cap_key=(W,H,self.ph_max,self.ph_min,self.phase_mode,self.coh_blank,self._front_idx,self._live_on_top)
@@ -5817,6 +6568,26 @@ class TFMagCanvas(QWidget):
         })
         self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
 
+    def recapture_live(self, idx):
+        """primary 매그니튜드 캡쳐 idx 를 현재 라이브로 덮어쓰기 (색/이름 유지)."""
+        if self.freqs is None or self.mag is None: return False
+        if not (0 <= idx < len(self._captures)): return False
+        c = self._captures[idx]
+        c['f'] = self.freqs.copy(); c['mag'] = self.mag.copy()
+        c['coh'] = self.coh.copy() if self.coh is not None else None
+        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
+        return True
+
+    def recapture_data(self, idx, f, mag, coh=None):
+        """extra 카드 매그니튜드 캡쳐 idx 를 외부 데이터로 덮어쓰기."""
+        if f is None or mag is None or not (0 <= idx < len(self._captures)): return False
+        c = self._captures[idx]
+        c['f'] = np.asarray(f, dtype=np.float32).copy()
+        c['mag'] = np.asarray(mag, dtype=np.float32).copy()
+        c['coh'] = np.asarray(coh, dtype=np.float32).copy() if coh is not None else None
+        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
+        return True
+
     def remove_capture(self, idx):
         if 0 <= idx < len(self._captures):
             self._captures.pop(idx)
@@ -5974,7 +6745,7 @@ class TFMagCanvas(QWidget):
         if self._delta and not refmode:
             return  # 델타 모드인데 기준 없음 — 절대값을 델타 축에 그리지 않음
         # E 포커스: 포커스된 하나(라이브 카드 또는 캡쳐)만 밝게, 나머지 라이브 곡선은 흐리게.
-        _capf = (self._front_idx is not None)   # 캡쳐 포커스 → 모든 라이브 dim
+        _capf = _focused_capture_visible(self)   # 캡쳐 포커스 → 모든 라이브 dim
         _fk = self._front_extra
         def _is_focus(key):   # key: None/-1=primary, int=extra. 이 라이브가 포커스 대상인가
             if _capf: return False
@@ -6053,7 +6824,7 @@ class TFMagCanvas(QWidget):
         p=QPainter(self); p.drawPixmap(0,0,self._cache)
 
         # E 포커스: 캡쳐 선택 시 라이브(흐림) 먼저 → 포커스 캡쳐(밝음) 위. 라이브 포커스 시 반대.
-        _cap_focus = (self._front_idx is not None)
+        _cap_focus = _focused_capture_visible(self)
         def _draw_caps():
             if not (self._captures and not self._delta): return  # 델타 모드 절대값 캡쳐 숨김
             _cap_key=(W,H,self.db_max,self.db_min,self._front_idx,self._live_on_top)
@@ -6319,7 +7090,7 @@ class _MeasCard(QFrame):
         # 헤더: [가시성 체크] 도트 + 번호 + dBFS + Start/Stop 버튼 + 삭제 버튼
         hdr = QHBoxLayout(); hdr.setContentsMargins(0, 0, 0, 0); hdr.setSpacing(4)
         # 그래프 표시 ON/OFF 체크박스 — 분석(Start/Stop)과 무관, 곡선만 숨김/표시
-        self._vis_chk = QCheckBox(); self._vis_chk.setChecked(True); self._vis_chk.setFixedWidth(16)
+        self._vis_chk = QCheckBox(); self._vis_chk.setChecked(True); self._vis_chk.setFixedWidth(20)
         self._vis_chk.setToolTip('그래프 표시 ON/OFF (분석은 계속)')
         self._vis_chk.setStyleSheet(
             f'QCheckBox::indicator{{width:13px;height:13px;border:1.5px solid {color};'
@@ -6343,7 +7114,7 @@ class _MeasCard(QFrame):
         # 삭제 버튼은 deletable 일 때만 생성·추가. (이전엔 부모 없는 상태에서 setVisible(True) 호출 →
         # macOS에서 독립 top-level 창으로 떠 전체화면 Space 전환되는 버그. 조건부 생성으로 해결.)
         if deletable:
-            del_btn = QPushButton('－'); del_btn.setFixedSize(18, 18)
+            del_btn = QPushButton('✕'); del_btn.setFixedSize(18, 18)
             self._del_btn = del_btn
             del_btn.setStyleSheet(self._del_btn_ss())
             del_btn.clicked.connect(self.delete_clicked)
@@ -6717,6 +7488,33 @@ class TFIRCanvas(QWidget):
         })
         self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
 
+    def recapture_live(self, idx, delay=0.0):
+        """primary IR 캡쳐 idx 를 현재 라이브로 덮어쓰기 (색/이름 유지)."""
+        if self.t_ms is None or self.h_raw is None: return False
+        if not (0 <= idx < len(self._captures)): return False
+        c = self._captures[idx]
+        c['t'] = self.t_ms.copy(); c['h'] = self.h_raw.copy()
+        c['etc_db'] = self.etc_db.copy() if self.etc_db is not None else None
+        c['delay'] = delay
+        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
+        return True
+
+    def recapture_data(self, idx, t, h, etc_db=None, delay=0.0):
+        """extra 카드 IR 캡쳐 idx 를 외부 데이터로 덮어쓰기 (데이터 없으면 빈 캡쳐)."""
+        if not (0 <= idx < len(self._captures)): return False
+        c = self._captures[idx]
+        if t is None or h is None:
+            c['t'] = None; c['h'] = None; c['etc_db'] = None; c['delay'] = delay
+        else:
+            h = np.asarray(h, dtype=np.float32)
+            if etc_db is None:
+                etc = _hilbert_env(h); pk = max(float(np.max(etc)), 1e-10)
+                etc_db = (20 * np.log10(np.maximum(etc / pk, 1e-10))).astype(np.float32)
+            c['t'] = np.asarray(t, dtype=np.float32).copy(); c['h'] = h.copy()
+            c['etc_db'] = np.asarray(etc_db, dtype=np.float32).copy(); c['delay'] = delay
+        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
+        return True
+
     def remove_capture(self, idx):
         if 0 <= idx < len(self._captures):
             self._captures.pop(idx)
@@ -6942,7 +7740,7 @@ class TFIRCanvas(QWidget):
         t_range = max(self.t_max - self.t_min, 1.0)
         p.setRenderHint(QPainter.Antialiasing, False)   # 라이브 곡선 AA OFF — Retina 전체화면 AA 래스터화 10배 비쌈
         # E 포커스: 포커스된 하나만 밝게, 나머지 라이브는 흐리게(alpha 140)
-        _capf = (self._front_idx is not None)
+        _capf = _focused_capture_visible(self)
         _fk = self._front_extra
         def _is_focus(key):
             if _capf: return False
@@ -7029,7 +7827,7 @@ class TFIRCanvas(QWidget):
         p = QPainter(self); p.drawPixmap(0, 0, self._cache)
 
         # E 포커스: 캡쳐 선택 시 라이브(흐림) 먼저 → 포커스 캡쳐(밝음) 위. 라이브 포커스 시 반대.
-        _cap_focus = (self._front_idx is not None)
+        _cap_focus = _focused_capture_visible(self)
         def _draw_caps():
             if not self._captures: return
             _cap_key=(W,H,self.db_max,self.db_min,round(self.t_min,1),round(self.t_max,1),self.ir_mode,self._front_idx,self._live_on_top)
@@ -7408,6 +8206,56 @@ class SweepConfigDialog(QDialog):
     def ascending(self): return self._rb_up.isChecked()
 
 
+class SineConfigDialog(QDialog):
+    """사인파 신호 설정 팝업 (주파수) — SPECTRA 브랜드 (상단 그라디언트 라인)."""
+    def __init__(self, parent, freq=1000.0):
+        super().__init__(parent)
+        self.setWindowTitle('Sine Settings'); _apply_dark_titlebar(self)
+        self.setModal(True)
+        self.setFixedWidth(300)
+        tx = T('text'); td = T('text_dim'); bd = T('border')
+        self.setStyleSheet(
+            f'QDialog{{background:{T("bg2")};color:{tx};}}'
+            f'QLabel{{color:{tx};font-size:12px;background:transparent;}}'
+            f'QDoubleSpinBox{{background:{T("panel")};color:{tx};'
+            f'border:1px solid {bd};border-radius:6px;padding:3px 8px;font-size:12px;}}'
+            f'QDoubleSpinBox::up-button,QDoubleSpinBox::down-button{{width:0;border:none;}}'
+        )
+        # 프레임리스 유지 — 상단 SPECTRA 그라디언트 라인
+        outer = QVBoxLayout(self); outer.setSpacing(0); outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(_grad_topline())
+        body = QWidget(); lay = QVBoxLayout(body)
+        lay.setSpacing(12); lay.setContentsMargins(18, 16, 18, 16)
+        outer.addWidget(body)
+
+        title = QLabel('Sine Configuration')
+        title.setStyleSheet(f'color:{tx};font-size:13px;font-weight:bold;background:transparent;')
+        lay.addWidget(title)
+
+        row = QHBoxLayout(); row.setSpacing(8)
+        flbl = QLabel('Frequency'); flbl.setFixedWidth(100)
+        flbl.setStyleSheet(f'color:{td};font-size:11px;background:transparent;')
+        self._freq_spin = QDoubleSpinBox()
+        self._freq_spin.setRange(10.0, 24000.0); self._freq_spin.setDecimals(1)
+        self._freq_spin.setValue(freq); self._freq_spin.setSuffix('  Hz')
+        self._freq_spin.setSingleStep(10); self._freq_spin.setAlignment(Qt.AlignCenter)
+        row.addWidget(flbl); row.addWidget(self._freq_spin, 1)
+        lay.addLayout(row)
+
+        lay.addSpacing(2); lay.addWidget(hsep())
+        btn_h = QHBoxLayout(); btn_h.setSpacing(8); btn_h.addStretch()
+        cancel_btn = QPushButton('Cancel'); cancel_btn.setStyleSheet(ss_btn_neutral())
+        ok_btn = QPushButton('Apply'); ok_btn.setStyleSheet(ss_btn_primary())
+        ok_btn.setDefault(True)
+        cancel_btn.clicked.connect(self.reject)
+        ok_btn.clicked.connect(self.accept)
+        btn_h.addWidget(cancel_btn); btn_h.addWidget(ok_btn)
+        lay.addLayout(btn_h)
+
+    @property
+    def freq(self): return max(10.0, min(24000.0, self._freq_spin.value()))
+
+
 class DelayFinderDialog(QDialog):
     _result_sig = pyqtSignal(float)
 
@@ -7503,7 +8351,7 @@ class DelayFinderDialog(QDialog):
     def _start_find(self):
         if not self._tw._running:
             from PyQt5.QtWidgets import QMessageBox
-            QMessageBox.information(self, 'Delay Finder', '먼저 Start를 누르고 신호가 들어오면 사용하세요.')
+            _BrandBox.information(self, 'Delay Finder', '먼저 Start를 누르고 신호가 들어오면 사용하세요.')
             return
         self._tick_count = 0
         self._progress.setValue(0)
@@ -7535,10 +8383,10 @@ class DelayFinderDialog(QDialog):
             sig_on = (tw._duplex_thread is not None and tw._duplex_thread.isRunning() and not tw._duplex_thread._muted) or \
                      (tw._sig_stream is not None)
             if not sig_on:
-                QMessageBox.information(self, 'Delay Finder',
+                _BrandBox.information(self, 'Delay Finder',
                     '신호가 감지되지 않았습니다.\nPlay(신호 발생기)를 켜고 다시 시도하세요.')
             else:
-                QMessageBox.information(self, 'Delay Finder',
+                _BrandBox.information(self, 'Delay Finder',
                     '아직 데이터가 쌓이지 않았습니다.\n신호가 입력되고 있는지 확인 후 다시 시도하세요.')
             return
         fft_size = tw.fft_size; sr = tw.sample_rate
@@ -7653,11 +8501,13 @@ class AllDelayFinderDialog(QDialog):
 
         btn_row = QHBoxLayout(); btn_row.setSpacing(6)
         btn_s = ss_btn_neutral()   # 다이얼로그 버튼 통일
-        self._insert_btn = QPushButton('Insert All'); self._insert_btn.setEnabled(False)
-        self._find_btn   = QPushButton('Find Again')
+        self._insert_btn = QPushButton('Insert All (Enter)'); self._insert_btn.setEnabled(False)
+        self._find_btn   = QPushButton('Find Again (L)')
         self._cancel_btn = QPushButton('Cancel')
         for b in (self._insert_btn, self._find_btn, self._cancel_btn):
-            b.setStyleSheet(btn_s); btn_row.addWidget(b)
+            b.setStyleSheet(btn_s)
+            b.setAutoDefault(False); b.setDefault(False)   # Enter는 keyPressEvent에서 처리(항상 적용)
+            btn_row.addWidget(b)
         self._find_btn.setStyleSheet(ss_btn_primary())   # 주동작 강조
         self._insert_btn.clicked.connect(self._on_insert_all)
         self._find_btn.clicked.connect(self._start_find)
@@ -7667,7 +8517,7 @@ class AllDelayFinderDialog(QDialog):
     def _start_find(self):
         if not self._tw._running:
             from PyQt5.QtWidgets import QMessageBox
-            QMessageBox.information(self, 'Delay Finder',
+            _BrandBox.information(self, 'Delay Finder',
                 '먼저 Start를 누르고 신호가 들어오면 사용하세요.')
             return
         self._results = []
@@ -7805,6 +8655,17 @@ class AllDelayFinderDialog(QDialog):
                         tw._extra_pairs[enc]['delay_ms'] = d_ms
         self.accept()
 
+    def keyPressEvent(self, e):
+        # L = 다시 탐색,  Enter = 딜레이값 적용(Insert All)
+        k = e.key()
+        if k == Qt.Key_L:
+            self._start_find(); e.accept(); return
+        if k in (Qt.Key_Return, Qt.Key_Enter):
+            if self._insert_btn.isEnabled():
+                self._on_insert_all()
+            e.accept(); return
+        super().keyPressEvent(e)   # Esc 등 기본 동작 유지
+
     def closeEvent(self, e):
         if self._prog_timer and self._prog_timer.isActive():
             self._prog_timer.stop()
@@ -7817,26 +8678,33 @@ class AllDelayFinderDialog(QDialog):
 class _TFAverageDialog(QDialog):
     def __init__(self, captures, parent=None):
         super().__init__(parent)
-        self.setWindowTitle('TF Average'); _apply_dark_titlebar(self)
+        self.setWindowTitle('TF Average'); _apply_dark_titlebar(self)   # 프레임리스 + 다크 타이틀바
         self.setModal(True)
-        self.setMinimumWidth(280)
-        self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
+        self.setMinimumWidth(300)
+        self.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
+        fg = T('text'); accent = T('accent')
 
-        bg = T('bg2'); fg = T('text'); accent = T('accent')
-        brd = T('border')
-        self.setStyleSheet(
-            f'QDialog{{background:{bg};}} QLabel{{color:{fg};}} '
-            f'QPushButton{{border:1px solid {brd};border-radius:5px;'
-            f'background:{T("bg3")};color:{fg};font-size:12px;padding:4px 16px;}}'
-            f'QPushButton:hover{{background:{accent};color:#fff;}}')
+        # 프레임리스 유지 — setWindowFlags 재호출 금지(네이티브 프레임 이중표시 방지)
+        outer = QVBoxLayout(self); outer.setSpacing(0); outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(_grad_topline())
+        body = QWidget(); lay = QVBoxLayout(body)
+        lay.setSpacing(6); lay.setContentsMargins(16, 14, 16, 14)
+        outer.addWidget(body)
 
-        lay = QVBoxLayout(self)
-        lay.setSpacing(4); lay.setContentsMargins(12, 10, 12, 10)
+        hint = QLabel('평균낼 캡쳐를 선택하세요')
+        hint.setStyleSheet(f'color:{T("text_dim")};font-size:11px;background:transparent;')
+        lay.addWidget(hint)
 
+        # 체크박스 — 테마 적응 (다크/라이트)
+        if _theme == 'dark':
+            _ck_bg, _ck_bd, _ck_on = '#0c0c20', '#5060a0', '#0c1830'
+        else:
+            _ck_bg, _ck_bd, _ck_on = T('panel'), '#C4CCD8', '#E3ECFF'
         _chk_ss = (
-            f'QPushButton{{font-size:13px;font-weight:bold;border:2px solid #5060a0;'
-            f'border-radius:4px;background:#0c0c20;color:#4da6ff;padding:0;min-width:20px;max-width:20px;min-height:20px;max-height:20px;}}'
-            f'QPushButton:checked{{border:2px solid #4da6ff;background:#0c1830;}}')
+            f'QPushButton{{font-size:13px;font-weight:bold;border:2px solid {_ck_bd};'
+            f'border-radius:4px;background:{_ck_bg};color:{accent};padding:0;'
+            f'min-width:20px;max-width:20px;min-height:20px;max-height:20px;}}'
+            f'QPushButton:checked{{border:2px solid {accent};background:{_ck_on};}}')
         self._checks = []
         for i, cap in enumerate(captures):
             row = QWidget()
@@ -7846,23 +8714,21 @@ class _TFAverageDialog(QDialog):
             chk.setStyleSheet(_chk_ss)
             chk.toggled.connect(lambda c, b=chk: b.setText('✓' if c else ''))
             dot = QLabel('■')
-            dot.setStyleSheet(f'color:{cap.get("color","#fff")};font-size:14px;')
+            dot.setStyleSheet(f'color:{cap.get("color","#fff")};font-size:14px;background:transparent;')
             dot.setFixedWidth(18)
             name = QLabel(cap.get('label', f'Capture {i+1}'))
-            name.setStyleSheet(f'color:{fg};font-size:13px;')
+            name.setStyleSheet(f'color:{fg};font-size:13px;background:transparent;')
             rl.addWidget(chk); rl.addWidget(dot); rl.addWidget(name, 1)
             lay.addWidget(row)
             self._checks.append((i, chk))
 
-        sep2 = QFrame(); sep2.setFrameShape(QFrame.HLine)
-        sep2.setStyleSheet(f'background:{brd};max-height:1px;'); lay.addWidget(sep2)
-
-        btn_lay = QHBoxLayout(); btn_lay.setSpacing(8)
+        lay.addSpacing(4); lay.addWidget(hsep())
+        btn_lay = QHBoxLayout(); btn_lay.setSpacing(8); btn_lay.addStretch()
         self._cancel_btn = QPushButton('취소'); self._cancel_btn.setStyleSheet(ss_btn_neutral())
         self._ok_btn = QPushButton('Average'); self._ok_btn.setStyleSheet(ss_btn_primary())
+        self._ok_btn.setDefault(True)
         self._cancel_btn.clicked.connect(self.reject)
         self._ok_btn.clicked.connect(self.accept)
-        btn_lay.addStretch()
         btn_lay.addWidget(self._cancel_btn)
         btn_lay.addWidget(self._ok_btn)
         lay.addLayout(btn_lay)
@@ -7893,6 +8759,36 @@ class _TFKeyFilter(QObject):
                 elif key == Qt.Key_L:
                     self._tf._find_all_delays()
                     return True
+        return False
+
+
+class _MainKeyFilter(QObject):
+    """S 키 = Spectrum/Stereo 탭 Start·Stop 토글 (앱 레벨, 포커스 무관).
+    단, 텍스트 입력 중이거나 메인창이 비활성(팝업 포커스)이면 무시."""
+    def __init__(self, mw):
+        super().__init__(mw)
+        self._mw = mw
+
+    def eventFilter(self, obj, event):
+        if (event.type() == QEvent.KeyPress
+                and event.key() in (Qt.Key_S, Qt.Key_R)
+                and event.modifiers() == Qt.NoModifier):
+            if not self._mw.isActiveWindow():
+                return False
+            from PyQt5.QtWidgets import (QLineEdit, QAbstractSpinBox, QTextEdit,
+                                         QPlainTextEdit, QComboBox, QAbstractItemView)
+            fw = QApplication.focusWidget()
+            # 텍스트 입력칸·콤보·리스트(키보드 타입어헤드 'S'/'R')에선 가로채지 않음
+            if isinstance(fw, (QLineEdit, QAbstractSpinBox, QTextEdit,
+                               QPlainTextEdit, QComboBox, QAbstractItemView)):
+                return False
+            if event.key() == Qt.Key_R:     # R = 선택 캡쳐 제자리 다시 캡쳐
+                self._mw._recapture_selected(); return True
+            tab = self._mw.main_stack.currentIndex()
+            if tab == 0:      # Spectrum
+                self._mw._toggle(); return True
+            elif tab == 2:    # Stereo Loudness
+                self._mw._st_toggle(); return True
         return False
 
 
@@ -7944,6 +8840,7 @@ class TransferFunctionWindow(QWidget):
         self._sweep_f_lo = 20.0       # 스윕 시작 주파수(Hz)
         self._sweep_f_hi = 20000.0    # 스윕 끝 주파수(Hz)
         self._sweep_asc  = True       # True=Low→High, False=High→Low
+        self._sine_freq  = 1000.0     # 사인파 주파수(Hz)
         self._sig_level_lin = 10 ** (-20 / 20)
         self._tf_captures = []
         self._on_captures_changed = None
@@ -8020,6 +8917,7 @@ class TransferFunctionWindow(QWidget):
         tr = QHBoxLayout(); tr.setSpacing(4); tr.setContentsMargins(2,0,0,0)
         self.sig_pink_btn  = _CheckBtn('Pink');  self.sig_pink_btn.setChecked(True)
         self.sig_white_btn = _CheckBtn('White')
+        self.sig_sine_btn  = _CheckBtn('Sine')
         self.sig_sweep_btn = _CheckBtn('Sweep')
         def _sig_gen_active():
             """제네레이터 스트림이 열려 있으면 True (재생/뮤트 무관)."""
@@ -8036,11 +8934,37 @@ class TransferFunctionWindow(QWidget):
         def _sel_pink():
             _stop_if_playing()
             self.sig_pink_btn.setChecked(True); self.sig_white_btn.setChecked(False)
+            self.sig_sine_btn.setChecked(False)
             self.sig_sweep_btn.setChecked(False); self.sig_file_btn.setChecked(False)
         def _sel_white():
             _stop_if_playing()
             self.sig_white_btn.setChecked(True); self.sig_pink_btn.setChecked(False)
+            self.sig_sine_btn.setChecked(False)
             self.sig_sweep_btn.setChecked(False); self.sig_file_btn.setChecked(False)
+        def _sel_sine():
+            _stop_if_playing()
+            dlg = SineConfigDialog(self, freq=self._sine_freq)
+            if dlg.exec_() == QDialog.Accepted:
+                self._sine_freq = dlg.freq
+                _f = self._sine_freq
+                if _f >= 1000:
+                    _ft = f'{_f/1000:.0f}k' if abs(_f/1000-round(_f/1000))<0.05 else f'{_f/1000:.1f}k'
+                else:
+                    _ft = f'{_f:.0f}' if abs(_f-round(_f))<0.05 else f'{_f:.1f}'
+                self.sig_sine_btn.setText(f'Sine {_ft}')
+                self.sig_sine_btn.setChecked(True)
+                self.sig_pink_btn.setChecked(False)
+                self.sig_white_btn.setChecked(False)
+                self.sig_sweep_btn.setChecked(False)
+                self.sig_file_btn.setChecked(False)
+            else:
+                # Cancel → 선택 상태 복원
+                if not any([self.sig_pink_btn.isChecked(),
+                            self.sig_white_btn.isChecked(),
+                            self.sig_sweep_btn.isChecked(),
+                            self.sig_file_btn.isChecked()]):
+                    self.sig_pink_btn.setChecked(True)
+                self.sig_sine_btn.setChecked(False)
         def _sel_sweep():
             _stop_if_playing()
             dlg = SweepConfigDialog(self,
@@ -8055,19 +8979,22 @@ class TransferFunctionWindow(QWidget):
                 self.sig_sweep_btn.setChecked(True)
                 self.sig_pink_btn.setChecked(False)
                 self.sig_white_btn.setChecked(False)
+                self.sig_sine_btn.setChecked(False)
                 self.sig_file_btn.setChecked(False)
             else:
                 # Cancel → 선택 상태 복원
                 if not any([self.sig_pink_btn.isChecked(),
                             self.sig_white_btn.isChecked(),
+                            self.sig_sine_btn.isChecked(),
                             self.sig_file_btn.isChecked()]):
                     self.sig_pink_btn.setChecked(True)
                 self.sig_sweep_btn.setChecked(False)
         self.sig_pink_btn.clicked.connect(_sel_pink)
         self.sig_white_btn.clicked.connect(_sel_white)
+        self.sig_sine_btn.clicked.connect(_sel_sine)
         self.sig_sweep_btn.clicked.connect(_sel_sweep)
         tr.addWidget(self.sig_pink_btn); tr.addWidget(self.sig_white_btn)
-        tr.addWidget(self.sig_sweep_btn); tr.addStretch()
+        tr.addWidget(self.sig_sine_btn); tr.addWidget(self.sig_sweep_btn); tr.addStretch()
         sgl.addLayout(tr)
         # 오디오 파일 재생 버튼 (클릭 → 파일 선택)
         self.sig_file_btn = _CheckBtn('File…'); self.sig_file_btn.setIcon(_icon('folder'))
@@ -8557,7 +9484,7 @@ class TransferFunctionWindow(QWidget):
             else: self._start()
         except Exception as e:
             from PyQt5.QtWidgets import QMessageBox
-            QMessageBox.warning(self, '오류', f'오디오 시작 실패:\n{e}')
+            _BrandBox.warning(self, '오류', f'오디오 시작 실패:\n{e}')
 
     # ── 독립 레벨 모니터링 ──────────────────────────────────────────
     def _toggle_monitor(self, checked):
@@ -9288,7 +10215,7 @@ class TransferFunctionWindow(QWidget):
     def _on_err(self, msg):
         self._stop_analysis()  # 분석만 정지 — 제너레이터는 유지
         from PyQt5.QtWidgets import QMessageBox
-        QMessageBox.warning(self, '오디오 오류', f'오디오 장치 오류:\n{msg}')
+        _BrandBox.warning(self, '오디오 오류', f'오디오 장치 오류:\n{msg}')
 
     def _on_tf_disconnect(self, msg=''):
         """입력 장치(인터페이스) USB 끊김 감지 — 분석 + 제너레이터(출력) 모두 정지.
@@ -9576,7 +10503,7 @@ class TransferFunctionWindow(QWidget):
             self.mag_cvs.fit_y()             # Magnitude Y축 자동 맞춤 (뷰는 건드리지 않음)
         else:
             from PyQt5.QtWidgets import QMessageBox
-            QMessageBox.information(self, 'Delay Finder', f'탐지값: {d_ms:.2f} ms\n범위 초과 — 수동으로 입력하세요.')
+            _BrandBox.information(self, 'Delay Finder', f'탐지값: {d_ms:.2f} ms\n범위 초과 — 수동으로 입력하세요.')
 
     # ── 캡처 ────────────────────────────────
     def _save_tf_captures(self):
@@ -9773,6 +10700,49 @@ class TransferFunctionWindow(QWidget):
         if callable(getattr(self, '_on_captures_changed', None)):
             self._on_captures_changed()
 
+    def _recapture_tf(self, idx):
+        """기존 TF 캡쳐 idx 를 현재 라이브로 제자리 덮어쓰기 (색/이름/그룹 유지).
+        meta['source'] 에 따라 primary / extra 카드 데이터로 mag·phase·ir 동시 갱신."""
+        if not (0 <= idx < len(self._tf_captures)): return False
+        if self.mag_cvs.freqs is None: return False
+        meta = self._tf_captures[idx]
+        src = meta.get('source', 'primary')
+        ok = False
+        if src == 'primary':
+            primary_on = (not self._level_cards) or self._level_cards[0]._display_on
+            if not primary_on: return False
+            ok = self.mag_cvs.recapture_live(idx)
+            self.phase_cvs.recapture_live(idx)
+            self.ir_cvs.recapture_live(idx, delay=self.delay_ms)
+        elif src.startswith('card'):
+            try:
+                i = int(src[4:])
+            except ValueError:
+                return False
+            ex_m = self.mag_cvs._tf_extra.get(i)
+            if not ex_m or ex_m.get('f') is None: return False
+            ex_p = self.phase_cvs._tf_extra_phase.get(i)
+            pairs = getattr(self, '_extra_pairs', [])
+            pair = pairs[i] if i < len(pairs) else {}
+            ex_delay = pair.get('delay_ms', 0.0)
+            ok = self.mag_cvs.recapture_data(idx, ex_m.get('f'), ex_m.get('mag'))
+            self.phase_cvs.recapture_data(
+                idx, (ex_p or ex_m).get('f'),
+                ex_p.get('ph_wrap') if ex_p else None,
+                ex_p.get('ph_unwr') if ex_p else None,
+                ex_p.get('grp_ms') if ex_p else None)
+            ex_ir = self.ir_cvs._tf_extra.get(i)
+            if ex_ir and ex_ir.get('t') is not None and ex_ir.get('h') is not None:
+                self.ir_cvs.recapture_data(idx, ex_ir.get('t'), ex_ir.get('h'),
+                                           ex_ir.get('etc_db'), delay=ex_delay)
+            else:
+                self.ir_cvs.recapture_data(idx, None, None, delay=ex_delay)
+        if ok:
+            _alog.info(f'TF 리캡쳐  idx={idx}  label="{meta.get("label","")}"  src={src}')
+            self._refresh_tf_capture_bar()
+            self._save_tf_captures()
+        return ok
+
     # ── 안정화 캡쳐 ───────────────────────────────────────
     def _begin_stable_capture(self, base):
         """평균 재수렴 시작 후 폴링 → 안정되면 _capture_snapshot."""
@@ -9838,7 +10808,7 @@ class TransferFunctionWindow(QWidget):
         on = bool(on)
         if on and self._ref_capture_idx is None:
             from PyQt5.QtWidgets import QMessageBox
-            QMessageBox.information(self, 'Delta', '먼저 캡쳐 하나를 기준(R)으로 지정하세요.')
+            _BrandBox.information(self, 'Delta', '먼저 캡쳐 하나를 기준(R)으로 지정하세요.')
             if hasattr(self, 'delta_btn'):
                 self.delta_btn.blockSignals(True); self.delta_btn.setChecked(False)
                 self.delta_btn.blockSignals(False)
@@ -9855,7 +10825,7 @@ class TransferFunctionWindow(QWidget):
         """TF 캡쳐 전체를 CSV(주파수/Mag/Phase/Coh) + 현재 화면 PNG 로 내보내기."""
         from PyQt5.QtWidgets import QFileDialog, QMessageBox
         if not self._tf_captures:
-            QMessageBox.information(self, 'Export', 'TF 캡처가 없습니다.')
+            _BrandBox.information(self, 'Export', 'TF 캡처가 없습니다.')
             return
         # 폴더 선택 다이얼로그 — accept 버튼을 '내보내기'로 (macOS 기본 'Open' 대신 명확하게)
         dlg = QFileDialog(self, '내보낼 폴더 선택')
@@ -9897,16 +10867,16 @@ class TransferFunctionWindow(QWidget):
                 png_path = os.path.join(d, f'tf_{name}_{stamp}.png')
                 cvs.grab().save(png_path)
             _alog.info(f'TF Export 완료  dir={d}')
-            QMessageBox.information(self, 'Export',
+            _BrandBox.information(self, 'Export',
                                     f'내보내기 완료:\n{csv_path}\n+ Mag/Phase/IR PNG')
         except Exception as e:
             _alog.warning(f'TF Export 실패: {e}')
-            QMessageBox.warning(self, 'Export', f'내보내기 실패:\n{e}')
+            _BrandBox.warning(self, 'Export', f'내보내기 실패:\n{e}')
 
     def _do_tf_average(self):
         if not self._tf_captures:
             from PyQt5.QtWidgets import QMessageBox
-            QMessageBox.information(self, 'TF Average', 'TF 캡처가 없습니다.')
+            _BrandBox.information(self, 'TF Average', 'TF 캡처가 없습니다.')
             return
         dlg = _TFAverageDialog(self._tf_captures, self)
         if dlg.exec_() != QDialog.Accepted:
@@ -9914,7 +10884,7 @@ class TransferFunctionWindow(QWidget):
         sel_idxs = dlg.selected_indices()
         if len(sel_idxs) < 2:
             from PyQt5.QtWidgets import QMessageBox
-            QMessageBox.information(self, 'TF Average', '2개 이상의 캡처를 선택해 주세요.')
+            _BrandBox.information(self, 'TF Average', '2개 이상의 캡처를 선택해 주세요.')
             return
         mag_caps = [self.mag_cvs._captures[i] for i in sel_idxs if i < len(self.mag_cvs._captures)]
         ph_caps  = [self.phase_cvs._captures[i] for i in sel_idxs if i < len(self.phase_cvs._captures)]
@@ -10152,7 +11122,7 @@ class TransferFunctionWindow(QWidget):
             ref_idx = self.ref_cb.currentData()
             if p_meas_idx is not None and ref_idx is not None and p_meas_idx != ref_idx:
                 from PyQt5.QtWidgets import QMessageBox
-                QMessageBox.warning(self, 'Auto Find Delay',
+                _BrandBox.warning(self, 'Auto Find Delay',
                     'Ref와 Meas 장치가 다릅니다.\n\n'
                     '서로 다른 오디오 장치는 하드웨어 클럭이 다르기 때문에\n'
                     '딜레이 자동 검출이 정확하지 않을 수 있습니다.\n\n'
@@ -10358,7 +11328,8 @@ class TransferFunctionWindow(QWidget):
             '오디오 파일 (*.wav *.flac *.aiff *.aif *.ogg *.mp3 *.m4a *.caf);;전체 (*)')
         if not path:
             self.sig_file_btn.setChecked(False)
-            if not self.sig_white_btn.isChecked() and not self.sig_sweep_btn.isChecked():
+            if not self.sig_white_btn.isChecked() and not self.sig_sweep_btn.isChecked() \
+               and not self.sig_sine_btn.isChecked():
                 self.sig_pink_btn.setChecked(True)
             return
         self._load_audio_file(path)
@@ -10374,7 +11345,7 @@ class TransferFunctionWindow(QWidget):
         except ImportError:
             # soundfile 없음 → scipy로 WAV만 지원
             if os.path.splitext(path)[1].lower() not in ('.wav',):
-                QMessageBox.warning(self, '파일 오류',
+                _BrandBox.warning(self, '파일 오류',
                     'WAV 이외 형식은 soundfile 패키지가 필요합니다.\n'
                     '터미널에서 설치 후 재시작:\n  pip install soundfile')
                 self.sig_file_btn.setChecked(False); return False
@@ -10390,10 +11361,10 @@ class TransferFunctionWindow(QWidget):
                 else:
                     data = raw.astype(np.float32)
             except Exception as e2:
-                QMessageBox.warning(self, '파일 오류', f'WAV 읽기 실패:\n{e2}')
+                _BrandBox.warning(self, '파일 오류', f'WAV 읽기 실패:\n{e2}')
                 self.sig_file_btn.setChecked(False); return False
         except Exception as e:
-            QMessageBox.warning(self, '파일 오류', f'파일을 읽을 수 없습니다:\n{e}')
+            _BrandBox.warning(self, '파일 오류', f'파일을 읽을 수 없습니다:\n{e}')
             self.sig_file_btn.setChecked(False); return False
         if data.ndim == 2:
             data = data.mean(axis=1)      # 스테레오 → 모노 믹스다운
@@ -10408,7 +11379,7 @@ class TransferFunctionWindow(QWidget):
         self.sig_file_btn.setText(f'{fname[:12]}{"…" if len(fname)>12 else ""}')  # folder 아이콘 유지
         self.sig_file_btn.setChecked(True)
         self.sig_pink_btn.setChecked(False); self.sig_white_btn.setChecked(False)
-        self.sig_sweep_btn.setChecked(False)
+        self.sig_sine_btn.setChecked(False); self.sig_sweep_btn.setChecked(False)
         return True
 
     # ── 드래그&드롭: 오디오 파일을 창에 떨궈서 File 측정 신호로 로드 ──
@@ -10471,6 +11442,14 @@ class TransferFunctionWindow(QWidget):
             _raw_w[:_xfade_w] *= _ramp_w          # fade-in: 루프 첫 구간 0→full
             _raw_w[-_xfade_w:] *= _ramp_w[::-1]  # fade-out: 루프 끝 full→0, wrap 클릭 제거
             self._pink_buf = _raw_w
+        elif self.sig_sine_btn.isChecked():
+            # 사인파: 정수 사이클로 버퍼를 만들어 루프 이음새 클릭 제거
+            _n_sine = self.sample_rate * 10
+            _f0 = max(10.0, float(self._sine_freq))
+            _k = max(1, int(round(_f0 * _n_sine / self.sample_rate)))   # 버퍼 내 정수 사이클 수
+            _f_act = _k * self.sample_rate / _n_sine                    # 실제 주파수(요청값과 <0.05Hz 차)
+            _t = np.arange(_n_sine, dtype=np.float64)
+            self._pink_buf = np.sin(2*np.pi*_f_act*_t/self.sample_rate).astype(np.float32)
         elif self.sig_sweep_btn.isChecked():
             n = self.sample_rate * self._sweep_dur
             buf = _gen_log_sweep(n, self.sample_rate, self._sweep_f_lo, self._sweep_f_hi)
@@ -10532,7 +11511,7 @@ class TransferFunctionWindow(QWidget):
 
             if meas_idx is None or out_dev is None:
                 from PyQt5.QtWidgets import QMessageBox
-                QMessageBox.warning(self, 'Signal Generator', 'Measurement 장치를 먼저 선택하세요.')
+                _BrandBox.warning(self, 'Signal Generator', 'Measurement 장치를 먼저 선택하세요.')
                 self.sig_on_btn.setChecked(False); return
             out_ch  = self.sig_out_ch_cb.currentData() or 0
             out_ch2 = self.sig_out_ch2_cb.currentData()   # None = Off
@@ -10558,7 +11537,7 @@ class TransferFunctionWindow(QWidget):
             # 스윕 1-shot 측정은 Duplex(입출력 같은 장치)만 지원 — 다른 장치는 클럭 미동기화
             if self.sig_sweep_btn.isChecked():
                 from PyQt5.QtWidgets import QMessageBox
-                QMessageBox.information(self, 'Sweep 1-shot 측정',
+                _BrandBox.information(self, 'Sweep 1-shot 측정',
                     'Sweep 1-shot IR 측정은\n입력(Measurement)과 출력(Signal Out)이\n'
                     '같은 장치일 때만 지원됩니다.\n\n'
                     '외장 오디오 인터페이스를 사용하면\n입출력이 같은 장치로 설정됩니다.')
@@ -10662,7 +11641,7 @@ class TransferFunctionWindow(QWidget):
                     else:
                         self.sig_on_btn.setChecked(False)
                         from PyQt5.QtWidgets import QMessageBox
-                        QMessageBox.warning(self, 'Signal Generator', f'출력 장치 오류:\n{e}'); return
+                        _BrandBox.warning(self, 'Signal Generator', f'출력 장치 오류:\n{e}'); return
 
             # OutputStream 오픈 완료 후 meas_thread 오픈:
             # OutputStream(DAC 초기화) 먼저 → InputStream 나중 = 노이즈 없는 순서
@@ -11627,13 +12606,15 @@ class StereoLoudnessPage(QWidget):
 
     # ── 팝아웃 ────────────────────────────────────────────────────────
     def _make_popout_win(self, canvas, title):
-        # Qt.Tool + 메인창 부모 → SPL 미터처럼 풀스크린 위에 떠서 정렬 가능
-        # (일반 Qt.Window 는 macOS 풀스크린에서 별도 Space 로 튀어 정렬 불가)
-        win = QWidget(self.window(), Qt.Window | Qt.Tool)
+        # 부모 없는 독립 Qt.Window (Tool 제거) + 네이티브 collectionBehavior(_show_popout_normal에서 적용)
+        # → 메인창 최소화에도 살아남고, 메인창 풀스크린 위에도 뜬다 (SPL 미터와 동일 방식).
+        win = QWidget(None, Qt.Window)
         win.setWindowTitle(title)
         win.setStyleSheet(f'background:{T("bg")};')
         lay = QVBoxLayout(win); lay.setContentsMargins(0,0,0,0)
         lay.addWidget(canvas)
+        # 흰색 네이티브 타이틀바 → 다른 팝업처럼 다크 브랜드 타이틀바(프레임리스+✕+리사이즈 그립)
+        _apply_dark_titlebar(win, resizable=True)
         # 전체화면/최대화 상태 상속 방지 → 항상 기본 사이즈로
         win.setWindowState(Qt.WindowNoState)
         win.resize(560, 560)
@@ -11648,6 +12629,7 @@ class StereoLoudnessPage(QWidget):
         """팝아웃을 항상 기본 사이즈로 — 메인 전체화면 상태 상속/타이밍 무시.
         show 직후 + 지연 콜백으로 setGeometry 강제(전체로 뜨는 것 방지)."""
         win.show()
+        _set_float_above_fullscreen(win)   # 풀스크린 위 + 최소화 생존 (show 이후)
         def _fix():
             try:
                 win.setWindowState(Qt.WindowNoState)
@@ -11790,6 +12772,7 @@ class MainWindow(QMainWindow):
         self._spec_extra = []           # [{id,dev_idx,dev_name,ch,sr,color,visible,sub,card,state}]
         self._spec_next_id = 1          # 0 = primary
         self._spec_front_id = 0         # 선택되어 맨 앞에 그릴 카드 (0=primary)
+        self._spl_source_id = 0         # SPL 미터가 측정할 소스 카드 (0=primary, 그 외 _spec_extra id)
         self._spec_primary_name = ''    # primary 카드 사용자 지정 이름
         self._primary_card = None       # primary _SpecCard
         self._ch_cards = {}             # (레거시) 미사용
@@ -11824,6 +12807,10 @@ class MainWindow(QMainWindow):
         _sc = QShortcut(QKeySequence(Qt.Key_Space), self)
         _sc.setContext(Qt.ApplicationShortcut)
         _sc.activated.connect(self._space_capture)
+
+        # S 키 = Spectrum/Stereo 탭 Start·Stop 토글 (이벤트필터 — 텍스트 입력칸에선 가로채지 않음)
+        self._main_key_filter = _MainKeyFilter(self)
+        QApplication.instance().installEventFilter(self._main_key_filter)
 
         QTimer.singleShot(0, self._setup_macos_titlebar)
 
@@ -11978,8 +12965,9 @@ class MainWindow(QMainWindow):
         self._drawer_btn.clicked.connect(self._toggle_capture_drawer)
         sl0.addWidget(self._drawer_btn)
         sl0.addSpacing(4)
-        self.start_btn=QPushButton('Start')
+        self.start_btn=QPushButton('Start (S)')
         self.start_btn.setFixedWidth(92); self.start_btn.setFixedHeight(30)
+        self.start_btn.setToolTip('Start / Stop  (S)')
         self.start_btn.clicked.connect(self._toggle)
         sl0.addWidget(self.start_btn)
         sl0.addSpacing(8)
@@ -12078,8 +13066,9 @@ class MainWindow(QMainWindow):
         sl2.setContentsMargins(8,6,8,6); sl2.setSpacing(4)   # 3탭 툴바 메트릭 통일(Spectrum 기준)
 
         # Start/Stop 버튼
-        self._st_start_btn=QPushButton('Start'); _apply_txn(self._st_start_btn, False)
+        self._st_start_btn=QPushButton('Start (S)'); _apply_txn(self._st_start_btn, False)
         self._st_start_btn.setFixedWidth(92); self._st_start_btn.setFixedHeight(30)
+        self._st_start_btn.setToolTip('Start / Stop  (S)')
         self._st_start_btn.clicked.connect(self._st_toggle)
         sl2.addWidget(self._st_start_btn)
         sl2.addSpacing(10)
@@ -12191,6 +13180,11 @@ class MainWindow(QMainWindow):
         self._capture_drawer.move_to_group_req.connect(self._on_drawer_move_to_group)
         self._capture_drawer.capture_selected.connect(self._on_drawer_select)
         self._capture_drawer.visibility_changed.connect(self._on_drawer_visibility)
+        self._capture_drawer.visibility_all_changed.connect(self._on_drawer_visibility_all)
+        self._capture_drawer.group_visibility_changed.connect(self._on_drawer_group_visibility)
+        self._capture_drawer.capture_target_changed.connect(self._on_capture_target_changed)
+        self._capture_drawer.delete_all_requested.connect(self._on_drawer_delete_all)
+        self._capture_drawer.recapture_requested.connect(self._on_drawer_recapture)
         self._capture_drawer.average_requested.connect(self._on_drawer_average)
         self._capture_drawer.reference_changed.connect(self._on_drawer_reference)
         self._capture_drawer.export_requested.connect(self._on_drawer_export)
@@ -12295,7 +13289,7 @@ class MainWindow(QMainWindow):
         return sc
 
     def _build_info(self):
-        panel=QWidget(); panel.setFixedWidth(175)
+        panel=QWidget(); panel.setFixedWidth(200)
         panel.setObjectName('infoPanel')
         self._info_panel = panel
         layout=QVBoxLayout(panel); layout.setContentsMargins(10,10,10,10); layout.setSpacing(8)
@@ -12387,16 +13381,16 @@ class MainWindow(QMainWindow):
         self._ch_cards_container = QWidget()
         self._ch_cards_container.setStyleSheet('background:transparent;')
         self._ch_cards_layout = QVBoxLayout(self._ch_cards_container)
-        # 카드를 좌우로 확실히 인셋 → 4면 테두리가 또렷이 보이게
-        self._ch_cards_layout.setContentsMargins(2,0,4,0); self._ch_cards_layout.setSpacing(6)
+        # 카드를 좌우 대칭 인셋 → 패널 안에서 가운데 정렬 (오른쪽 viewportMargin 2 + 여기 4 = 6, 왼쪽 6)
+        self._ch_cards_layout.setContentsMargins(6,0,4,0); self._ch_cards_layout.setSpacing(6)
         self._ch_cards_scroll = QScrollArea()
         self._ch_cards_scroll.setWidget(self._ch_cards_container)
         self._ch_cards_scroll.setWidgetResizable(True)
         self._ch_cards_scroll.setFrameShape(QFrame.NoFrame)
         self._ch_cards_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._ch_cards_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        # 뷰포트 자체를 우측 인셋 → 스크롤바 유무와 무관하게 카드 우측 테두리 확보
-        self._ch_cards_scroll.setViewportMargins(0,0,6,0)
+        # 뷰포트 우측 인셋(2) + 카드레이아웃 우측(4) = 6px → 스크롤바 공간 확보 + 좌우 대칭(왼쪽도 6)
+        self._ch_cards_scroll.setViewportMargins(0,0,2,0)
         self._ch_cards_scroll.setMinimumHeight(120)
         self._ch_cards_scroll.viewport().setStyleSheet('background:transparent;')
         self._ch_cards_scroll.setStyleSheet(
@@ -12448,7 +13442,7 @@ class MainWindow(QMainWindow):
         try:
             logs = sorted(glob.glob(os.path.join(_LOG_DIR, 'wsa2_*.log')))[-10:]  # 최근 10세션
             if not logs:
-                QMessageBox.information(self, '로그 보내기', '아직 저장된 로그가 없습니다.')
+                _BrandBox.information(self, '로그 보내기', '아직 저장된 로그가 없습니다.')
                 return
             _dest = os.path.join(os.path.expanduser('~'), 'Desktop')
             if not os.path.isdir(_dest): _dest = os.path.expanduser('~')
@@ -12461,13 +13455,13 @@ class MainWindow(QMainWindow):
                 _sp.Popen(['explorer', '/select,', os.path.normpath(out)])
             else:
                 _sp.Popen(['open', '-R', out])
-            QMessageBox.information(
+            _BrandBox.information(
                 self, '로그 보내기',
                 f'최근 로그 {len(logs)}개를 묶었습니다:\n\n{out}\n\n'
                 '이 파일을 개발자/판매처에 보내주세요.\n(개인정보·라이선스 키는 들어있지 않습니다.)')
         except Exception as e:
             _alog.warning(f'로그 내보내기 실패: {e}')
-            QMessageBox.warning(self, '로그 보내기 실패',
+            _BrandBox.warning(self, '로그 보내기 실패',
                                 f'{e}\n\n로그 폴더를 직접 열어 보내주세요:\n{_LOG_DIR}')
 
     # ─────────────────────────────────────
@@ -12659,10 +13653,14 @@ class MainWindow(QMainWindow):
         self._capture_drawer._spec_tab_btn.setStyleSheet(_dtab_ss)
         self._capture_drawer._tf_tab_btn.setStyleSheet(_dtab_ss)
         self._capture_drawer._scroll.setStyleSheet(
+            f'#capScroll {{ background:{bg}; border:1px solid {border}; }}'
             f'QScrollBar:vertical{{width:5px;background:transparent;}}'
             f'QScrollBar::handle:vertical{{background:{scr_hdl};border-radius:2px;}}')
         self._capture_drawer._scroll.viewport().setStyleSheet(f'background:{bg};')
         self._capture_drawer._inner.setStyleSheet(f'#capInner {{ background:{bg}; }}')
+        # 헤더 버튼 테마색 + 행/칩 재빌드 (라이트에서 검정 배경 잔재 제거)
+        self._capture_drawer._restyle_chrome()
+        self._capture_drawer._redraw()
         sep_line = '#4A4A4A' if _theme == 'dark' else border
         self.hdr.setStyleSheet(f'#mainHdr {{ background: {bg2}; border: none; }}')
         self.hdr_sep.setStyleSheet(f'#hdrSep {{ background: {_SPECTRA_GRAD_QSS}; border: none; }}')
@@ -12957,10 +13955,21 @@ class MainWindow(QMainWindow):
         if not offsets and device_name in calibs:
             offsets[0] = float(calibs[device_name])
 
-        def set_channel(ch):
+        def set_channel_live(ch):
             for i in range(self.in_ch_cb.count()):
                 if self.in_ch_cb.itemData(i) == ch:
                     self.in_ch_cb.setCurrentIndex(i); break   # → _on_input_ch_changed (재시작+calib로드)
+
+        # 캘리브 창 단독 동작:
+        #  · 분석 실행 중이면 in_ch_cb 를 전환(라이브 곡선도 그 채널로) → 메인 경로 사용
+        #  · 정지 상태면 분석창/라이브카드는 그대로 두고, 캘리브 전용 경량 스트림으로
+        #    레벨(dBFS)만 측정 (Start 안 눌러도 됨)
+        was_running = self._spec_running()
+        if was_running:
+            set_channel = set_channel_live
+        else:
+            set_channel = self._calib_start_measure
+            self._calib_start_measure(active_ch)
 
         dlg = CalibDialog(device_name, n_ch, offsets, active_ch,
                           get_raw_spl, set_channel, self)
@@ -12978,9 +13987,99 @@ class MainWindow(QMainWindow):
             cur_ch = self.in_ch_cb.currentData() or 0
             self._load_calib_for_device(device_name, cur_ch)
         else:
-            # 취소 — 다이얼로그 도중 채널이 바뀌었으면 원래 채널로 복원
-            if (self.in_ch_cb.currentData() or 0) != active_ch:
-                set_channel(active_ch)
+            # 취소 — 라이브 모드에서 채널이 바뀌었으면 원래 채널로 복원
+            if was_running and (self.in_ch_cb.currentData() or 0) != active_ch:
+                set_channel_live(active_ch)
+        # 캘리브 전용 측정 스트림 정리(정지 상태에서 열었던 경우)
+        if not was_running:
+            self._calib_stop_measure()
+
+    # ── 캘리브 전용 경량 측정 (분석창/라이브카드 없이 레벨만) ──────────
+    def _calib_start_measure(self, ch):
+        """정지 상태에서 캘리브 창만으로 측정 — 해당 채널 레벨(dBFS)만 계산.
+        _process_audio(캔버스용 _pending) 와 라이브카드는 건드리지 않는다."""
+        self._calib_stop_measure()
+        idx = self.dev_cb.currentData()
+        if idx is None or idx < 0:
+            return
+        with QMutexLocker(self._mutex):
+            self._raw_spl_smooth = -100.0
+        self._calib_ch = ch
+        try:
+            self._calib_sub = self.audio_engine.subscribe(idx, [ch], self.sample_rate)
+        except Exception as e:
+            self._calib_sub = None
+            _alog.warning(f'캘리브 측정 스트림 시작 실패 ch={ch}: {e}')
+            return
+        self._calib_sub.chunk_ready.connect(self._calib_on_chunk, Qt.QueuedConnection)
+
+    def _calib_on_chunk(self, buf_dict):
+        buf = buf_dict.get(self._calib_ch)
+        if buf is None and buf_dict:
+            buf = next(iter(buf_dict.values()))
+        if buf is None or not np.isfinite(buf).all():
+            return
+        rms = float(np.sqrt(np.mean(buf ** 2)))
+        raw_dbfs = 20 * math.log10(max(rms, 1e-10))
+        with QMutexLocker(self._mutex):
+            va = 0.7 if raw_dbfs > self._raw_spl_smooth else (0.03 + self.speed_idx * 0.04)
+            self._raw_spl_smooth += (raw_dbfs - self._raw_spl_smooth) * va
+
+    def _calib_stop_measure(self):
+        sub = getattr(self, '_calib_sub', None)
+        if sub is not None:
+            try: sub.chunk_ready.disconnect()
+            except Exception: pass
+            try: sub.close()
+            except Exception: pass
+        self._calib_sub = None
+
+    # ── SPL 미터 측정 소스 선택 ───────────────────────────
+    def _spl_source_list(self):
+        """SPL 미터가 고를 수 있는 입력 소스 목록 → [(id, 라벨)]. id 0=primary."""
+        pname = (getattr(self, '_spec_primary_name', '') or self.dev_cb.currentText() or '입력')
+        pch = (self.in_ch_cb.currentData() or 0) + 1
+        out = [(0, f'1. {pname} · Ch{pch}')]
+        for src in self._spec_extra:
+            nm = src.get('name', '') or src.get('dev_name', '') or '입력'
+            out.append((src['id'], f'{src.get("num", 2)}. {nm} · Ch{src.get("ch", 0) + 1}'))
+        return out
+
+    def _spl_source_calib(self, sid):
+        """소스(id)의 캘리브 오프셋 — primary 는 self.calib_offset, 추가 카드는 device:ch 조회."""
+        if sid == 0:
+            return self.calib_offset
+        src = next((s for s in self._spec_extra if s['id'] == sid), None)
+        if src is None:
+            return self.calib_offset
+        calibs = self._settings.get('calibrations', {})
+        dev = src.get('dev_name', ''); ch = src.get('ch', 0)
+        return float(calibs.get(f'{dev}:{ch}', calibs.get(dev, 0.0)))
+
+    def _set_spl_source(self, sid):
+        """SPL 미터 측정 소스 변경 — 라우팅 대상 + 창 calib 갱신."""
+        ids = [s[0] for s in self._spl_source_list()]
+        self._spl_source_id = sid if sid in ids else 0
+        if getattr(self, 'spl_meter_win', None):
+            self.spl_meter_win.set_calib_offset(self._spl_source_calib(self._spl_source_id))
+
+    def _spl_inputs(self, buf, sr, calib, cache):
+        """선택된 SPL 소스용 Z(cal)/A/C/fs_peak 계산. cache(dict)에 A/C 가중 테이블 보관."""
+        db_raw = power_spectrum_db(buf)
+        rms = float(np.sqrt(np.mean(buf ** 2)))
+        raw_dbfs = 20 * math.log10(max(rms, 1e-10))
+        fs_peak = 20 * math.log10(max(float(np.max(np.abs(buf))), 1e-10))
+        aw = cache.get('aw'); cw = cache.get('cw')
+        if aw is None or len(aw) != len(db_raw):
+            freqs = np.fft.rfftfreq(len(buf), 1.0 / sr).astype(np.float32)
+            aw = np.array([a_weight_db(f) for f in freqs])
+            cw = np.array([c_weight_db(f) for f in freqs])
+            cache['aw'] = aw; cache['cw'] = cw
+        wa = np.clip(db_raw + aw + calib, -200, 100)
+        wc = np.clip(db_raw + cw + calib, -200, 100)
+        raw_dba = 10 * math.log10(max(float(np.sum(10 ** (wa / 10))), 1e-10))
+        raw_dbc = 10 * math.log10(max(float(np.sum(10 ** (wc / 10))), 1e-10))
+        return raw_dbfs + calib, raw_dba, raw_dbc, fs_peak
 
     def _apply_db_range(self):
         self.fft_cvs.db_max=self.db_max; self.fft_cvs.db_min=self.db_min
@@ -12998,7 +14097,7 @@ class MainWindow(QMainWindow):
     def _open_spl_meter(self):
         if self.spl_meter_win is None:
             self.spl_meter_win = SplMeterWindow(self)
-            self.spl_meter_win.set_calib_offset(self.calib_offset)
+            self.spl_meter_win.set_calib_offset(self._spl_source_calib(self._spl_source_id))
         self.spl_meter_win.show(); self.spl_meter_win.raise_()
 
     def _open_tf_window(self):
@@ -13152,14 +14251,14 @@ class MainWindow(QMainWindow):
     def _st_toggle(self):
         if self.stereo_page._running:
             self.stereo_page.stop()
-            self._st_start_btn.setText('Start')
+            self._st_start_btn.setText('Start (S)')
             self._go_style(self._st_start_btn)
             _alog.info('Stereo & Loudness 중지')
         else:
             idx=self.dev_cb.currentData()
             if idx is None or idx<0:
                 from PyQt5.QtWidgets import QMessageBox
-                QMessageBox.warning(self,'장치 없음',
+                _BrandBox.warning(self,'장치 없음',
                     'Spectrum 탭에서 입력 장치를 먼저 선택하세요.')
                 return
             # 장치 채널 수 확인 → l_ch/r_ch 범위 보정
@@ -13173,26 +14272,26 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 _alog.warning(f'Stereo 장치 조회 실패: {e}')
                 from PyQt5.QtWidgets import QMessageBox
-                QMessageBox.warning(self,'장치 오류',f'장치 정보를 읽을 수 없습니다:\n{e}')
+                _BrandBox.warning(self,'장치 오류',f'장치 정보를 읽을 수 없습니다:\n{e}')
                 return
             if n_ch<1:
                 from PyQt5.QtWidgets import QMessageBox
-                QMessageBox.warning(self,'장치 오류','선택된 장치에 입력 채널이 없습니다.')
+                _BrandBox.warning(self,'장치 오류','선택된 장치에 입력 채널이 없습니다.')
                 return
             l_ch=min(self._st_l_cb.currentData() or 0, n_ch-1)
             r_ch=min(self._st_r_cb.currentData() or 1, n_ch-1)
             _alog.info(f'Stereo 시작  device="{dev_name}"({idx})  L=ch{l_ch}  R=ch{r_ch}  sr={sr}')
             self.stereo_page.start(idx, sr, l_ch, r_ch, self.audio_engine)
-            self._st_start_btn.setText('Stop')
+            self._st_start_btn.setText('Stop (S)')
             self._stop_style(self._st_start_btn)
 
     def _on_stereo_error(self, msg):
         """StereoAudioThread 오류 → 버튼 리셋 + 경고."""
-        self._st_start_btn.setText('Start')
+        self._st_start_btn.setText('Start (S)')
         self._go_style(self._st_start_btn)
         _alog.warning(f'Stereo 오류 → UI 리셋: {msg}')
         from PyQt5.QtWidgets import QMessageBox
-        QMessageBox.warning(self,'Stereo 입력 오류',
+        _BrandBox.warning(self,'Stereo 입력 오류',
             f'스테레오 입력 스트림을 열 수 없습니다:\n\n{msg}\n\n'
             '• Spectrum 탭에서 입력 장치를 확인하세요.\n'
             '• 다른 앱이 장치를 점유 중일 수 있습니다.')
@@ -13310,7 +14409,7 @@ class MainWindow(QMainWindow):
         self._primary_sub.error.connect(self._on_audio_error, Qt.QueuedConnection)
         self._primary_sub.disconnected.connect(self._on_device_disconnected, Qt.QueuedConnection)
         self._start_spec_extra_subs()   # 추가 장치/채널 카드들 구독 시작
-        self.start_btn.setText('Stop'); self._stop_style(self.start_btn)
+        self.start_btn.setText('Stop (S)'); self._stop_style(self.start_btn)
         self.status_lbl.setText('● Running')
         self.status_lbl.setStyleSheet(f'color:{T("green")};font-size:11px;')
         self.mic_st.setText('Connected')
@@ -13338,13 +14437,15 @@ class MainWindow(QMainWindow):
             self._avg_buf.clear(); self._fft_smooth=None; self._pow_smooth=None
             self._raw_spl_smooth=-100.0; self._raw_peak_smooth=-100.0
             self._dba_smooth=-100.0; self._dbc_smooth=-100.0
-        self.start_btn.setText('Start'); self._go_style(self.start_btn)
+        self.start_btn.setText('Start (S)'); self._go_style(self.start_btn)
         self.status_lbl.setText('● Standby')
         self.status_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:11px;')
         self.mic_st.setText('Disconnected')
         self.mic_st.setStyleSheet(f'color:{T("text_dim")};font-size:10px;')
         self.fft_cvs.clear(); self.oct_cvs.clear(); self.spectro_cvs.clear()
         self.fft_cvs.clear_all_channels(); self.oct_cvs.clear_all_channels()
+        # 정지 시 브랜드 엠프티 스테이트 복귀 (Start 전과 동일하게)
+        self.fft_cvs._idle_hint = True; self.oct_cvs._idle_hint = True
         with QMutexLocker(self._mutex):
             self._ch_state.clear(); self._ch_pending_extra.clear()
         if self._primary_card is not None: self._primary_card.reset()
@@ -13361,7 +14462,7 @@ class MainWindow(QMainWindow):
         self.mic_st.setText('장치 오류')
         self.mic_st.setStyleSheet(f'color:{T("red")};font-size:10px;')
         from PyQt5.QtWidgets import QMessageBox
-        QMessageBox.warning(self,'오디오 오류',
+        _BrandBox.warning(self,'오디오 오류',
             f'마이크 연결에 실패했습니다:\n{msg}\n\n'
             '시스템 설정 → 개인정보 보호 → 마이크에서 접근을 허용했는지 확인하세요.')
 
@@ -13391,6 +14492,7 @@ class MainWindow(QMainWindow):
             try:
                 sd._terminate(); sd._initialize()
                 _alog.info('  PortAudio 재초기화 OK')
+                _log_audio_devices()   # 재초기화 후 PortAudio가 실제로 보는 장치 목록 (USB 재연결 진단의 핵심)
             except Exception as e:
                 _alog.error(f'  PortAudio 재초기화 실패: {e}')
             # 3) 전 탭 콤보 재로드 (장치는 이름으로 복원 → 인덱스 바뀌어도 재선택됨)
@@ -13470,9 +14572,7 @@ class MainWindow(QMainWindow):
     def _process_audio(self,buf):
         if not np.isfinite(buf).all(): return
         n=len(buf)
-        win=np.hanning(n).astype(np.float32)
-        spec=np.abs(np.fft.rfft(buf*win)); np.maximum(spec,1e-10,out=spec)
-        db_raw=20*np.log10(spec/(n/2))   # ★ raw dBFS — buf 실제 크기 기준
+        db_raw=power_spectrum_db(buf)     # ★ raw dBFS — 단측 파워 스펙트럼(ENBW 보정)
         freqs=np.fft.rfftfreq(n,1.0/self.sample_rate).astype(np.float32)
 
         s=self.smoothing
@@ -13498,6 +14598,7 @@ class MainWindow(QMainWindow):
             # ★ SPL: raw dBFS로 VU 바 높이 계산, cal 값은 숫자 표시에만
             rms=float(np.sqrt(np.mean(buf**2)))
             raw_dbfs=20*math.log10(max(rms,1e-10))   # dBFS (캘리브 전)
+            fs_peak=20*math.log10(max(float(np.max(np.abs(buf))),1e-10))  # 풀스케일 디지털 피크(dBFS)
 
             # SPL 스무딩 (raw 기준)
             va=0.7 if raw_dbfs>self._raw_spl_smooth else (0.03+self.speed_idx*0.04)
@@ -13507,6 +14608,7 @@ class MainWindow(QMainWindow):
 
             # dBA / dBC — 느린 평활 (time constant ~2초)
             dba_db=dbc_db=-100.0
+            raw_dba=raw_dbc=-100.0   # 순간(평활 전) A/C 가중 레벨 — SPL Meter Fast/Slow 자체 EMA용
             if self._aw_table is not None and len(self._aw_table)==len(db_raw):
                 wa=db_raw+self._aw_table+self.calib_offset
                 wc=db_raw+self._cw_table+self.calib_offset
@@ -13528,8 +14630,9 @@ class MainWindow(QMainWindow):
 
         if self.leq_win and dba_db>-100:
             self.leq_win.push_sample(dba_db,dbc_db)
-        if self.spl_meter_win and dba_db>-100:
-            self.spl_meter_win.push_sample(dba_db,dbc_db)
+        if self.spl_meter_win and self._spl_source_id == 0 and dba_db>-100:
+            # Smaart식 확장 지표 — 순간 calibrated Z/A/C + 풀스케일 디지털 피크 (소스=primary일 때만)
+            self.spl_meter_win.push_levels(raw_dbfs+self.calib_offset, raw_dba, raw_dbc, fs_peak)
 
     # ── 렌더링 타이머 (30fps)
     def _render_frame(self):
@@ -13614,9 +14717,7 @@ class MainWindow(QMainWindow):
 
     def _process_extra_source(self, card_id, buf, sr, color):
         n = len(buf)
-        win = np.hanning(n).astype(np.float32)
-        spec = np.abs(np.fft.rfft(buf * win)); np.maximum(spec, 1e-10, out=spec)
-        db_raw = 20 * np.log10(spec / (n / 2))
+        db_raw = power_spectrum_db(buf)     # 단측 파워 스펙트럼(ENBW 보정) — primary와 동일 정규화
         freqs = np.fft.rfftfreq(n, 1.0 / sr).astype(np.float32)   # 소스 장치 SR 기준
         s = self.smoothing
         pow_raw = 10 ** (db_raw / 10)
@@ -13638,6 +14739,15 @@ class MainWindow(QMainWindow):
             state['avg_buf'].append(state['fft_smooth'].copy())
             avg_cal = np.mean(list(state['avg_buf']), axis=0) + self.calib_offset
             self._ch_pending_extra[card_id] = (freqs, avg_cal, raw_dbfs, color)
+
+        # 이 소스가 SPL 미터 측정 대상이면 Z/A/C/fs_peak 계산해 push (뮤텍스 밖)
+        if self.spl_meter_win is not None and self._spl_source_id == card_id:
+            src = next((s for s in self._spec_extra if s['id'] == card_id), None)
+            if src is not None:
+                cal = self._spl_source_calib(card_id)
+                dbz, dba_i, dbc_i, fsp = self._spl_inputs(buf, sr, cal, src.setdefault('spl_cache', {}))
+                if dba_i > -100:
+                    self.spl_meter_win.push_levels(dbz, dba_i, dbc_i, fsp)
 
     # ── 장치/채널 유틸
     def _input_device_items(self):
@@ -13701,6 +14811,10 @@ class MainWindow(QMainWindow):
             sc.selected.connect(self._on_spec_card_select)
             sc.renamed.connect(self._on_spec_renamed)
             src['card'] = sc
+            # 첫 실행/재구성 시 저장된 가시성을 캔버스 채널에 동기화 (데이터 도착 전이라도)
+            _vis = src.get('visible', True)
+            self.fft_cvs.set_channel_visible(src['id'], _vis)
+            self.oct_cvs.set_channel_visible(src['id'], _vis)
             self._ch_cards_layout.addWidget(sc)
         self._ch_cards_layout.addStretch(1)
 
@@ -13779,6 +14893,8 @@ class MainWindow(QMainWindow):
         if self._spec_front_id == card_id:   # front 카드 삭제 → primary front 로
             self._spec_front_id = 0
             self.fft_cvs._front_id = 0; self.oct_cvs._front_id = 0
+        if self._spl_source_id == card_id:   # SPL 측정 소스 삭제 → primary 로 복귀
+            self._set_spl_source(0)
         self._rebuild_ch_cards()
         self._save_spec_sources()
 
@@ -13804,12 +14920,9 @@ class MainWindow(QMainWindow):
     def _on_spec_visibility(self, card_id, visible):
         src = next((s for s in self._spec_extra if s['id'] == card_id), None)
         if src is not None: src['visible'] = visible
-        if card_id in self.fft_cvs._ch_curves:
-            self.fft_cvs._ch_curves[card_id]['visible'] = visible
-            self.fft_cvs.update()
-        if card_id in self.oct_cvs._ch_oct:
-            self.oct_cvs._ch_oct[card_id]['visible'] = visible
-            self.oct_cvs.update()
+        # 데이터 도착 전에도 유지되는 가시성 맵에 기록(곡선 재생성돼도 숨김 유지)
+        self.fft_cvs.set_channel_visible(card_id, visible)
+        self.oct_cvs.set_channel_visible(card_id, visible)
         self._save_spec_sources()
 
     def _clear_extra_curve(self, card_id):
@@ -14067,9 +15180,69 @@ class MainWindow(QMainWindow):
                         cvs._captures[idx]['visible'] = visible
                         cvs._cap_pix = None; cvs.update()
 
+    def _on_drawer_visibility_all(self, mode, visible):
+        """현재 탭 전체 캡쳐 일괄 표시/숨김."""
+        self._apply_caps_visibility(mode, visible, group=None)
+
+    def _on_drawer_group_visibility(self, mode, gname, visible):
+        """한 그룹의 캡쳐만 일괄 표시/숨김."""
+        self._apply_caps_visibility(mode, visible, group=gname)
+
+    def _apply_caps_visibility(self, mode, visible, group=None):
+        """일괄 가시성 적용 — group=None 이면 전체, 아니면 해당 그룹만.
+        개별 토글(_on_drawer_visibility)과 동일하게 캔버스별 _captures 동기화 + 재페인트."""
+        def _match(c):
+            return group is None or c.get('group', '') == group
+        if mode == 'spec':
+            for cvs in (self.fft_cvs, self.oct_cvs):
+                changed = False
+                for c in cvs._captures:
+                    if _match(c):
+                        c['visible'] = visible; changed = True
+                if changed:
+                    cvs._cap_pix = None; cvs.update()
+        elif mode == 'tf' and hasattr(self, 'tf_win') and self.tf_win is not None:
+            tf = self.tf_win
+            idxs = [i for i, c in enumerate(tf._tf_captures) if _match(c)]
+            for i in idxs:
+                tf._tf_captures[i]['visible'] = visible
+            for cvs in (tf.mag_cvs, tf.phase_cvs, tf.ir_cvs):
+                for i in idxs:
+                    if 0 <= i < len(cvs._captures):
+                        cvs._captures[i]['visible'] = visible
+                cvs._cap_pix = None; cvs.update()
+        self._refresh_capture_drawer()
+
     def _on_drawer_average(self, mode):
         if mode == 'tf' and hasattr(self, 'tf_win') and self.tf_win is not None:
             self.tf_win._do_tf_average()
+
+    def _on_drawer_recapture(self, mode, idx):
+        """기존 캡쳐 idx 를 현재 라이브로 제자리 덮어쓰기 (색/이름/그룹 유지)."""
+        if mode == 'spec':
+            fft_n = len(self.fft_cvs._captures)
+            if idx < fft_n:
+                ok = self.fft_cvs.recapture(idx)
+            else:
+                ok = self.oct_cvs.recapture(idx - fft_n)
+            if ok:
+                self._refresh_capture_drawer()
+                self._save_spec_captures()
+                self._flash_toast()
+        elif mode == 'tf' and hasattr(self, 'tf_win') and self.tf_win is not None:
+            if self.tf_win._recapture_tf(idx):
+                self._refresh_capture_drawer()
+                self._flash_toast()
+
+    def _recapture_selected(self):
+        """R 단축키 — 현재 탭에서 선택(없으면 마지막) 캡쳐를 제자리 다시 캡쳐."""
+        mode = self._capture_drawer._panel_tab
+        caps = self._capture_drawer._spec_caps if mode == 'spec' else self._capture_drawer._tf_caps
+        if not caps: return
+        idx = self._capture_drawer._sel.get(mode)
+        if idx is None or not (0 <= idx < len(caps)):
+            idx = len(caps) - 1
+        self._on_drawer_recapture(mode, idx)
 
     def _on_drawer_reference(self, mode, idx):
         if mode == 'tf' and hasattr(self, 'tf_win') and self.tf_win is not None:
@@ -14099,17 +15272,50 @@ class MainWindow(QMainWindow):
                         cvs._captures[n]['label'] = name
             self.tf_win._refresh_tf_capture_bar()
 
+    def _on_capture_target_changed(self, mode, gname):
+        """캡쳐 패널에서 새 캡쳐가 들어갈 타겟 그룹 변경 ('' = 미지정)."""
+        if mode == 'spec':
+            self._current_spec_group = gname
+        elif hasattr(self, 'tf_win') and self.tf_win is not None:
+            self.tf_win._current_tf_group = gname
+        self._capture_drawer.set_capture_target(mode, gname)
+        self._refresh_capture_drawer()
+
+    def _on_drawer_delete_all(self, mode):
+        """우클릭 Delete All — 현재 탭(Spectrum/TF)의 모든 캡쳐 삭제 (확인 후)."""
+        from PyQt5.QtWidgets import QMessageBox
+        if mode == 'spec':
+            n = len(self.fft_cvs._captures) + len(self.oct_cvs._captures)
+        elif hasattr(self, 'tf_win') and self.tf_win is not None:
+            n = len(self.tf_win._tf_captures)
+        else:
+            return
+        if n == 0:
+            return
+        if not _brand_msg(self, 'Delete All', f'모든 캡쳐 {n}개를 삭제할까요?',
+                          kind='warn', ok_text='Delete', cancel_text='Cancel', danger=True):
+            return
+        if mode == 'spec':
+            for cvs in (self.fft_cvs, self.oct_cvs):
+                cvs._captures.clear(); cvs._front_idx = None; cvs._cap_pix = None; cvs.update()
+            self._refresh_spec_capture_bar(); self._save_spec_captures()
+            _alog.info('스펙트럼 캡처 전체 삭제')
+        else:
+            tf = self.tf_win
+            tf._tf_captures.clear()
+            for cvs in (tf.mag_cvs, tf.phase_cvs, tf.ir_cvs):
+                cvs._captures.clear(); cvs._front_idx = None; cvs._cap_pix = None; cvs.update()
+            try: tf._on_set_reference(-1)   # Δ 비교 기준 해제
+            except Exception: pass
+            tf._refresh_tf_capture_bar(); tf._save_tf_captures()
+            _alog.info('TF 캡처 전체 삭제')
+
     def _on_drawer_new_group(self, mode):
         name, ok = _text_input_dialog(self, '새 그룹', '그룹 이름:')
         if not ok or not name.strip(): return
         name = name.strip()
-        if mode == 'spec':
-            self._current_spec_group = name
-        else:
-            self.tf_win._current_tf_group = name
-        # 드로어에 "활성 그룹" 즉시 표시
-        self._capture_drawer.set_pending_group(mode, name)
-        self._refresh_capture_drawer()
+        # 새 그룹을 만들면 그 그룹을 캡쳐 타겟으로 지정 (활성 표시)
+        self._on_capture_target_changed(mode, name)
 
     def _on_drawer_delete_group(self, mode, gname):
         if mode == 'spec':
@@ -14119,9 +15325,7 @@ class MainWindow(QMainWindow):
             self.oct_cvs._cap_pix = None; self.oct_cvs.update()
             if getattr(self, '_current_spec_group', '') == gname:
                 self._current_spec_group = ''
-            pg = getattr(self._capture_drawer, '_pending_group', None)
-            if pg and pg == ('spec', gname):
-                self._capture_drawer._pending_group = None
+            self._capture_drawer.set_capture_target('spec', self._current_spec_group)
             self._refresh_spec_capture_bar()
             self._save_spec_captures()
         elif mode == 'tf':
@@ -14134,9 +15338,7 @@ class MainWindow(QMainWindow):
                 tf._tf_captures.pop(i)
             if getattr(tf, '_current_tf_group', '') == gname:
                 tf._current_tf_group = ''
-            pg = getattr(self._capture_drawer, '_pending_group', None)
-            if pg and pg == ('tf', gname):
-                self._capture_drawer._pending_group = None
+            self._capture_drawer.set_capture_target('tf', getattr(tf, '_current_tf_group', ''))
             tf._refresh_tf_capture_bar()
             tf._save_tf_captures()
 
@@ -14279,7 +15481,8 @@ class MainWindow(QMainWindow):
 
     def _apply_calib_thresholds(self):
         offset = self.calib_offset
-        if hasattr(self, 'spl_meter_win') and self.spl_meter_win:
+        # SPL 미터는 선택된 소스 기준 calib — 소스가 primary일 때만 primary calib 반영
+        if hasattr(self, 'spl_meter_win') and self.spl_meter_win and getattr(self, '_spl_source_id', 0) == 0:
             self.spl_meter_win.set_calib_offset(offset)
         self._i_warn_db = -20.0 + offset
         self._i_peak_db = -10.0 + offset
@@ -14320,9 +15523,11 @@ class MainWindow(QMainWindow):
         help_menu = mb.addMenu('Help')
         about_act = QAction('About SPECTRA', self); about_act.setMenuRole(QAction.AboutRole)
         about_act.triggered.connect(self._show_license_info); help_menu.addAction(about_act)
-        man_act = QAction('사용 설명서 (Manual)', self); man_act.setShortcut('Ctrl+?')
+        man_act = QAction('Manual', self); man_act.setShortcut('Ctrl+?')
         man_act.triggered.connect(self._open_manual); help_menu.addAction(man_act)
-        log_act = QAction('로그 폴더 열기', self)
+        rn_act = QAction('Release Notes', self)
+        rn_act.triggered.connect(self._show_release_notes); help_menu.addAction(rn_act)
+        log_act = QAction('Open Log Folder', self)
         log_act.triggered.connect(lambda: (os.startfile(_LOG_DIR) if _pl.system() == 'Windows'
                                            else _sp.Popen(['open', _LOG_DIR])))
         help_menu.addAction(log_act)
@@ -14340,8 +15545,34 @@ class MainWindow(QMainWindow):
         if os.path.exists(path):
             QDesktopServices.openUrl(QUrl.fromLocalFile(path))
         else:
-            from PyQt5.QtWidgets import QMessageBox
-            QMessageBox.information(self, 'SPECTRA', '설명서 파일(MANUAL.html)을 찾을 수 없습니다.')
+            _BrandBox.information(self, 'SPECTRA', '설명서 파일(MANUAL.html)을 찾을 수 없습니다.')
+
+    def _show_release_notes(self):
+        """릴리즈 노트 — RELEASE_NOTES.md를 브랜드 창에 렌더해 표시."""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QTextBrowser, QFrame, QPushButton
+        base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(base, 'RELEASE_NOTES.md')
+        try:
+            md = open(path, encoding='utf-8').read()
+        except Exception:
+            md = '# Release Notes\n\nRELEASE_NOTES.md 파일을 찾을 수 없습니다.'
+        dlg = QDialog(self); dlg.setWindowTitle('Release Notes'); _apply_dark_titlebar(dlg, resizable=True)
+        dlg.resize(560, 660)
+        dlg.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
+        lay = QVBoxLayout(dlg); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
+        lay.addWidget(_grad_topline())
+        tb = QTextBrowser(); tb.setOpenExternalLinks(True)
+        tb.setStyleSheet(
+            f'QTextBrowser{{background:{T("bg")};color:{T("text")};border:none;padding:16px;font-size:13px;}}'
+            f'QScrollBar:vertical{{width:6px;background:transparent;}}'
+            f'QScrollBar::handle:vertical{{background:{T("border")};border-radius:3px;}}')
+        tb.setHtml(_md_to_html(md))
+        lay.addWidget(tb, 1)
+        btn_row = QHBoxLayout(); btn_row.setContentsMargins(12, 8, 12, 12); btn_row.addStretch()
+        close = QPushButton('닫기'); close.setStyleSheet(ss_btn_primary())
+        close.clicked.connect(dlg.accept); btn_row.addWidget(close)
+        lay.addLayout(btn_row)
+        dlg.exec_()
 
     def _show_license_info(self):
         from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
@@ -14407,6 +15638,13 @@ class MainWindow(QMainWindow):
         self._render_t.stop()
         self.stereo_page.stop()
         self._stop()
+        # 부모 없는 독립 창(SPL 미터 + 라우드니스/벡터스코프 팝아웃) → 메인 종료 시 직접 닫아 고아 방지
+        for _wn in (getattr(self, 'spl_meter_win', None),
+                    getattr(self.stereo_page, '_vs_win', None),
+                    getattr(self.stereo_page, '_radar_win', None)):
+            if _wn is not None:
+                try: _wn.close()
+                except Exception: pass
         # 보류된 TF 캡쳐 저장 flush — 종료 시 동기 저장(앱 종료 중이라 글리치 무관)
         try:
             tw = self.tf_win
@@ -14552,4 +15790,17 @@ if __name__=='__main__':
         QTimer.singleShot(3000, _launch)
     else:
         win.show()
-    sys.exit(app.exec())
+
+    rc = app.exec()
+    # ── 종료 처리
+    # PyQt5/sip는 파이썬 인터프리터 종료(Py_FinalizeEx) 단계에서 남은 Qt 객체를
+    # 임의 순서로 파괴하다가 이미 해제된 타입을 참조해 SIGSEGV("예기치 않게 종료됨")를
+    # 일으키는 알려진 버그가 있다. 오디오 스트림 정리는 aboutToQuit(=_emergency_cleanup)에서
+    # 이미 끝났으므로, 로그만 flush한 뒤 파이썬 finalization을 건너뛰고 즉시 종료한다.
+    try:
+        _emergency_cleanup()
+        logging.shutdown()
+        sys.stdout.flush(); sys.stderr.flush()
+    except Exception:
+        pass
+    os._exit(rc)

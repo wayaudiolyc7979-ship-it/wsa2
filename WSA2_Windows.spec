@@ -6,7 +6,7 @@ a = Analysis(
     ['wayaudo2.py'],
     pathex=[],
     binaries=[],
-    datas=[('splash.png', '.'), ('MANUAL.html', '.'), ('docs/img', 'docs/img')],
+    datas=[('splash.png', '.'), ('MANUAL.html', '.'), ('RELEASE_NOTES.md', '.'), ('docs/img', 'docs/img')],
     hiddenimports=[
         'soundfile', '_soundfile', 'cffi', '_cffi_backend',
         'scipy', 'scipy.io', 'scipy.io.wavfile', 'scipy.signal',

@@ -17,6 +17,7 @@ a = Analysis(
     datas=[
         ('splash.png', '.'),
         ('MANUAL.html', '.'),
+        ('RELEASE_NOTES.md', '.'),
         ('docs/img', 'docs/img'),
         (os.path.join(SITE, 'soundfile.py'), '.'),
         (os.path.join(SITE, '_soundfile.py'), '.'),
@@ -86,8 +87,8 @@ app = BUNDLE(
             'WSA2 uses audio input for acoustic measurement.',
         'NSHighResolutionCapable': True,
         'LSMinimumSystemVersion': '12.0',
-        'CFBundleShortVersionString': '1.5',
-        'CFBundleVersion': '1.5.0',
+        'CFBundleShortVersionString': '1.6',
+        'CFBundleVersion': '1.6.0',
         'CFBundleName': 'WSA2',
         'CFBundleDisplayName': 'SPECTRA',
         'CFBundleExecutable': 'WSA2',
