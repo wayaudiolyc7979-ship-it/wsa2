@@ -3733,7 +3733,7 @@ class _SplAlarmDisplay(QWidget):
         def pf(px, bold=True):
             f = QFont(); f.setPixelSize(max(8, int(px))); f.setBold(bold); return f
 
-        R = max(7, h * 0.075); gap = R * 1.4; ly = y + h * 0.17
+        R = max(7, h * 0.072); gap = R * 1.4; ly = y + h * 0.15
         for i, c in enumerate((self.GREEN, self.YELLOW, self.RED)):
             on = (i == idx) and not dim_blink
             cxp = cx + (i - 1) * (2 * R + gap)
@@ -3749,23 +3749,23 @@ class _SplAlarmDisplay(QWidget):
             p.drawEllipse(QPointF(cxp, ly), R, R)
 
         vstr = '—' if self._value is None else f'{self._value:.1f}'
-        vpx = h * 0.30; fv = pf(vpx); p.setFont(fv)
+        vpx = h * 0.24; fv = pf(vpx); p.setFont(fv)
         while p.fontMetrics().horizontalAdvance(vstr) > w * 0.86 and vpx > 12:
             vpx *= 0.92; fv = pf(vpx); p.setFont(fv)
         p.setPen(QPen(QColor(T('text')) if idx == 0 else color))
-        p.drawText(QRectF(x, y + h * 0.27, w, vpx * 1.3), Qt.AlignHCenter | Qt.AlignVCenter, vstr)
+        p.drawText(QRectF(x, y + h * 0.21, w, h * 0.30), Qt.AlignHCenter | Qt.AlignVCenter, vstr)
 
-        p.setFont(pf(h * 0.085, bold=False)); p.setPen(QPen(QColor(T('text_dim'))))
-        p.drawText(QRectF(x, y + h * 0.55, w, h * 0.11), Qt.AlignHCenter | Qt.AlignVCenter,
+        p.setFont(pf(h * 0.082, bold=False)); p.setPen(QPen(QColor(T('text_dim'))))
+        p.drawText(QRectF(x, y + h * 0.54, w, h * 0.10), Qt.AlignHCenter | Qt.AlignVCenter,
                    f'/ {self._limit:.0f} {self._unit}')
 
         if self._value is not None:
-            p.setFont(pf(h * 0.085))
+            p.setFont(pf(h * 0.082))
             if over:
                 p.setPen(QPen(self.RED)); mtxt = f'▲ 초과 +{self._value - self._limit:.1f} dB'
             else:
                 p.setPen(QPen(color)); mtxt = f'▼ 여유 {self._limit - self._value:.1f} dB'
-            p.drawText(QRectF(x, y + h * 0.66, w, h * 0.11), Qt.AlignHCenter | Qt.AlignVCenter, mtxt)
+            p.drawText(QRectF(x, y + h * 0.66, w, h * 0.10), Qt.AlignHCenter | Qt.AlignVCenter, mtxt)
 
         status = ('OK', 'AMBER', 'OVER')[idx]
         if over and self._over_since is not None:
@@ -3774,8 +3774,8 @@ class _SplAlarmDisplay(QWidget):
             sub = ('안전 구간', '살짝 줄이세요', '')[idx]
             if sub:
                 status += f'  ·  {sub}'
-        p.setFont(pf(h * 0.105)); p.setPen(QPen(color))
-        p.drawText(QRectF(x, y + h * 0.80, w, h * 0.16), Qt.AlignHCenter | Qt.AlignVCenter, status)
+        p.setFont(pf(h * 0.10)); p.setPen(QPen(color))
+        p.drawText(QRectF(x, y + h * 0.80, w, h * 0.15), Qt.AlignHCenter | Qt.AlignVCenter, status)
         p.end()
 
 
