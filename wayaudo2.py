@@ -5357,6 +5357,44 @@ class _SplMeterBtn(QPushButton):
         p.end()
 
 
+class _SplAlarmBtn(QPushButton):
+    """LEVEL 패널 헤더용 — SPL 알람 창 열기. 미니 신호등(3구) 아이콘."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(28, 28)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip('Open SPL Alarm')
+
+    def enterEvent(self, e): self.update()
+    def leaveEvent(self, e): self.update()
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        if self.isDown():
+            bg = QColor('#1e82f0')
+        elif self.underMouse():
+            bg = QColor('#2C2C2E')
+        else:
+            bg = QColor(0, 0, 0, 0)
+        p.setPen(Qt.NoPen); p.setBrush(bg)
+        p.drawRoundedRect(QRectF(self.rect()), 5, 5)
+
+        # 미니 신호등 — 세로 하우징 + 초록/노랑/빨강 3구
+        cx = self.width() / 2.0
+        hw, hh = 11.0, 18.0
+        hx = cx - hw / 2.0; hy = (self.height() - hh) / 2.0
+        p.setPen(QPen(QColor(T('accent')), 1.4)); p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(QRectF(hx, hy, hw, hh), 3.2, 3.2)
+        cols = (QColor('#34C759'), QColor('#FFD60A'), QColor('#FF453A'))
+        r = 2.1
+        for i, c in enumerate(cols):
+            dy = hy + hh * (0.24 + i * 0.26)
+            p.setBrush(c); p.setPen(Qt.NoPen)
+            p.drawEllipse(QPointF(cx, dy), r, r)
+        p.end()
+
+
 class _CheckBtn(QPushButton):
     """Checkable QPushButton — CSS :checked border는 macOS에서 클리핑되므로
     paintEvent에서 QPainter로 직접 테두리를 그린다."""
@@ -13827,8 +13865,10 @@ class MainWindow(QMainWindow):
         level_title.setStyleSheet(ss_text(FS_LG, 'text_dim', True))
         spl_btn = _SplMeterBtn()
         spl_btn.clicked.connect(self._open_spl_meter)
+        alarm_btn = _SplAlarmBtn()
+        alarm_btn.clicked.connect(self._open_spl_alarm)
         hdr_row.addWidget(level_icon); hdr_row.addWidget(level_title)
-        hdr_row.addStretch(); hdr_row.addWidget(spl_btn)
+        hdr_row.addStretch(); hdr_row.addWidget(alarm_btn); hdr_row.addWidget(spl_btn)
         level_lay.addLayout(hdr_row)
 
         refs={}; accent_color=T('accent')
