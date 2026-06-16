@@ -749,6 +749,42 @@ def _glance_set_chrome(win, show):
     anim.start()
 
 
+def _promote_titlebar_overlay(win):
+    """글랜스 창: 타이틀바를 레이아웃(menuBar 슬롯)에서 빼서 상단 오버레이 자식으로.
+    → 카드(중앙 위젯)가 창 전체를 꽉 채우고(빈 띠 없음·안 움직임), 타이틀바는 위에 떠서
+    페이드만. 호버 시 타이틀바가 카드 상단을 잠깐 덮지만(상호작용 중), 평소엔 카드만."""
+    if getattr(win, '_tb_overlay', False):
+        return
+    tb = getattr(win, '_dark_titlebar', None)
+    lay = win.layout()
+    if tb is None or lay is None:
+        return
+    if lay.menuBar() is tb:
+        lay.setMenuBar(None)
+    tb.setParent(win)
+    win._tb_overlay = True
+    win._tb_h = tb.height() or 34
+
+    def _pos():
+        try:
+            tb.setGeometry(0, 0, win.width(), win._tb_h)
+            tb.raise_()
+            grip = getattr(win, '_dark_grip', None)
+            if grip is not None:
+                grip.raise_()
+        except Exception:
+            pass
+    win._tb_overlay_pos = _pos
+    _pos(); tb.show()
+
+    class _RF(QObject):
+        def eventFilter(self, o, e):
+            if e.type() == QEvent.Resize:
+                _pos()
+            return False
+    rf = _RF(win); win._tb_overlay_rf = rf; win.installEventFilter(rf)
+
+
 class _SettingsBtn(QPushButton):
     """타이틀바용 설정 버튼 — 누르면 SPL 설정창 오픈. 슬라이더(컨트롤) 아이콘을 직접 그림."""
     def __init__(self):
@@ -3983,6 +4019,7 @@ class SplAlarmWindow(QWidget):
         self.disp = _SplAlarmDisplay()
         lay.addWidget(self.disp)
         _apply_dark_titlebar(self, resizable=True, aux=[self._pin_btn, self._set_btn])
+        QTimer.singleShot(0, lambda: _promote_titlebar_overlay(self))  # 카드가 창 꽉 채우게
         self.setWindowState(Qt.WindowNoState)
         # 최소높이는 타이틀바34+여백20+카드최소80 = 134 이상이면 카드 안 잘림 → 여유두고 150
         # 기본 열림 크기 = 최소(컴팩트) — 사용자가 필요시 키움
@@ -4157,6 +4194,7 @@ class SplMeterWindow(QWidget):
         self._reset_btn.setToolTip('Reset Max')
         self._reset_btn.clicked.connect(self._reset_max)
         _apply_dark_titlebar(self, resizable=True, aux=[self._pin_btn, self._set_btn, self._reset_btn])
+        QTimer.singleShot(0, lambda: _promote_titlebar_overlay(self))  # 카드가 창 꽉 채우게
 
         self.setStyleSheet(f'SplMeterWindow{{background:{T("bg")};}}')
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
