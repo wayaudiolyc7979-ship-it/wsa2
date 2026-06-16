@@ -713,8 +713,9 @@ def _glance_chrome_update(win):
 
 
 def _glance_set_chrome(win, show):
-    """타이틀바를 부드럽게 페이드(opacity 0↔1)로만 표시/숨김.
-    높이/레이아웃은 그대로 → 카드가 절대 안 움직임(가장 안 헷갈림). 페이드만 부드럽게."""
+    """타이틀바를 부드럽게 페이드+높이접기(0↔원래높이)로 표시/숨김.
+    숨기면 카드가 빈틈없이 창을 채움(겹침·빈띠 둘 다 없음), 펼치면 타이틀바가 위에 자리.
+    카드가 약간 늘고 줄지만 그게 표준(겹침/빈띠를 둘 다 피하는 유일한 방식). 부드럽게."""
     tb = getattr(win, '_dark_titlebar', None)
     if tb is None:
         return
@@ -722,6 +723,12 @@ def _glance_set_chrome(win, show):
     if getattr(win, '_chrome_target', None) == target:
         return
     win._chrome_target = target
+
+    full_h = getattr(tb, '_full_h', None)
+    if full_h is None:
+        full_h = tb.height() or 34
+        tb._full_h = full_h
+        tb.setMinimumHeight(0)   # 0까지 접히게(원래 setFixedHeight=34라 min=max였음)
 
     eff = getattr(tb, '_opacity_eff', None)
     if eff is None:
@@ -737,52 +744,25 @@ def _glance_set_chrome(win, show):
 
         def _on_val(v):
             try:
-                tb._opacity_eff.setOpacity(float(v))
+                t = float(v)
+                tb.setFixedHeight(max(0, int(round(tb._full_h * t))))
+                tb._opacity_eff.setOpacity(t)
             except Exception:
                 pass
         anim.valueChanged.connect(_on_val)
+
+        def _on_fin():
+            if getattr(win, '_chrome_target', 1.0) <= 0.0:
+                tb.setVisible(False)   # 완전히 접힌 뒤 숨겨 잔상/클릭 방지
+        anim.finished.connect(_on_fin)
         win._chrome_anim = anim
 
+    if show:
+        tb.setVisible(True)
     anim.stop()
     anim.setStartValue(float(eff.opacity()))
     anim.setEndValue(target)
     anim.start()
-
-
-def _promote_titlebar_overlay(win):
-    """글랜스 창: 타이틀바를 레이아웃(menuBar 슬롯)에서 빼서 상단 오버레이 자식으로.
-    → 카드(중앙 위젯)가 창 전체를 꽉 채우고(빈 띠 없음·안 움직임), 타이틀바는 위에 떠서
-    페이드만. 호버 시 타이틀바가 카드 상단을 잠깐 덮지만(상호작용 중), 평소엔 카드만."""
-    if getattr(win, '_tb_overlay', False):
-        return
-    tb = getattr(win, '_dark_titlebar', None)
-    lay = win.layout()
-    if tb is None or lay is None:
-        return
-    if lay.menuBar() is tb:
-        lay.setMenuBar(None)
-    tb.setParent(win)
-    win._tb_overlay = True
-    win._tb_h = tb.height() or 34
-
-    def _pos():
-        try:
-            tb.setGeometry(0, 0, win.width(), win._tb_h)
-            tb.raise_()
-            grip = getattr(win, '_dark_grip', None)
-            if grip is not None:
-                grip.raise_()
-        except Exception:
-            pass
-    win._tb_overlay_pos = _pos
-    _pos(); tb.show()
-
-    class _RF(QObject):
-        def eventFilter(self, o, e):
-            if e.type() == QEvent.Resize:
-                _pos()
-            return False
-    rf = _RF(win); win._tb_overlay_rf = rf; win.installEventFilter(rf)
 
 
 class _SettingsBtn(QPushButton):
@@ -4019,7 +3999,6 @@ class SplAlarmWindow(QWidget):
         self.disp = _SplAlarmDisplay()
         lay.addWidget(self.disp)
         _apply_dark_titlebar(self, resizable=True, aux=[self._pin_btn, self._set_btn])
-        QTimer.singleShot(0, lambda: _promote_titlebar_overlay(self))  # 카드가 창 꽉 채우게
         self.setWindowState(Qt.WindowNoState)
         # 최소높이는 타이틀바34+여백20+카드최소80 = 134 이상이면 카드 안 잘림 → 여유두고 150
         # 기본 열림 크기 = 최소(컴팩트) — 사용자가 필요시 키움
@@ -4194,7 +4173,6 @@ class SplMeterWindow(QWidget):
         self._reset_btn.setToolTip('Reset Max')
         self._reset_btn.clicked.connect(self._reset_max)
         _apply_dark_titlebar(self, resizable=True, aux=[self._pin_btn, self._set_btn, self._reset_btn])
-        QTimer.singleShot(0, lambda: _promote_titlebar_overlay(self))  # 카드가 창 꽉 채우게
 
         self.setStyleSheet(f'SplMeterWindow{{background:{T("bg")};}}')
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
