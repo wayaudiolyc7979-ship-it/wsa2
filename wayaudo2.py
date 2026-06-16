@@ -3691,66 +3691,92 @@ class _SplAlarmBar(QWidget):
         p.fillRect(QRectF(x, y, 5, h), QBrush(color)); p.restore()
 
         cy = H / 2
-        # 신호등 점 3개 (가로)
-        dot_x = x + 26; r = 7; sp = 22
-        for i, c in enumerate((self.GREEN, self.YELLOW, self.RED)):
-            on = (i == idx) and not dim_blink
-            if on:
-                p.setBrush(QBrush(c)); p.setPen(QPen(c.lighter(130), 1.4))
-            else:
-                d = QColor(c.red(), c.green(), c.blue(), 45)
-                p.setBrush(QBrush(d)); p.setPen(QPen(QColor(255, 255, 255, 16), 1))
-            p.drawEllipse(QPointF(dot_x + i * sp, cy), r, r)
-
-        tx = dot_x + 2 * sp + 26
         txt_col = QColor(T('text'))
-        # 라벨 (작게)
-        f = QFont(); f.setPointSize(11); f.setBold(True); p.setFont(f)
-        p.setPen(QPen(QColor(T('text_dim'))))
-        lbl_w = p.fontMetrics().horizontalAdvance(self._label) + 12
-        p.drawText(QRectF(tx, y, lbl_w, h), Qt.AlignLeft | Qt.AlignVCenter, self._label)
-        # 큰 값
-        vx = tx + lbl_w + 6
-        vstr = '—' if self._value is None else f'{self._value:.1f}'
-        f2 = QFont(); f2.setPointSize(24); f2.setBold(True); p.setFont(f2)
-        p.setPen(QPen(txt_col if idx == 0 else color))
-        vw = p.fontMetrics().horizontalAdvance(vstr)
-        p.drawText(QRectF(vx, y, vw + 8, h), Qt.AlignLeft | Qt.AlignVCenter, vstr)
-        # /한계 단위
-        f3 = QFont(); f3.setPointSize(13); p.setFont(f3)
-        p.setPen(QPen(QColor(T('text_dim'))))
-        lim_str = f'/ {self._limit:.0f} {self._unit}'
-        p.drawText(QRectF(vx + vw + 14, y, 180, h), Qt.AlignLeft | Qt.AlignVCenter, lim_str)
-        # 여유/초과
-        if self._value is not None:
-            f4 = QFont(); f4.setPointSize(13); f4.setBold(True); p.setFont(f4)
-            if over:
-                p.setPen(QPen(self.RED)); mtxt = f'▲ 초과 +{self._value - self._limit:.1f} dB'
-            else:
-                margin = self._limit - self._value
-                p.setPen(QPen(color)); mtxt = f'▼ 여유 {margin:.1f} dB'
-            p.drawText(QRectF(vx + vw + 200, y, 200, h), Qt.AlignLeft | Qt.AlignVCenter, mtxt)
+        narrow = w < 250
+        r = 7; sp = 22
 
-        # 우측 상태 알약
+        # ── 좌측 신호등 (좁으면 현재색 1개만, 넓으면 3구)
+        lx = x + 16
+        if narrow:
+            on = not dim_blink
+            if on:
+                p.setBrush(QBrush(color)); p.setPen(QPen(color.lighter(130), 1.4))
+            else:
+                d = QColor(color.red(), color.green(), color.blue(), 60)
+                p.setBrush(QBrush(d)); p.setPen(QPen(QColor(255, 255, 255, 16), 1))
+            p.drawEllipse(QPointF(lx + r, cy), r, r)
+            lx += 2 * r + 12
+        else:
+            dot_x = lx + r
+            for i, c in enumerate((self.GREEN, self.YELLOW, self.RED)):
+                on = (i == idx) and not dim_blink
+                if on:
+                    p.setBrush(QBrush(c)); p.setPen(QPen(c.lighter(130), 1.4))
+                else:
+                    d = QColor(c.red(), c.green(), c.blue(), 45)
+                    p.setBrush(QBrush(d)); p.setPen(QPen(QColor(255, 255, 255, 16), 1))
+                p.drawEllipse(QPointF(dot_x + i * sp, cy), r, r)
+            lx = dot_x + 2 * sp + r + 16
+
+        # ── 우측 상태 알약 (너비 충분할 때만; 좁으면 점/값 색이 상태를 대신)
+        rx = x + w - 14
         status = ('OK', 'AMBER', 'OVER')[idx]
         if over and self._over_since is not None:
-            sub = f'{int(time.time() - self._over_since)}초째 초과'
+            sub = f'{int(time.time() - self._over_since)}초째'
         else:
             sub = ('안전 구간', '살짝 줄이세요', '')[idx]
-        pill_w = 150; pill_h = h - 14
-        pxr = x + w - pill_w - 14; pyr = y + (h - pill_h) / 2
-        pp = QPainterPath(); pp.addRoundedRect(QRectF(pxr, pyr, pill_w, pill_h), 10, 10)
-        p.fillPath(pp, QColor(color.red(), color.green(), color.blue(), 40))
-        p.setPen(QPen(QColor(color.red(), color.green(), color.blue(), 120), 1.4))
-        p.setBrush(Qt.NoBrush); p.drawPath(pp)
-        p.setPen(QPen(color)); f5 = QFont(); f5.setPointSize(14); f5.setBold(True); p.setFont(f5)
-        sub_h = 16 if sub else 0
-        p.drawText(QRectF(pxr, pyr + 4, pill_w, pill_h - 4 - sub_h),
-                   Qt.AlignCenter, status)
-        if sub:
-            p.setPen(QPen(QColor(T('text_dim')))); f6 = QFont(); f6.setPointSize(9); p.setFont(f6)
-            p.drawText(QRectF(pxr, pyr + pill_h - sub_h - 2, pill_w, sub_h),
-                       Qt.AlignCenter, sub)
+        if w >= 470:
+            pill_w = 138; pill_h = h - 14
+            pxr = rx - pill_w; pyr = y + (h - pill_h) / 2
+            pp = QPainterPath(); pp.addRoundedRect(QRectF(pxr, pyr, pill_w, pill_h), 10, 10)
+            p.fillPath(pp, QColor(color.red(), color.green(), color.blue(), 40))
+            p.setPen(QPen(QColor(color.red(), color.green(), color.blue(), 120), 1.4))
+            p.setBrush(Qt.NoBrush); p.drawPath(pp)
+            p.setPen(QPen(color)); fp = QFont(); fp.setPointSize(14); fp.setBold(True); p.setFont(fp)
+            sub_h = 16 if sub else 0
+            p.drawText(QRectF(pxr, pyr + 4, pill_w, pill_h - 4 - sub_h), Qt.AlignCenter, status)
+            if sub:
+                p.setPen(QPen(QColor(T('text_dim')))); fsub = QFont(); fsub.setPointSize(9); p.setFont(fsub)
+                p.drawText(QRectF(pxr, pyr + pill_h - sub_h - 2, pill_w, sub_h), Qt.AlignCenter, sub)
+            rx = pxr - 12
+
+        # ── 중앙 콘텐츠 (왼→오, 들어갈 자리 있을 때만). 우선순위: 값 > /한계 > 여유 > 라벨
+        vstr = '—' if self._value is None else f'{self._value:.1f}'
+        fV = QFont(); fV.setPointSize(22 if narrow else 24); fV.setBold(True)
+        p.setFont(fV); vw = p.fontMetrics().horizontalAdvance(vstr)
+
+        cur = lx
+        # 라벨 — 값 들어갈 자리까지 확보될 때만
+        if w >= 340:
+            fL = QFont(); fL.setPointSize(11); fL.setBold(True); p.setFont(fL)
+            lw = p.fontMetrics().horizontalAdvance(self._label)
+            if lx + lw + 12 + vw <= rx:
+                p.setPen(QPen(QColor(T('text_dim'))))
+                p.drawText(QRectF(lx, y, lw + 10, h), Qt.AlignLeft | Qt.AlignVCenter, self._label)
+                cur = lx + lw + 12
+        # 큰 값 (항상)
+        p.setFont(fV); p.setPen(QPen(txt_col if idx == 0 else color))
+        p.drawText(QRectF(cur, y, vw + 8, h), Qt.AlignLeft | Qt.AlignVCenter, vstr)
+        cur += vw + 10
+        # /한계 단위
+        fU = QFont(); fU.setPointSize(13); p.setFont(fU)
+        lim_str = f'/ {self._limit:.0f} {self._unit}'
+        lim_w = p.fontMetrics().horizontalAdvance(lim_str)
+        if cur + lim_w + 4 <= rx:
+            p.setPen(QPen(QColor(T('text_dim'))))
+            p.drawText(QRectF(cur, y, lim_w + 8, h), Qt.AlignLeft | Qt.AlignVCenter, lim_str)
+            cur += lim_w + 14
+        # 여유/초과
+        if self._value is not None:
+            fM = QFont(); fM.setPointSize(13); fM.setBold(True); p.setFont(fM)
+            if over:
+                mcol = self.RED; mtxt = f'▲ 초과 +{self._value - self._limit:.1f} dB'
+            else:
+                mcol = color; mtxt = f'▼ 여유 {self._limit - self._value:.1f} dB'
+            mw = p.fontMetrics().horizontalAdvance(mtxt)
+            if cur + mw + 4 <= rx:
+                p.setPen(QPen(mcol))
+                p.drawText(QRectF(cur, y, mw + 8, h), Qt.AlignLeft | Qt.AlignVCenter, mtxt)
         p.end()
 
 
