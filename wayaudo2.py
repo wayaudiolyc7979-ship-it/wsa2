@@ -691,6 +691,22 @@ def _set_float_above_fullscreen(win):
         except Exception: pass
 
 
+def _glance_chrome_update(win):
+    """글랜스 창(SPL 미터/알람) — 마우스가 창 밖이면 타이틀바/리사이즈 그립 숨겨 '카드만',
+    창 안이면 다시 표시. 200ms 타이머에서 호출(자식 위젯 enter/leave 영향 없이 전역 커서로 판정)."""
+    from PyQt5.QtGui import QCursor
+    try:
+        inside = win.geometry().contains(QCursor.pos())
+    except Exception:
+        inside = True
+    tb = getattr(win, '_dark_titlebar', None)
+    if tb is not None and tb.isVisible() != inside:
+        tb.setVisible(inside)
+    grip = getattr(win, '_dark_grip', None)
+    if grip is not None and grip.isVisible() != inside:
+        grip.setVisible(inside)
+
+
 class _SettingsBtn(QPushButton):
     """타이틀바용 설정 버튼 — 누르면 SPL 설정창 오픈. 슬라이더(컨트롤) 아이콘을 직접 그림."""
     def __init__(self):
@@ -3855,6 +3871,7 @@ class SplAlarmWindow(QWidget):
     def __init__(self, main):
         self._main = main
         super().__init__(None, Qt.Window)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)  # 본화면 위 항상
         self.setWindowTitle('SPL Alarm')
         self.setAttribute(Qt.WA_DeleteOnClose, False)
         self.setStyleSheet(f'background:{T("bg")};')
@@ -3929,6 +3946,7 @@ class SplAlarmWindow(QWidget):
 
     def _tick(self):
         self.disp.set_value(self._eng.value(self._cfg.get('metric', 'laeq')))
+        _glance_chrome_update(self)   # 마우스 밖이면 카드만(타이틀바 숨김)
 
     def restyle_theme(self):
         self.setStyleSheet(f'background:{T("bg")};')
@@ -3986,6 +4004,7 @@ class SplMeterWindow(QWidget):
         # SPL 미터는 그대로 떠 있음 (Smaart 방식). 메인창 참조는 _main 으로 보관.
         self._main = parent
         super().__init__(None, Qt.Window)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)  # 본화면 위 항상
         self.setWindowTitle('SPL Meter')
         self.setAttribute(Qt.WA_DeleteOnClose, False)
 
@@ -4200,6 +4219,7 @@ class SplMeterWindow(QWidget):
                 self._buf_a.append(a_s); self._buf_c.append(c_s)
 
     def _update_display(self):
+        _glance_chrome_update(self)   # 마우스 밖이면 카드만(타이틀바 숨김)
         # 시계 카드는 오디오 입력과 무관하게 항상 현재 시각(24h HH:MM) 갱신
         now = time.strftime('%H:%M')
         for pnl in self._panels:
