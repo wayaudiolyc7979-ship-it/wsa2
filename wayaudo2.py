@@ -12500,14 +12500,34 @@ class LoudnessMeter:
         self._acc_l=0.0; self._acc_r=0.0; self._acc_n=0
         self._M=-100.0; self._S=-100.0; self._S_fast=-100.0
         self._I=-100.0; self._LRA=0.0; self._TP=-100.0; self._PH=-100.0
+        self._tp_tail_l=None; self._tp_tail_r=None   # True Peak 4× 오버샘플 연속성 테일
 
     @staticmethod
     def _lufs(ms):
         return float(-0.691+10*math.log10(max(ms,1e-12)))
 
+    def _true_peak_db(self, L, R):
+        """ITU-R BS.1770 True Peak — 4× 오버샘플로 샘플 사이 피크(inter-sample)까지 검출.
+        블록 경계 연속성 위해 직전 8샘플(테일) 이어붙여 워밍업 구간 제거."""
+        try:
+            from scipy.signal import resample_poly
+        except Exception:
+            pk = max(float(np.max(np.abs(L))), float(np.max(np.abs(R))))
+            return 20.0*math.log10(max(pk,1e-9))   # 폴백: 샘플 피크
+        def ch(x, tail):
+            x = np.asarray(x, dtype=np.float64)
+            t = tail if tail is not None else np.zeros(8)
+            seg = np.concatenate([t, x])
+            os = resample_poly(seg, 4, 1)[32:]      # 테일 8샘플×4 워밍업 제거 → 새 블록 구간
+            pk = float(np.max(np.abs(os))) if os.size else 0.0
+            nt = x[-8:] if x.size >= 8 else seg[-8:]
+            return pk, nt
+        pl, self._tp_tail_l = ch(L, self._tp_tail_l)
+        pr, self._tp_tail_r = ch(R, self._tp_tail_r)
+        return 20.0*math.log10(max(max(pl, pr), 1e-9))
+
     def push(self,L,R):
-        pk=max(float(np.max(np.abs(L))),float(np.max(np.abs(R))))
-        pk_db=20.0*math.log10(max(pk,1e-9))
+        pk_db=self._true_peak_db(L,R)
         if pk_db>self._TP: self._TP=pk_db
         if pk_db>self._PH: self._PH=pk_db
         lk=self._kfl.process(L); rk=self._kfr.process(R)
@@ -12556,6 +12576,7 @@ class LoudnessMeter:
         self._acc_l=0.0; self._acc_r=0.0; self._acc_n=0
         self._M=-100.0; self._S=-100.0; self._S_fast=-100.0
         self._I=-100.0; self._LRA=0.0; self._TP=-100.0; self._PH=-100.0
+        self._tp_tail_l=None; self._tp_tail_r=None
 
     @property
     def M(self): return self._M
@@ -12790,6 +12811,10 @@ class LoudnessRadarCanvas(QWidget):
         self._running=True; self._timer.start(50)
 
     def stop(self): self._running=False; self._timer.stop(); self.update()
+
+    def set_target(self, lufs):
+        """타겟 LUFS 변경 — 즉시 재그려서 정지 중에도 타겟 링이 바로 반영(Start 불필요)."""
+        self.target = float(lufs); self.update()
 
     def reset_integration(self):
         self._segs =[-100.0]*self._N_SEG
@@ -13113,6 +13138,7 @@ class StereoLoudnessPage(QWidget):
         super().__init__()
         self._sub=None; self._meter=None; self._running=False
         self._l_ch=0; self._r_ch=1
+        self._target=-23.0; self._lu_mode=False; self._unit_lbls={}
         self._build_ui()
 
     def _build_ui(self):
@@ -13191,6 +13217,7 @@ class StereoLoudnessPage(QWidget):
                 tip = _tooltips[attr][2]
                 w.setToolTip(tip); t.setToolTip(tip); v.setToolTip(tip); u.setToolTip(tip)
             setattr(self, attr, v)
+            self._unit_lbls[attr] = u
             self._metric_meta.append((attr, hue, light, big, t, u))
             return w
 
@@ -13210,7 +13237,11 @@ class StereoLoudnessPage(QWidget):
         nl.addWidget(_metric('True-peak Max',   'dBTP', '_lbl_TP', big=True,  hue=45,  light=168))
         nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
         nl.addWidget(_metric('Loudness Range',  'LU',   '_lbl_LRA',big=False, hue=18,  light=152))
+        nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
+        nl.addWidget(_metric('Δ Target',        'LU',   '_lbl_DEV',big=False, hue=140, light=160))
         nl.addStretch()
+        nl.addWidget(self._build_target_ctrl())
+        nl.addSpacing(4)
         root.addWidget(num_bar)
 
         self._disp_timer=QTimer(self)
@@ -13219,6 +13250,54 @@ class StereoLoudnessPage(QWidget):
 
     def _metric_lbl_col(self):
         return '#3a3a52' if _theme != 'light' else T('text_dim')
+
+    def _build_target_ctrl(self):
+        """우측 컨트롤 — 타겟 프리셋 콤보 + LU(상대) 토글."""
+        self._targets = [('EBU R128  −23', -23.0), ('ATSC A/85  −24', -24.0),
+                         ('Streaming  −14', -14.0), ('Apple Music  −16', -16.0)]
+        w = QWidget(); w.setStyleSheet('background:transparent;')
+        vl = QVBoxLayout(w); vl.setContentsMargins(0, 0, 0, 0); vl.setSpacing(3)
+        tl = QLabel('Target')
+        tl.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};'
+                         f'letter-spacing:1px;background:transparent;')
+        tl.setAlignment(Qt.AlignHCenter)
+        row = QWidget(); row.setStyleSheet('background:transparent;')
+        rl = QHBoxLayout(row); rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(6)
+        self._target_cb = QComboBox()
+        for name, _v in self._targets:
+            self._target_cb.addItem(name)
+        self._target_cb.setStyleSheet(
+            f"QComboBox{{background:{T('panel')};color:{T('text')};border:1px solid {T('border')};"
+            f"border-radius:6px;padding:2px 8px;font-size:11px;}}"
+            f"QComboBox QAbstractItemView{{background:{T('bg2')};color:{T('text')};"
+            f"border:1px solid {T('accent')};selection-background-color:rgba(78,125,240,80);}}")
+        self._target_cb.currentIndexChanged.connect(self._on_target_changed)
+        self._lu_btn = QPushButton('LU'); self._lu_btn.setCheckable(True); self._lu_btn.setFixedSize(38, 24)
+        self._lu_btn.setToolTip('LUFS ↔ LU (타겟 기준 상대값으로 표시)')
+        self._lu_btn.setStyleSheet(
+            f"QPushButton{{background:{T('panel')};color:{T('text_dim')};border:1px solid {T('border')};"
+            f"border-radius:6px;font-size:11px;font-weight:bold;}}"
+            f"QPushButton:checked{{background:rgba(78,125,240,40);color:{T('accent')};"
+            f"border:1px solid {T('accent')};}}")
+        self._lu_btn.toggled.connect(self._on_lu_toggled)
+        rl.addWidget(self._target_cb); rl.addWidget(self._lu_btn)
+        vl.addWidget(tl); vl.addWidget(row)
+        return w
+
+    def _on_target_changed(self, idx):
+        if 0 <= idx < len(self._targets):
+            self._target = self._targets[idx][1]
+            self._radar.set_target(self._target)   # ★ 즉시 반영 — Start 안 눌러도 타겟 링 갱신
+            self._refresh_display(force=True)
+
+    def _on_lu_toggled(self, on):
+        self._lu_mode = bool(on)
+        unit = 'LU' if on else 'LUFS'
+        for attr in ('_lbl_M', '_lbl_S', '_lbl_I'):
+            u = self._unit_lbls.get(attr)
+            if u is not None:
+                u.setText(unit)
+        self._refresh_display(force=True)
 
     def restyle_theme(self):
         """테마 토글(다크↔라이트) 시 하단 메트릭 바/구분선/값색 + 스코프 재적용."""
@@ -13360,16 +13439,30 @@ class StereoLoudnessPage(QWidget):
         _alog.warning(f'StereoAudio 오류: {msg}')
         self.error_signal.emit(msg)
 
-    def _refresh_display(self):
-        if not self._meter or not self._running: return
+    def _refresh_display(self, force=False):
         m=self._meter
-        def fmt(v,unit=''):
-            return f'{v:.1f}{unit}' if v>-100 else '—'
+        if m is None: return
+        if not self._running and not force: return
+        def fmt(v):
+            if v<=-100: return '—'
+            return f'{v-self._target:+.1f}' if self._lu_mode else f'{v:.1f}'
         self._lbl_M.setText(fmt(m.M))
         self._lbl_S.setText(fmt(m.S))
         self._lbl_I.setText(fmt(m.I))
         self._lbl_LRA.setText(f'{m.LRA:.1f}' if m.LRA>0 else '—')
-        self._lbl_TP.setText(fmt(m.peak_hold))
+        self._lbl_TP.setText(f'{m.peak_hold:.1f}' if m.peak_hold>-100 else '—')
+        # Δ Target = I − target (LU), 색: |Δ|≤1 초록 / ≤3 노랑 / 그 외 빨강
+        if m.I>-100:
+            dev=m.I-self._target
+            self._lbl_DEV.setText(f'{dev:+.1f}')
+            dc=(T('green') if abs(dev)<=1.0 else T('yellow') if abs(dev)<=3.0 else T('red'))
+        else:
+            self._lbl_DEV.setText('—'); dc=self._metric_lbl_col()
+        self._lbl_DEV.setStyleSheet(f'font-size:{FS_METRIC}px;font-weight:bold;color:{dc};background:transparent;')
+        # True Peak: -1 dBTP 초과면 빨강 경고
+        if m.peak_hold>-100:
+            tpc=T('red') if m.peak_hold>-1.0 else _metric_col(45,168)
+            self._lbl_TP.setStyleSheet(f'font-size:{FS_METRIC_BIG}px;font-weight:bold;color:{tpc};background:transparent;')
         # M 라벨 색상: target=-23 기준
         if m.M>-100:
             c=(T('green') if m.M<-20 else
