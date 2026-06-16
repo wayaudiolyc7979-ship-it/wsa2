@@ -3704,7 +3704,8 @@ class _SplAlarmDisplay(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumSize(220, 150)
+        # 작게 줄여도 카드가 창을 넘지 않게(타이틀바34+여백20 고려) 최소높이를 낮게 — paint가 스케일
+        self.setMinimumSize(160, 80)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._label = 'LAeq'; self._unit = 'dBA'; self._value = None
         self._limit = 100.0; self._amber = 3.0; self._over_since = None; self._blink_n = 0
@@ -3891,7 +3892,8 @@ class SplAlarmWindow(QWidget):
         lay.addWidget(self.disp)
         _apply_dark_titlebar(self, resizable=True, aux=[self._set_btn])
         self.setWindowState(Qt.WindowNoState)
-        self.setMinimumSize(240, 170); self.resize(460, 260)
+        # 최소높이는 타이틀바34+여백20+카드최소80 = 134 이상이면 카드 안 잘림 → 여유두고 150
+        self.setMinimumSize(210, 150); self.resize(460, 260)
         self._apply_cfg()
 
         self._timer = QTimer(self); self._timer.timeout.connect(self._tick); self._timer.start(200)
