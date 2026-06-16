@@ -374,6 +374,18 @@ def c_weight_db(f):
     rc = (12200**2 * f2) / ((f2+20.6**2)*(f2+12200**2))
     return 20*math.log10(max(rc,1e-20)) + 0.06
 
+# 주파수 → 음이름 + 센트 (커서 리드아웃용). A4=440Hz 기준 12평균율.
+_NOTE_NAMES = ('C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B')
+def freq_to_note(f):
+    if f is None or f <= 0:
+        return ''
+    midi = 69.0 + 12.0 * math.log2(f / 440.0)   # 69 = A4
+    n = int(round(midi))
+    cents = int(round((midi - n) * 100))
+    name = _NOTE_NAMES[n % 12]; octave = n // 12 - 1
+    sign = '+' if cents >= 0 else '−'
+    return f'{name}{octave} {sign}{abs(cents)}¢'
+
 _HANN_CACHE = {}   # {n: (hanning_win, Σw²)} — power_spectrum_db 윈도우 메모이즈
 def power_spectrum_db(buf):
     """단측(one-sided) 파워 스펙트럼 → 빈별 dBFS 배열.
@@ -2330,6 +2342,7 @@ class FFTCanvas(QWidget):
             cx=self._mx
             freq=x_to_freq(cx,pl,uw,ny) if self.scale_log else (cx-pl)/uw*ny
             fs=f'{freq/1000:.2f} kHz' if freq>=1000 else f'{freq:.0f} Hz'
+            fs=f'{fs}   {freq_to_note(freq)}'
             idx=int(np.clip(np.argmin(np.abs(f_arr-freq)),0,len(a_arr)-1))
             db=float(a_arr[idx])
             # 가로선은 마우스 Y가 아니라 곡선 값 위치에 (매그니튜드 방식)
@@ -2707,6 +2720,7 @@ class OctaveCanvas(QWidget):
             p.setBrush(QBrush(QColor(T('accent')).lighter(200) if _theme=='light' else QColor(78,125,240,12)))
             p.drawRect(bx2,pt,bw2,dh)
             fs=f'{fc/1000:.2f} kHz' if fc>=1000 else f'{fc:.0f} Hz'
+            fs=f'{fs}   {freq_to_note(fc)}'
             draw_info_box(p,W,fs,f'{db2:.1f} {unit}')
         if self._idle_hint:
             _draw_idle_hint(p, pl, pt, W-pl-pr, dh)
@@ -2987,6 +3001,7 @@ class SpectrogramCanvas(QWidget):
             # Frequency at cursor X
             freq=x_to_freq(cx,pl,dw,20000) if self.scale_log else (cx-pl)/dw*20000
             fs=f'{freq/1000:.2f} kHz' if freq>=1000 else f'{freq:.0f} Hz'
+            fs=f'{fs}   {freq_to_note(freq)}'
 
             # dB from the ring buffer at cursor (Y = time, X = frequency)
             col_x=cx-pl
@@ -9297,6 +9312,67 @@ class _TFAverageDialog(QDialog):
         return [i for i, chk in self._checks if chk.isChecked()]
 
 
+class ShortcutsDialog(QDialog):
+    """키보드 단축키 치트시트 — ? 키 또는 Help 메뉴에서 열림. 키캡 스타일."""
+    _GROUPS = [
+        ('전역 (Global)', [
+            ('S',      '측정 시작 / 정지  (Spectrum · Stereo Loudness)'),
+            ('Space',  '새 캡쳐'),
+            ('R',      '선택 캡쳐 제자리 다시 캡쳐 (Recapture)'),
+            ('?',      '이 단축키 도움말 열기'),
+            ('⌘ ?',    '사용 설명서'),
+            ('⌘ Q',    '종료'),
+        ]),
+        ('Transfer Function', [
+            ('G',         '신호 제너레이터 켜기 / 끄기'),
+            ('L',         '딜레이 자동 찾기 (Find Delays)'),
+            ('↑ ↓ ← →',  'IR 그래프 — 시간 / dB 축 이동'),
+        ]),
+        ('딜레이 파인더 창', [
+            ('L',      '다시 찾기 (Find Again)'),
+            ('Enter',  '딜레이 적용 (Insert All)'),
+        ]),
+    ]
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('단축키'); _apply_dark_titlebar(self)
+        self.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
+        self.setMinimumWidth(460)
+        root = QVBoxLayout(self); root.setContentsMargins(24, 18, 24, 18); root.setSpacing(4)
+        title = QLabel('키보드 단축키')
+        title.setStyleSheet(f'color:{T("text")};font-size:16px;font-weight:bold;')
+        root.addWidget(title)
+        for gname, items in self._GROUPS:
+            hdr = QLabel(gname)
+            hdr.setStyleSheet(f'color:{T("accent")};font-size:12px;font-weight:bold;'
+                              f'padding-top:12px;padding-bottom:2px;')
+            root.addWidget(hdr)
+            grid = QGridLayout(); grid.setHorizontalSpacing(14); grid.setVerticalSpacing(7)
+            grid.setContentsMargins(4, 2, 4, 2)
+            for r, (key, desc) in enumerate(items):
+                grid.addWidget(self._keycap(key), r, 0, Qt.AlignLeft | Qt.AlignVCenter)
+                dl = QLabel(desc); dl.setStyleSheet(f'color:{T("text")};font-size:12px;')
+                grid.addWidget(dl, r, 1)
+            grid.setColumnStretch(1, 1)
+            root.addLayout(grid)
+        btns = QDialogButtonBox(QDialogButtonBox.Close)
+        btns.setStyleSheet(ss_dialog_btns())
+        btns.button(QDialogButtonBox.Close).setText('닫기')
+        btns.rejected.connect(self.accept); btns.accepted.connect(self.accept)
+        btns.button(QDialogButtonBox.Close).clicked.connect(self.accept)
+        root.addSpacing(8); root.addWidget(btns)
+
+    def _keycap(self, text):
+        lbl = QLabel(text); lbl.setAlignment(Qt.AlignCenter)
+        lbl.setStyleSheet(
+            f'background:{T("panel")}; color:{T("accent")}; border:1px solid {T("border")};'
+            f'border-radius:6px; padding:3px 9px; font-family:"SF Mono","Courier New",monospace;'
+            f'font-size:12px; font-weight:bold;')
+        lbl.setMinimumWidth(72)
+        return lbl
+
+
 # ───────────────────────────────────────────
 #  TF 단축키 이벤트 필터 (G / L)
 # ───────────────────────────────────────────
@@ -9330,19 +9406,22 @@ class _MainKeyFilter(QObject):
         self._mw = mw
 
     def eventFilter(self, obj, event):
-        if (event.type() == QEvent.KeyPress
-                and event.key() in (Qt.Key_S, Qt.Key_R)
-                and event.modifiers() == Qt.NoModifier):
-            if not self._mw.isActiveWindow():
-                return False
-            from PyQt5.QtWidgets import (QLineEdit, QAbstractSpinBox, QTextEdit,
-                                         QPlainTextEdit, QComboBox, QAbstractItemView)
-            fw = QApplication.focusWidget()
-            # 텍스트 입력칸·콤보·리스트(키보드 타입어헤드 'S'/'R')에선 가로채지 않음
-            if isinstance(fw, (QLineEdit, QAbstractSpinBox, QTextEdit,
-                               QPlainTextEdit, QComboBox, QAbstractItemView)):
-                return False
-            if event.key() == Qt.Key_R:     # R = 선택 캡쳐 제자리 다시 캡쳐
+        if event.type() != QEvent.KeyPress:
+            return False
+        if not self._mw.isActiveWindow():
+            return False
+        from PyQt5.QtWidgets import (QLineEdit, QAbstractSpinBox, QTextEdit,
+                                     QPlainTextEdit, QComboBox, QAbstractItemView)
+        fw = QApplication.focusWidget()
+        # 텍스트 입력칸·콤보·리스트(키보드 타입어헤드)에선 가로채지 않음
+        if isinstance(fw, (QLineEdit, QAbstractSpinBox, QTextEdit,
+                           QPlainTextEdit, QComboBox, QAbstractItemView)):
+            return False
+        key = event.key()
+        if key == Qt.Key_Question:          # ? = 단축키 치트시트 (Shift+/)
+            self._mw._show_shortcuts(); return True
+        if key in (Qt.Key_S, Qt.Key_R) and event.modifiers() == Qt.NoModifier:
+            if key == Qt.Key_R:             # R = 선택 캡쳐 제자리 다시 캡쳐
                 self._mw._recapture_selected(); return True
             tab = self._mw.main_stack.currentIndex()
             if tab == 0:      # Spectrum
@@ -16107,6 +16186,8 @@ class MainWindow(QMainWindow):
         about_act.triggered.connect(self._show_license_info); help_menu.addAction(about_act)
         man_act = QAction('Manual', self); man_act.setShortcut('Ctrl+?')
         man_act.triggered.connect(self._open_manual); help_menu.addAction(man_act)
+        sc_act = QAction('Keyboard Shortcuts', self); sc_act.setShortcut('?')
+        sc_act.triggered.connect(self._show_shortcuts); help_menu.addAction(sc_act)
         rn_act = QAction('Release Notes', self)
         rn_act.triggered.connect(self._show_release_notes); help_menu.addAction(rn_act)
         log_act = QAction('Open Log Folder', self)
@@ -16116,6 +16197,9 @@ class MainWindow(QMainWindow):
         quit_act = QAction('Quit SPECTRA', self); quit_act.setMenuRole(QAction.QuitRole)
         quit_act.setShortcut('Ctrl+Q'); quit_act.triggered.connect(self.close)
         help_menu.addAction(quit_act)
+
+    def _show_shortcuts(self):
+        ShortcutsDialog(self).exec()
 
     def _open_manual(self):
         """우측 하단 Help 버튼 — 사용 설명서(MANUAL.html)를 기본 브라우저로 연다.
