@@ -3762,16 +3762,16 @@ class _SplAlarmDisplay(QWidget):
         if self._value is not None:
             p.setFont(pf(h * 0.082))
             if over:
-                p.setPen(QPen(self.RED)); mtxt = f'▲ 초과 +{self._value - self._limit:.1f} dB'
+                p.setPen(QPen(self.RED)); mtxt = f'▲ +{self._value - self._limit:.1f} dB over'
             else:
-                p.setPen(QPen(color)); mtxt = f'▼ 여유 {self._limit - self._value:.1f} dB'
+                p.setPen(QPen(color)); mtxt = f'▼ {self._limit - self._value:.1f} dB headroom'
             p.drawText(QRectF(x, y + h * 0.66, w, h * 0.10), Qt.AlignHCenter | Qt.AlignVCenter, mtxt)
 
         status = ('OK', 'AMBER', 'OVER')[idx]
         if over and self._over_since is not None:
-            status += f'  ·  {int(time.time() - self._over_since)}초째'
+            status += f'  ·  {int(time.time() - self._over_since)}s'
         else:
-            sub = ('안전 구간', '살짝 줄이세요', '')[idx]
+            sub = ('Safe', 'Ease off', '')[idx]
             if sub:
                 status += f'  ·  {sub}'
         p.setFont(pf(h * 0.10)); p.setPen(QPen(color))
@@ -3780,10 +3780,10 @@ class _SplAlarmDisplay(QWidget):
 
 
 class SplAlarmConfigDialog(QDialog):
-    """SPL 알람 설정 — 마스터 지표 / 한계 / 노랑 여유 / LEQ time."""
+    """SPL Alarm settings — metric / limit / amber margin / LEQ time."""
     def __init__(self, metrics, leq_labels, cfg, parent=None):
         super().__init__(parent)
-        self.setWindowTitle('SPL 알람 설정'); _apply_dark_titlebar(self)
+        self.setWindowTitle('SPL Alarm Settings'); _apply_dark_titlebar(self)
         self.setMinimumWidth(320)
         self.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
         self._metric_ids = list(metrics.keys())
@@ -3796,7 +3796,7 @@ class SplAlarmConfigDialog(QDialog):
 
         root = QVBoxLayout(self); root.setSpacing(12); root.setContentsMargins(18, 16, 18, 16)
 
-        mrow = QHBoxLayout(); mrow.addStretch(); mrow.addWidget(QLabel('마스터 지표:'))
+        mrow = QHBoxLayout(); mrow.addStretch(); mrow.addWidget(QLabel('Metric:'))
         self._metric_cb = QComboBox(); self._metric_cb.setStyleSheet(cstyle()); self._metric_cb.setMinimumWidth(150)
         for mid in self._metric_ids:
             self._metric_cb.addItem(metrics[mid])
@@ -3804,11 +3804,11 @@ class SplAlarmConfigDialog(QDialog):
         self._metric_cb.setCurrentIndex(self._metric_ids.index(cm) if cm in self._metric_ids else 0)
         mrow.addWidget(self._metric_cb); mrow.addStretch(); root.addLayout(mrow)
 
-        lrow = QHBoxLayout(); lrow.addStretch(); lrow.addWidget(QLabel('한계:'))
+        lrow = QHBoxLayout(); lrow.addStretch(); lrow.addWidget(QLabel('Limit:'))
         self._limit_sp = QDoubleSpinBox(); self._limit_sp.setStyleSheet(ss_spin(FS_LG, 6, 80))
         self._limit_sp.setRange(30.0, 160.0); self._limit_sp.setDecimals(1); self._limit_sp.setSingleStep(0.5)
         self._limit_sp.setSuffix(' dB'); self._limit_sp.setValue(float(cfg.get('limit', 100.0)))
-        lrow.addWidget(self._limit_sp); lrow.addSpacing(14); lrow.addWidget(QLabel('노랑 여유:'))
+        lrow.addWidget(self._limit_sp); lrow.addSpacing(14); lrow.addWidget(QLabel('Amber:'))
         self._amber_sp = QDoubleSpinBox(); self._amber_sp.setStyleSheet(ss_spin(FS_LG, 6, 70))
         self._amber_sp.setRange(0.5, 15.0); self._amber_sp.setDecimals(1); self._amber_sp.setSingleStep(0.5)
         self._amber_sp.setPrefix('-'); self._amber_sp.setSuffix(' dB'); self._amber_sp.setValue(float(cfg.get('amber', 3.0)))
@@ -3844,15 +3844,18 @@ class SplAlarmWindow(QWidget):
         'spl_slow': 'SPL Slow', 'dba_fast': 'SPL A Fast', 'dbc_fast': 'SPL C Fast',
         'spl_fast': 'SPL Fast', 'peak': 'Peak', 'peak_c': 'Peak C', 'fs_peak': 'FS Peak',
     }
-    _UNIT = {'laeq': 'dBA', 'dba': 'dBA', 'dba_fast': 'dBA',
-             'lceq': 'dBC', 'dbc': 'dBC', 'dbc_fast': 'dBC', 'peak_c': 'dBC'}
+    # 디스플레이 단위 — 선택한 지표대로 표기 (LEQ는 시간 분(min)을 _apply_cfg에서 덧붙임)
+    _UNIT = {'laeq': 'dB LAeq', 'lceq': 'dB LCeq',
+             'dba': 'dBA', 'dba_fast': 'dBA', 'dbc': 'dBC', 'dbc_fast': 'dBC',
+             'spl_slow': 'dB SPL', 'spl_fast': 'dB SPL',
+             'peak': 'dB Peak', 'peak_c': 'dBC Peak', 'fs_peak': 'dBFS'}
     _LEQ_PRESETS = [('1 min', 60), ('5 min', 300), ('10 min', 600),
                     ('15 min', 900), ('30 min', 1800), ('1 hr', 3600)]
 
     def __init__(self, main):
         self._main = main
         super().__init__(None, Qt.Window)
-        self.setWindowTitle('SPL 알람')
+        self.setWindowTitle('SPL Alarm')
         self.setAttribute(Qt.WA_DeleteOnClose, False)
         self.setStyleSheet(f'background:{T("bg")};')
         self._cfg = self._load_cfg()
@@ -3863,7 +3866,7 @@ class SplAlarmWindow(QWidget):
             pass
         self._eng = _SplMetricEngine(self._leq_secs(), calib)
 
-        self._set_btn = _SettingsBtn(); self._set_btn.setToolTip('알람 설정')
+        self._set_btn = _SettingsBtn(); self._set_btn.setToolTip('Alarm settings')
         self._set_btn.clicked.connect(self._open_config)
 
         lay = QVBoxLayout(self); lay.setContentsMargins(10, 10, 10, 10)
@@ -3904,6 +3907,8 @@ class SplAlarmWindow(QWidget):
         mid = self._cfg.get('metric', 'laeq')
         title = self._METRICS.get(mid, 'LAeq')
         unit = self._UNIT.get(mid, 'dB SPL')
+        if mid in ('laeq', 'lceq'):           # LEQ 지표 — 적분 시간(분) 덧붙임: "dB LAeq 10min"
+            unit += f' {self._leq_secs() // 60}min'
         self._eng.set_leq_secs(self._leq_secs())
         self.disp.configure(title, unit, self._cfg.get('limit', 100.0), self._cfg.get('amber', 3.0))
 
@@ -15862,7 +15867,7 @@ class MainWindow(QMainWindow):
         view_menu = mb.addMenu('View')
         spl_act = QAction('SPL Meter', self)
         spl_act.triggered.connect(self._open_spl_meter); view_menu.addAction(spl_act)
-        alarm_act = QAction('SPL 알람 창 (SPL Alarm)', self)
+        alarm_act = QAction('SPL Alarm', self)
         alarm_act.triggered.connect(self._open_spl_alarm); view_menu.addAction(alarm_act)
         help_menu = mb.addMenu('Help')
         about_act = QAction('About SPECTRA', self); about_act.setMenuRole(QAction.AboutRole)
