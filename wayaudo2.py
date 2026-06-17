@@ -329,8 +329,9 @@ if _pl.system() == 'Windows':
     _APP_SUPPORT = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'WSA2')
 else:
     _APP_SUPPORT = os.path.expanduser('~/Library/Application Support/WSA2')
-_SETTINGS_PATH = os.path.join(_APP_SUPPORT, 'settings.json')
-_CAPTURES_PATH = os.path.join(_APP_SUPPORT, 'captures.json')
+# 테스트/개발 시 실제 사용자 설정 파일 보호 — 환경변수로 경로 오버라이드 가능
+_SETTINGS_PATH = os.environ.get('WSA2_SETTINGS_PATH') or os.path.join(_APP_SUPPORT, 'settings.json')
+_CAPTURES_PATH = os.environ.get('WSA2_CAPTURES_PATH') or os.path.join(_APP_SUPPORT, 'captures.json')
 _CAPTURES_LOCK = threading.Lock()   # captures.json 동시 읽기-수정-쓰기 보호 (백그라운드 저장용)
 
 def _load_settings():
@@ -9766,10 +9767,30 @@ class TransferFunctionWindow(QWidget):
         self.mag_cvs.cursor_x_changed.connect(self.phase_cvs.set_peer_cursor)
         self.phase_cvs.cursor_left.connect(self.mag_cvs.clear_peer_cursor)
         self.mag_cvs.cursor_left.connect(self.phase_cvs.clear_peer_cursor)
-        cvs_w.addWidget(self.ir_cvs)
-        cvs_w.addWidget(self.phase_cvs); cvs_w.addWidget(self.mag_cvs)
-        cvs_w.setCollapsible(0, False); cvs_w.setCollapsible(1, False); cvs_w.setCollapsible(2, False)
-        cvs_w.setSizes([200, 400, 600])   # 기본 비율 IR:Phase:Mag ≈ 1:2:3 (사용자 선호)
+        # ── Smaart식 슬롯: 칸마다 ▼로 콘텐츠 선택 (Magnitude/Phase/Live IR/Off) ──
+        self._tf_plots = {'Magnitude': self.mag_cvs, 'Phase': self.phase_cvs, 'Live IR': self.ir_cvs}
+        self._tf_plot_order = ['Magnitude', 'Phase', 'Live IR']   # 콤보 항목(+나중 RTA)
+        _slot_ss = ('QComboBox{background:transparent;color:#C7CAD1;border:none;'
+                    'font-size:11px;font-weight:600;padding:1px 6px;}'
+                    'QComboBox::drop-down{border:none;width:16px;}'
+                    'QComboBox QAbstractItemView{background:#2C2C2E;color:#E8ECF4;'
+                    'selection-background-color:#4E7DF0;border:1px solid #48484A;}')
+        self._tf_slot_w = []; self._tf_slot_box = []; self._tf_slot_sel = []
+        self._tf_slot_plot = [None, None, None]
+        for i in range(3):
+            slot = QWidget(); sv = QVBoxLayout(slot); sv.setContentsMargins(0, 0, 0, 0); sv.setSpacing(0)
+            hdr = QWidget(); hdr.setFixedHeight(22); hdr.setStyleSheet(f'background:{T("bg2")};')
+            hh = QHBoxLayout(hdr); hh.setContentsMargins(6, 0, 6, 0); hh.setSpacing(0)
+            combo = QComboBox(); combo.setStyleSheet(_slot_ss); combo.setFixedHeight(20)
+            for p in self._tf_plot_order: combo.addItem(p)
+            combo.addItem('Off')
+            hh.addWidget(combo); hh.addStretch()
+            sv.addWidget(hdr)
+            slot_body = QWidget(); bx = QVBoxLayout(slot_body); bx.setContentsMargins(0, 0, 0, 0); bx.setSpacing(0)
+            sv.addWidget(slot_body, 1)
+            cvs_w.addWidget(slot); cvs_w.setCollapsible(i, False)
+            self._tf_slot_w.append(slot); self._tf_slot_box.append(bx); self._tf_slot_sel.append(combo)
+        cvs_w.setSizes([200, 400, 600])
         bl.addWidget(cvs_w, 1)
 
         # 우측 패널
@@ -10098,19 +10119,6 @@ class TransferFunctionWindow(QWidget):
         self.tf_stable_btn.setToolTip('안정화 캡쳐 — 평균 수렴 + 코히런스 안정 후 자동 캡쳐')
         tl.addWidget(self.tf_stable_btn); tl.addSpacing(10)
 
-        # 플롯 표시 토글 (Smaart식) — 작은 창/분할에서 보는 것만 켜면 그게 꽉 참. 최소 1개 유지.
-        tl.addWidget(_lb('Show'))
-        self.plot_ir_btn = QPushButton('IR'); self.plot_phase_btn = QPushButton('Phase'); self.plot_mag_btn = QPushButton('Mag')
-        for _pb, _w in ((self.plot_ir_btn, 36), (self.plot_phase_btn, 52), (self.plot_mag_btn, 46)):
-            _pb.setCheckable(True); _pb.setChecked(True); _pb.setFixedHeight(30); _pb.setFixedWidth(_w)
-            _pb.setStyleSheet(_toggle_ss)
-        self.plot_ir_btn.setToolTip('Live IR 표시'); self.plot_phase_btn.setToolTip('Phase 표시'); self.plot_mag_btn.setToolTip('Magnitude 표시')
-        self.plot_ir_btn.toggled.connect(lambda on: self._toggle_tf_plot('ir', on))
-        self.plot_phase_btn.toggled.connect(lambda on: self._toggle_tf_plot('phase', on))
-        self.plot_mag_btn.toggled.connect(lambda on: self._toggle_tf_plot('mag', on))
-        tl.addWidget(self.plot_ir_btn); tl.addWidget(self.plot_phase_btn); tl.addWidget(self.plot_mag_btn)
-        tl.addSpacing(10)
-
         tl.addWidget(_lb('IR'))
         self.ir_cb = RoundComboBox(); self.ir_cb.addItems(TF_IR_MODES); self.ir_cb.setCurrentIndex(0)
         self.ir_cb._align_center = True
@@ -10142,33 +10150,69 @@ class TransferFunctionWindow(QWidget):
         self.tb = tb   # MainWindow가 embedded 시 sub_stack에 넣을 수 있도록 저장
         if not self.embedded:
             root.addWidget(tb)
-        self._restore_tf_plot_vis()   # 저장된 플롯 표시 상태 복원
+        self._restore_tf_slots()   # 저장된 슬롯 구성 복원(없으면 IR/Phase/Mag 기본)
+        for i in range(3):
+            self._tf_slot_sel[i].currentTextChanged.connect(lambda name, si=i: self._tf_set_slot(si, name))
 
-    def _tf_plot_widgets(self):
-        return (('ir', self.plot_ir_btn, self.ir_cvs),
-                ('phase', self.plot_phase_btn, self.phase_cvs),
-                ('mag', self.plot_mag_btn, self.mag_cvs))
+    # ── TF 플롯 슬롯 (Smaart식 ▼ 칸 선택) ──────────────────────
+    def _tf_combo_set(self, idx, val):
+        cb = self._tf_slot_sel[idx]
+        cb.blockSignals(True); cb.setCurrentText(val); cb.blockSignals(False)
 
-    def _toggle_tf_plot(self, which, on):
-        if not on:
-            # 최소 1개는 켜져 있어야 함 — 마지막 1개 끄기 방지
-            if sum(b.isChecked() for _w, b, _c in self._tf_plot_widgets()) == 0:
-                btn = {'ir': self.plot_ir_btn, 'phase': self.plot_phase_btn, 'mag': self.plot_mag_btn}[which]
-                btn.blockSignals(True); btn.setChecked(True); btn.blockSignals(False)
-                return
-        cvs = {'ir': self.ir_cvs, 'phase': self.phase_cvs, 'mag': self.mag_cvs}[which]
-        cvs.setVisible(on)
-        self._settings['tf_plot_vis'] = {w: b.isChecked() for w, b, _c in self._tf_plot_widgets()}
+    def _tf_detach(self, name):
+        if name in (None, 'Off'):
+            return
+        c = self._tf_plots.get(name)
+        if c is not None:
+            c.setParent(None); c.hide()
+
+    def _tf_mount(self, idx, name):
+        c = self._tf_plots[name]
+        self._tf_slot_box[idx].addWidget(c); c.setVisible(True)
+        self._tf_slot_plot[idx] = name
+        self._tf_slot_w[idx].setVisible(True)
+
+    def _tf_set_slot(self, idx, name):
+        """칸 idx의 콘텐츠를 name으로. 다른 칸이 갖고 있으면 스왑. 'Off'면 칸 숨김(최소 1개 유지)."""
+        cur = self._tf_slot_plot[idx]
+        if name == cur:
+            return
+        real_on = [p for p in self._tf_slot_plot if p not in (None, 'Off')]
+        if name == 'Off':
+            if len(real_on) <= 1:                      # 최소 1개 유지
+                self._tf_combo_set(idx, cur); return
+            self._tf_detach(cur)
+            self._tf_slot_plot[idx] = 'Off'; self._tf_slot_w[idx].setVisible(False)
+            self._save_tf_slots(); return
+        other = next((j for j in range(3) if j != idx and self._tf_slot_plot[j] == name), None)
+        self._tf_detach(cur)
+        if other is not None:
+            self._tf_detach(name)
+            if cur in (None, 'Off'):                   # 줄 게 없으면 상대 칸은 Off
+                self._tf_slot_plot[other] = 'Off'; self._tf_slot_w[other].setVisible(False)
+                self._tf_combo_set(other, 'Off')
+            else:                                       # 스왑: 상대 칸이 cur를 받음
+                self._tf_mount(other, cur); self._tf_combo_set(other, cur)
+        self._tf_mount(idx, name)
+        self._save_tf_slots()
+
+    def _save_tf_slots(self):
+        self._settings['tf_slots'] = list(self._tf_slot_plot)
         _save_settings(self._settings)
 
-    def _restore_tf_plot_vis(self):
-        pv = self._settings.get('tf_plot_vis', {})
-        if not any(pv.get(w, True) for w, _b, _c in self._tf_plot_widgets()):
-            pv = {}   # 전부 꺼진 잘못된 상태면 기본(전부 켜짐)으로
-        for w, btn, cvs in self._tf_plot_widgets():
-            on = bool(pv.get(w, True))
-            btn.blockSignals(True); btn.setChecked(on); btn.blockSignals(False)
-            cvs.setVisible(on)
+    def _restore_tf_slots(self):
+        slots = self._settings.get('tf_slots')
+        if not (isinstance(slots, list) and len(slots) == 3
+                and any(p in self._tf_plots for p in slots)):
+            slots = ['Live IR', 'Phase', 'Magnitude']   # 기본(현행)
+        # 중복 플롯은 첫 칸만 인정, 나머지는 Off
+        seen = set()
+        for i, p in enumerate(slots):
+            if p in self._tf_plots and p not in seen:
+                seen.add(p); self._tf_mount(i, p); self._tf_combo_set(i, p)
+            else:
+                self._tf_slot_plot[i] = 'Off'; self._tf_slot_w[i].setVisible(False)
+                self._tf_combo_set(i, 'Off')
 
     def eventFilter(self, obj, event):
         # TF 분석창(IR/Phase/Mag) 클릭 → 그 창 선택 하이라이트
