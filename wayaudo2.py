@@ -650,30 +650,6 @@ def _add_resize_grip(win):
     QTimer.singleShot(0, _pos)
 
 
-def _round_corners(win, radius=10):
-    """프레임리스 팝업창에 둥근 모서리 — setMask(라운드 영역)로 타이틀바·콘텐츠 전체를 둥글게 클립.
-    resize 시 갱신. 메인창은 네이티브 chrome이라 해당 없음(_apply_dark_titlebar 쓰는 팝업/다이얼로그만)."""
-    from PyQt5.QtGui import QPainterPath, QRegion
-    from PyQt5.QtCore import QRectF
-    def _apply():
-        try:
-            w, h = win.width(), win.height()
-            if w <= 0 or h <= 0:
-                return
-            path = QPainterPath()
-            path.addRoundedRect(QRectF(0, 0, w, h), radius, radius)
-            win.setMask(QRegion(path.toFillPolygon().toPolygon()))
-        except Exception:
-            pass
-    class _RCF(QObject):
-        def eventFilter(self, o, e):
-            if e.type() == QEvent.Resize:
-                _apply()
-            return False
-    f = _RCF(win); win._round_corner_filter = f; win.installEventFilter(f)
-    QTimer.singleShot(0, _apply); _apply()
-
-
 def _apply_dark_titlebar(win, resizable=False, aux=None):
     """창을 프레임리스로 + 다크 커스텀 타이틀바 부착(레이아웃 menuBar 슬롯).
     resizable=True 면 우하단 리사이즈 그립 추가. 바 삽입은 레이아웃 준비 후로 지연.
@@ -694,7 +670,6 @@ def _apply_dark_titlebar(win, resizable=False, aux=None):
     QTimer.singleShot(0, _ins)
     if resizable:
         _add_resize_grip(win)
-    _round_corners(win)   # 모든 팝업/다이얼로그 모서리 둥글게
 
 
 def _set_float_above_fullscreen(win):
