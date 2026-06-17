@@ -6418,6 +6418,20 @@ def _gen_pink_noise(n):
     rms = float(np.sqrt(np.mean(sig ** 2)))
     return sig / rms if rms > 0 else sig
 
+def _draw_tf_sel_border(widget, p):
+    """선택된 TF 분석창 외곽 하이라이트 — 클릭한 캔버스에 액센트 테두리(은은한 글로우+또렷 라인)."""
+    if not getattr(widget, '_tf_selected', False):
+        return
+    p.save()
+    p.setRenderHint(QPainter.Antialiasing, True); p.setBrush(Qt.NoBrush)
+    ac = QColor(T('accent')); W = widget.width(); H = widget.height()
+    p.setPen(QPen(QColor(ac.red(), ac.green(), ac.blue(), 70), 4))
+    p.drawRect(2, 2, W - 4, H - 4)
+    p.setPen(QPen(ac, 1.6))
+    p.drawRect(2, 2, W - 4, H - 4)
+    p.restore()
+
+
 # ───────────────────────────────────────────
 #  TF Phase Canvas
 # ───────────────────────────────────────────
@@ -6970,6 +6984,7 @@ class TFPhaseCanvas(QWidget):
                 else:
                     ph_str=f'  {val_plot:+.1f}°'
                 draw_info_box(p,W,fs,f'{mag_str}{ph_str}')
+        _draw_tf_sel_border(self, p)
         p.end()
 
 # ───────────────────────────────────────────
@@ -7461,6 +7476,7 @@ class TFMagCanvas(QWidget):
             if _cc is not None and len(_cc)==len(_cf):
                 coh_str=f'  {_cc[idx]*100:.0f}%'
             draw_info_box(p,W,fs,f'{mag_str}{ph_str}{coh_str}')
+        _draw_tf_sel_border(self, p)
         p.end()
 
 # ───────────────────────────────────────────
@@ -8485,6 +8501,7 @@ class TFIRCanvas(QWidget):
                 idx = int(np.clip(np.argmin(np.abs(t_arr - t_cur)), 0, len(_ch) - 1))
                 db_val = 20 * math.log10(max(abs(float(_ch[idx])) / pk, 1e-10))
                 draw_info_box(p, W, f'{t_cur:.1f} ms', f'{db_val:+.1f} dB')
+        _draw_tf_sel_border(self, p)
         p.end()
 
 
@@ -9532,6 +9549,11 @@ class TransferFunctionWindow(QWidget):
         cvs_w.setStyleSheet(_splitter_qss())    # 공통 구분선 스타일
         self.ir_cvs = TFIRCanvas()
         self.phase_cvs = TFPhaseCanvas(); self.mag_cvs = TFMagCanvas()
+        # 분석창 클릭 → 그 창 외곽 하이라이트 (이벤트필터로 감지, 기존 마우스 동작 유지)
+        self._tf_cvs_list = [self.ir_cvs, self.phase_cvs, self.mag_cvs]
+        for _c in self._tf_cvs_list:
+            _c._tf_selected = False
+            _c.installEventFilter(self)
         # 커서 동기화: 한 캔버스에서 마우스 움직이면 양쪽 모두 크로스헤어 표시
         self.phase_cvs.cursor_x_changed.connect(self.mag_cvs.set_peer_cursor)
         self.mag_cvs.cursor_x_changed.connect(self.phase_cvs.set_peer_cursor)
@@ -9893,6 +9915,18 @@ class TransferFunctionWindow(QWidget):
         self.tb = tb   # MainWindow가 embedded 시 sub_stack에 넣을 수 있도록 저장
         if not self.embedded:
             root.addWidget(tb)
+
+    def eventFilter(self, obj, event):
+        # TF 분석창(IR/Phase/Mag) 클릭 → 그 창 선택 하이라이트
+        if event.type() == QEvent.MouseButtonPress and obj in getattr(self, '_tf_cvs_list', ()):
+            self._select_tf_cvs(obj)
+        return super().eventFilter(obj, event)
+
+    def _select_tf_cvs(self, cvs):
+        for c in self._tf_cvs_list:
+            sel = (c is cvs)
+            if getattr(c, '_tf_selected', False) != sel:
+                c._tf_selected = sel; c.update()
 
     # ── 장치 로드 ────────────────────────────
     def _load_devices(self):
