@@ -699,6 +699,36 @@ def _set_float_above_fullscreen(win):
         except Exception: pass
 
 
+def _set_fullscreen_auxiliary(win):
+    """창을 '풀스크린 보조창'으로 지정 — 부모 풀스크린 위에 정상 크기로 뜨고 자기는 풀스크린 안 됨.
+    ⚠️show 전에 호출해야 함(show 시점 macOS 자동 풀스크린화를 막아야 검은 풀스크린 방지).
+    호출 전 win.winId()로 NSWindow 실체화 필요."""
+    if sys.platform != 'darwin':
+        return False
+    try:
+        import ctypes
+        objc = ctypes.cdll.LoadLibrary('/usr/lib/libobjc.A.dylib')
+        objc.sel_registerName.restype = ctypes.c_void_p
+        objc.sel_registerName.argtypes = [ctypes.c_char_p]
+        def sel(n): return objc.sel_registerName(n.encode())
+        def msg(restype, obj, name, *args):
+            f = objc.objc_msgSend; f.restype = restype
+            f.argtypes = [ctypes.c_void_p, ctypes.c_void_p] + [type(a) for a in args]
+            return f(obj, sel(name), *args)
+        nsw = msg(ctypes.c_void_p, ctypes.c_void_p(int(win.winId())), 'window')
+        if not nsw:
+            return False
+        beh = msg(ctypes.c_ulong, nsw, 'collectionBehavior')
+        beh &= ~(1 << 7)   # FullScreenPrimary 제거
+        beh |= (1 << 8)    # FullScreenAuxiliary 추가
+        msg(None, nsw, 'setCollectionBehavior:', ctypes.c_ulong(beh))
+        return True
+    except Exception as e:
+        try: _alog.debug(f'fullscreen-auxiliary 실패: {e}')
+        except Exception: pass
+        return False
+
+
 def _attach_as_child(child, parent):
     """macOS 네이티브 addChildWindow — child NSWindow를 parent NSWindow의 진짜 자식으로.
     → 부모가 풀스크린이어도 같은 Space에 따라붙어 그 위에 뜸(Qt transient parent로는 안 됨).
@@ -720,10 +750,17 @@ def _attach_as_child(child, parent):
         cw = nswin(child); pw = nswin(parent)
         if not cw or not pw:
             return False
+        # ① 자식 창 collectionBehavior: FullScreenPrimary(자동 풀스크린) 제거 + FullScreenAuxiliary 추가
+        #    → 부모 풀스크린 위에 '정상 크기'로 떠 있고, 자기가 풀스크린이 되지 않음(검은 풀스크린 방지)
+        beh = msg(ctypes.c_ulong, cw, 'collectionBehavior')
+        beh &= ~(1 << 7)          # NSWindowCollectionBehaviorFullScreenPrimary
+        beh |= (1 << 8)           # NSWindowCollectionBehaviorFullScreenAuxiliary
+        msg(None, cw, 'setCollectionBehavior:', ctypes.c_ulong(beh))
+        # ② 부모의 진짜 자식으로 부착 → 같은 Space(풀스크린 포함) 추종
         msg(None, pw, 'addChildWindow:ordered:', ctypes.c_void_p(cw), ctypes.c_long(1))
         return True
     except Exception as e:
-        try: _alog.debug(f'addChildWindow 실패: {e}')
+        try: _alog.debug(f'addChildWindow/aux 실패: {e}')
         except Exception: pass
         return False
 
@@ -14880,28 +14917,33 @@ class MainWindow(QMainWindow):
         self.leq_win.show(); self.leq_win.raise_()
 
     def _setup_float_child(self, win, w, h):
-        """풀스크린 메인 위에서 SPL미터/알람을 ①같은 Space에 부착(네이티브 addChildWindow)
-        ②풀스크린 상태 해제+정상 크기 ③메인 화면 중앙으로(move=Space 유지, setGeometry는 Space 이탈
-        유발하므로 안 씀). macOS 비동기 전환 대응 0/120/300/600ms 반복."""
+        """풀스크린 메인 위 SPL미터/알람: ①FullScreenAuxiliary+addChildWindow로 같은 Space에 정상크기
+        부착 ②혹시 크게 떴으면 resize 보정 ③보정 끝나면 투명→표시(검은 풀스크린 플래시 방지)."""
         w = int(w); h = int(h)
         revealed = [False]
         def _reveal():
             if not revealed[0]:
                 revealed[0] = True
-                try: win.setWindowOpacity(1.0)   # 크기 보정 끝나면 보이기
+                try: win.setWindowOpacity(1.0)
                 except Exception: pass
         def _fix():
             try:
-                _attach_as_child(win, self)   # ★ 진짜 자식 → 부모 풀스크린 Space에 따라붙음
+                _attach_as_child(win, self)   # ★ Aux + 진짜 자식 → 부모 풀스크린 Space 위 정상크기
                 if win.width() > w * 1.4 or win.height() > h * 1.4:
-                    win.resize(w, h)   # 크게 떴으면 크기만 보정(상태·위치 안 건드림 → Space 점프 방지)
+                    win.resize(w, h)          # 안전장치: 크게 떴으면 크기 보정
                 else:
-                    _reveal()          # 사이즈 정상 → 표시
+                    _reveal()                 # 정상 크기 → 표시
             except Exception:
                 pass
         for ms in (0, 90, 200, 380, 650):
             QTimer.singleShot(ms, _fix)
-        QTimer.singleShot(850, _reveal)   # 안전장치: 최대 850ms 뒤 무조건 표시
+        def _safety():
+            try:
+                if win.width() > w * 1.4 or win.height() > h * 1.4:
+                    win.resize(w, h)
+            except Exception: pass
+            _reveal()
+        QTimer.singleShot(850, _safety)   # 최대 850ms: 줄이고 무조건 표시(검은 풀스크린 멈춤 방지)
 
     def _open_spl_meter(self):
         # 자식 창(풀스크린 추종) + show 후 크기 보정(풀스크린 크기 방지)
@@ -14909,7 +14951,8 @@ class MainWindow(QMainWindow):
         if new:
             self.spl_meter_win = SplMeterWindow(self)
             self.spl_meter_win.set_calib_offset(self._spl_source_calib(self._spl_source_id))
-            self.spl_meter_win.setWindowOpacity(0.0)   # 사이즈 보정 전 숨김(블랙 플래시 방지)
+            self.spl_meter_win.setWindowOpacity(0.0)   # 보정 전 숨김(블랙 플래시 방지)
+            self.spl_meter_win.winId(); _set_fullscreen_auxiliary(self.spl_meter_win)  # show 前 보조창 지정
         self.spl_meter_win.show(); self.spl_meter_win.raise_()
         if new:
             self._setup_float_child(self.spl_meter_win,
@@ -14921,7 +14964,8 @@ class MainWindow(QMainWindow):
         if new:
             self.spl_alarm_win = SplAlarmWindow(self)
             self.spl_alarm_win.set_calib_offset(self.calib_offset)
-            self.spl_alarm_win.setWindowOpacity(0.0)   # 사이즈 보정 전 숨김(블랙 플래시 방지)
+            self.spl_alarm_win.setWindowOpacity(0.0)   # 보정 전 숨김(블랙 플래시 방지)
+            self.spl_alarm_win.winId(); _set_fullscreen_auxiliary(self.spl_alarm_win)  # show 前 보조창 지정
         self.spl_alarm_win.show(); self.spl_alarm_win.raise_()
         if new:
             self._setup_float_child(self.spl_alarm_win, 210, 150)
