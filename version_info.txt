@@ -2,8 +2,8 @@
 # 버전 올릴 때 filevers/prodvers/FileVersion/ProductVersion 4곳 수정
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 6, 0, 0),
-    prodvers=(1, 6, 0, 0),
+    filevers=(1, 6, 5, 0),
+    prodvers=(1, 6, 5, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -16,11 +16,11 @@ VSVersionInfo(
       StringTable('040904B0', [
         StringStruct('CompanyName', 'WAYAUDIO'),
         StringStruct('FileDescription', 'SPECTRA — Spectrum Analyzer'),
-        StringStruct('FileVersion', '1.6.0.0'),
+        StringStruct('FileVersion', '1.6.5.0'),
         StringStruct('InternalName', 'SPECTRA'),
         StringStruct('OriginalFilename', 'SPECTRA.exe'),
         StringStruct('ProductName', 'SPECTRA'),
-        StringStruct('ProductVersion', '1.6.0.0'),
+        StringStruct('ProductVersion', '1.6.5.0'),
         StringStruct('LegalCopyright', '© WAYAUDIO')
       ])
     ]),

@@ -1,6 +1,6 @@
 11#!/usr/bin/env python3
 # ═══════════════════════════════════════════════════
-#  SPECTRA — Spectrum Analyzer  (by WAYAUDIO)  v1.6
+#  SPECTRA — Spectrum Analyzer  (by WAYAUDIO)  v1.6.5
 #  ✅ FFT 버벅임 수정 (포인트 다운샘플링)
 #  ✅ 마이크 캘리브레이션 (94/114dB @ 1kHz)
 #  ✅ dBA / dBC 실시간 레벨
@@ -97,7 +97,7 @@ import math as _math
 
 # ── 앱 버전 (단일 소스) ── 버전 올릴 땐 `bash bump_version.sh 1.6` 한 줄로 전부 갱신.
 #   (이 상수 + 상단 주석 + WSA2.spec/build_intel.sh/version_info.txt 까지 스크립트가 처리)
-_APP_VERSION = '1.6'
+_APP_VERSION = '1.6.5'
 
 # ═══════════════════════════════════════════════════════════════════
 #  라이선스 관리
@@ -10112,6 +10112,13 @@ class TransferFunctionWindow(QWidget):
         self.phase_cb.currentIndexChanged.connect(self._phase_mode_changed)
         tl.addWidget(self.phase_cb)
         tl.addStretch()
+        # 별도 창 팝아웃 토글 (멀티모니터) — 클릭 연결은 MainWindow가 함
+        self._popout_btn = QPushButton(''); self._popout_btn.setIcon(_icon('extlink'))
+        self._popout_btn.setFixedWidth(30); self._popout_btn.setFixedHeight(30)
+        self._popout_btn.setCheckable(True)
+        self._popout_btn.setStyleSheet(_toggle_ss)
+        self._popout_btn.setToolTip('별도 창으로 분리 (멀티모니터)')
+        tl.addWidget(self._popout_btn); tl.addSpacing(6)
         # 우측 패널(rp) 표시/숨김 토글 + 저장 상태 복원
         self._tf_panel_btn = _RightPanelToggleBtn()
         self._tf_panel_btn.clicked.connect(self._toggle_tf_panel)
@@ -13708,6 +13715,56 @@ class StereoLoudnessPage(QWidget):
                 f'font-size:{FS_METRIC}px;font-weight:bold;color:{c};background:transparent;')
 
 
+class _TFPopoutWindow(QWidget):
+    """TF를 별도 창으로 분리(멀티모니터)할 때 쓰는 컨테이너 창.
+    창을 닫으면 MainWindow._dock_tf로 메인 탭에 되돌린다.
+    ★부모 없는 독립 top-level 창 — macOS에서 부모를 주면 자식 창으로 묶여
+    메인 창을 따라 움직이므로(외부 모니터 배치 방해), 부모 대신 _mainwin 참조만 보관."""
+    def __init__(self, mainwin):
+        super().__init__(None, Qt.Window)
+        self._mainwin = mainwin
+        self._docking = False
+        self.setWindowTitle('SPECTRA — Transfer Function')
+        self.setMinimumSize(1020, 570)
+
+    def closeEvent(self, e):
+        if not self._docking and self._mainwin is not None:
+            self._mainwin._dock_tf(via_close=True)
+        super().closeEvent(e)
+
+
+class _SpectrumPopoutWindow(QWidget):
+    """Spectrum을 별도 창으로 분리(멀티모니터). 닫으면 _dock_spec로 메인 탭에 되돌림.
+    TF 팝아웃과 동형 — 부모 없는 독립 top-level(메인 안 따라감)."""
+    def __init__(self, mainwin):
+        super().__init__(None, Qt.Window)
+        self._mainwin = mainwin
+        self._docking = False
+        self.setWindowTitle('SPECTRA — Spectrum')
+        self.setMinimumSize(900, 520)
+
+    def closeEvent(self, e):
+        if not self._docking and self._mainwin is not None:
+            self._mainwin._dock_spec(via_close=True)
+        super().closeEvent(e)
+
+
+class _StereoPopoutWindow(QWidget):
+    """Stereo Loudness를 별도 창으로 분리(멀티모니터). 닫으면 _dock_st로 되돌림.
+    부모 없는 독립 top-level(메인 안 따라감)."""
+    def __init__(self, mainwin):
+        super().__init__(None, Qt.Window)
+        self._mainwin = mainwin
+        self._docking = False
+        self.setWindowTitle('SPECTRA — Stereo Loudness')
+        self.setMinimumSize(900, 520)
+
+    def closeEvent(self, e):
+        if not self._docking and self._mainwin is not None:
+            self._mainwin._dock_st(via_close=True)
+        super().closeEvent(e)
+
+
 # ───────────────────────────────────────────
 #  메인 윈도우
 # ───────────────────────────────────────────
@@ -13765,6 +13822,12 @@ class MainWindow(QMainWindow):
         # LEQ 창 / TF 창 / SPL Meter 창
         self.leq_win = None
         self.tf_win = None
+        self._tf_popout = None       # TF 별도 창(멀티모니터) — None=도킹 상태
+        self._tf_placeholder = None  # 팝아웃 동안 main_stack index1 자리 채움
+        self._spec_popout = None     # Spectrum 별도 창 — None=도킹 상태
+        self._spec_placeholder = None  # 팝아웃 동안 main_stack index0 자리 채움
+        self._st_popout = None       # Stereo 별도 창 — None=도킹 상태
+        self._st_placeholder = None  # 팝아웃 동안 main_stack index2 자리 채움
         self.spl_meter_win = None
         self.spl_alarm_win = None
 
@@ -14027,12 +14090,29 @@ class MainWindow(QMainWindow):
         self.color_btn.clicked.connect(self._open_color_picker)
         sl0.addWidget(self.color_btn)
         sl0.addStretch()
+        # 별도 창 팝아웃 토글 (멀티모니터)
+        self._spec_popout_btn = QPushButton(''); self._spec_popout_btn.setIcon(_icon('extlink'))
+        self._spec_popout_btn.setFixedWidth(30); self._spec_popout_btn.setFixedHeight(30)
+        self._spec_popout_btn.setCheckable(True)
+        self._spec_popout_btn.setStyleSheet(
+            'QPushButton{background:#2C2C2E;color:#9A9AA0;border:1px solid #48484A;'
+            'border-radius:7px;font-size:14px;font-weight:bold;}'
+            'QPushButton:hover{border-color:#4E7DF0;}'
+            'QPushButton:checked{background:#4E7DF0;color:#FFFFFF;border:1px solid #4E7DF0;}')
+        self._spec_popout_btn.setToolTip('별도 창으로 분리 (멀티모니터)')
+        self._spec_popout_btn.clicked.connect(self._toggle_spec_popout)
+        sl0.addWidget(self._spec_popout_btn); sl0.addSpacing(6)
         # 우측 패널(LEVEL/INFO/INPUT) 표시/숨김 토글
         self._spec_panel_btn = _RightPanelToggleBtn()
         self._spec_panel_btn.setChecked(True)
         self._spec_panel_btn.clicked.connect(self._toggle_spec_panel)
         sl0.addWidget(self._spec_panel_btn)
-        self.sub_stack.addWidget(self._toolbar_scroll(sp0))  # index 0
+        # 툴바를 컨테이너로 감싸 sub_stack 페이지로 (TF의 _sp1과 동형 — 팝아웃 시 떼었다 붙임)
+        self._sp0 = QWidget(); self._sp0_lay = QHBoxLayout(self._sp0)
+        self._sp0_lay.setContentsMargins(0, 0, 0, 0); self._sp0_lay.setSpacing(0)
+        self._spec_tb_wrap = self._toolbar_scroll(sp0)
+        self._sp0_lay.addWidget(self._spec_tb_wrap)
+        self.sub_stack.addWidget(self._sp0)  # index 0
 
         # Sub-page 1: Transfer 컨트롤 — tf_win.tb가 생성 후 여기로 이동됨
         self._sp1=QWidget(); self._sp1_lay=QHBoxLayout(self._sp1)
@@ -14099,13 +14179,30 @@ class MainWindow(QMainWindow):
         _rst_pk.clicked.connect(lambda: self.stereo_page.reset_peak())
         sl2.addWidget(_rst_pk)
         sl2.addStretch()
+        # 별도 창 팝아웃 토글 (멀티모니터)
+        self._st_popout_btn = QPushButton(''); self._st_popout_btn.setIcon(_icon('extlink'))
+        self._st_popout_btn.setFixedWidth(30); self._st_popout_btn.setFixedHeight(30)
+        self._st_popout_btn.setCheckable(True)
+        self._st_popout_btn.setStyleSheet(
+            'QPushButton{background:#2C2C2E;color:#9A9AA0;border:1px solid #48484A;'
+            'border-radius:7px;font-size:14px;font-weight:bold;}'
+            'QPushButton:hover{border-color:#4E7DF0;}'
+            'QPushButton:checked{background:#4E7DF0;color:#FFFFFF;border:1px solid #4E7DF0;}')
+        self._st_popout_btn.setToolTip('별도 창으로 분리 (멀티모니터)')
+        self._st_popout_btn.clicked.connect(self._toggle_st_popout)
+        sl2.addWidget(self._st_popout_btn); sl2.addSpacing(6)
         # 우측 토글 — 하단 메트릭 바 표시/숨김 (Spectrum/TF 우측 토글과 프레임 통일)
         self._st_metricbar_btn = _RightPanelToggleBtn()
         self._st_metricbar_btn.setChecked(True)
         self._st_metricbar_btn.setToolTip('하단 메트릭 바 표시/숨김')
         self._st_metricbar_btn.clicked.connect(self._toggle_st_metricbar)
         sl2.addWidget(self._st_metricbar_btn)
-        self.sub_stack.addWidget(self._toolbar_scroll(sp2))   # index 2
+        # 툴바를 컨테이너로 감싸 sub_stack 페이지로 (팝아웃 시 떼었다 붙임)
+        self._sp2 = QWidget(); self._sp2_lay = QHBoxLayout(self._sp2)
+        self._sp2_lay.setContentsMargins(0, 0, 0, 0); self._sp2_lay.setSpacing(0)
+        self._st_tb_wrap = self._toolbar_scroll(sp2)
+        self._sp2_lay.addWidget(self._st_tb_wrap)
+        self.sub_stack.addWidget(self._sp2)   # index 2
 
         tw_lay.addWidget(self.sub_stack)
         root.addWidget(self.toolbar_wrapper)
@@ -14132,6 +14229,7 @@ class MainWindow(QMainWindow):
         self.cvs_splitter.addWidget(self.spectro_cvs)
         pl0.addWidget(self.cvs_splitter, 1)
         pl0.addWidget(self._build_info(), 0)
+        self._spec_page0 = page0          # 팝아웃 시 떼었다 붙일 본체
         self.main_stack.addWidget(page0)  # index 0
 
         # Page 1: Transfer Function (임베드)
@@ -14139,7 +14237,8 @@ class MainWindow(QMainWindow):
         self.tf_win._engine = self.audio_engine   # 공유 엔진 주입 (TF 입력을 Spectrum/Stereo와 같은 스트림 공유)
         self.main_stack.addWidget(self.tf_win)  # index 1
         # tf_win.tb를 sub_stack page 1로 이동 (embedded 모드에서 tf_win은 tb를 root에 추가 안 함)
-        self._sp1_lay.addWidget(self._toolbar_scroll(self.tf_win.tb))
+        self._tf_tb_wrap = self._toolbar_scroll(self.tf_win.tb)  # 팝아웃 시 떼었다 붙임
+        self._sp1_lay.addWidget(self._tf_tb_wrap)
 
         # Page 2: Stereo & Loudness
         self.stereo_page=StereoLoudnessPage()
@@ -14185,6 +14284,8 @@ class MainWindow(QMainWindow):
         self.tf_win._on_captures_changed = self._refresh_capture_drawer
         # TF 드로어 토글 버튼 연결
         self.tf_win._drawer_btn.clicked.connect(self._toggle_capture_drawer)
+        # TF 별도 창(멀티모니터) 팝아웃 토글 버튼 연결
+        self.tf_win._popout_btn.clicked.connect(self._toggle_tf_popout)
         # 이전 세션 캡처 복원
         QTimer.singleShot(0, self._restore_spec_captures)
 
@@ -15197,7 +15298,299 @@ class MainWindow(QMainWindow):
         self.show_float_popup(self.spl_alarm_win, 210, 150, new)
 
     def _open_tf_window(self):
-        self._switch_tab(1)
+        if self._tf_popout is not None:
+            self._tf_popout.raise_(); self._tf_popout.activateWindow()
+        else:
+            self._switch_tab(1)
+
+    # ── TF 별도 창(멀티모니터) 팝아웃 / 도킹 ──────────────
+    def _sync_stack_to_active_tab(self):
+        """선택된 탭 버튼(진실 소스)에 맞춰 main/sub 스택 표시를 동기화.
+        팝아웃 도킹 후 placeholder 제거로 Qt가 current를 엉뚱한 페이지로 옮기는 것 보정."""
+        keys = ['spectrum', 'transfer', 'stereo']
+        active = next((i for i, k in enumerate(keys) if self._tab_btns[k].isChecked()), 0)
+        self.main_stack.setCurrentIndex(active)
+        self.sub_stack.setCurrentIndex(active)
+
+    def _toggle_tf_popout(self):
+        if self._tf_popout is not None:
+            self._dock_tf()
+        else:
+            self._popout_tf()
+
+    def _popout_tf(self):
+        """TF의 헤더+툴바+본체를 별도 창으로 모아 띄운다(멀티모니터). 오디오는
+        공유 엔진이라 reparent해도 끊기지 않는다. 메인 탭 자리엔 플레이스홀더."""
+        tf = self.tf_win
+        if tf is None or self._tf_popout is not None:
+            return
+        win = _TFPopoutWindow(self)
+        win.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
+        lay = QVBoxLayout(win); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
+        # 헤더 — 임베드 모드에서 숨겨둔 _hdr을 창에 표시
+        tf._hdr.setParent(None); lay.addWidget(tf._hdr); tf._hdr.show()
+        # status_lbl은 멀티카드 시작 경로에서 갱신 안 돼 신뢰 불가(임베드에선 숨겨져 무관했음)
+        # → 팝아웃 헤더에선 숨김. 실행 상태는 카드 Stop 버튼/Avg 카운터로 충분.
+        tf.status_lbl.hide()
+        # 툴바 — sub_stack page1에서 떼어 창으로
+        self._sp1_lay.removeWidget(self._tf_tb_wrap)
+        self._tf_tb_wrap.setParent(None)
+        lay.addWidget(self._tf_tb_wrap)
+        # 본체 — main_stack index1에서 떼고 그 자리에 플레이스홀더
+        was_tf_tab = (self.main_stack.currentIndex() == 1)
+        self.main_stack.removeWidget(tf)
+        self._tf_placeholder = self._build_tf_placeholder()
+        self.main_stack.insertWidget(1, self._tf_placeholder)
+        lay.addWidget(tf, 1); tf.show()
+        if was_tf_tab:
+            self.main_stack.setCurrentWidget(self._tf_placeholder)
+        self._tf_popout = win
+        try: tf._popout_btn.setChecked(True)
+        except Exception: pass
+        win.resize(1100, 640)
+        # 위치/크기 복원 — 지난번 둔 자리(그 모니터)에 다시. 독립 창이라 메인 안 따라감.
+        placed = False
+        geom = self._settings.get('tf_popout_geom')
+        if geom and len(geom) == 4:
+            from PyQt5.QtCore import QRect
+            r = QRect(*geom)
+            # 저장된 위치가 현재 연결된 화면 안에 있을 때만 복원(모니터 분리 대비)
+            if any(s.availableGeometry().intersects(r) for s in QApplication.screens()):
+                win.setGeometry(r); placed = True
+        if not placed:
+            # 첫 팝아웃 — 보조 모니터 있으면 거기 중앙, 없으면 기본 위치
+            screens = QApplication.screens()
+            if len(screens) > 1:
+                cur = self.screen()
+                others = [s for s in screens if s is not cur]
+                geo = (others[0] if others else screens[-1]).availableGeometry()
+                win.move(geo.center().x() - win.width() // 2,
+                         geo.center().y() - win.height() // 2)
+        win.show(); win.raise_(); win.activateWindow()
+
+    def _dock_tf(self, via_close=False):
+        """별도 창의 TF를 메인 탭으로 되돌린다(팝아웃의 역순)."""
+        win = self._tf_popout
+        if win is None:
+            return
+        # 위치/크기 기억 — 다음 팝아웃/재시작 시 그 모니터 그 자리로 복원
+        try:
+            g = win.geometry()
+            self._settings['tf_popout_geom'] = [g.x(), g.y(), g.width(), g.height()]
+            _save_settings(self._settings)
+        except Exception:
+            pass
+        self._tf_popout = None          # 재진입 가드 (closeEvent 재귀 차단)
+        win._docking = True
+        tf = self.tf_win
+        # 헤더 — 다시 숨김(임베드 원상태)
+        tf.status_lbl.show()
+        tf._hdr.setParent(None); tf._hdr.hide()
+        # 툴바 — 다시 sub_stack page1로
+        self._tf_tb_wrap.setParent(None)
+        self._sp1_lay.addWidget(self._tf_tb_wrap)
+        # 본체 — 플레이스홀더 제거 후 index1 복원
+        if self._tf_placeholder is not None:
+            self.main_stack.removeWidget(self._tf_placeholder)
+            self._tf_placeholder.deleteLater(); self._tf_placeholder = None
+        self.main_stack.insertWidget(1, tf)
+        try: tf._popout_btn.setChecked(False)
+        except Exception: pass
+        self._sync_stack_to_active_tab()   # 화면을 현재 탭에 맞춤(인덱스 꼬임 방지)
+        if not via_close:
+            win.close()
+        win.deleteLater()
+
+    def _build_tf_placeholder(self):
+        ph = QWidget(); ph.setStyleSheet(f'background:{T("bg")};')
+        v = QVBoxLayout(ph); v.addStretch()
+        lbl = QLabel('Transfer Function이 별도 창에 있습니다.')
+        lbl.setAlignment(Qt.AlignCenter)
+        lbl.setStyleSheet(f'color:{T("text_dim")};font-size:15px;')
+        v.addWidget(lbl)
+        btn = QPushButton('  메인으로 되돌리기'); btn.setIcon(_icon('extlink'))
+        btn.setFixedHeight(34); btn.setStyleSheet(_txn_style('accent'))
+        btn.clicked.connect(self._dock_tf)
+        row = QHBoxLayout(); row.addStretch(); row.addWidget(btn); row.addStretch()
+        v.addLayout(row); v.addStretch()
+        return ph
+
+    # ── Spectrum 별도 창(멀티모니터) 팝아웃 / 도킹 — TF와 동형 ──────────
+    def _toggle_spec_popout(self):
+        if self._spec_popout is not None:
+            self._dock_spec()
+        else:
+            self._popout_spec()
+
+    def _popout_spec(self):
+        """Spectrum 본체(그래프+정보패널)+툴바를 별도 창으로. 오디오는 공유엔진이라 안 끊김."""
+        page = self._spec_page0
+        if page is None or self._spec_popout is not None:
+            return
+        win = _SpectrumPopoutWindow(self)
+        win.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
+        lay = QVBoxLayout(win); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
+        # 툴바 — sub_stack page0(_sp0)에서 떼어 창으로
+        self._sp0_lay.removeWidget(self._spec_tb_wrap)
+        self._spec_tb_wrap.setParent(None)
+        lay.addWidget(self._spec_tb_wrap)
+        # 본체 — main_stack index0에서 떼고 그 자리에 플레이스홀더
+        was_tab = (self.main_stack.currentIndex() == 0)
+        self.main_stack.removeWidget(page)
+        self._spec_placeholder = self._build_spec_placeholder()
+        self.main_stack.insertWidget(0, self._spec_placeholder)
+        lay.addWidget(page, 1); page.show()
+        if was_tab:
+            self.main_stack.setCurrentWidget(self._spec_placeholder)
+        self._spec_popout = win
+        try: self._spec_popout_btn.setChecked(True)
+        except Exception: pass
+        win.resize(1100, 640)
+        placed = False
+        geom = self._settings.get('spec_popout_geom')
+        if geom and len(geom) == 4:
+            from PyQt5.QtCore import QRect
+            r = QRect(*geom)
+            if any(s.availableGeometry().intersects(r) for s in QApplication.screens()):
+                win.setGeometry(r); placed = True
+        if not placed:
+            screens = QApplication.screens()
+            if len(screens) > 1:
+                cur = self.screen()
+                others = [s for s in screens if s is not cur]
+                geo = (others[0] if others else screens[-1]).availableGeometry()
+                win.move(geo.center().x() - win.width() // 2,
+                         geo.center().y() - win.height() // 2)
+        win.show(); win.raise_(); win.activateWindow()
+
+    def _dock_spec(self, via_close=False):
+        win = self._spec_popout
+        if win is None:
+            return
+        try:
+            g = win.geometry()
+            self._settings['spec_popout_geom'] = [g.x(), g.y(), g.width(), g.height()]
+            _save_settings(self._settings)
+        except Exception:
+            pass
+        self._spec_popout = None
+        win._docking = True
+        page = self._spec_page0
+        # 툴바 — 다시 sub_stack page0로
+        self._spec_tb_wrap.setParent(None)
+        self._sp0_lay.addWidget(self._spec_tb_wrap)
+        # 본체 — 플레이스홀더 제거 후 index0 복원
+        if self._spec_placeholder is not None:
+            self.main_stack.removeWidget(self._spec_placeholder)
+            self._spec_placeholder.deleteLater(); self._spec_placeholder = None
+        self.main_stack.insertWidget(0, page)
+        try: self._spec_popout_btn.setChecked(False)
+        except Exception: pass
+        self._sync_stack_to_active_tab()   # 화면을 현재 탭에 맞춤(인덱스 꼬임 방지)
+        if not via_close:
+            win.close()
+        win.deleteLater()
+
+    def _build_spec_placeholder(self):
+        ph = QWidget(); ph.setStyleSheet(f'background:{T("bg")};')
+        v = QVBoxLayout(ph); v.addStretch()
+        lbl = QLabel('Spectrum이 별도 창에 있습니다.')
+        lbl.setAlignment(Qt.AlignCenter)
+        lbl.setStyleSheet(f'color:{T("text_dim")};font-size:15px;')
+        v.addWidget(lbl)
+        btn = QPushButton('  메인으로 되돌리기'); btn.setIcon(_icon('extlink'))
+        btn.setFixedHeight(34); btn.setStyleSheet(_txn_style('accent'))
+        btn.clicked.connect(self._dock_spec)
+        row = QHBoxLayout(); row.addStretch(); row.addWidget(btn); row.addStretch()
+        v.addLayout(row); v.addStretch()
+        return ph
+
+    # ── Stereo 별도 창(멀티모니터) 팝아웃 / 도킹 — TF/Spectrum과 동형 ──────
+    def _toggle_st_popout(self):
+        if self._st_popout is not None:
+            self._dock_st()
+        else:
+            self._popout_st()
+
+    def _popout_st(self):
+        page = self.stereo_page
+        if page is None or self._st_popout is not None:
+            return
+        win = _StereoPopoutWindow(self)
+        win.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
+        lay = QVBoxLayout(win); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
+        # 툴바 — sub_stack page2(_sp2)에서 떼어 창으로
+        self._sp2_lay.removeWidget(self._st_tb_wrap)
+        self._st_tb_wrap.setParent(None)
+        lay.addWidget(self._st_tb_wrap)
+        # 본체 — main_stack index2에서 떼고 그 자리에 플레이스홀더
+        was_tab = (self.main_stack.currentIndex() == 2)
+        self.main_stack.removeWidget(page)
+        self._st_placeholder = self._build_st_placeholder()
+        self.main_stack.insertWidget(2, self._st_placeholder)
+        lay.addWidget(page, 1); page.show()
+        if was_tab:
+            self.main_stack.setCurrentWidget(self._st_placeholder)
+        self._st_popout = win
+        try: self._st_popout_btn.setChecked(True)
+        except Exception: pass
+        win.resize(1100, 640)
+        placed = False
+        geom = self._settings.get('st_popout_geom')
+        if geom and len(geom) == 4:
+            from PyQt5.QtCore import QRect
+            r = QRect(*geom)
+            if any(s.availableGeometry().intersects(r) for s in QApplication.screens()):
+                win.setGeometry(r); placed = True
+        if not placed:
+            screens = QApplication.screens()
+            if len(screens) > 1:
+                cur = self.screen()
+                others = [s for s in screens if s is not cur]
+                geo = (others[0] if others else screens[-1]).availableGeometry()
+                win.move(geo.center().x() - win.width() // 2,
+                         geo.center().y() - win.height() // 2)
+        win.show(); win.raise_(); win.activateWindow()
+
+    def _dock_st(self, via_close=False):
+        win = self._st_popout
+        if win is None:
+            return
+        try:
+            g = win.geometry()
+            self._settings['st_popout_geom'] = [g.x(), g.y(), g.width(), g.height()]
+            _save_settings(self._settings)
+        except Exception:
+            pass
+        self._st_popout = None
+        win._docking = True
+        page = self.stereo_page
+        self._st_tb_wrap.setParent(None)
+        self._sp2_lay.addWidget(self._st_tb_wrap)
+        if self._st_placeholder is not None:
+            self.main_stack.removeWidget(self._st_placeholder)
+            self._st_placeholder.deleteLater(); self._st_placeholder = None
+        self.main_stack.insertWidget(2, page)
+        try: self._st_popout_btn.setChecked(False)
+        except Exception: pass
+        self._sync_stack_to_active_tab()
+        if not via_close:
+            win.close()
+        win.deleteLater()
+
+    def _build_st_placeholder(self):
+        ph = QWidget(); ph.setStyleSheet(f'background:{T("bg")};')
+        v = QVBoxLayout(ph); v.addStretch()
+        lbl = QLabel('Stereo Loudness가 별도 창에 있습니다.')
+        lbl.setAlignment(Qt.AlignCenter)
+        lbl.setStyleSheet(f'color:{T("text_dim")};font-size:15px;')
+        v.addWidget(lbl)
+        btn = QPushButton('  메인으로 되돌리기'); btn.setIcon(_icon('extlink'))
+        btn.setFixedHeight(34); btn.setStyleSheet(_txn_style('accent'))
+        btn.clicked.connect(self._dock_st)
+        row = QHBoxLayout(); row.addStretch(); row.addWidget(btn); row.addStretch()
+        v.addLayout(row); v.addStretch()
+        return ph
 
     # ─────────────────────────────────────
     def _show_device_popup(self):
@@ -16678,6 +17071,16 @@ class MainWindow(QMainWindow):
         spl_act.triggered.connect(self._open_spl_meter); view_menu.addAction(spl_act)
         alarm_act = QAction('SPL Alarm', self)
         alarm_act.triggered.connect(self._open_spl_alarm); view_menu.addAction(alarm_act)
+        view_menu.addSeparator()
+        spec_pop_act = QAction('Spectrum 별도 창', self)
+        spec_pop_act.setShortcut('Ctrl+Shift+S')   # macOS에선 Cmd+Shift+S로 매핑
+        spec_pop_act.triggered.connect(self._toggle_spec_popout); view_menu.addAction(spec_pop_act)
+        tf_pop_act = QAction('Transfer Function 별도 창', self)
+        tf_pop_act.setShortcut('Ctrl+Shift+T')   # macOS에선 Cmd+Shift+T로 매핑
+        tf_pop_act.triggered.connect(self._toggle_tf_popout); view_menu.addAction(tf_pop_act)
+        st_pop_act = QAction('Stereo Loudness 별도 창', self)
+        st_pop_act.setShortcut('Ctrl+Shift+L')   # macOS에선 Cmd+Shift+L로 매핑
+        st_pop_act.triggered.connect(self._toggle_st_popout); view_menu.addAction(st_pop_act)
         help_menu = mb.addMenu('Help')
         about_act = QAction('About SPECTRA', self); about_act.setMenuRole(QAction.AboutRole)
         about_act.triggered.connect(self._show_license_info); help_menu.addAction(about_act)
@@ -16801,9 +17204,12 @@ class MainWindow(QMainWindow):
         self._render_t.stop()
         self.stereo_page.stop()
         self._stop()
-        # 부모 없는 독립 창(SPL 미터 + 라우드니스/벡터스코프 팝아웃) → 메인 종료 시 직접 닫아 고아 방지
+        # 부모 없는 독립 창(SPL 미터 + 라우드니스/벡터스코프 + TF 팝아웃) → 메인 종료 시 직접 닫아 고아 방지
         for _wn in (getattr(self, 'spl_meter_win', None),
                     getattr(self, 'spl_alarm_win', None),
+                    getattr(self, '_tf_popout', None),
+                    getattr(self, '_spec_popout', None),
+                    getattr(self, '_st_popout', None),
                     getattr(self.stereo_page, '_vs_win', None),
                     getattr(self.stereo_page, '_radar_win', None)):
             if _wn is not None:
