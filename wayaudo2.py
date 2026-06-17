@@ -14884,15 +14884,24 @@ class MainWindow(QMainWindow):
         ②풀스크린 상태 해제+정상 크기 ③메인 화면 중앙으로(move=Space 유지, setGeometry는 Space 이탈
         유발하므로 안 씀). macOS 비동기 전환 대응 0/120/300/600ms 반복."""
         w = int(w); h = int(h)
+        revealed = [False]
+        def _reveal():
+            if not revealed[0]:
+                revealed[0] = True
+                try: win.setWindowOpacity(1.0)   # 크기 보정 끝나면 보이기
+                except Exception: pass
         def _fix():
             try:
                 _attach_as_child(win, self)   # ★ 진짜 자식 → 부모 풀스크린 Space에 따라붙음
                 if win.width() > w * 1.4 or win.height() > h * 1.4:
-                    win.resize(w, h)   # 크게 떴으면 크기만 보정 — 상태(setWindowState)·위치 안 건드림(Space 점프 방지)
+                    win.resize(w, h)   # 크게 떴으면 크기만 보정(상태·위치 안 건드림 → Space 점프 방지)
+                else:
+                    _reveal()          # 사이즈 정상 → 표시
             except Exception:
                 pass
-        for ms in (0, 120, 300, 600):
+        for ms in (0, 90, 200, 380, 650):
             QTimer.singleShot(ms, _fix)
+        QTimer.singleShot(850, _reveal)   # 안전장치: 최대 850ms 뒤 무조건 표시
 
     def _open_spl_meter(self):
         # 자식 창(풀스크린 추종) + show 후 크기 보정(풀스크린 크기 방지)
@@ -14900,6 +14909,7 @@ class MainWindow(QMainWindow):
         if new:
             self.spl_meter_win = SplMeterWindow(self)
             self.spl_meter_win.set_calib_offset(self._spl_source_calib(self._spl_source_id))
+            self.spl_meter_win.setWindowOpacity(0.0)   # 사이즈 보정 전 숨김(블랙 플래시 방지)
         self.spl_meter_win.show(); self.spl_meter_win.raise_()
         if new:
             self._setup_float_child(self.spl_meter_win,
@@ -14911,6 +14921,7 @@ class MainWindow(QMainWindow):
         if new:
             self.spl_alarm_win = SplAlarmWindow(self)
             self.spl_alarm_win.set_calib_offset(self.calib_offset)
+            self.spl_alarm_win.setWindowOpacity(0.0)   # 사이즈 보정 전 숨김(블랙 플래시 방지)
         self.spl_alarm_win.show(); self.spl_alarm_win.raise_()
         if new:
             self._setup_float_child(self.spl_alarm_win, 210, 150)
