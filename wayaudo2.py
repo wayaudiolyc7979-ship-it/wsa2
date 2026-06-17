@@ -765,6 +765,34 @@ def _attach_as_child(child, parent):
         return False
 
 
+def _detach_as_child(child, parent):
+    """addChildWindow 해제 — child를 다시 독립 top-level NSWindow로(외부 모니터로 자유 이동 가능).
+    부모가 풀스크린이 아닐 때 호출(풀스크린 위 부착은 같은 Space에 묶여 다른 화면으로 못 옮김)."""
+    if sys.platform != 'darwin':
+        return False
+    try:
+        import ctypes
+        objc = ctypes.cdll.LoadLibrary('/usr/lib/libobjc.A.dylib')
+        objc.sel_registerName.restype = ctypes.c_void_p
+        objc.sel_registerName.argtypes = [ctypes.c_char_p]
+        def sel(n): return objc.sel_registerName(n.encode())
+        def msg(restype, obj, name, *args):
+            f = objc.objc_msgSend; f.restype = restype
+            f.argtypes = [ctypes.c_void_p, ctypes.c_void_p] + [type(a) for a in args]
+            return f(obj, sel(name), *args)
+        def nswin(w):
+            return msg(ctypes.c_void_p, ctypes.c_void_p(int(w.winId())), 'window')
+        cw = nswin(child); pw = nswin(parent)
+        if not cw or not pw:
+            return False
+        msg(None, pw, 'removeChildWindow:', ctypes.c_void_p(cw))
+        return True
+    except Exception as e:
+        try: _alog.debug(f'removeChildWindow 실패: {e}')
+        except Exception: pass
+        return False
+
+
 def _apply_on_top(win, on):
     """always-on-top 적용 — macOS는 NSWindow.setLevel로 (창 재생성 없음=깜빡임 없음).
     on=True→NSFloatingWindowLevel(3) / False→NSNormalWindowLevel(0).
@@ -791,6 +819,89 @@ def _apply_on_top(win, on):
         try: _alog.debug(f'setLevel(on_top) 실패: {e}')
         except Exception: pass
         return False
+
+
+def _fourcc(s):
+    """4문자 코드(b'dev#' 등) → UInt32. CoreAudio 셀렉터/스코프 상수용."""
+    return int.from_bytes(s, 'big')
+
+
+class _CoreAudioDeviceWatcher(QObject):
+    """macOS CoreAudio 하드웨어 장치 변경 리스너 — USB 인터페이스를 idle 상태에서
+    뽑/꽂아도 OS 레벨에서 즉시 감지(PortAudio 재초기화 없이는 query_devices() 개수가
+    안 바뀌므로 폴링으론 못 잡는다). 변경 시 changed 시그널을 메인 스레드로 큐잉한다.
+    콜백은 CoreAudio 스레드에서 호출되므로 Qt를 직접 만지지 말고 시그널만 emit."""
+    changed = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._ca = None
+        self._proc = None        # CFUNCTYPE 콜백 — GC 방지로 self에 보관
+        self._addr = None
+        self._active = False
+
+    def start(self):
+        if sys.platform != 'darwin' or self._active:
+            return False
+        try:
+            import ctypes
+            ca = ctypes.CDLL('/System/Library/Frameworks/CoreAudio.framework/CoreAudio')
+
+            class _Addr(ctypes.Structure):
+                _fields_ = [('mSelector', ctypes.c_uint32),
+                            ('mScope',    ctypes.c_uint32),
+                            ('mElement',  ctypes.c_uint32)]
+
+            addr = _Addr(_fourcc(b'dev#'),   # kAudioHardwarePropertyDevices
+                         _fourcc(b'glob'),   # kAudioObjectPropertyScopeGlobal
+                         0)                   # kAudioObjectPropertyElementMain
+
+            PROC = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_uint32, ctypes.c_uint32,
+                                    ctypes.c_void_p, ctypes.c_void_p)
+
+            def _cb(obj_id, n_addr, addrs, client):
+                try: self.changed.emit()   # 큐잉 → 메인 스레드에서 처리
+                except Exception: pass
+                return 0
+
+            proc = PROC(_cb)
+            ca.AudioObjectAddPropertyListener.restype = ctypes.c_int32
+            ca.AudioObjectAddPropertyListener.argtypes = [
+                ctypes.c_uint32, ctypes.POINTER(_Addr), PROC, ctypes.c_void_p]
+            status = ca.AudioObjectAddPropertyListener(
+                1, ctypes.byref(addr), proc, None)   # 1 = kAudioObjectSystemObject
+            if status != 0:
+                _alog.warning(f'CoreAudio 리스너 등록 실패 status={status}')
+                return False
+            self._ca = ca; self._proc = proc; self._addr = addr; self._active = True
+            _alog.info('CoreAudio 장치변경 리스너 등록 OK')
+            return True
+        except Exception as e:
+            _alog.warning(f'CoreAudio 리스너 시작 예외: {e}')
+            return False
+
+    def device_count(self):
+        """현재 OS(HAL)가 보는 오디오 장치 개수를 CoreAudio에 직접 질의해 반환(None=실패).
+        PortAudio 캐시(query_devices)와 달리 재초기화 없이 실시간 — USB가 뽑히면 즉시 줄어든다.
+        ※일부 USB 드라이버는 뽑혀도 InputStream 콜백을 무음으로 계속 흘려 '콜백 생존'으로는
+        끊김을 못 잡으므로(2초 워치독·콜백age 무력), 장치 개수 감소로 제거를 확실히 감지한다."""
+        if not self._active or self._ca is None or self._addr is None:
+            return None
+        try:
+            import ctypes
+            ca = self._ca
+            ca.AudioObjectGetPropertyDataSize.restype = ctypes.c_int32
+            ca.AudioObjectGetPropertyDataSize.argtypes = [
+                ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32,
+                ctypes.c_void_p, ctypes.c_void_p]
+            size = ctypes.c_uint32(0)
+            st = ca.AudioObjectGetPropertyDataSize(
+                1, ctypes.byref(self._addr), 0, None, ctypes.byref(size))   # 1=systemObject
+            if st != 0:
+                return None
+            return size.value // 4   # sizeof(AudioDeviceID)=UInt32=4byte
+        except Exception:
+            return None
 
 
 def _glance_chrome_update(win):
@@ -1463,6 +1574,8 @@ class MultiChannelAudioThread(QThread):
         self.force_latency = force_latency
         self.running       = False
         self._active_stream= None   # stop()에서 abort()로 즉시 장치 해제
+        self._last_cb_mono = 0.0    # 마지막 콜백 시각(monotonic) — 외부에서 스트림 생존 판정용
+        self._got_cb_flag  = False  # 첫 콜백 수신 여부(외부 노출)
 
     def run(self):
         self.running = True
@@ -1476,6 +1589,7 @@ class MultiChannelAudioThread(QThread):
             if not self.running: return
             try:
                 _last_cb[0] = time.monotonic(); _got_cb[0] = True
+                self._last_cb_mono = _last_cb[0]; self._got_cb_flag = True   # 외부 생존 판정용
                 if indata.shape[1] == 0: return
                 raw = {}
                 for ch in self.channels:
@@ -1710,6 +1824,21 @@ class AudioEngine(QObject):
 
     def active_devices(self):
         return list(self._streams.keys())
+
+    def freshest_callback_age(self):
+        """현재 열린 입력 스트림 중 '가장 최근에 콜백 받은' 스트림의 경과시간(초)을 반환.
+        - None  = 콜백을 한 번이라도 받은 살아있는 스트림이 하나도 없음(스트림 미존재 or 미시작)
+        - >큰값 = 모든 스트림 콜백이 멈춤(장치 제거 가능성)
+        USB가 사용 중 빠지면 콜백이 끊겨 이 값이 계속 커진다 → 외부에서 끊김 백스톱 판정에 사용."""
+        now = time.monotonic(); best = None
+        for st in list(self._streams.values()):
+            th = getattr(st, 'thread', None)
+            if th is None or not getattr(th, '_got_cb_flag', False):
+                continue
+            age = now - getattr(th, '_last_cb_mono', 0.0)
+            if best is None or age < best:
+                best = age
+        return best
 
     def stop_all(self):
         for st in list(self._streams.values()):
@@ -4191,8 +4320,15 @@ class SplAlarmWindow(QWidget):
         super().showEvent(e)
         if not self._timer.isActive():
             self._timer.start(200)
-        _attach_as_child(self, self._main)      # show 즉시 부모 Space에 부착 → 데스크탑 Space 점프 방지
+        # 풀스크린 메인과 같은 화면일 때만 자식부착, 그 외엔 독립창 → 외부모니터 이동 가능.
+        self._main._float_sync_attach(self)
         _apply_on_top(self, self._always_top)   # macOS 네이티브 레벨 적용
+
+    def moveEvent(self, e):
+        super().moveEvent(e)
+        # 드래그로 화면을 넘나들면 부착/분리 재동기화(풀스크린 위 ↔ 외부 모니터)
+        if self._main.isFullScreen():
+            self._main._float_sync_attach(self)
 
     def closeEvent(self, e):
         self._timer.stop()
@@ -4544,8 +4680,15 @@ class SplMeterWindow(QWidget):
         super().showEvent(e)
         if not self._timer.isActive(): self._timer.start(200)
         self._scale_panels()
-        _attach_as_child(self, self._main)      # show 즉시 부모 Space에 부착 → 데스크탑 Space 점프 방지
+        # 풀스크린 메인과 같은 화면일 때만 자식부착, 그 외엔 독립창 → 외부모니터 이동 가능.
+        self._main._float_sync_attach(self)
         _apply_on_top(self, self._always_top)   # macOS 네이티브 레벨
+
+    def moveEvent(self, e):
+        super().moveEvent(e)
+        # 드래그로 화면을 넘나들면 부착/분리 재동기화(풀스크린 위 ↔ 외부 모니터)
+        if self._main.isFullScreen():
+            self._main._float_sync_attach(self)
 
     def closeEvent(self, e):
         self._timer.stop()
@@ -9757,7 +9900,7 @@ class TransferFunctionWindow(QWidget):
         or_.addStretch()
         sgl.addLayout(or_)
         self.sig_out_cb.currentIndexChanged.connect(self._sig_out_device_changed)
-        self.sig_out_ch2_cb.currentIndexChanged.connect(lambda _: self._save_tf_devices())
+        self.sig_out_ch2_cb.currentIndexChanged.connect(self._sig_out_ch_changed)
         self.sig_on_btn = QPushButton('Play  [G]'); _apply_txn(self.sig_on_btn, False); self.sig_on_btn.setCheckable(True)
         self.sig_on_btn.setStyleSheet(f'background:{T("panel")};color:{T("text_dim")};'
                                        f'border:1px solid {T("border")};padding:4px;border-radius:{RADIUS_CTRL}px;font-weight:bold;')
@@ -9864,7 +10007,7 @@ class TransferFunctionWindow(QWidget):
         self._add_pair_btn.setCursor(Qt.PointingHandCursor)
         self._add_pair_btn.clicked.connect(self._tf_add_pair)
         mpl.addWidget(self._add_pair_btn)
-        self.sig_out_ch_cb.currentIndexChanged.connect(lambda _: self._save_tf_devices())
+        self.sig_out_ch_cb.currentIndexChanged.connect(self._sig_out_ch_changed)
         rl.addWidget(mp, 1)          # 그룹박스가 Signal Generator 아래 남은 세로 공간을 모두 차지
         # 그래프↔우측패널 구분선 — Spectrum infoPanel border-left와 통일(1px)
         self._rp_sep = QFrame(); self._rp_sep.setFrameShape(QFrame.VLine); self._rp_sep.setFixedWidth(1)
@@ -10138,6 +10281,17 @@ class TransferFunctionWindow(QWidget):
             cb.blockSignals(False)
         self._save_tf_devices()
         if sig_was_playing and not getattr(self, '_restoring_devices', False):
+            self._start_sig_gen()
+
+    def _sig_out_ch_changed(self, _=None):
+        """출력 채널 콤보 변경: 저장 + 재생 중이면 스트림 재시작(새 채널 반영)."""
+        if getattr(self, '_restoring_devices', False):
+            self._save_tf_devices(); return
+        sig_was_playing = getattr(self, 'sig_on_btn', None) and self.sig_on_btn.isChecked()
+        if sig_was_playing:
+            self._stop_sig_gen()
+        self._save_tf_devices()
+        if sig_was_playing:
             self._start_sig_gen()
 
     @staticmethod
@@ -13567,6 +13721,12 @@ class MainWindow(QMainWindow):
         self.audio_thread=None; self.sample_rate=48000; self.fft_size=16384
         self.audio_engine = AudioEngine(fft_size=self.fft_size)  # 장치당 단일 스트림 공유 엔진
         self._primary_sub = None   # Spectrum primary 입력 구독 핸들
+        # CoreAudio 장치변경 리스너 — idle 상태 USB 핫플러그(새 인터페이스 꽂/뽑) 감지
+        self._ca_watcher = _CoreAudioDeviceWatcher(self)
+        self._ca_dev_count = None   # CoreAudio 장치 개수 기준선 — 감소 시 '장치 제거'로 판정
+        self._ca_watcher.changed.connect(self._on_coreaudio_devices_changed)
+        QTimer.singleShot(1200, self._ca_watcher.start)   # 창 떠서 안정된 뒤 등록
+        QTimer.singleShot(1500, lambda: setattr(self, '_ca_dev_count', self._ca_watcher.device_count()))
         self.db_max=MAX_DB; self.db_range=96; self.db_min=self.db_max-self.db_range
         self.speed_idx=2; self.smoothing=SPEED_LEVELS[2][1]
         self.peak_hold=True; self.view_mode='oct12'; self._spectro_on=False; self.avg_count=16; self._last_oct_mode='oct12'
@@ -14713,6 +14873,59 @@ class MainWindow(QMainWindow):
             return True
         return super().eventFilter(obj, event)
 
+    def _open_float_popups(self):
+        """현재 열려있는 떠다니는 팝업창들(SPL 미터/알람)."""
+        return [w for w in (getattr(self, 'spl_meter_win', None),
+                            getattr(self, 'spl_alarm_win', None))
+                if w is not None and w.isVisible()]
+
+    def _float_sync_attach(self, win):
+        """팝업의 풀스크린 자식부착 상태를 '메인 풀스크린 여부 × 같은 화면 여부'에 맞춰 동기화.
+        부착이 필요할 때만(=풀스크린 메인과 같은 디스플레이) 자식부착, 그 외엔 분리.
+        → 드래그로 외부 모니터로 넘기면 자동 분리(자유 이동), 다시 끌어오면 재부착.
+        실제 상태가 바뀔 때만 objc 호출(드래그 중 매 픽셀 호출 방지)."""
+        if sys.platform != 'darwin' or not win.isVisible():
+            return
+        from PyQt5.QtWidgets import QApplication
+        try:
+            my_scr = QApplication.screenAt(self.geometry().center())
+            pscr   = QApplication.screenAt(win.geometry().center())
+        except Exception:
+            return
+        want = bool(self.isFullScreen() and (my_scr is None or pscr is my_scr))
+        if want == bool(getattr(win, '_float_attached', False)):
+            return
+        win._float_attached = want
+        if want:
+            _set_fullscreen_auxiliary(win)
+            _attach_as_child(win, self)
+            win.raise_()
+        else:
+            _detach_as_child(win, self)
+            _apply_on_top(win, getattr(win, '_always_top', True))
+
+    def _attach_floats_for_fullscreen(self):
+        """메인 풀스크린 진입 — 같은 화면 팝업은 부착(가려짐 방지), 외부 모니터 팝업은 자유 유지."""
+        for win in self._open_float_popups():
+            self._float_sync_attach(win)
+
+    def _detach_all_floats(self):
+        """메인 풀스크린 해제 — 부착된 팝업을 독립창으로 풀어 외부 모니터 이동 가능하게."""
+        for win in self._open_float_popups():
+            self._float_sync_attach(win)
+
+    def changeEvent(self, e):
+        if e.type() == QEvent.WindowStateChange:
+            fs = self.isFullScreen()
+            if fs != getattr(self, '_was_fullscreen', False):
+                self._was_fullscreen = fs
+                if fs:
+                    # 풀스크린 전환 애니메이션(~0.5s) 끝난 뒤 부착
+                    QTimer.singleShot(550, self._attach_floats_for_fullscreen)
+                else:
+                    self._detach_all_floats()
+        super().changeEvent(e)
+
     def _st_dev_lbl_ss(self):
         # 장치명은 보조 정보 → text_dim 세미볼드. 배경은 옆 툴바 컨트롤(은은한 오버레이)과 맞춤
         # (기존 bg3 진한 회색 블록이 혼자 튀던 문제).
@@ -14952,13 +15165,20 @@ class MainWindow(QMainWindow):
         new=처음 생성 여부(처음일 때만 보조창 지정·크기 보정 수행). 동작 상세 = 메모리
         project_macos_float_over_fullscreen.
           순서: ①show 前 opacity0 + FullScreenAuxiliary(자동 풀스크린화 차단)
-               ②show/raise ③addChildWindow(같은 Space) + 크기 보정 후 표시(_setup_float_child)."""
-        if new:
+               ②show/raise ③addChildWindow(같은 Space) + 크기 보정 후 표시(_setup_float_child).
+        ※메인이 풀스크린일 때만 자식부착 dance. 일반 창모드면 그냥 독립창으로 열어
+          외부 모니터로 자유 이동 가능(자식부착하면 부모 Space에 묶여 못 옮김)."""
+        fs = self.isFullScreen()
+        if new and fs:
             win.setWindowOpacity(0.0)                       # 보정 전 숨김(블랙 플래시 방지)
             win.winId(); _set_fullscreen_auxiliary(win)     # show 前 보조창 지정(핵심 타이밍)
         win.show(); win.raise_()
-        if new:
+        if new and fs:
+            win._float_attached = True                      # _setup_float_child가 부착함
             self._setup_float_child(win, w, h)
+        elif new:
+            win._float_attached = False
+            win.setWindowOpacity(1.0)                       # 일반 열기: 즉시 표시, 자유 이동
 
     def _open_spl_meter(self):
         new = self.spl_meter_win is None
@@ -15384,6 +15604,58 @@ class MainWindow(QMainWindow):
         finally:
             self._reiniting_audio = False
         _alog.info('오디오 시스템 재초기화 완료')
+
+    def _on_coreaudio_devices_changed(self):
+        """CoreAudio가 하드웨어 장치 변경을 알림(메인 스레드). 짧게 디바운스 후,
+        오디오가 idle이면 중앙 재초기화로 전 탭 장치목록을 갱신한다. 측정 중이면
+        기존 끊김 경로(_on_device_disconnected)가 처리하므로 건드리지 않는다."""
+        t = getattr(self, '_ca_debounce', None)
+        if t is None:
+            t = QTimer(self); t.setSingleShot(True)
+            t.timeout.connect(self._ca_apply_device_change)
+            self._ca_debounce = t
+        t.start(700)   # 다중 알림(여러 장치 동시 변경) 합치기
+
+    def _ca_apply_device_change(self):
+        if getattr(self, '_reiniting_audio', False):
+            self._ca_debounce.start(700); return   # 재초기화 중이면 잠시 뒤 재시도
+        # 장치 개수 변화 판정 — 감소=제거(끊김), 증가=추가(무관). 콜백 생존과 무관해 확실.
+        prev = getattr(self, '_ca_dev_count', None)
+        cur = self._ca_watcher.device_count()
+        if cur is not None:
+            self._ca_dev_count = cur
+        removed = (prev is not None and cur is not None and cur < prev)
+        if self._any_audio_active():
+            # 오디오 활성이라도 '사용 중 입력 장치가 사라졌는지' 확인(백스톱).
+            # ①장치 개수 감소(제거) — 일부 USB는 뽑혀도 콜백을 무음으로 계속 흘려 워치독/콜백age가
+            #   못 잡음 → 개수 감소가 확실한 신호. ②콜백 사망(스트림 재오픈 실패=교착) 보조 신호.
+            # 무관한 장치 추가(헤드폰 연결 등)는 둘 다 False → 보류 유지(측정 안 끊음, 오판 방지).
+            if removed or self._input_stream_dead():
+                _alog.info(f'CoreAudio 장치변경 — 사용 중 장치 제거 감지(removed={removed}) → 끊김 복구 강제')
+                self.reinit_audio_devices('coreaudio device change (active, device removed)')
+                self._begin_replug_watch()
+            else:
+                _alog.info('CoreAudio 장치변경 — 오디오 활성+장치 유지, 자동 재초기화 보류')
+            return
+        _alog.info('CoreAudio 장치변경 감지(idle) → 장치목록 갱신')
+        self.reinit_audio_devices('coreaudio device change')
+
+    def _input_stream_dead(self):
+        """입력을 쓰는 탭(spectrum/TF측정/stereo)이 '활성'이라 주장하는데 실제 입력 스트림이
+        죽었는지 판정. True = 사용 중 입력 장치가 사라진 것으로 보임(끊김 복구 필요).
+        제너레이터 출력만 켠 경우(입력 미사용)는 오판 방지 위해 건드리지 않는다(False)."""
+        tw = self.tf_win
+        input_active = (getattr(self, '_running', False)
+                        or (tw is not None and getattr(tw, '_running', False))
+                        or (self.stereo_page is not None and getattr(self.stereo_page, '_running', False)))
+        if not input_active:
+            return False   # 입력 안 쓰는 활성(출력 전용 등) → 백스톱 대상 아님
+        try:
+            age = self.audio_engine.freshest_callback_age()
+        except Exception:
+            age = None
+        # 살아있는 입력 스트림이 없거나(None) 모든 콜백이 1.5초+ 멈춤 → 장치 사라진 것으로 판정.
+        return (age is None) or (age > 1.5)
 
     def _device_count(self):
         try: return len(sd.query_devices())
