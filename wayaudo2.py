@@ -13668,6 +13668,8 @@ class MainWindow(QMainWindow):
         for idx,(key,label) in enumerate(_tab_defs):
             b=_CheckBtn(label); b.setChecked(idx==0)
             b.setFixedHeight(30); b.setStyleSheet(_tab_ss)
+            b.setFocusPolicy(Qt.NoFocus)                 # 클릭 시 포커스 링(이중 네모) 방지
+            b.setAttribute(Qt.WA_MacShowFocusRect, False)  # macOS 포커스 사각형 숨김
             b.clicked.connect(lambda _,i=idx: self._switch_tab(i))
             tbl.addWidget(b, 1); self._tab_btns[key]=b
         tbl_outer.addWidget(self._main_seg_pill, 1)
