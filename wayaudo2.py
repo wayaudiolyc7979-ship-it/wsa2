@@ -699,6 +699,35 @@ def _set_float_above_fullscreen(win):
         except Exception: pass
 
 
+def _attach_as_child(child, parent):
+    """macOS 네이티브 addChildWindow — child NSWindow를 parent NSWindow의 진짜 자식으로.
+    → 부모가 풀스크린이어도 같은 Space에 따라붙어 그 위에 뜸(Qt transient parent로는 안 됨).
+    성공 시 True. NSWindowAbove=1."""
+    if sys.platform != 'darwin':
+        return False
+    try:
+        import ctypes
+        objc = ctypes.cdll.LoadLibrary('/usr/lib/libobjc.A.dylib')
+        objc.sel_registerName.restype = ctypes.c_void_p
+        objc.sel_registerName.argtypes = [ctypes.c_char_p]
+        def sel(n): return objc.sel_registerName(n.encode())
+        def msg(restype, obj, name, *args):
+            f = objc.objc_msgSend; f.restype = restype
+            f.argtypes = [ctypes.c_void_p, ctypes.c_void_p] + [type(a) for a in args]
+            return f(obj, sel(name), *args)
+        def nswin(w):
+            return msg(ctypes.c_void_p, ctypes.c_void_p(int(w.winId())), 'window')
+        cw = nswin(child); pw = nswin(parent)
+        if not cw or not pw:
+            return False
+        msg(None, pw, 'addChildWindow:ordered:', ctypes.c_void_p(cw), ctypes.c_long(1))
+        return True
+    except Exception as e:
+        try: _alog.debug(f'addChildWindow 실패: {e}')
+        except Exception: pass
+        return False
+
+
 def _apply_on_top(win, on):
     """always-on-top 적용 — macOS는 NSWindow.setLevel로 (창 재생성 없음=깜빡임 없음).
     on=True→NSFloatingWindowLevel(3) / False→NSNormalWindowLevel(0).
@@ -14848,19 +14877,20 @@ class MainWindow(QMainWindow):
             self.leq_win.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
         self.leq_win.show(); self.leq_win.raise_()
 
-    def _shrink_if_fullscreen(self, win, w, h):
-        """자식 창이 메인 풀스크린 위에서 '풀스크린 상태'로 떠 창 프레임이 전체화면이 되는 것 방지.
-        ①풀스크린/맥시마이즈 윈도우 상태 해제(자식이라 Space 이탈 없음) ②정상 크기로 resize.
-        macOS 풀스크린 전환이 비동기라 0/160/400ms 반복 적용."""
+    def _setup_float_child(self, win, w, h):
+        """풀스크린 메인 위에서 SPL미터/알람을 ①같은 Space에 부착(네이티브 addChildWindow)
+        ②풀스크린 상태 해제+정상 크기 ③메인 화면 중앙으로(move=Space 유지, setGeometry는 Space 이탈
+        유발하므로 안 씀). macOS 비동기 전환 대응 0/120/300/600ms 반복."""
         w = int(w); h = int(h)
         def _fix():
             try:
+                _attach_as_child(win, self)   # ★ 진짜 자식 → 부모 풀스크린 Space에 따라붙음
                 if win.width() > w * 1.4 or win.height() > h * 1.4:
-                    win.setWindowState(Qt.WindowNoState)   # 풀스크린/맥시 상태 해제(자식이라 안전)
-                    scr = self.screen().geometry() if self.screen() else QApplication.primaryScreen().geometry()
-                    x = scr.x() + (scr.width() - w) // 2
-                    y = scr.y() + (scr.height() - h) // 2
-                    win.setGeometry(x, y, w, h)   # 메인이 있는 화면 중앙에 정확히 (자식→같은 Space 유지)
+                    win.setWindowState(win.windowState() & ~Qt.WindowFullScreen & ~Qt.WindowMaximized)
+                    win.resize(w, h)
+                    scr = self.screen().geometry() if self.screen() else None
+                    if scr is not None:
+                        win.move(scr.x() + (scr.width() - w) // 2, scr.y() + (scr.height() - h) // 2)
             except Exception:
                 pass
         for ms in (0, 120, 300, 600):
@@ -14874,8 +14904,8 @@ class MainWindow(QMainWindow):
             self.spl_meter_win.set_calib_offset(self._spl_source_calib(self._spl_source_id))
         self.spl_meter_win.show(); self.spl_meter_win.raise_()
         if new:
-            self._shrink_if_fullscreen(self.spl_meter_win,
-                                       self.spl_meter_win._open_w(), self.spl_meter_win._open_h())
+            self._setup_float_child(self.spl_meter_win,
+                                    self.spl_meter_win._open_w(), self.spl_meter_win._open_h())
 
     def _open_spl_alarm(self):
         """SPL 임계 알람 — 메인의 자식 창. _process_audio가 직접 급전(SPL 미터와 무관)."""
@@ -14885,7 +14915,7 @@ class MainWindow(QMainWindow):
             self.spl_alarm_win.set_calib_offset(self.calib_offset)
         self.spl_alarm_win.show(); self.spl_alarm_win.raise_()
         if new:
-            self._shrink_if_fullscreen(self.spl_alarm_win, 210, 150)
+            self._setup_float_child(self.spl_alarm_win, 210, 150)
 
     def _open_tf_window(self):
         self._switch_tab(1)
