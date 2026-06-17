@@ -10098,6 +10098,19 @@ class TransferFunctionWindow(QWidget):
         self.tf_stable_btn.setToolTip('안정화 캡쳐 — 평균 수렴 + 코히런스 안정 후 자동 캡쳐')
         tl.addWidget(self.tf_stable_btn); tl.addSpacing(10)
 
+        # 플롯 표시 토글 (Smaart식) — 작은 창/분할에서 보는 것만 켜면 그게 꽉 참. 최소 1개 유지.
+        tl.addWidget(_lb('Show'))
+        self.plot_ir_btn = QPushButton('IR'); self.plot_phase_btn = QPushButton('Phase'); self.plot_mag_btn = QPushButton('Mag')
+        for _pb, _w in ((self.plot_ir_btn, 36), (self.plot_phase_btn, 52), (self.plot_mag_btn, 46)):
+            _pb.setCheckable(True); _pb.setChecked(True); _pb.setFixedHeight(30); _pb.setFixedWidth(_w)
+            _pb.setStyleSheet(_toggle_ss)
+        self.plot_ir_btn.setToolTip('Live IR 표시'); self.plot_phase_btn.setToolTip('Phase 표시'); self.plot_mag_btn.setToolTip('Magnitude 표시')
+        self.plot_ir_btn.toggled.connect(lambda on: self._toggle_tf_plot('ir', on))
+        self.plot_phase_btn.toggled.connect(lambda on: self._toggle_tf_plot('phase', on))
+        self.plot_mag_btn.toggled.connect(lambda on: self._toggle_tf_plot('mag', on))
+        tl.addWidget(self.plot_ir_btn); tl.addWidget(self.plot_phase_btn); tl.addWidget(self.plot_mag_btn)
+        tl.addSpacing(10)
+
         tl.addWidget(_lb('IR'))
         self.ir_cb = RoundComboBox(); self.ir_cb.addItems(TF_IR_MODES); self.ir_cb.setCurrentIndex(0)
         self.ir_cb._align_center = True
@@ -10129,6 +10142,33 @@ class TransferFunctionWindow(QWidget):
         self.tb = tb   # MainWindow가 embedded 시 sub_stack에 넣을 수 있도록 저장
         if not self.embedded:
             root.addWidget(tb)
+        self._restore_tf_plot_vis()   # 저장된 플롯 표시 상태 복원
+
+    def _tf_plot_widgets(self):
+        return (('ir', self.plot_ir_btn, self.ir_cvs),
+                ('phase', self.plot_phase_btn, self.phase_cvs),
+                ('mag', self.plot_mag_btn, self.mag_cvs))
+
+    def _toggle_tf_plot(self, which, on):
+        if not on:
+            # 최소 1개는 켜져 있어야 함 — 마지막 1개 끄기 방지
+            if sum(b.isChecked() for _w, b, _c in self._tf_plot_widgets()) == 0:
+                btn = {'ir': self.plot_ir_btn, 'phase': self.plot_phase_btn, 'mag': self.plot_mag_btn}[which]
+                btn.blockSignals(True); btn.setChecked(True); btn.blockSignals(False)
+                return
+        cvs = {'ir': self.ir_cvs, 'phase': self.phase_cvs, 'mag': self.mag_cvs}[which]
+        cvs.setVisible(on)
+        self._settings['tf_plot_vis'] = {w: b.isChecked() for w, b, _c in self._tf_plot_widgets()}
+        _save_settings(self._settings)
+
+    def _restore_tf_plot_vis(self):
+        pv = self._settings.get('tf_plot_vis', {})
+        if not any(pv.get(w, True) for w, _b, _c in self._tf_plot_widgets()):
+            pv = {}   # 전부 꺼진 잘못된 상태면 기본(전부 켜짐)으로
+        for w, btn, cvs in self._tf_plot_widgets():
+            on = bool(pv.get(w, True))
+            btn.blockSignals(True); btn.setChecked(on); btn.blockSignals(False)
+            cvs.setVisible(on)
 
     def eventFilter(self, obj, event):
         # TF 분석창(IR/Phase/Mag) 클릭 → 그 창 선택 하이라이트
@@ -13828,6 +13868,9 @@ class MainWindow(QMainWindow):
         self._spec_placeholder = None  # 팝아웃 동안 main_stack index0 자리 채움
         self._st_popout = None       # Stereo 별도 창 — None=도킹 상태
         self._st_placeholder = None  # 팝아웃 동안 main_stack index2 자리 채움
+        self._split_on = False       # 동시 보기(2칸 분할, 칸=탭 통째) 모드
+        self._split_widget = None
+        self._split_prev_tab = 0
         self.spl_meter_win = None
         self.spl_alarm_win = None
 
@@ -14300,6 +14343,8 @@ class MainWindow(QMainWindow):
         root.addWidget(self.ft)
 
     def _switch_tab(self, i):
+        if getattr(self, '_split_on', False):
+            self._exit_split()   # 분할 중 탭 클릭 → 분할 해제 후 해당 탭으로
         keys=['spectrum','transfer','stereo']
         for k,b in self._tab_btns.items():
             b.setChecked(k==keys[i])
@@ -15322,7 +15367,7 @@ class MainWindow(QMainWindow):
         """TF의 헤더+툴바+본체를 별도 창으로 모아 띄운다(멀티모니터). 오디오는
         공유 엔진이라 reparent해도 끊기지 않는다. 메인 탭 자리엔 플레이스홀더."""
         tf = self.tf_win
-        if tf is None or self._tf_popout is not None:
+        if tf is None or self._tf_popout is not None or self._split_on:
             return
         win = _TFPopoutWindow(self)
         win.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
@@ -15425,7 +15470,7 @@ class MainWindow(QMainWindow):
     def _popout_spec(self):
         """Spectrum 본체(그래프+정보패널)+툴바를 별도 창으로. 오디오는 공유엔진이라 안 끊김."""
         page = self._spec_page0
-        if page is None or self._spec_popout is not None:
+        if page is None or self._spec_popout is not None or self._split_on:
             return
         win = _SpectrumPopoutWindow(self)
         win.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
@@ -15514,7 +15559,7 @@ class MainWindow(QMainWindow):
 
     def _popout_st(self):
         page = self.stereo_page
-        if page is None or self._st_popout is not None:
+        if page is None or self._st_popout is not None or self._split_on:
             return
         win = _StereoPopoutWindow(self)
         win.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
@@ -15591,6 +15636,128 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout(); row.addStretch(); row.addWidget(btn); row.addStretch()
         v.addLayout(row); v.addStretch()
         return ph
+
+    # ── STEP 3 (A안): 동시 보기 — 한 창 2칸, 칸마다 '탭 통째'(툴바+사이드바) 선택 ──────
+    def _split_tabinfo(self, key):
+        """탭 key → (툴바wrap, 본체, 원래 sub 레이아웃, 원래 main_stack 인덱스)."""
+        return {
+            'Spectrum':          (self._spec_tb_wrap, self._spec_page0, self._sp0_lay, 0),
+            'Transfer Function': (self._tf_tb_wrap,   self.tf_win,      self._sp1_lay, 1),
+            'Stereo Loudness':   (self._st_tb_wrap,   self.stereo_page, self._sp2_lay, 2),
+        }[key]
+
+    def _toggle_split(self):
+        if self._split_on:
+            self._switch_tab(self._split_prev_tab)   # 분할 해제 + 이전 탭 복원
+        else:
+            self._enter_split()
+
+    def _enter_split(self):
+        """한 창을 2칸으로 — 각 칸은 탭 통째(툴바+그래프+사이드바)라 컨트롤·측정 그대로.
+        칸 상단 드롭다운으로 어떤 탭을 볼지 선택. 팝아웃 reparent 방식 재활용."""
+        if self._split_on:
+            return
+        if self._tf_popout is not None: self._dock_tf()
+        if self._spec_popout is not None: self._dock_spec()
+        if self._st_popout is not None: self._dock_st()
+        keys = ['spectrum', 'transfer', 'stereo']
+        self._split_prev_tab = next((i for i, k in enumerate(keys) if self._tab_btns[k].isChecked()), 0)
+        tabkeys = ['Spectrum', 'Transfer Function', 'Stereo Loudness']
+        _combo_ss = ('QComboBox{background:#2C2C2E;color:#E8ECF4;border:1px solid #48484A;'
+                     'border-radius:6px;padding:2px 10px;font-size:12px;}'
+                     'QComboBox::drop-down{border:none;width:18px;}'
+                     'QComboBox QAbstractItemView{background:#2C2C2E;color:#E8ECF4;'
+                     'selection-background-color:#4E7DF0;border:1px solid #48484A;}')
+        sp = QSplitter(Qt.Vertical); sp.setHandleWidth(7); sp.setStyleSheet(_splitter_qss())
+        self._split_panes = [None, None]
+        self._split_sel = []; self._split_tb_lay = []; self._split_body_lay = []
+        for i in range(2):
+            pane = QWidget(); pv = QVBoxLayout(pane); pv.setContentsMargins(0, 0, 0, 0); pv.setSpacing(0)
+            selbar = QWidget(); selbar.setFixedHeight(30); selbar.setStyleSheet(f'background:{T("bg2")};')
+            slb = QHBoxLayout(selbar); slb.setContentsMargins(8, 2, 8, 2)
+            combo = QComboBox(); combo.setStyleSheet(_combo_ss); combo.setFixedHeight(24); combo.setFixedWidth(200)
+            for k in tabkeys: combo.addItem(k)
+            slb.addWidget(combo); slb.addStretch()
+            pv.addWidget(selbar)
+            tb_slot = QWidget(); tbl = QVBoxLayout(tb_slot); tbl.setContentsMargins(0, 0, 0, 0); tbl.setSpacing(0)
+            pv.addWidget(tb_slot)
+            body_slot = QWidget(); bdl = QVBoxLayout(body_slot); bdl.setContentsMargins(0, 0, 0, 0); bdl.setSpacing(0)
+            pv.addWidget(body_slot, 1)
+            self._split_sel.append(combo); self._split_tb_lay.append(tbl); self._split_body_lay.append(bdl)
+            sp.addWidget(pane); sp.setCollapsible(i, False)
+        sp.setSizes([500, 500])
+        self._split_widget = sp
+        self.main_stack.addWidget(sp); self.main_stack.setCurrentWidget(sp)
+        defaults = ['Spectrum', 'Transfer Function']
+        for i in range(2):
+            self._mount_tab(i, defaults[i])
+            c = self._split_sel[i]
+            c.blockSignals(True); c.setCurrentText(defaults[i]); c.blockSignals(False)
+            c.currentTextChanged.connect(lambda key, pi=i: self._set_pane_tab(pi, key))
+        self._split_prev_tb_vis = self.toolbar_wrapper.isVisible()
+        self.toolbar_wrapper.setVisible(False)
+        if hasattr(self, 'toolbar_underline'):
+            self.toolbar_underline.setVisible(False)
+        for b in self._tab_btns.values():
+            b.setChecked(False)
+        self._apply_tab_styles()
+        self._split_on = True
+        if hasattr(self, '_split_act'):
+            self._split_act.setText('동시 보기 끄기')
+
+    def _mount_tab(self, pane_idx, key):
+        tb, body, sub_lay, _midx = self._split_tabinfo(key)
+        sub_lay.removeWidget(tb); tb.setParent(None)
+        self._split_tb_lay[pane_idx].addWidget(tb)
+        if self.main_stack.indexOf(body) >= 0:
+            self.main_stack.removeWidget(body)
+        self._split_body_lay[pane_idx].addWidget(body); body.show()
+        self._split_panes[pane_idx] = key
+
+    def _restore_tab(self, key):
+        tb, body, sub_lay, midx = self._split_tabinfo(key)
+        tb.setParent(None); sub_lay.addWidget(tb)
+        if self.main_stack.indexOf(body) < 0:
+            self.main_stack.insertWidget(midx, body)
+
+    def _set_pane_tab(self, pane_idx, key):
+        cur = self._split_panes[pane_idx]
+        if key == cur:
+            return
+        other = self._split_panes[1 - pane_idx]
+        if cur is not None:
+            self._restore_tab(cur)
+        if key == other:
+            # 스왑: 상대 칸도 홈으로 보냈다가 cur를 상대 칸에
+            if other is not None:
+                self._restore_tab(other)
+            self._mount_tab(pane_idx, key)
+            self._mount_tab(1 - pane_idx, cur)
+            sel = self._split_sel[1 - pane_idx]
+            sel.blockSignals(True); sel.setCurrentText(cur); sel.blockSignals(False)
+        else:
+            self._mount_tab(pane_idx, key)
+
+    def _exit_split(self):
+        if not self._split_on:
+            return
+        # 모든 탭을 홈으로 복원(오름차순 main 인덱스 → 위치 정확)
+        for key in ('Spectrum', 'Transfer Function', 'Stereo Loudness'):
+            self._restore_tab(key)
+        sp = self._split_widget
+        if sp is not None:
+            self.main_stack.removeWidget(sp)
+            sp.deleteLater()
+        self._split_widget = None
+        self._split_panes = [None, None]
+        self._split_sel = []; self._split_tb_lay = []; self._split_body_lay = []
+        vis = getattr(self, '_split_prev_tb_vis', True)
+        self.toolbar_wrapper.setVisible(vis)
+        if hasattr(self, 'toolbar_underline'):
+            self.toolbar_underline.setVisible(vis)
+        self._split_on = False
+        if hasattr(self, '_split_act'):
+            self._split_act.setText('동시 보기 (2칸 분할)')
 
     # ─────────────────────────────────────
     def _show_device_popup(self):
@@ -17081,6 +17248,11 @@ class MainWindow(QMainWindow):
         st_pop_act = QAction('Stereo Loudness 별도 창', self)
         st_pop_act.setShortcut('Ctrl+Shift+L')   # macOS에선 Cmd+Shift+L로 매핑
         st_pop_act.triggered.connect(self._toggle_st_popout); view_menu.addAction(st_pop_act)
+        view_menu.addSeparator()
+        split_act = QAction('동시 보기 (2칸 분할)', self)
+        split_act.setShortcut('Ctrl+Shift+2')    # macOS에선 Cmd+Shift+2로 매핑
+        split_act.triggered.connect(self._toggle_split); view_menu.addAction(split_act)
+        self._split_act = split_act
         help_menu = mb.addMenu('Help')
         about_act = QAction('About SPECTRA', self); about_act.setMenuRole(QAction.AboutRole)
         about_act.triggered.connect(self._show_license_info); help_menu.addAction(about_act)
