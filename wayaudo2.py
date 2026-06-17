@@ -2559,6 +2559,7 @@ class OctaveCanvas(QWidget):
         self.setMouseTracking(True); self.setAttribute(Qt.WA_OpaquePaintEvent,True)
         self.setFocusPolicy(Qt.StrongFocus)
         self.mode='oct3'
+        self.title_text=''   # 설정 시 좌상단 제목 표시(TF의 RTA 칸용; Spectrum 옥타브는 빈값)
         self.smooth={k:np.full(len(v),-96.0) for k,v in BANDS.items()}
         self.peaks ={k:np.full(len(v),-96.0) for k,v in BANDS.items()}
         self.db_min=-96; self.db_max=MAX_DB
@@ -2902,6 +2903,9 @@ class OctaveCanvas(QWidget):
         dom_fs=f'{dom_f/1000:.2f} kHz' if dom_f>=1000 else f'{dom_f:.0f} Hz'
         unit='dBSPL' if self.calib_offset else 'dB'
         draw_dom_badge(p, W-pr, pt, dom_fs, dom_db, unit)
+        if self.title_text:
+            p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(T('graph_txt')))
+            p.drawText(pl+4, pt+13, self.title_text)
 
         if pl<=self._mx<=W-pr:
             cx,cy=self._mx,self._my
@@ -6957,7 +6961,7 @@ class TFPhaseCanvas(QWidget):
             txt=f'{int(f//1000)}k' if f>=1000 else str(int(f))
             tw=p.fontMetrics().horizontalAdvance(txt)
             p.setPen(QColor(T('graph_txt'))); p.drawText(max(pl,min(int(fx-tw/2),W-pr-tw)),H-pb+16,txt)
-        mode_lbl=['Phase  Wrapped','Phase  Unwrapped','Group Delay'][self.phase_mode]
+        mode_lbl=['Phase  Wrapped','Phase  Unwrapped','Group Delay'][self.phase_mode]+'  ▾'
         p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(T('graph_txt')))
         p.drawText(pl+4,pt+15,mode_lbl)
         p.end(); self._cache=px
@@ -7502,7 +7506,7 @@ class TFMagCanvas(QWidget):
             tw=p.fontMetrics().horizontalAdvance(txt)
             p.setPen(QColor(T('graph_txt'))); p.drawText(max(pl,min(int(fx-tw/2),W-pr-tw)),H-pb+18,txt)
         p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(T('graph_txt')))
-        p.drawText(pl+4,pt+13,'Magnitude  +  Coherence')
+        p.drawText(pl+4,pt+13,'Magnitude  +  Coherence  ▾')
         p.end(); self._cache=px
 
     def _draw_grid_lines(self, p, W, H):
@@ -8481,7 +8485,7 @@ class TFIRCanvas(QWidget):
                 p.drawLine(pl, y, W - pr, y)
                 p.setPen(QColor(T('graph_txt'))); p.drawText(0,y-8,pl-2,16,Qt.AlignRight|Qt.AlignVCenter,f'{amp:+.1f}')
             p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(T('graph_txt')))
-            p.drawText(pl + 4, pt + 15, 'Live IR  (Linear)')
+            p.drawText(pl + 4, pt + 15, 'Live IR  (Linear)  ▾')
         else:  # ── ETC (1) or Log (2) ─────────────────────────────────────
             db_range = max(self.db_max - self.db_min, 1.0)
             p.setFont(_qfont(CF_AXIS))
@@ -8494,7 +8498,7 @@ class TFIRCanvas(QWidget):
                              Qt.SolidLine))
                 p.drawLine(pl, y, W - pr, y)
                 p.setPen(QColor(T('graph_txt'))); p.drawText(0,y-8,pl-2,16,Qt.AlignRight|Qt.AlignVCenter,f'{db:+d}')
-            lbl_text = 'Live IR  (ETC)' if self.ir_mode == 1 else 'Live IR  (Log)'
+            lbl_text = ('Live IR  (ETC)' if self.ir_mode == 1 else 'Live IR  (Log)') + '  ▾'
             p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(T('graph_txt')))
             p.drawText(pl + 4, pt + 15, lbl_text)
         p.end()
@@ -9657,6 +9661,20 @@ class _MainKeyFilter(QObject):
 # ───────────────────────────────────────────
 #  Transfer Function 창
 # ───────────────────────────────────────────
+class _TFTitleHotspot(QWidget):
+    """플롯 좌상단 제목 글씨 위의 투명 클릭영역 — 누르면 콜백(전역좌표)으로 콘텐츠 선택 메뉴.
+    별도 헤더줄 없이 제목만 눌러 칸 내용을 바꾸기 위함(그래프 높이 보존)."""
+    def __init__(self, parent, on_click):
+        super().__init__(parent)
+        self._on_click = on_click
+        self.setCursor(Qt.PointingHandCursor)
+        self.setStyleSheet('background:transparent;')
+        self.setToolTip('클릭 → 플롯 선택')
+
+    def mousePressEvent(self, e):
+        self._on_click(e.globalPos())
+
+
 class TransferFunctionWindow(QWidget):
     _find_result_sig      = pyqtSignal(float)           # primary delay finder 결과
     _find_pair_result_sig = pyqtSignal(int, float)      # (pair_idx_enc, d_ms) per-card
@@ -9767,29 +9785,27 @@ class TransferFunctionWindow(QWidget):
         self.mag_cvs.cursor_x_changed.connect(self.phase_cvs.set_peer_cursor)
         self.phase_cvs.cursor_left.connect(self.mag_cvs.clear_peer_cursor)
         self.mag_cvs.cursor_left.connect(self.phase_cvs.clear_peer_cursor)
-        # ── Smaart식 슬롯: 칸마다 ▼로 콘텐츠 선택 (Magnitude/Phase/Live IR/Off) ──
-        self._tf_plots = {'Magnitude': self.mag_cvs, 'Phase': self.phase_cvs, 'Live IR': self.ir_cvs}
-        self._tf_plot_order = ['Magnitude', 'Phase', 'Live IR']   # 콤보 항목(+나중 RTA)
-        _slot_ss = ('QComboBox{background:transparent;color:#C7CAD1;border:none;'
-                    'font-size:11px;font-weight:600;padding:1px 6px;}'
-                    'QComboBox::drop-down{border:none;width:16px;}'
-                    'QComboBox QAbstractItemView{background:#2C2C2E;color:#E8ECF4;'
-                    'selection-background-color:#4E7DF0;border:1px solid #48484A;}')
-        self._tf_slot_w = []; self._tf_slot_box = []; self._tf_slot_sel = []
+        # RTA 칸용 옥타브 캔버스 — MainWindow가 Spectrum 데이터로 급전(스펙트럼 탭 상태 그대로)
+        self.rta_cvs = OctaveCanvas(); self.rta_cvs.set_mode('oct12')
+        self.rta_cvs.title_text = 'RTA  (1/12 oct)  ▾'
+        self.rta_cvs._rta_range_init = False   # RTA 켤 때 1회 스펙트럼 dB범위 받기(이후 독립)
+        self.rta_cvs.installEventFilter(self); self.rta_cvs._tf_selected = False
+        self._tf_cvs_list.append(self.rta_cvs)
+        # ── Smaart식: 칸마다 '제목 글씨'를 누르면 콘텐츠 선택 메뉴 (별도 헤더줄 없음 → 그래프 높이 보존) ──
+        self._tf_plots = {'Magnitude': self.mag_cvs, 'Phase': self.phase_cvs,
+                          'Live IR': self.ir_cvs, 'RTA': self.rta_cvs}
+        self._tf_plot_order = ['Magnitude', 'Phase', 'Live IR', 'RTA']   # 메뉴 항목
+        self._tf_slot_w = []; self._tf_slot_box = []; self._tf_slot_hot = []
         self._tf_slot_plot = [None, None, None]
         for i in range(3):
             slot = QWidget(); sv = QVBoxLayout(slot); sv.setContentsMargins(0, 0, 0, 0); sv.setSpacing(0)
-            hdr = QWidget(); hdr.setFixedHeight(22); hdr.setStyleSheet(f'background:{T("bg2")};')
-            hh = QHBoxLayout(hdr); hh.setContentsMargins(6, 0, 6, 0); hh.setSpacing(0)
-            combo = QComboBox(); combo.setStyleSheet(_slot_ss); combo.setFixedHeight(20)
-            for p in self._tf_plot_order: combo.addItem(p)
-            combo.addItem('Off')
-            hh.addWidget(combo); hh.addStretch()
-            sv.addWidget(hdr)
             slot_body = QWidget(); bx = QVBoxLayout(slot_body); bx.setContentsMargins(0, 0, 0, 0); bx.setSpacing(0)
             sv.addWidget(slot_body, 1)
             cvs_w.addWidget(slot); cvs_w.setCollapsible(i, False)
-            self._tf_slot_w.append(slot); self._tf_slot_box.append(bx); self._tf_slot_sel.append(combo)
+            # 좌상단 제목 위 투명 클릭영역 — 제목 글씨를 누르면 _tf_slot_menu
+            hot = _TFTitleHotspot(slot, lambda gp, si=i: self._tf_slot_menu(si, gp))
+            hot.setGeometry(0, 0, 250, 26)
+            self._tf_slot_w.append(slot); self._tf_slot_box.append(bx); self._tf_slot_hot.append(hot)
         cvs_w.setSizes([200, 400, 600])
         bl.addWidget(cvs_w, 1)
 
@@ -10151,13 +10167,41 @@ class TransferFunctionWindow(QWidget):
         if not self.embedded:
             root.addWidget(tb)
         self._restore_tf_slots()   # 저장된 슬롯 구성 복원(없으면 IR/Phase/Mag 기본)
-        for i in range(3):
-            self._tf_slot_sel[i].currentTextChanged.connect(lambda name, si=i: self._tf_set_slot(si, name))
 
-    # ── TF 플롯 슬롯 (Smaart식 ▼ 칸 선택) ──────────────────────
-    def _tf_combo_set(self, idx, val):
-        cb = self._tf_slot_sel[idx]
-        cb.blockSignals(True); cb.setCurrentText(val); cb.blockSignals(False)
+    # ── TF 플롯 슬롯 (제목 글씨 클릭 → 메뉴) ──────────────────────
+    def _tf_slot_menu(self, idx, global_pos):
+        from PyQt5.QtWidgets import QMenu
+        m = QMenu(self)
+        cur = self._tf_slot_plot[idx]
+        # 1) 이 칸 내용 바꾸기
+        for opt in self._tf_plot_order:
+            a = m.addAction(('✓  ' if opt == cur else '     ') + opt)
+            a.triggered.connect(lambda _=False, o=opt: self._tf_set_slot(idx, o))
+        # 2) 숨겨진(어느 칸에도 없는) 플롯 → 새 칸 추가
+        shown = set(p for p in self._tf_slot_plot if p not in (None, 'Off'))
+        hidden = [p for p in self._tf_plot_order if p not in shown]
+        has_off = any(p == 'Off' for p in self._tf_slot_plot)
+        if hidden and has_off:
+            m.addSeparator()
+            for p in hidden:
+                a = m.addAction('＋  Add ' + p)
+                a.triggered.connect(lambda _=False, pp=p: self._tf_add_pane(pp))
+        # 3) 이 칸 닫기 (최소 1개 유지)
+        if len([p for p in self._tf_slot_plot if p not in (None, 'Off')]) > 1:
+            m.addSeparator()
+            a = m.addAction('✕  Close this pane')
+            a.triggered.connect(lambda _=False: self._tf_set_slot(idx, 'Off'))
+        m.exec_(global_pos)
+
+    def _tf_add_pane(self, plot):
+        """숨겨진 플롯을 비어있는(Off) 칸에 켜서 칸을 늘림."""
+        if plot in [p for p in self._tf_slot_plot if p not in (None, 'Off')]:
+            return   # 이미 표시 중이면 무시(중복 방지)
+        j = next((k for k in range(3) if self._tf_slot_plot[k] == 'Off'), None)
+        if j is None:
+            return
+        self._tf_mount(j, plot)
+        self._save_tf_slots()
 
     def _tf_detach(self, name):
         if name in (None, 'Off'):
@@ -10165,12 +10209,15 @@ class TransferFunctionWindow(QWidget):
         c = self._tf_plots.get(name)
         if c is not None:
             c.setParent(None); c.hide()
+        if name == 'RTA':
+            self.rta_cvs._rta_range_init = False   # 다시 켤 때 스펙트럼 dB범위 재동기화
 
     def _tf_mount(self, idx, name):
         c = self._tf_plots[name]
         self._tf_slot_box[idx].addWidget(c); c.setVisible(True)
         self._tf_slot_plot[idx] = name
         self._tf_slot_w[idx].setVisible(True)
+        self._tf_slot_hot[idx].raise_()   # 클릭영역을 캔버스 위로
 
     def _tf_set_slot(self, idx, name):
         """칸 idx의 콘텐츠를 name으로. 다른 칸이 갖고 있으면 스왑. 'Off'면 칸 숨김(최소 1개 유지)."""
@@ -10180,7 +10227,7 @@ class TransferFunctionWindow(QWidget):
         real_on = [p for p in self._tf_slot_plot if p not in (None, 'Off')]
         if name == 'Off':
             if len(real_on) <= 1:                      # 최소 1개 유지
-                self._tf_combo_set(idx, cur); return
+                return
             self._tf_detach(cur)
             self._tf_slot_plot[idx] = 'Off'; self._tf_slot_w[idx].setVisible(False)
             self._save_tf_slots(); return
@@ -10190,9 +10237,8 @@ class TransferFunctionWindow(QWidget):
             self._tf_detach(name)
             if cur in (None, 'Off'):                   # 줄 게 없으면 상대 칸은 Off
                 self._tf_slot_plot[other] = 'Off'; self._tf_slot_w[other].setVisible(False)
-                self._tf_combo_set(other, 'Off')
             else:                                       # 스왑: 상대 칸이 cur를 받음
-                self._tf_mount(other, cur); self._tf_combo_set(other, cur)
+                self._tf_mount(other, cur)
         self._tf_mount(idx, name)
         self._save_tf_slots()
 
@@ -10209,10 +10255,9 @@ class TransferFunctionWindow(QWidget):
         seen = set()
         for i, p in enumerate(slots):
             if p in self._tf_plots and p not in seen:
-                seen.add(p); self._tf_mount(i, p); self._tf_combo_set(i, p)
+                seen.add(p); self._tf_mount(i, p)
             else:
                 self._tf_slot_plot[i] = 'Off'; self._tf_slot_w[i].setVisible(False)
-                self._tf_combo_set(i, 'Off')
 
     def eventFilter(self, obj, event):
         # TF 분석창(IR/Phase/Mag) 클릭 → 그 창 선택 하이라이트
@@ -16442,6 +16487,19 @@ class MainWindow(QMainWindow):
                 if _pvis: self.oct_cvs.update_data(self.view_mode,self._calc_oct(freqs,avg_cal))
             if self._spectro_on and _pvis:
                 self.spectro_cvs.set_data(freqs,avg_cal)
+            # TF의 RTA 칸 급전 — Spectrum 데이터(=스펙트럼 탭 상태) 그대로, 옥타브 모드/스케일 동기화
+            _tw = getattr(self, 'tf_win', None)
+            if _tw is not None and 'RTA' in getattr(_tw, '_tf_slot_plot', ()):
+                _rc = _tw.rta_cvs; _oc = self.oct_cvs
+                # dB 범위는 RTA 켤 때 1회만 스펙트럼서 가져오고, 이후엔 독립(더블클릭/휠 자유)
+                if not getattr(_rc, '_rta_range_init', False):
+                    _rc.db_min = _oc.db_min; _rc.db_max = _oc.db_max
+                    _rc._rta_range_init = True
+                _rc.calib_offset = getattr(_oc, 'calib_offset', 0)
+                _m = self.view_mode if self.view_mode in ('oct3', 'oct12', 'oct24') else 'oct12'
+                if _rc.mode != _m: _rc.set_mode(_m)
+                _rc.title_text = 'RTA  (%s)  ▾' % {'oct3': '1/3 oct', 'oct12': '1/12 oct', 'oct24': '1/24 oct'}[_m]
+                _rc.update_data(_m, self._calc_oct(freqs, avg_cal, _m))
             if self._pending_auto_fit:
                 self._auto_fit_frame_count += 1
                 if self._auto_fit_frame_count >= self.avg_count:
