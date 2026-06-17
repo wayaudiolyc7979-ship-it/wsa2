@@ -4154,7 +4154,8 @@ class SplAlarmWindow(QWidget):
         super().showEvent(e)
         if not self._timer.isActive():
             self._timer.start(200)
-        _apply_on_top(self, self._always_top)   # macOS 네이티브 레벨 적용 (자식이라 풀스크린은 자동 추종)
+        _attach_as_child(self, self._main)      # show 즉시 부모 Space에 부착 → 데스크탑 Space 점프 방지
+        _apply_on_top(self, self._always_top)   # macOS 네이티브 레벨 적용
 
     def closeEvent(self, e):
         self._timer.stop()
@@ -4506,7 +4507,8 @@ class SplMeterWindow(QWidget):
         super().showEvent(e)
         if not self._timer.isActive(): self._timer.start(200)
         self._scale_panels()
-        _apply_on_top(self, self._always_top)   # macOS 네이티브 레벨 (자식이라 풀스크린 자동 추종)
+        _attach_as_child(self, self._main)      # show 즉시 부모 Space에 부착 → 데스크탑 Space 점프 방지
+        _apply_on_top(self, self._always_top)   # macOS 네이티브 레벨
 
     def closeEvent(self, e):
         self._timer.stop()
@@ -14886,11 +14888,7 @@ class MainWindow(QMainWindow):
             try:
                 _attach_as_child(win, self)   # ★ 진짜 자식 → 부모 풀스크린 Space에 따라붙음
                 if win.width() > w * 1.4 or win.height() > h * 1.4:
-                    win.setWindowState(win.windowState() & ~Qt.WindowFullScreen & ~Qt.WindowMaximized)
-                    win.resize(w, h)
-                    scr = self.screen().geometry() if self.screen() else None
-                    if scr is not None:
-                        win.move(scr.x() + (scr.width() - w) // 2, scr.y() + (scr.height() - h) // 2)
+                    win.resize(w, h)   # 크게 떴으면 크기만 보정 — 상태(setWindowState)·위치 안 건드림(Space 점프 방지)
             except Exception:
                 pass
         for ms in (0, 120, 300, 600):
