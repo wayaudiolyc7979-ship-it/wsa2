@@ -374,17 +374,13 @@ def c_weight_db(f):
     rc = (12200**2 * f2) / ((f2+20.6**2)*(f2+12200**2))
     return 20*math.log10(max(rc,1e-20)) + 0.06
 
-# 주파수 → 음이름 + 센트 (커서 리드아웃용). A4=440Hz 기준 12평균율.
+# 주파수 → 음이름 (커서 리드아웃용). A4=440Hz 기준 12평균율. (센트 단위는 사용자 요청으로 제거)
 _NOTE_NAMES = ('C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B')
 def freq_to_note(f):
     if f is None or f <= 0:
         return ''
-    midi = 69.0 + 12.0 * math.log2(f / 440.0)   # 69 = A4
-    n = int(round(midi))
-    cents = int(round((midi - n) * 100))
-    name = _NOTE_NAMES[n % 12]; octave = n // 12 - 1
-    sign = '+' if cents >= 0 else '−'
-    return f'{name}{octave} {sign}{abs(cents)}¢'
+    n = int(round(69.0 + 12.0 * math.log2(f / 440.0)))   # 69 = A4
+    return f'{_NOTE_NAMES[n % 12]}{n // 12 - 1}'
 
 _HANN_CACHE = {}   # {n: (hanning_win, Σw²)} — power_spectrum_db 윈도우 메모이즈
 def power_spectrum_db(buf):
