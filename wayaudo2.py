@@ -14945,18 +14945,28 @@ class MainWindow(QMainWindow):
             _reveal()
         QTimer.singleShot(850, _safety)   # 최대 850ms: 줄이고 무조건 표시(검은 풀스크린 멈춤 방지)
 
+    def show_float_popup(self, win, w, h, new):
+        """★공용: 떠 있는 팝업창을 메인 위(풀스크린 포함)에 정상 크기로 안전하게 띄움.
+        다음 버전에서 새 팝업창 만들 때 이 메서드로 열면 macOS 풀스크린 검은화면/Space점프/
+        번쩍임 없이 뜬다. 전제: win은 부모=self로 생성됨(super().__init__(self, Qt.Window)).
+        new=처음 생성 여부(처음일 때만 보조창 지정·크기 보정 수행). 동작 상세 = 메모리
+        project_macos_float_over_fullscreen.
+          순서: ①show 前 opacity0 + FullScreenAuxiliary(자동 풀스크린화 차단)
+               ②show/raise ③addChildWindow(같은 Space) + 크기 보정 후 표시(_setup_float_child)."""
+        if new:
+            win.setWindowOpacity(0.0)                       # 보정 전 숨김(블랙 플래시 방지)
+            win.winId(); _set_fullscreen_auxiliary(win)     # show 前 보조창 지정(핵심 타이밍)
+        win.show(); win.raise_()
+        if new:
+            self._setup_float_child(win, w, h)
+
     def _open_spl_meter(self):
-        # 자식 창(풀스크린 추종) + show 후 크기 보정(풀스크린 크기 방지)
         new = self.spl_meter_win is None
         if new:
             self.spl_meter_win = SplMeterWindow(self)
             self.spl_meter_win.set_calib_offset(self._spl_source_calib(self._spl_source_id))
-            self.spl_meter_win.setWindowOpacity(0.0)   # 보정 전 숨김(블랙 플래시 방지)
-            self.spl_meter_win.winId(); _set_fullscreen_auxiliary(self.spl_meter_win)  # show 前 보조창 지정
-        self.spl_meter_win.show(); self.spl_meter_win.raise_()
-        if new:
-            self._setup_float_child(self.spl_meter_win,
-                                    self.spl_meter_win._open_w(), self.spl_meter_win._open_h())
+        self.show_float_popup(self.spl_meter_win,
+                              self.spl_meter_win._open_w(), self.spl_meter_win._open_h(), new)
 
     def _open_spl_alarm(self):
         """SPL 임계 알람 — 메인의 자식 창. _process_audio가 직접 급전(SPL 미터와 무관)."""
@@ -14964,11 +14974,7 @@ class MainWindow(QMainWindow):
         if new:
             self.spl_alarm_win = SplAlarmWindow(self)
             self.spl_alarm_win.set_calib_offset(self.calib_offset)
-            self.spl_alarm_win.setWindowOpacity(0.0)   # 보정 전 숨김(블랙 플래시 방지)
-            self.spl_alarm_win.winId(); _set_fullscreen_auxiliary(self.spl_alarm_win)  # show 前 보조창 지정
-        self.spl_alarm_win.show(); self.spl_alarm_win.raise_()
-        if new:
-            self._setup_float_child(self.spl_alarm_win, 210, 150)
+        self.show_float_popup(self.spl_alarm_win, 210, 150, new)
 
     def _open_tf_window(self):
         self._switch_tab(1)
