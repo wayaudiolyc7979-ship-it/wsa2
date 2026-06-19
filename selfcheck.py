@@ -17,7 +17,8 @@
 import os, sys, tempfile, traceback
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-_DIR = os.path.join(tempfile.gettempdir(), 'wsa2_selfcheck')
+# 예측 가능한 경로(문서/grep 일치). posix는 /tmp, Windows만 tempfile.
+_DIR = '/tmp/wsa2_selfcheck' if os.name != 'nt' else os.path.join(tempfile.gettempdir(), 'wsa2_selfcheck')
 os.makedirs(_DIR, exist_ok=True)
 os.environ.setdefault('WSA2_SETTINGS_PATH', os.path.join(_DIR, 'settings.json'))
 os.environ.setdefault('WSA2_CAPTURES_PATH', os.path.join(_DIR, 'captures.json'))
