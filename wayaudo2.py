@@ -2804,11 +2804,19 @@ class OctaveCanvas(QWidget):
         pk_col=QColor(T('red')) if self.clipping else QColor(T('peak_line'))
         if dim:   # 캡쳐 포커스 시 라이브 흐리게 (E 스타일: 선택된 것만 솔리드)
             col.setAlpha(50); pk_col.setAlpha(50)
+        # 막대 세로 그라디언트(위 밝게→아래 어둡게) + 상단 sheen 캡 — 입체 프리미엄 룩, 색 의미(클리핑=빨강) 유지.
+        # ObjectBoundingMode 그라디언트 1개를 전 막대에 재사용 → 막대별 그라디언트 생성 0 (라이브 그라디언트 perf 규칙 준수).
+        col_bot=QColor(int(col.red()*0.40),int(col.green()*0.40),int(col.blue()*0.40),col.alpha())
+        cap_col=QColor(min(255,int(col.red()*1.10)+28),min(255,int(col.green()*1.10)+28),min(255,int(col.blue()*1.10)+28),col.alpha())
+        _bargrad=QLinearGradient(0,0,0,1); _bargrad.setCoordinateMode(_bargrad.ObjectBoundingMode)
+        _bargrad.setColorAt(0.0,col); _bargrad.setColorAt(1.0,col_bot)
+        _bar_brush=QBrush(_bargrad)
         for i in range(n):
             db=float(np.clip(sm[i],self.db_min,self.db_max))
             lp=(db-self.db_min)/db_range; bh=max(2,int(lp*dh))
             bx=int(pl+i*bar_w+gap/2); bw=max(1,int(bar_w-gap)); by=pt+dh-bh
-            p.fillRect(bx,by,bw,bh,col)
+            p.fillRect(bx,by,bw,bh,_bar_brush)
+            if bh>5: p.fillRect(bx,by,bw,1,cap_col)   # 상단 sheen 하이라이트
             if self.peak_hold and pk[i]>sm[i]+1.5 and pk[i]>self.db_min+2:
                 lp2=float(np.clip((pk[i]-self.db_min)/db_range,0,1))
                 py2=pt+dh-max(2,int(lp2*dh))
