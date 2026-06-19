@@ -1387,6 +1387,17 @@ def bar_bot():
         return T('spec_fill_bot')
     return BAR_PRESETS[_bar_preset_idx][2]
 
+def _vbar_gradient(col):
+    """막대 세로 그라디언트 — 위=col 밝게, 아래 어둡게(입체) + 상단 sheen 색.
+    ObjectBoundingMode라 브러시 1개를 높이 다른 모든 막대에 재사용(라이브 그라디언트 perf 규칙 준수)."""
+    a = col.alpha()
+    col_bot = QColor(int(col.red()*0.40), int(col.green()*0.40), int(col.blue()*0.40), a)
+    g = QLinearGradient(0, 0, 0, 1); g.setCoordinateMode(g.ObjectBoundingMode)
+    g.setColorAt(0.0, col); g.setColorAt(1.0, col_bot)
+    cap = QColor(min(255, int(col.red()*1.10)+28), min(255, int(col.green()*1.10)+28),
+                 min(255, int(col.blue()*1.10)+28), a)
+    return QBrush(g), cap
+
 # ───────────────────────────────────────────
 #  좌표 변환
 # ───────────────────────────────────────────
@@ -2729,11 +2740,13 @@ class OctaveCanvas(QWidget):
             if cap['mode']!=self.mode: return
             cv=cap['values']; qc=QColor(cap['color'])
             if emph:
+                cbrush, ccap = _vbar_gradient(qc)   # 캡쳐 front 막대도 라이브와 같은 입체 그라디언트
                 for i in range(n):
                     db=float(np.clip(cv[i],self.db_min,self.db_max))
                     bh=max(2,int((db-self.db_min)/db_range*dh))
                     bx=int(pl+i*bar_w+gap/2); bw=max(1,int(bar_w-gap)); by=pt+dh-bh
-                    p.fillRect(bx,by,bw,bh,qc)
+                    p.fillRect(bx,by,bw,bh,cbrush)
+                    if bh>5: p.fillRect(bx,by,bw,1,ccap)
             else:
                 qf=QColor(qc); qf.setAlpha(26); qe=QColor(qc); qe.setAlpha(110)
                 for i in range(n):
@@ -2805,12 +2818,7 @@ class OctaveCanvas(QWidget):
         if dim:   # 캡쳐 포커스 시 라이브 흐리게 (E 스타일: 선택된 것만 솔리드)
             col.setAlpha(50); pk_col.setAlpha(50)
         # 막대 세로 그라디언트(위 밝게→아래 어둡게) + 상단 sheen 캡 — 입체 프리미엄 룩, 색 의미(클리핑=빨강) 유지.
-        # ObjectBoundingMode 그라디언트 1개를 전 막대에 재사용 → 막대별 그라디언트 생성 0 (라이브 그라디언트 perf 규칙 준수).
-        col_bot=QColor(int(col.red()*0.40),int(col.green()*0.40),int(col.blue()*0.40),col.alpha())
-        cap_col=QColor(min(255,int(col.red()*1.10)+28),min(255,int(col.green()*1.10)+28),min(255,int(col.blue()*1.10)+28),col.alpha())
-        _bargrad=QLinearGradient(0,0,0,1); _bargrad.setCoordinateMode(_bargrad.ObjectBoundingMode)
-        _bargrad.setColorAt(0.0,col); _bargrad.setColorAt(1.0,col_bot)
-        _bar_brush=QBrush(_bargrad)
+        _bar_brush, cap_col = _vbar_gradient(col)
         for i in range(n):
             db=float(np.clip(sm[i],self.db_min,self.db_max))
             lp=(db-self.db_min)/db_range; bh=max(2,int(lp*dh))
@@ -2975,11 +2983,13 @@ class OctaveCanvas(QWidget):
             if vals is None or len(vals) != n: return
             qc = QColor(ch['color'])
             if dim: qc.setAlpha(50)
+            sbrush, scap = _vbar_gradient(qc)   # 추가 소스 막대도 같은 입체 그라디언트
             for i in range(n):
                 db = float(np.clip(vals[i], self.db_min, self.db_max))
                 bh = max(2, int((db - self.db_min) / db_range * dh))
                 bx = int(pl + i * bar_w + gap / 2); bw = max(1, int(bar_w - gap)); by = pt + dh - bh
-                p.fillRect(bx, by, bw, bh, qc)
+                p.fillRect(bx, by, bw, bh, sbrush)
+                if bh > 5: p.fillRect(bx, by, bw, 1, scap)
         def _draw_caps():
             if not self._captures: return
             _cap_key=(W,H,self.db_max,self.db_min,self.mode,round(bar_w*1000),round(gap*1000),self._front_idx,self._live_on_top)
@@ -17871,27 +17881,25 @@ if __name__=='__main__':
         _alog.info(f'라이선스 유효  머신={_get_machine_id()}')
 
     splash = None
-    splash_img = _res('splash.png')
-    if os.path.exists(splash_img):
-        pix = QPixmap(splash_img)
-        dpr = app.devicePixelRatio()
-        if dpr > 1.0:
-            pix = pix.scaled(
-                int(pix.width() * dpr), int(pix.height() * dpr),
-                Qt.KeepAspectRatio, Qt.SmoothTransformation
-            )
-            pix.setDevicePixelRatio(dpr)
-        splash = QSplashScreen(pix, Qt.WindowStaysOnTopHint)
+    # 렌더형 브랜드 스플래시 우선 — 버전(_APP_VERSION) 자동 반영(정적 png는 버전이 굳어 안 따라옴).
+    # 렌더 실패 시에만 splash.png 폴백.
+    try:
+        splash = QSplashScreen(_make_splash_pixmap(), Qt.WindowStaysOnTopHint)
         splash.show()
         app.processEvents()
-    else:
-        # splash.png 없으면 렌더형 브랜드 스플래시 (항상 SPECTRA 모먼트)
-        try:
-            splash = QSplashScreen(_make_splash_pixmap(), Qt.WindowStaysOnTopHint)
+    except Exception:
+        splash = None
+        splash_img = _res('splash.png')
+        if os.path.exists(splash_img):
+            pix = QPixmap(splash_img)
+            dpr = app.devicePixelRatio()
+            if dpr > 1.0:
+                pix = pix.scaled(int(pix.width() * dpr), int(pix.height() * dpr),
+                                 Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                pix.setDevicePixelRatio(dpr)
+            splash = QSplashScreen(pix, Qt.WindowStaysOnTopHint)
             splash.show()
             app.processEvents()
-        except Exception:
-            splash = None
 
     app.aboutToQuit.connect(_emergency_cleanup)  # USB 스트림 정상 종료 보장
 
