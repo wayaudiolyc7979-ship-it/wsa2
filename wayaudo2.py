@@ -4475,20 +4475,26 @@ class ShowModeWindow(QWidget):
         self.setWindowTitle('SPECTRA — Show Mode')
         self._spl = -120.0; self._unit = 'dBA'
         self._peak = -120.0; self._leq = -120.0; self._leq_e = None
+        self._last_paint = 0.0          # 리페인트 throttle (글랜스 차분하게)
         self._limit = 100.0; self._amber = 3.0
         self._bands = None              # np.array octave dB
         self._bmin = -60.0; self._bmax = 0.0
         self.resize(1120, 630)
         self._clock = QTimer(self); self._clock.timeout.connect(self.update); self._clock.start(1000)
 
-    def push(self, spl, unit, bands, bmin, bmax):
-        """순간 SPL + 스펙트럼 급전. PEAK(느린 감쇠 홀드)·LEQ(긴 지수창)는 내부 계산."""
-        self._spl = spl; self._unit = unit; self._bands = bands; self._bmin = bmin; self._bmax = bmax
-        self._peak = spl if spl > self._peak else self._peak - 0.04   # 피크 홀드 + 느린 감쇠
-        e = 10.0 ** (spl / 10.0)
+    def push(self, raw, unit, bands, bmin, bmax):
+        """순간 SPL(raw) + 스펙트럼 급전. 헤드라인 큰 숫자는 Slow 평활(글랜스 가독),
+        PEAK(순간 홀드)·LEQ(긴 지수창)는 raw 기준. 리페인트는 ~15fps로 제한."""
+        self._unit = unit; self._bands = bands; self._bmin = bmin; self._bmax = bmax
+        # 헤드라인 = Slow 평활 (raw가 60fps로 튀면 안 읽혀서)
+        self._spl = raw if self._spl <= -100 else self._spl + (raw - self._spl) * 0.05
+        self._peak = raw if raw > self._peak else self._peak - 0.04   # 진짜 순간 피크 홀드
+        e = 10.0 ** (raw / 10.0)
         self._leq_e = e if self._leq_e is None else self._leq_e + (e - self._leq_e) * 0.002
         self._leq = 10.0 * math.log10(max(self._leq_e, 1e-12))
-        self.update()
+        now = time.time()
+        if now - self._last_paint >= 0.066:     # 리페인트 ~15fps 제한 (글랜스 차분)
+            self._last_paint = now; self.update()
 
     def reset_hold(self):
         self._peak = -120.0; self._leq_e = None; self._leq = -120.0; self.update()
