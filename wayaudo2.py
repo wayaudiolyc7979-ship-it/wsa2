@@ -57,6 +57,26 @@ _root_log = logging.getLogger()
 _root_log.addHandler(_fh); _root_log.setLevel(logging.DEBUG)
 _alog = logging.getLogger('wsa2')
 
+# ── 자기검증/세션분석용 진단 로깅 ──────────────────────────────────────
+# 파일엔 항상 DEBUG 전부 기록. WSA2_DEBUG=1 이면 콘솔(stderr)에도 라이브 출력(개발/검증용).
+_DEBUG = bool(os.environ.get('WSA2_DEBUG'))
+if _DEBUG:
+    _sh = logging.StreamHandler()
+    _sh.setFormatter(logging.Formatter(
+        '%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s', datefmt='%H:%M:%S'))
+    _root_log.addHandler(_sh)
+
+def _diag(tag, **kv):
+    """진단 스냅샷 — grep 쉬운 '[DIAG]' 프리픽스로 핵심 상태/이벤트를 세션 로그에 남김.
+    Claude가 화면 캡쳐 없이 로그만으로 동작을 검증할 수 있도록. 절대 예외를 던지지 않음."""
+    try:
+        if kv:
+            _alog.info('[DIAG] %s  %s', tag, '  '.join(f'{k}={v}' for k, v in kv.items()))
+        else:
+            _alog.info('[DIAG] %s', tag)
+    except Exception:
+        pass
+
 def _cleanup_logs(max_keep=20):
     try:
         logs = sorted([f for f in os.listdir(_LOG_DIR)
@@ -16875,6 +16895,17 @@ class MainWindow(QMainWindow):
         with QMutexLocker(self._mutex):
             data=self._pending; self._pending=None
             extra_data=dict(self._ch_pending_extra); self._ch_pending_extra.clear()
+        # ── 진단 하트비트 (~10s) — 세션 로그에 동작 타임라인 남김(자기검증/사후분석) ──
+        _hb = time.time()
+        if _hb - getattr(self, '_diag_hb_t', 0.0) >= 10.0:
+            self._diag_hb_t = _hb
+            try:
+                _spl = round(float(data[4]), 1) if data is not None else None
+                _diag('hb', view=self.view_mode, run=self._spec_running(),
+                      spl=_spl, extra=len(getattr(self, '_spec_extra', [])),
+                      show=(getattr(self, 'show_mode_win', None) is not None))
+            except Exception:
+                _alog.exception('[DIAG] heartbeat')
         # 추가 소스(멀티-장치) 커브 렌더링 — card_id 키, 소스별 색/주파수
         extra_levels={}
         for cid,(freqs_e,avg_e,dbfs_e,color_e) in extra_data.items():
