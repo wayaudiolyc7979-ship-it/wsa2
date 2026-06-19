@@ -1,6 +1,6 @@
 11#!/usr/bin/env python3
 # ═══════════════════════════════════════════════════
-#  SPECTRA — Spectrum Analyzer  (by WAYAUDIO)  v1.6
+#  SPECTRA — Spectrum Analyzer  (by WAYAUDIO)  v1.6.1
 #  ✅ FFT 버벅임 수정 (포인트 다운샘플링)
 #  ✅ 마이크 캘리브레이션 (94/114dB @ 1kHz)
 #  ✅ dBA / dBC 실시간 레벨
@@ -97,7 +97,7 @@ import math as _math
 
 # ── 앱 버전 (단일 소스) ── 버전 올릴 땐 `bash bump_version.sh 1.6` 한 줄로 전부 갱신.
 #   (이 상수 + 상단 주석 + WSA2.spec/build_intel.sh/version_info.txt 까지 스크립트가 처리)
-_APP_VERSION = '1.6'
+_APP_VERSION = '1.6.1'
 
 # ═══════════════════════════════════════════════════════════════════
 #  라이선스 관리
