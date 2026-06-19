@@ -4557,11 +4557,12 @@ class ShowModeWindow(QWidget):
         if b is not None and len(b):
             n = len(b); bw = sw / n; gap = max(1.0, bw * 0.12)
             rng = max(self._bmax - self._bmin, 1.0)
+            usable_h = sh - max(6, int(sh * 0.07))   # 상단 여백 — 막대가 박스 천장에 안 닿게(짤림 방지)
             base = QColor(*bar_top())
             brush, capc = _vbar_gradient(base)
             for i in range(n):
                 v = float(np.clip(b[i], self._bmin, self._bmax))
-                bh = max(2, int((v - self._bmin) / rng * sh))
+                bh = max(2, int((v - self._bmin) / rng * usable_h))
                 bx = int(sx + i * bw + gap / 2); ww = max(1, int(bw - gap)); by = sy + sh - bh
                 p.fillRect(bx, by, ww, bh, brush)
                 if bh > 6: p.fillRect(bx, by, ww, 1, capc)
@@ -16850,9 +16851,18 @@ class MainWindow(QMainWindow):
             # 독립 알람 창 — SPL 미터 유무·소스선택과 무관하게 primary 레벨로 급전
             self.spl_alarm_win.push_levels(raw_dbfs+self.calib_offset, raw_dba, raw_dbc, fs_peak)
         if self.show_mode_win and dba_db>-100:
-            # FOH 쇼 모드 — A가중 SPL 헤드라인 + 라이브 옥타브 스펙트럼 급전
+            # FOH 쇼 모드 — 한계 라이브 동기화 + 헤드라인 지표는 SPL 알람 Metric 가중 따라감
+            _a = self._settings.get('spl_alarm', {})
+            self.show_mode_win.set_limit(_a.get('limit', 100.0), _a.get('amber', 3.0))
+            _mtr = _a.get('metric', 'dba')
+            if _mtr in ('lceq', 'dbc', 'dbc_fast', 'peak_c'):
+                _sv, _su = raw_dbc, 'dBC'
+            elif _mtr in ('spl', 'spl_fast', 'spl_slow', 'peak', 'fs_peak'):
+                _sv, _su = raw_dbfs + self.calib_offset, 'dB SPL'
+            else:                                   # laeq/dba/dba_fast 등 A가중
+                _sv, _su = raw_dba, 'dBA'
             _sm_bands = self.oct_cvs.smooth.get(self.oct_cvs.mode)
-            self.show_mode_win.push(dba_db, 'dBA', _sm_bands, self.db_min, self.db_max)
+            self.show_mode_win.push(_sv, _su, _sm_bands, self.db_min, self.db_max)
 
     # ── 렌더링 타이머 (30fps)
     def _render_frame(self):
