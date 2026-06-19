@@ -1207,6 +1207,45 @@ def _spectra_mark(h=22):
     return pm
 
 
+def _make_splash_pixmap(w=520, h=300):
+    """렌더형 브랜드 스플래시 QPixmap — splash.png 없어도 항상 SPECTRA 브랜드 모먼트.
+    그라디언트 웨이브 마크 + 워드마크 + 시그니처 라인 + 버전. 정적 1회 렌더(부담 0)."""
+    try:
+        dpr = QApplication.primaryScreen().devicePixelRatio() if QApplication.instance() else 1.0
+    except Exception:
+        dpr = 1.0
+    pm = QPixmap(int(w * dpr), int(h * dpr)); pm.setDevicePixelRatio(dpr)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing); p.setRenderHint(QPainter.TextAntialiasing)
+    # 배경: 수직 다크 그라디언트 (위 살짝 밝게 → elevation)
+    bg = QLinearGradient(0, 0, 0, h)
+    bg.setColorAt(0.0, QColor('#16171C')); bg.setColorAt(1.0, QColor('#09090C'))
+    p.fillRect(0, 0, w, h, QBrush(bg))
+    p.setPen(QPen(QColor(255, 255, 255, 18), 1)); p.setBrush(Qt.NoBrush)
+    p.drawRect(0, 0, w - 1, h - 1)
+    # 그라디언트 웨이브 마크 (중앙 상단)
+    mark = _spectra_mark(h=66)
+    mw = mark.width() / mark.devicePixelRatio()
+    p.drawPixmap(int((w - mw) / 2), 70, mark)
+    # 워드마크 SPECTRA
+    fw = QFont('Optima', 30); fw.setBold(True); fw.setLetterSpacing(QFont.AbsoluteSpacing, 11)
+    p.setFont(fw); p.setPen(QColor('#F1F4F9'))
+    p.drawText(0, 150, w, 48, Qt.AlignHCenter | Qt.AlignVCenter, 'SPECTRA')
+    # 시그니처 그라디언트 라인
+    lw = 168; lx = (w - lw) / 2.0; ly = 200
+    p.setPen(Qt.NoPen); p.setBrush(_spectra_grad_brush(lx, lx + lw))
+    p.drawRoundedRect(QRectF(lx, ly, lw, 3.0), 1.5, 1.5)
+    # 서브타이틀
+    fs = QFont('Helvetica', 9); fs.setLetterSpacing(QFont.AbsoluteSpacing, 4)
+    p.setFont(fs); p.setPen(QColor('#828A98'))
+    p.drawText(0, 214, w, 20, Qt.AlignHCenter, 'AUDIO MEASUREMENT')
+    # 하단: 버전 · by WAYAUDIO
+    fv = QFont('Helvetica', 9); p.setFont(fv); p.setPen(QColor('#5C6373'))
+    p.drawText(0, h - 36, w, 18, Qt.AlignHCenter, f'v{_APP_VERSION}    ·    by WAYAUDIO')
+    p.end()
+    return pm
+
+
 # 캡쳐 일괄 표시/숨김 토글 전용 아이콘 — SPECTRA 시그니처 웨이브(캡쳐=스펙트럼 곡선 은유).
 # 기존 Lucide 아이콘 재사용 금지(브랜드 정체성) → 그라디언트 마크를 미니 글리프로 자체 렌더.
 _WAVE_TOGGLE_PATH = 'M2,12 C5,12 5,7 8,7 S11,17 14,12 S17,7 20,7 S22,12 22,12'
@@ -17837,6 +17876,14 @@ if __name__=='__main__':
         splash = QSplashScreen(pix, Qt.WindowStaysOnTopHint)
         splash.show()
         app.processEvents()
+    else:
+        # splash.png 없으면 렌더형 브랜드 스플래시 (항상 SPECTRA 모먼트)
+        try:
+            splash = QSplashScreen(_make_splash_pixmap(), Qt.WindowStaysOnTopHint)
+            splash.show()
+            app.processEvents()
+        except Exception:
+            splash = None
 
     app.aboutToQuit.connect(_emergency_cleanup)  # USB 스트림 정상 종료 보장
 
