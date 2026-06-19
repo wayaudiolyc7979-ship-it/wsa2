@@ -1,6 +1,6 @@
 11#!/usr/bin/env python3
 # ═══════════════════════════════════════════════════
-#  SPECTRA — Spectrum Analyzer  (by WAYAUDIO)  v1.6.5
+#  SPECTRA — Spectrum Analyzer  (by WAYAUDIO)  v1.6
 #  ✅ FFT 버벅임 수정 (포인트 다운샘플링)
 #  ✅ 마이크 캘리브레이션 (94/114dB @ 1kHz)
 #  ✅ dBA / dBC 실시간 레벨
@@ -97,7 +97,7 @@ import math as _math
 
 # ── 앱 버전 (단일 소스) ── 버전 올릴 땐 `bash bump_version.sh 1.6` 한 줄로 전부 갱신.
 #   (이 상수 + 상단 주석 + WSA2.spec/build_intel.sh/version_info.txt 까지 스크립트가 처리)
-_APP_VERSION = '1.6.5'
+_APP_VERSION = '1.6'
 
 # ═══════════════════════════════════════════════════════════════════
 #  라이선스 관리
@@ -383,6 +383,34 @@ def freq_to_note(f):
     n = int(round(69.0 + 12.0 * math.log2(f / 440.0)))   # 69 = A4
     return f'{_NOTE_NAMES[n % 12]}{n // 12 - 1}'
 
+# ── 딜레이 단위 (ms ↔ 거리 m) — 표시 통합 ──────────────────────────────
+# 내부 저장값은 *항상* ms. 딜레이를 화면에 글로 찍는 모든 곳(IR 마커/커서/시간축/
+# 파인더/스핀박스 보조라벨)은 fmt_delay() 하나만 거친다. 나중에 토글 UI는
+# _DELAY_UNIT 값만 바꾸고 캔버스.update()+스핀박스 새로고침 하면 전체가 일괄 환산됨.
+_SOUND_SPEED = 343.0      # m/s (20°C). _DelayAdvancedDialog에서 조정(전역 단일 소스).
+_DELAY_UNIT  = 'ms'       # 'ms' | 'm' | 'both'  — 딜레이 표시 단위 (기본=ms, 동작 변화 0)
+
+def ms_to_m(ms):
+    return ms * _SOUND_SPEED / 1000.0
+
+def m_to_ms(m):
+    return m * 1000.0 / _SOUND_SPEED
+
+def fmt_delay(ms, prec=2, unit=None, compact=False, sign=False):
+    """딜레이(ms 값) → 현재 표시 단위 문자열.
+    unit 지정 시 강제. compact=축 눈금용(공백 없이 단일 단위). sign=델타용 +부호."""
+    u = unit or _DELAY_UNIT
+    s = '+' if sign else ''
+    if compact:                                   # 축 눈금: 한 단위만, 공백 없이
+        if u == 'm':
+            return f'{ms_to_m(ms):{s}.{max(prec,1)}f}m'
+        return f'{ms:{s}.{prec}f}ms'
+    if u == 'm':
+        return f'{ms_to_m(ms):{s}.2f} m'
+    if u == 'both':
+        return f'{ms:{s}.{prec}f} ms · {ms_to_m(ms):{s}.2f} m'
+    return f'{ms:{s}.{prec}f} ms'
+
 _HANN_CACHE = {}   # {n: (hanning_win, Σw²)} — power_spectrum_db 윈도우 메모이즈
 def power_spectrum_db(buf):
     """단측(one-sided) 파워 스펙트럼 → 빈별 dBFS 배열.
@@ -403,6 +431,43 @@ def power_spectrum_db(buf):
     if n % 2 == 0: ps[-1] *= 0.5               # DC·Nyquist는 단측 ×2 제외
     np.maximum(ps, 1e-20, out=ps)
     return 10.0 * np.log10(ps)
+
+
+_OCT_MASK_CACHE = {}   # (len(freqs), nyquist반올림, mode) → 밴드별 인덱스 캐시(매 프레임 마스크 재계산 방지)
+def _octave_bands(freqs, db_vals, mode):
+    """빈별 dB → 옥타브 밴드 dB (IEC 61260 파워 합산). MainWindow._calc_oct의 모듈판 — TF RTA용.
+    밴드별 빈 인덱스를 그리드별로 캐시해 매 프레임 마스크 재계산을 피함(렌더 부하 절감)."""
+    key = (len(freqs), int(round(float(freqs[-1]))), mode)
+    plan = _OCT_MASK_CACHE.get(key)
+    if plan is None:
+        bands = BANDS[mode]
+        bpo = 3 if mode == 'oct3' else 12 if mode == 'oct12' else 24
+        half = 1 / (2 * bpo)
+        plan = []
+        for fc in bands:
+            fl, fh = fc / 2 ** half, fc * 2 ** half
+            idxs = np.where((freqs >= fl) & (freqs <= fh))[0]
+            if len(idxs):
+                plan.append(('sum', idxs))
+            else:
+                idx = int(np.argmin(np.abs(freqs - fc)))
+                if 0 < idx < len(freqs) - 1:
+                    f0, f1 = float(freqs[idx - 1]), float(freqs[idx])
+                    t = max(0.0, min(1.0, (fc - f0) / (f1 - f0) if f1 > f0 else 0.5))
+                    plan.append(('interp', idx, t))
+                else:
+                    plan.append(('one', idx))
+        _OCT_MASK_CACHE[key] = plan
+    res = []
+    for item in plan:
+        if item[0] == 'sum':
+            res.append(float(10 * np.log10(np.sum(10 ** (db_vals[item[1]] / 10)))))
+        elif item[0] == 'interp':
+            _, idx, t = item
+            res.append(float(db_vals[idx - 1]) * (1 - t) + float(db_vals[idx]) * t)
+        else:
+            res.append(float(db_vals[item[1]]))
+    return res
 
 # ───────────────────────────────────────────
 #  테마
@@ -2920,6 +2985,7 @@ class OctaveCanvas(QWidget):
             draw_info_box(p,W,fs,f'{db2:.1f} {unit}')
         if self._idle_hint:
             _draw_idle_hint(p, pl, pt, W-pl-pr, dh)
+        _draw_tf_sel_border(self, p)   # TF의 RTA 칸 선택 시 파란 테두리(Spectrum 탭에선 무효)
         p.end()
 
 # ───────────────────────────────────────────
@@ -7996,12 +8062,27 @@ class _MeasCard(QFrame):
         self._delay_spin.setButtonSymbols(QDoubleSpinBox.NoButtons)
         self._delay_spin.setAlignment(Qt.AlignCenter)
         self._delay_spin.setStyleSheet(self._delay_spin_ss())
+        # 거리(m) 보조 라벨 — _DELAY_UNIT 이 m/both 일 때만 노출. 입력은 ms 유지.
+        self._m_lbl = QLabel(''); self._m_lbl.setStyleSheet(ss_text(FS_XS))
+        self._m_lbl.setAlignment(Qt.AlignVCenter)
+        self._delay_spin.valueChanged.connect(self._update_m_lbl)
         auto_btn = QPushButton(' Auto'); auto_btn.setIcon(_icon('search',13)); auto_btn.setFixedHeight(22)
         self._auto_btn = auto_btn
         auto_btn.setStyleSheet(self._auto_btn_ss())
         auto_btn.clicked.connect(self.find_delay_clicked)
-        d_row.addWidget(d_lbl); d_row.addWidget(self._delay_spin, 1); d_row.addWidget(auto_btn)
+        d_row.addWidget(d_lbl); d_row.addWidget(self._delay_spin, 1)
+        d_row.addWidget(self._m_lbl); d_row.addWidget(auto_btn)
         self._lay.addLayout(d_row)
+        self._update_m_lbl()
+
+    def _update_m_lbl(self):
+        """딜레이 ms → 옆 거리(m) 라벨 갱신. _DELAY_UNIT 이 ms 면 숨김."""
+        if not hasattr(self, '_m_lbl'): return
+        if _DELAY_UNIT in ('m', 'both'):
+            self._m_lbl.setText(f'= {ms_to_m(self._delay_spin.value()):.2f} m')
+            self._m_lbl.show()
+        else:
+            self._m_lbl.hide()
 
     def delay_ms(self):
         return self._delay_spin.value() if hasattr(self, '_delay_spin') else 0.0
@@ -8011,6 +8092,7 @@ class _MeasCard(QFrame):
             self._delay_spin.blockSignals(True)
             self._delay_spin.setValue(ms)
             self._delay_spin.blockSignals(False)
+            self._update_m_lbl()
 
     def set_meas(self, db):
         self._m_bar.set_rms(db)
@@ -8470,7 +8552,7 @@ class TFIRCanvas(QWidget):
             if pl <= x <= W - pr:
                 p.setPen(QPen(QColor(T('grid')), 1)); p.drawLine(x, pt, x, H - pb)
                 p.setPen(QColor(T('graph_txt'))); p.setFont(_qfont(CF_AXIS))
-                lbl = f'{t:.0f}ms'; tw = p.fontMetrics().horizontalAdvance(lbl)
+                lbl = fmt_delay(t, 0, compact=True); tw = p.fontMetrics().horizontalAdvance(lbl)
                 p.drawText(x - tw // 2, H - pb + 14, lbl)
             t += step_ms
 
@@ -8675,7 +8757,7 @@ class TFIRCanvas(QWidget):
                 p.drawLine(_dx, pt, _dx, H - pb)
             # 값 라벨 — 선택(front)된 하나만 하단축에 표시. 캡처 클릭 → 그 캡처 값만 뜸(겹침 없음).
             if _is_front:
-                _lbl = f'▷ {_dms:.2f} ms'
+                _lbl = f'▷ {fmt_delay(_dms)}'
                 p.setFont(_qfont(CF_MODE, True))
                 _fm = p.fontMetrics(); _tw2 = _fm.horizontalAdvance(_lbl)
                 _lx = _dx + 5
@@ -8704,15 +8786,15 @@ class TFIRCanvas(QWidget):
             if self.ir_mode == 0 and _ch is not None:
                 pk = max(float(np.max(np.abs(_ch))), 1e-10)
                 idx = int(np.clip(np.argmin(np.abs(t_arr - t_cur)), 0, len(_ch) - 1))
-                draw_info_box(p, W, f'{t_cur:.1f} ms', f'{_ch[idx]/pk:+.3f}')
+                draw_info_box(p, W, fmt_delay(t_cur, 1), f'{_ch[idx]/pk:+.3f}')
             elif self.ir_mode == 1 and _cetc is not None:
                 idx = int(np.clip(np.argmin(np.abs(t_arr - t_cur)), 0, len(_cetc) - 1))
-                draw_info_box(p, W, f'{t_cur:.1f} ms', f'{_cetc[idx]:+.1f} dB')
+                draw_info_box(p, W, fmt_delay(t_cur, 1), f'{_cetc[idx]:+.1f} dB')
             elif self.ir_mode == 2 and _ch is not None:
                 pk = max(float(np.max(np.abs(_ch))), 1e-10)
                 idx = int(np.clip(np.argmin(np.abs(t_arr - t_cur)), 0, len(_ch) - 1))
                 db_val = 20 * math.log10(max(abs(float(_ch[idx])) / pk, 1e-10))
-                draw_info_box(p, W, f'{t_cur:.1f} ms', f'{db_val:+.1f} dB')
+                draw_info_box(p, W, fmt_delay(t_cur, 1), f'{db_val:+.1f} dB')
         _draw_tf_sel_border(self, p)
         p.end()
 
@@ -9064,7 +9146,7 @@ class DelayFinderDialog(QDialog):
     def __init__(self, tw, parent=None):
         super().__init__(parent)
         self._tw = tw
-        self._speed_ms = 343.0
+        self._speed_ms = _SOUND_SPEED   # 전역 음속 단일 소스 미러
         self._measured_ms = None
         self._tick_count = 0
         self._prog_timer = None
@@ -9240,7 +9322,9 @@ class DelayFinderDialog(QDialog):
     def _on_advanced(self):
         dlg = _DelayAdvancedDialog(self, self._speed_ms)
         if dlg.exec_() == QDialog.Accepted:
-            self._speed_ms = dlg.speed()
+            global _SOUND_SPEED
+            _SOUND_SPEED = dlg.speed()       # 전역 단일 소스 갱신 → IR 마커/커서 m 환산 일치
+            self._speed_ms = _SOUND_SPEED
             if self._measured_ms is not None:
                 self._on_result(self._measured_ms)
 
@@ -9434,9 +9518,9 @@ class AllDelayFinderDialog(QDialog):
             else:
                 cur = tw._extra_pairs[enc].get('delay_ms', 0.0) if enc < len(tw._extra_pairs) else 0.0
             delta = d_ms - cur
-            ws[1].setText(f'{d_ms:.2f} ms'); ws[1].setStyleSheet(val_s)
-            ws[2].setText(f'{cur:.2f} ms');  ws[2].setStyleSheet(val_s)
-            ws[3].setText(f'{delta:+.2f} ms')
+            ws[1].setText(fmt_delay(d_ms)); ws[1].setStyleSheet(val_s)
+            ws[2].setText(fmt_delay(cur));  ws[2].setStyleSheet(val_s)
+            ws[3].setText(fmt_delay(delta, sign=True))
             ws[3].setStyleSheet(g_s if abs(delta) < 1.0 else val_s)
             any_valid = True
         self._insert_btn.setEnabled(any_valid)
@@ -9704,6 +9788,13 @@ class TransferFunctionWindow(QWidget):
         self._mc_threads = {}         # {device_idx: (thread, routing_list)}
         self._last_ref_fft = None; self._last_meas_fft = None
         self._last_ref_rms = 0.0; self._last_meas_rms = 0.0
+        self._rta_sub = None        # RTA 전용 엔진 구독(제너레이터/Start 없이 마이크 스펙트럼)
+        self._rta_ch = 0
+        self._rta_avg_buf = deque(maxlen=16)   # RTA FIFO 평균(스펙트럼 Avg와 동일 처리)
+        self._rta_last = 0.0   # RTA 컴퓨트 스로틀(엔진 60fps → ~30fps로 FFT 부하 절감)
+        self._rta_last_chunk = 0.0   # 마지막 청크 도착 시각 — liveness watchdog(구독 죽으면 재구독)
+        self._rta_pow_smooth = None  # 파워도메인 IIR 누적(스펙트럼 _process_audio와 동일 1단 스무딩)
+        self._rta_pending = None   # 최신 옥타브값 (producer=_on_rta_chunk / consumer=_rta_render_frame)
         self._cross_acc = None; self._auto_acc_x = None
         self._auto_acc_y = None; self._n_avg = 0
         self._avg_target = 23; self._running = False
@@ -9737,6 +9828,9 @@ class TransferFunctionWindow(QWidget):
         self._find_result_sig.connect(self._apply_find_result)
         self._find_pair_result_sig.connect(self._apply_find_pair_result)
         self._timer = QTimer(self); self._timer.timeout.connect(self._render); self._timer.start(100)
+        # RTA 소비자 — 스펙트럼 _render_frame과 동일하게 30fps 고정 타이머가 페인트 구동
+        # (콜백 지터와 분리 → 버벅임 제거). 구독 없으면 즉시 반환하므로 idle 비용 0.
+        self._rta_render_t = QTimer(self); self._rta_render_t.timeout.connect(self._rta_render_frame); self._rta_render_t.start(33)
         # G/L 단축키: QShortcut 대신 앱 레벨 이벤트 필터 사용 (포커스/상태 무관)
         self._key_filter = _TFKeyFilter(self)
         QApplication.instance().installEventFilter(self._key_filter)
@@ -10141,6 +10235,15 @@ class TransferFunctionWindow(QWidget):
         self.ir_cb.setFixedWidth(58); self.ir_cb.setFixedHeight(30)
         self.ir_cb.currentIndexChanged.connect(self._ir_mode_changed)
         tl.addWidget(self.ir_cb); tl.addSpacing(10)
+
+        tl.addWidget(_lb('Units'))
+        self.unit_cb = RoundComboBox(); self.unit_cb.addItems(['ms', 'ms·m', 'm'])
+        self.unit_cb._align_center = True
+        self.unit_cb.setFixedWidth(64); self.unit_cb.setFixedHeight(30)
+        self.unit_cb.setCurrentIndex(('ms', 'both', 'm').index(_DELAY_UNIT))
+        self.unit_cb.setToolTip('딜레이 표시 단위 — ms / 거리(m) / 둘 다 (음속 343 m/s, Delay Finder 고급설정에서 변경)')
+        self.unit_cb.currentIndexChanged.connect(self._unit_changed)
+        tl.addWidget(self.unit_cb); tl.addSpacing(10)
 
         tl.addWidget(_lb('Phase'))
         self.phase_cb = RoundComboBox(); self.phase_cb.addItems(TF_PHASE_MODES)
@@ -11276,6 +11379,114 @@ class TransferFunctionWindow(QWidget):
             self._render_inner()
         except Exception as e:
             _alog.error(f'TF _render error: {e}')
+        try:
+            self._update_rta()
+        except Exception as e:
+            _alog.error(f'TF _update_rta error: {e}')
+
+    def _rta_subscribe(self):
+        """RTA 칸 전용 마이크 구독(공유 엔진) — 제너레이터/측정 Start 없이 입력 스펙트럼만."""
+        if self._engine is None or self._rta_sub is not None:
+            return
+        dev = self.meas_cb.currentData()
+        ch = self.meas_ch_cb.currentData() or 0
+        if dev is None:
+            return
+        try:
+            self._rta_sub = self._engine.subscribe(dev, [ch], self.sample_rate)
+            self._rta_ch = ch
+            self._rta_avg_buf.clear()
+            self._rta_last_chunk = time.monotonic()   # 구독 직후 grace(아직 청크 전이라 watchdog 오판 방지)
+            self._rta_sub.chunk_ready.connect(self._on_rta_chunk, Qt.QueuedConnection)
+        except Exception as e:
+            _alog.warning(f'RTA subscribe 실패: {e}'); self._rta_sub = None
+
+    def _rta_unsubscribe(self):
+        if self._rta_sub is not None:
+            try: self._rta_sub.chunk_ready.disconnect()
+            except Exception: pass
+            try: self._rta_sub.close()
+            except Exception: pass
+            self._rta_sub = None
+        self._rta_avg_buf.clear()
+        self._rta_pow_smooth = None   # IIR 누적 리셋(다시 켜거나 채널 바뀌면 새로 시작)
+        self._rta_pending = None   # 소비자가 stale 데이터로 그리지 않도록
+        self.rta_cvs._rta_range_init = False   # 다시 켤 때 자동맞춤 재실행
+
+    def _on_rta_chunk(self, d):
+        """RTA producer — 청크마다(스펙트럼 _process_audio와 동일 빈도·동일 처리) 옥타브 값을 계산해
+        _rta_pending에 적재. 캔버스 decay/peak-hold/repaint는 30fps 고정 타이머 _rta_render_frame가 소비."""
+        self._rta_last_chunk = time.monotonic()   # 시그널 도착 = 구독 생존(채널 유무 무관, watchdog용)
+        buf = d.get(self._rta_ch)
+        if buf is None or len(buf) < 8:
+            return
+        rc = self.rta_cvs; mw = self.window()
+        n_avg = int(getattr(mw, 'avg_count', 16) or 16) if mw is not None else 16
+        if self._rta_avg_buf.maxlen != n_avg:
+            self._rta_avg_buf = deque(self._rta_avg_buf, maxlen=max(1, n_avg))
+        calib = float(getattr(mw, 'calib_offset', 0) or 0) if mw is not None else 0.0
+        # 스펙트럼 _process_audio와 동일한 2단 스무딩 — ①파워도메인 IIR(계수 s=Speed의 smoothing)
+        # ②FIFO 평균(avg_count). 이전엔 ①이 빠지고 30fps 스로틀이라 같은 Speed라도 RTA가 더 빠르고
+        # 거칠게 보였음 → IIR 추가 + 스로틀 제거(매 청크 처리)로 스펙트럼 옥타브와 속도·질감 일치.
+        s = float(getattr(mw, 'smoothing', SPEED_LEVELS[2][1])) if mw is not None else SPEED_LEVELS[2][1]
+        db = power_spectrum_db(buf)
+        pow_raw = 10.0 ** (db / 10.0)
+        if self._rta_pow_smooth is None or len(self._rta_pow_smooth) != len(pow_raw):
+            self._rta_pow_smooth = pow_raw.copy()
+            fft_smooth = db.copy()
+        else:
+            self._rta_pow_smooth *= s
+            self._rta_pow_smooth += pow_raw * (1.0 - s)
+            fft_smooth = 10.0 * np.log10(np.maximum(self._rta_pow_smooth, 1e-30))
+        self._rta_avg_buf.append(fft_smooth)
+        avg = np.mean(self._rta_avg_buf, axis=0) if len(self._rta_avg_buf) > 1 else fft_smooth
+        freqs = np.fft.rfftfreq(len(buf), 1.0 / self.sample_rate).astype(np.float32)
+        # 옥타브 값만 산출해 적재 — repaint/캔버스 decay는 소비자(_rta_render_frame)에서.
+        self._rta_pending = (rc.mode, _octave_bands(freqs, avg + calib, rc.mode), calib)
+
+    def _rta_render_frame(self):
+        """RTA consumer — 30fps 고정 타이머가 최신 옥타브값을 꺼내 스무딩/peak-hold/repaint
+        (스펙트럼 _render_frame과 동일 패턴). 콜백 지터와 무관한 일정 프레임 → 버벅임 제거."""
+        if self._rta_sub is None or self._rta_pending is None:
+            return
+        rc = self.rta_cvs; mw = self.window()
+        if mw is not None and hasattr(mw, 'oct_cvs'):
+            oc = mw.oct_cvs   # 속도/피크홀드를 스펙트럼 옥타브와 동일하게(매 프레임 미러)
+            rc.alpha = oc.alpha; rc.decay = oc.decay
+            rc.peak_hold = oc.peak_hold; rc.peak_hold_frames = oc.peak_hold_frames
+        mode, vals, calib = self._rta_pending
+        rc.calib_offset = calib
+        if mode != rc.mode:
+            return
+        rc.update_data(mode, vals)   # IIR 스무딩 + peak aging + repaint (일정 30fps cadence)
+        if not getattr(rc, '_rta_range_init', False):   # 첫 데이터 1회 자동맞춤
+            sm = rc.smooth[rc.mode]; valid = sm[sm > -90]
+            if len(valid):
+                peak = float(np.max(valid)); span = rc.db_max - rc.db_min
+                rc.db_max = int(math.ceil((peak + 12) / 12)) * 12
+                rc.db_min = rc.db_max - span; rc._rta_range_init = True
+
+    def _update_rta(self):
+        """RTA 구독 생명주기만 관리(계산은 _on_rta_chunk가 청크레이트로). RTA 칸 켜짐=마이크 구독."""
+        if 'RTA' not in self._tf_slot_plot:
+            if self._rta_sub is not None:
+                self._rta_unsubscribe()
+            return
+        cur_dev = self.meas_cb.currentData()
+        cur_ch = self.meas_ch_cb.currentData() or 0
+        # RTA 구독은 장치/채널 변경·스트림 재구성·loopback 충돌 등 여러 이유로 조용히 무효화될 수 있다.
+        # 원인을 일일이 열거하는 대신 'liveness watchdog'로 통일 처리: 청크가 일정시간 안 오면(stale)
+        # 죽은 구독으로 보고 재구독. + 장치/채널 변경은 즉시 따라가도록(정확성), 스트림 소멸도 즉시.
+        if self._rta_sub is not None:
+            device_changed  = (self._rta_sub.device_idx != cur_dev)
+            channel_changed = (self._rta_ch != cur_ch)
+            stream_gone = (self._engine is None or
+                           self._rta_sub.device_idx not in self._engine.active_devices())
+            stale = (time.monotonic() - self._rta_last_chunk > 1.2)   # 1.2초+ 청크 끊김 = 죽은 구독
+            if device_changed or channel_changed or stream_gone or stale:
+                self._rta_unsubscribe()
+        if self._rta_sub is None:
+            self._rta_subscribe()
 
     def _render_inner(self):
         # Internal Loopback: SigGen 순환 버퍼에서 Reference 프레임 추출
@@ -12272,6 +12483,18 @@ class TransferFunctionWindow(QWidget):
 
     def _ir_mode_changed(self, idx):
         self.ir_cvs.set_mode(idx)
+
+    def _unit_changed(self, idx):
+        """딜레이 표시 단위 토글 (ms / both / m). 전역값만 바꾸고 새로고침 — 표시코드 불변."""
+        global _DELAY_UNIT
+        _DELAY_UNIT = ('ms', 'both', 'm')[idx]
+        self._refresh_delay_unit()
+
+    def _refresh_delay_unit(self):
+        """단위 변경 후 표시 갱신 — 내부 저장(ms)은 불변. IR 캔버스 + 카드 m-라벨만."""
+        if hasattr(self, 'ir_cvs'): self.ir_cvs.update()
+        for c in getattr(self, '_level_cards', []):
+            if hasattr(c, '_update_m_lbl'): c._update_m_lbl()
 
     def _phase_mode_changed(self, idx):
         self.phase_mode = idx; self.phase_cvs.set_mode(idx)
@@ -16311,7 +16534,11 @@ class MainWindow(QMainWindow):
         except Exception: return 0
 
     def _any_audio_active(self):
-        """어느 탭이든 오디오 스트림이 활성인지 — 폴링 재초기화가 사용 중인 측정을 끊지 않도록 게이트."""
+        """어느 탭이든 오디오 스트림이 활성인지 — 폴링 재초기화가 사용 중인 측정을 끊지 않도록 게이트.
+        ※ RTA 칸의 수동 모니터 구독은 '측정 활성'이 아니므로 active_devices 판정에서 제외한다.
+          (RTA만 켠 채 USB를 뽑았다 꽂으면 RTA가 폴백 장치로 재구독돼 active_devices가 비지 않는데,
+           이를 활성으로 보면 replug 폴링/리스너가 보류돼 장치가 영영 다시 안 보인다. 측정 중이면
+           위의 _running/sig_gen 플래그로 이미 보호되므로 RTA 제외가 측정을 끊지 않는다.)"""
         if getattr(self, '_running', False): return True   # spectrum
         tw = self.tf_win
         if tw is not None and (getattr(tw, '_running', False) or
@@ -16320,7 +16547,9 @@ class MainWindow(QMainWindow):
         sp = self.stereo_page
         if sp is not None and getattr(sp, '_running', False): return True
         try:
-            if self.audio_engine.active_devices(): return True
+            rta = getattr(tw, '_rta_sub', None) if tw is not None else None
+            rta_dev = rta.device_idx if rta is not None else None
+            if any(d != rta_dev for d in self.audio_engine.active_devices()): return True
         except Exception: pass
         return False
 
@@ -16487,19 +16716,6 @@ class MainWindow(QMainWindow):
                 if _pvis: self.oct_cvs.update_data(self.view_mode,self._calc_oct(freqs,avg_cal))
             if self._spectro_on and _pvis:
                 self.spectro_cvs.set_data(freqs,avg_cal)
-            # TF의 RTA 칸 급전 — Spectrum 데이터(=스펙트럼 탭 상태) 그대로, 옥타브 모드/스케일 동기화
-            _tw = getattr(self, 'tf_win', None)
-            if _tw is not None and 'RTA' in getattr(_tw, '_tf_slot_plot', ()):
-                _rc = _tw.rta_cvs; _oc = self.oct_cvs
-                # dB 범위는 RTA 켤 때 1회만 스펙트럼서 가져오고, 이후엔 독립(더블클릭/휠 자유)
-                if not getattr(_rc, '_rta_range_init', False):
-                    _rc.db_min = _oc.db_min; _rc.db_max = _oc.db_max
-                    _rc._rta_range_init = True
-                _rc.calib_offset = getattr(_oc, 'calib_offset', 0)
-                _m = self.view_mode if self.view_mode in ('oct3', 'oct12', 'oct24') else 'oct12'
-                if _rc.mode != _m: _rc.set_mode(_m)
-                _rc.title_text = 'RTA  (%s)  ▾' % {'oct3': '1/3 oct', 'oct12': '1/12 oct', 'oct24': '1/24 oct'}[_m]
-                _rc.update_data(_m, self._calc_oct(freqs, avg_cal, _m))
             if self._pending_auto_fit:
                 self._auto_fit_frame_count += 1
                 if self._auto_fit_frame_count >= self.avg_count:
