@@ -4465,6 +4465,125 @@ class SplAlarmWindow(QWidget):
         e.accept()
 
 
+class ShowModeWindow(QWidget):
+    """FOH 글랜스 풀스크린 쇼 모드 — 거대한 SPL + 라이브 스펙트럼 + 핵심 지표.
+    객석 건너편에서도 한눈에 읽히게. _process_audio가 push()로 급전(표시 전용, 측정로직 독립).
+    한계 대비 초록(여유)→노랑(접근)→빨강(초과) 신호색."""
+    def __init__(self, main):
+        super().__init__()
+        self._main = main
+        self.setWindowTitle('SPECTRA — Show Mode')
+        self._spl = -120.0; self._unit = 'dBA'
+        self._peak = -120.0; self._leq = -120.0; self._leq_e = None
+        self._limit = 100.0; self._amber = 3.0
+        self._bands = None              # np.array octave dB
+        self._bmin = -60.0; self._bmax = 0.0
+        self.resize(1120, 630)
+        self._clock = QTimer(self); self._clock.timeout.connect(self.update); self._clock.start(1000)
+
+    def push(self, spl, unit, bands, bmin, bmax):
+        """순간 SPL + 스펙트럼 급전. PEAK(느린 감쇠 홀드)·LEQ(긴 지수창)는 내부 계산."""
+        self._spl = spl; self._unit = unit; self._bands = bands; self._bmin = bmin; self._bmax = bmax
+        self._peak = spl if spl > self._peak else self._peak - 0.04   # 피크 홀드 + 느린 감쇠
+        e = 10.0 ** (spl / 10.0)
+        self._leq_e = e if self._leq_e is None else self._leq_e + (e - self._leq_e) * 0.002
+        self._leq = 10.0 * math.log10(max(self._leq_e, 1e-12))
+        self.update()
+
+    def reset_hold(self):
+        self._peak = -120.0; self._leq_e = None; self._leq = -120.0; self.update()
+
+    def set_limit(self, limit, amber):
+        self._limit = float(limit); self._amber = float(amber)
+
+    def _state_color(self):
+        if self._spl >= self._limit:            return QColor(T('red'))
+        if self._spl >= self._limit - self._amber: return QColor(T('yellow'))
+        return QColor(T('green'))
+
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key_Escape,) or e.text().lower() == 'f':
+            self.close()
+        else:
+            super().keyPressEvent(e)
+
+    def closeEvent(self, e):
+        self._clock.stop()
+        if hasattr(self._main, 'show_mode_win'):
+            self._main.show_mode_win = None
+        e.accept()
+
+    def paintEvent(self, ev):
+        W = self.width(); H = self.height()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing); p.setRenderHint(QPainter.TextAntialiasing)
+        p.fillRect(0, 0, W, H, QColor('#07080B'))
+        p.fillRect(0, 0, W, 3, _spectra_grad_brush(0, W))          # 상단 브랜드 그라디언트 라인
+        m = int(min(W, H) * 0.045)
+        # ── 상단: 브랜드 + 시계 ──
+        bf = QFont('Optima', 1); bf.setPixelSize(max(16, int(H * 0.032))); bf.setBold(True)
+        bf.setLetterSpacing(QFont.AbsoluteSpacing, 3)
+        p.setFont(bf); p.setPen(QColor('#C9CDD7'))
+        p.drawText(m, int(m * 0.6), W, int(H * 0.06), Qt.AlignLeft | Qt.AlignVCenter, 'SPECTRA')
+        clk = time.strftime('%H:%M')
+        cf = QFont('Helvetica'); cf.setPixelSize(max(14, int(H * 0.028)))
+        p.setFont(cf); p.setPen(QColor('#6A7180'))
+        p.drawText(0, int(m * 0.6), W - m, int(H * 0.06), Qt.AlignRight | Qt.AlignVCenter, clk)
+        # ── 본문 영역 ──
+        top = int(H * 0.17); bot = int(H * 0.78)
+        left_w = int(W * 0.40)
+        col = self._state_color()
+        # 왼쪽: 거대한 SPL 숫자
+        num = f'{self._spl:.1f}' if self._spl > -100 else '—'
+        avail_w = left_w - int(m * 1.5)
+        nf = QFont('Helvetica Neue'); nf.setBold(True)
+        size = int((bot - top) * 0.62); nf.setPixelSize(size); p.setFont(nf)
+        tw = p.fontMetrics().horizontalAdvance(num)
+        if tw > avail_w and tw > 0:                       # 3자리(100+)면 폭에 맞춰 축소
+            size = max(10, int(size * avail_w / tw)); nf.setPixelSize(size); p.setFont(nf)
+        p.setPen(col)
+        p.drawText(m, top, left_w - m, int((bot - top) * 0.74), Qt.AlignVCenter | Qt.AlignHCenter, num)
+        uf = QFont('Helvetica'); uf.setPixelSize(max(14, int(H * 0.040)))
+        uf.setLetterSpacing(QFont.AbsoluteSpacing, 2)
+        p.setFont(uf); p.setPen(QColor('#8B93A2'))
+        p.drawText(m, int(bot - (bot - top) * 0.22), left_w - m, int((bot - top) * 0.20),
+                   Qt.AlignHCenter | Qt.AlignTop, f'{self._unit}   /   {self._limit:.0f}')
+        # 오른쪽: 라이브 스펙트럼 막대
+        sx = left_w + m // 2; sy = top; sw = W - sx - m; sh = bot - top
+        p.fillRect(sx, sy, sw, sh, QColor('#0D0F14'))
+        p.setPen(QPen(QColor(255, 255, 255, 14), 1)); p.setBrush(Qt.NoBrush)
+        p.drawRect(sx, sy, sw, sh)
+        b = self._bands
+        if b is not None and len(b):
+            n = len(b); bw = sw / n; gap = max(1.0, bw * 0.12)
+            rng = max(self._bmax - self._bmin, 1.0)
+            base = QColor(*bar_top())
+            brush, capc = _vbar_gradient(base)
+            for i in range(n):
+                v = float(np.clip(b[i], self._bmin, self._bmax))
+                bh = max(2, int((v - self._bmin) / rng * sh))
+                bx = int(sx + i * bw + gap / 2); ww = max(1, int(bw - gap)); by = sy + sh - bh
+                p.fillRect(bx, by, ww, bh, brush)
+                if bh > 6: p.fillRect(bx, by, ww, 1, capc)
+        # ── 하단: 지표 칩 ──
+        chips = [('PEAK', f'{self._peak:.0f}'), ('LEQ', f'{self._leq:.1f}'),
+                 ('HEADROOM', f'{self._limit - self._spl:+.0f} dB')]
+        cy = int(H * 0.86); ch_h = int(H * 0.09)
+        cw = (W - 2 * m) // len(chips); gap = int(W * 0.012)
+        lf = QFont('Helvetica'); lf.setPixelSize(max(11, int(H * 0.020)))
+        lf.setLetterSpacing(QFont.AbsoluteSpacing, 2)
+        vf = QFont('Helvetica Neue'); vf.setBold(True); vf.setPixelSize(max(18, int(H * 0.042)))
+        for i, (lab, val) in enumerate(chips):
+            x = m + i * cw
+            p.setBrush(QColor('#101218')); p.setPen(QPen(QColor(255, 255, 255, 16), 1))
+            p.drawRoundedRect(QRectF(x, cy, cw - gap, ch_h), 10, 10)
+            p.setFont(lf); p.setPen(QColor('#6E7585'))
+            p.drawText(int(x + 18), cy, cw - gap - 18, ch_h, Qt.AlignLeft | Qt.AlignVCenter, lab)
+            p.setFont(vf); p.setPen(QColor('#E6E9F0'))
+            p.drawText(int(x), cy, cw - gap - 18, ch_h, Qt.AlignRight | Qt.AlignVCenter, val)
+        p.end()
+
+
 class SplMeterWindow(QWidget):
     """Smaart-style SPL Meter — 자유 행×열 그리드 + 칸별 지표 선택."""
     _PUSH_RATE = 50  # ~50 fps from audio thread
@@ -14242,6 +14361,7 @@ class MainWindow(QMainWindow):
         self._split_prev_tab = 0
         self.spl_meter_win = None
         self.spl_alarm_win = None
+        self.show_mode_win = None
 
         self._disconnected_dev_name = ''   # USB 뽑힌 장치 이름 (Refresh 시 필터링용)
         self._first_device_load = True     # 시작 시 내장 마이크 폴백 여부 판단용
@@ -15711,6 +15831,16 @@ class MainWindow(QMainWindow):
             self.spl_alarm_win.set_calib_offset(self.calib_offset)
         self.show_float_popup(self.spl_alarm_win, 210, 150, new)
 
+    def _open_show_mode(self):
+        """FOH 글랜스 쇼 모드 — 풀스크린 거대 디스플레이. 토글(열려있으면 닫음).
+        _process_audio가 push로 급전. 한계는 SPL 알람 설정 공유."""
+        if getattr(self, 'show_mode_win', None) is not None:
+            self.show_mode_win.close(); self.show_mode_win = None; return
+        self.show_mode_win = ShowModeWindow(self)
+        a = self._settings.get('spl_alarm', {})
+        self.show_mode_win.set_limit(a.get('limit', 100.0), a.get('amber', 3.0))
+        self.show_mode_win.showFullScreen()
+
     def _open_tf_window(self):
         if self._tf_popout is not None:
             self._tf_popout.raise_(); self._tf_popout.activateWindow()
@@ -16719,6 +16849,10 @@ class MainWindow(QMainWindow):
         if self.spl_alarm_win and dba_db>-100:
             # 독립 알람 창 — SPL 미터 유무·소스선택과 무관하게 primary 레벨로 급전
             self.spl_alarm_win.push_levels(raw_dbfs+self.calib_offset, raw_dba, raw_dbc, fs_peak)
+        if self.show_mode_win and dba_db>-100:
+            # FOH 쇼 모드 — A가중 SPL 헤드라인 + 라이브 옥타브 스펙트럼 급전
+            _sm_bands = self.oct_cvs.smooth.get(self.oct_cvs.mode)
+            self.show_mode_win.push(dba_db, 'dBA', _sm_bands, self.db_min, self.db_max)
 
     # ── 렌더링 타이머 (30fps)
     def _render_frame(self):
@@ -17613,6 +17747,9 @@ class MainWindow(QMainWindow):
         spl_act.triggered.connect(self._open_spl_meter); view_menu.addAction(spl_act)
         alarm_act = QAction('SPL Alarm', self)
         alarm_act.triggered.connect(self._open_spl_alarm); view_menu.addAction(alarm_act)
+        show_act = QAction('Show Mode (Full Screen)', self)
+        show_act.setShortcut('Ctrl+Shift+F')   # macOS에선 Cmd+Shift+F
+        show_act.triggered.connect(self._open_show_mode); view_menu.addAction(show_act)
         view_menu.addSeparator()
         spec_pop_act = QAction('Spectrum 별도 창', self)
         spec_pop_act.setShortcut('Ctrl+Shift+S')   # macOS에선 Cmd+Shift+S로 매핑
@@ -17754,6 +17891,7 @@ class MainWindow(QMainWindow):
         # 부모 없는 독립 창(SPL 미터 + 라우드니스/벡터스코프 + TF 팝아웃) → 메인 종료 시 직접 닫아 고아 방지
         for _wn in (getattr(self, 'spl_meter_win', None),
                     getattr(self, 'spl_alarm_win', None),
+                    getattr(self, 'show_mode_win', None),
                     getattr(self, '_tf_popout', None),
                     getattr(self, '_spec_popout', None),
                     getattr(self, '_st_popout', None),
