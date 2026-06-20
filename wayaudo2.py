@@ -14305,6 +14305,70 @@ class LoudnessRadarCanvas(QWidget):
             self.popout_requested.emit()
 
 
+class _GradientNumber(QWidget):
+    """SPECTRA 브랜드 그라디언트로 그리는 초대형 숫자 (Program Loudness 히어로)."""
+    def __init__(self, size=72):
+        super().__init__()
+        self._text = '—'; self._size = size
+        self.setMinimumHeight(int(size * 1.3))
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+    def setText(self, t):
+        if t != self._text: self._text = t; self.update()
+    def text(self): return self._text
+    def paintEvent(self, e):
+        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
+        f = QFont('Helvetica Neue', self._size); f.setWeight(QFont.Black); p.setFont(f)
+        r = self.rect()
+        if self._text in ('—', ''):
+            p.setPen(QColor(T('text_dim')))
+        else:
+            p.setPen(QPen(QBrush(_spectra_grad_obj(r.left() + r.width() * 0.18,
+                                                    r.left() + r.width() * 0.82)), 1))
+        p.drawText(r, Qt.AlignCenter, self._text)
+
+
+class LoudnessHistoryCanvas(QWidget):
+    """Short-term 라우드니스 시간 그래프 — 브랜드 그라디언트 채움 + 타겟선."""
+    _LO = -42.0; _HI = 0.0
+    def __init__(self):
+        super().__init__()
+        self._vals = deque(maxlen=900); self._target = -23.0
+        self.setMinimumHeight(110)
+    def set_target(self, t): self._target = float(t); self.update()
+    def push(self, v):
+        if v > -100: self._vals.append(float(v)); self.update()
+    def reset(self): self._vals.clear(); self.update()
+    def paintEvent(self, e):
+        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
+        dark = (_theme != 'light'); W, H = self.width(), self.height()
+        p.fillRect(0, 0, W, H, QColor(8, 8, 10) if dark else QColor(T('bg')))
+        pad = 8
+        def y(v):
+            t = max(0.0, min(1.0, (v - self._LO) / (self._HI - self._LO)))
+            return H - pad - (H - 2 * pad) * t
+        # label
+        p.setPen(QColor(T('text_dim'))); p.setFont(QFont('Helvetica Neue', FS_SM))
+        p.drawText(10, 16, 'LOUDNESS HISTORY  (short-term)')
+        # target dashed line
+        ty = y(self._target)
+        p.setPen(QPen(QColor(T('green')), 1, Qt.DashLine)); p.drawLine(0, int(ty), W, int(ty))
+        vals = list(self._vals)
+        if len(vals) < 2: return
+        path = QPainterPath()
+        for i, v in enumerate(vals):
+            x = W * i / (len(vals) - 1); yy = y(v)
+            path.moveTo(x, yy) if i == 0 else path.lineTo(x, yy)
+        g = QLinearGradient(0, H, 0, 0)
+        g.setColorAt(0.0, QColor('#1FA2FF')); g.setColorAt(0.5, QColor('#9B5DE5')); g.setColorAt(1.0, QColor('#FF453A'))
+        # filled area
+        fp = QPainterPath(path); fp.lineTo(W, H); fp.lineTo(0, H); fp.closeSubpath()
+        gf = QLinearGradient(0, H, 0, 0)
+        c0 = QColor('#1FA2FF'); c0.setAlpha(8); c1 = QColor('#FF453A'); c1.setAlpha(70)
+        gf.setColorAt(0.0, c0); gf.setColorAt(1.0, c1)
+        p.setBrush(QBrush(gf)); p.setPen(Qt.NoPen); p.drawPath(fp)
+        p.setPen(QPen(QBrush(g), 2.0)); p.setBrush(Qt.NoBrush); p.drawPath(path)
+
+
 class StereoLoudnessPage(QWidget):
     """벡터스코프 + 라우드니스 레이더를 담는 탭 페이지."""
     error_signal = pyqtSignal(str)   # MainWindow가 버튼 리셋에 사용
@@ -14328,6 +14392,7 @@ class StereoLoudnessPage(QWidget):
         self._sep.setStyleSheet(f'color:{T("border")};background:{T("border")};')
         self._radar=LoudnessRadarCanvas()
         ml.addWidget(self._vs,1); ml.addWidget(self._sep); ml.addWidget(self._radar,1)
+        ml.addWidget(self._build_hero_panel(), 2)   # 시안C 거대 그라디언트 PROGRAM 히어로
         root.addWidget(self._main_w,1)
         self._vs.popout_requested.connect(self._popout_vs)
         self._radar.popout_requested.connect(self._popout_radar)
@@ -14341,6 +14406,10 @@ class StereoLoudnessPage(QWidget):
             'stop:0.52 #33cc00, stop:0.68 #ccbb00, stop:0.83 #ff5500, stop:1.0 #ff1100);'
         )
         root.addWidget(spec_sep)
+
+        # 라우드니스 히스토리 그래프 (시안C)
+        self._hist = LoudnessHistoryCanvas(); self._hist.setFixedHeight(120)
+        root.addWidget(self._hist)
 
         # 하단 숫자 패널
         num_bar=QWidget(); num_bar.setFixedHeight(80)
@@ -14408,8 +14477,6 @@ class StereoLoudnessPage(QWidget):
         nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
         nl.addWidget(_metric('S  Short-term',   'LUFS', '_lbl_S',  big=False, hue=224, light=156))
         nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
-        nl.addWidget(_metric('Program Loudness','LUFS', '_lbl_I',  big=True,  hue=270, light=180))
-        nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
         nl.addWidget(_metric('True-peak Max',   'dBTP', '_lbl_TP', big=True,  hue=4,   light=168))
         nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
         nl.addWidget(_metric('Loudness Range',  'LU',   '_lbl_LRA',big=False, hue=270, light=160))
@@ -14430,6 +14497,25 @@ class StereoLoudnessPage(QWidget):
 
     def _metric_lbl_col(self):
         return '#3a3a52' if _theme != 'light' else T('text_dim')
+
+    def _build_hero_panel(self):
+        """시안C 히어로 — PROGRAM LOUDNESS 거대 그라디언트 숫자 + 타겟/편차 + 컴플라이언스."""
+        w = QWidget(); w.setObjectName('stHero')
+        w.setStyleSheet('#stHero{background:%s;}' % (T('bg') if _theme != 'light' else T('bg2')))
+        vl = QVBoxLayout(w); vl.setContentsMargins(24, 12, 24, 12); vl.setSpacing(2)
+        vl.addStretch()
+        lbl = QLabel('PROGRAM LOUDNESS'); lbl.setAlignment(Qt.AlignHCenter)
+        lbl.setStyleSheet(f'font-size:{FS_BODY}px;color:{self._metric_lbl_col()};'
+                          f'letter-spacing:2px;background:transparent;')
+        self._lbl_I = _GradientNumber(72)
+        self._lbl_hero_sub = QLabel('—'); self._lbl_hero_sub.setAlignment(Qt.AlignHCenter)
+        self._lbl_hero_sub.setStyleSheet(f'font-size:{FS_LG}px;color:{T("text_dim")};background:transparent;')
+        self._lbl_comp = QLabel('—'); self._lbl_comp.setAlignment(Qt.AlignHCenter)
+        self._lbl_comp.setStyleSheet(f'font-size:{FS_LG}px;font-weight:bold;color:{T("text_dim")};background:transparent;')
+        vl.addWidget(lbl); vl.addWidget(self._lbl_I); vl.addWidget(self._lbl_hero_sub)
+        vl.addSpacing(8); vl.addWidget(self._lbl_comp)
+        vl.addStretch()
+        return w
 
     def _build_target_ctrl(self):
         """우측 컨트롤 — LU(타겟 상대) 표시 토글. 타겟 프리셋 선택은 상단 툴바 콤보가 담당."""
@@ -14454,6 +14540,7 @@ class StereoLoudnessPage(QWidget):
         """상단 툴바 콤보가 호출 — 타겟 동기화 + 편차/표시 즉시 갱신."""
         self._target = float(val)
         self._radar.set_target(self._target)        # ★ 즉시 반영 (Start 불필요)
+        if hasattr(self, '_hist'): self._hist.set_target(self._target)
         self._refresh_display(force=True)
 
     def _on_lu_toggled(self, on):
@@ -14582,6 +14669,7 @@ class StereoLoudnessPage(QWidget):
     def reset_integration(self):
         if self._meter: self._meter.start_integration()
         self._radar.reset_integration()
+        if hasattr(self, '_hist'): self._hist.reset()
 
     def reset_peak(self):
         if self._meter: self._meter._PH=-100.0
@@ -14599,6 +14687,7 @@ class StereoLoudnessPage(QWidget):
         self._vs.push_chunk(L,R); self._vs.update()
         m=self._meter
         self._radar.update_loudness(m.M,m.S,m.I,m.LRA,m.TP,m.peak_hold)
+        if m.S>-100: self._hist.push(m.S)
 
     def _on_error(self,msg):
         self.stop()
@@ -14637,6 +14726,24 @@ class StereoLoudnessPage(QWidget):
                T('yellow') if m.M<-16 else T('red'))
             self._lbl_M.setStyleSheet(
                 f'font-size:{FS_METRIC}px;font-weight:bold;color:{c};background:transparent;')
+        # 히어로 보조줄 + 컴플라이언스 (시안C)
+        if hasattr(self, '_lbl_hero_sub'):
+            if m.I>-100:
+                dev=m.I-self._target
+                self._lbl_hero_sub.setText(f'LUFS   ·   Target {self._target:+.0f}   ·   {dev:+.1f} LU')
+                tp_ok = (m.peak_hold<=-1.0) or (m.peak_hold<=-100)
+                ok = (abs(dev)<=1.0) and tp_ok
+                if ok:
+                    self._lbl_comp.setText(f'✓ PASS   ·   TP {m.peak_hold:.1f} dBTP')
+                    cc=T('green')
+                else:
+                    why='loudness' if abs(dev)>1.0 else 'true-peak'
+                    self._lbl_comp.setText(f'✗ CHECK {why}')
+                    cc=(T('yellow') if abs(dev)<=3.0 and tp_ok else T('red'))
+                self._lbl_comp.setStyleSheet(f'font-size:{FS_LG}px;font-weight:bold;color:{cc};background:transparent;')
+            else:
+                self._lbl_hero_sub.setText('—'); self._lbl_comp.setText('—')
+                self._lbl_comp.setStyleSheet(f'font-size:{FS_LG}px;font-weight:bold;color:{T("text_dim")};background:transparent;')
 
 
 class _TFPopoutWindow(QWidget):
