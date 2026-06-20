@@ -14383,140 +14383,113 @@ class StereoLoudnessPage(QWidget):
         self._build_ui()
 
     def _build_ui(self):
-        root=QVBoxLayout(self); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
+        # 시안C 카드형 레이아웃: 모든 요소를 둥근 카드에 배치 (검정 배경 위 카드 부유)
+        root=QVBoxLayout(self); root.setContentsMargins(12,12,12,12); root.setSpacing(12)
+        self.setStyleSheet('StereoLoudnessPage{background:%s;}' % (T('bg') if _theme!='light' else T('bg')))
+        self._vseps = []; self._metric_meta = []
 
-        # 상단 메인 영역: vectorscope | radar
-        self._main_w=QWidget(); ml=QHBoxLayout(self._main_w)
-        ml.setContentsMargins(0,0,0,0); ml.setSpacing(0)
-        self._ml=ml
-        self._vs=VectorscopeCanvas()
-        self._sep=QFrame(); self._sep.setFrameShape(QFrame.VLine)
-        self._sep.setStyleSheet(f'color:{T("border")};background:{T("border")};')
-        self._radar=LoudnessRadarCanvas()
-        ml.addWidget(self._vs,1); ml.addWidget(self._sep); ml.addWidget(self._radar,1)
-        ml.addWidget(self._build_hero_panel(), 2)   # 시안C 거대 그라디언트 PROGRAM 히어로
-        self._main_w.setMaximumHeight(430)           # 링+히어로 행 높이 제한(빈 공간 방지)
-        root.addWidget(self._main_w,0)
+        # ── Row 1: 벡터스코프 | 레이더 | PROGRAM 히어로 ──
+        self._vs=VectorscopeCanvas(); self._radar=LoudnessRadarCanvas()
         self._vs.popout_requested.connect(self._popout_vs)
         self._radar.popout_requested.connect(self._popout_radar)
         self._vs_win=None; self._radar_win=None
+        self._vs_card,  self._vs_card_l  = self._card(self._vs, pad=8)
+        self._radar_card, self._radar_card_l = self._card(self._radar, pad=8)
+        self._hero_card, _ = self._card(self._build_hero_panel(), pad=12)
+        row1=QHBoxLayout(); row1.setSpacing(12)
+        row1.addWidget(self._vs_card,1); row1.addWidget(self._radar_card,1); row1.addWidget(self._hero_card,2)
+        rw1=QWidget(); rw1.setLayout(row1); rw1.setMinimumHeight(290); rw1.setMaximumHeight(430)
+        root.addWidget(rw1,0)
 
-        # 스펙트럼 그라디언트 구분선 (2px)
-        spec_sep = QWidget(); spec_sep.setFixedHeight(2)
-        spec_sep.setStyleSheet(
-            'background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, '
-            'stop:0 #3300cc, stop:0.18 #0066ff, stop:0.35 #00ccaa, '
-            'stop:0.52 #33cc00, stop:0.68 #ccbb00, stop:0.83 #ff5500, stop:1.0 #ff1100);'
-        )
-        root.addWidget(spec_sep)
+        # ── Row 2: 메트릭 카드 6개 ──
+        specs=[('M  MOMENTARY','LUFS','_lbl_M',203,158),
+               ('S  SHORT-TERM','LUFS','_lbl_S',224,156),
+               ('TRUE PEAK','dBTP','_lbl_TP',4,168),
+               ('LRA','LU','_lbl_LRA',270,160),
+               ('PLR  pk/loud','LU','_lbl_PLR',326,162),
+               ('PSR  pk/short','LU','_lbl_PSR',320,162)]
+        row2=QHBoxLayout(); row2.setSpacing(10)
+        for title,unit,attr,hue,light in specs:
+            row2.addWidget(self._metric_card(title,unit,attr,hue,light),1)
+        row2.addWidget(self._build_target_ctrl(),0)
+        rw2=QWidget(); rw2.setLayout(row2); rw2.setFixedHeight(92)
+        root.addWidget(rw2,0)
 
-        # 라우드니스 히스토리 그래프 (시안C) — 남는 세로 공간을 채움(빈 공간 제거)
-        self._hist = LoudnessHistoryCanvas(); self._hist.setMinimumHeight(150)
-        root.addWidget(self._hist, 1)
-
-        # 하단 숫자 패널
-        num_bar=QWidget(); num_bar.setFixedHeight(80)
-        num_bar.setObjectName('stNumBar')
-        self._num_bar = num_bar
-        # 다크=스코프와 동일한 T('bg')(검정)로 → 바닥 전체 단색. 라이트=흰색(bg2).
-        num_bar.setStyleSheet('#stNumBar{background:%s;}' % (T('bg') if _theme != 'light' else T('bg2')))
-        nl=QHBoxLayout(num_bar); nl.setContentsMargins(16,4,16,4); nl.setSpacing(0)
-        self._vseps = []; self._metric_meta = []
-
-        _tooltips = {
-            '_lbl_M':  ('M  Momentary', 'LUFS',
-                        '약 400ms 이동 평균 라우드니스\n'
-                        '지금 이 순간의 레벨로 가장 빠르게 반응합니다.'),
-            '_lbl_S':  ('S  Short-term', 'LUFS',
-                        '3초 이동 평균 라우드니스\n'
-                        '짧은 구간의 평균 레벨을 보여줍니다.'),
-            '_lbl_I':  ('Program Loudness', 'LUFS',
-                        '재생 시작부터 현재까지 전체 구간의 통합 라우드니스\n'
-                        '방송 납품 기준값(예: -23 LUFS, -16 LUFS)과 비교하는 핵심 수치입니다.'),
-            '_lbl_TP': ('True-peak Max', 'dBTP',
-                        '디지털 클리핑 이전 단계에서 측정한 실제 피크\n'
-                        '0 dBFS 이상이면 클리핑 위험. 방송 규격은 보통 -1 dBTP 이하.'),
-            '_lbl_LRA':('Loudness Range', 'LU',
-                        '조용한 구간과 시끄러운 구간의 차이(LRA)\n'
-                        '숫자가 클수록 다이나믹 레인지가 넓음.\n'
-                        '음악: 5~15 LU / 드라마·광고: 더 좁게 관리.'),
-        }
-
-        def _metric(title, unit, attr, big=False, hue=0, light=160):
-            # 카드 배경을 투명으로 → 전역 QWidget{bg2} 회색을 없애고 바(stNumBar) 단색이 그대로 비침.
-            w=QWidget(); w.setStyleSheet('background:transparent;')
-            vl=QVBoxLayout(w); vl.setContentsMargins(0,0,0,0); vl.setSpacing(1)
-            t=QLabel(title)
-            t.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};letter-spacing:1px;background:transparent;')
-            t.setAlignment(Qt.AlignHCenter)
-            row=QWidget(); row.setStyleSheet('background:transparent;')
-            rl=QHBoxLayout(row); rl.setContentsMargins(0,0,0,0); rl.setSpacing(3)
-            fs=FS_METRIC_BIG if big else FS_METRIC
-            v=QLabel('—')
-            v.setStyleSheet(f'font-size:{fs}px;font-weight:bold;color:{_metric_col(hue, light)};background:transparent;')
-            v.setAlignment(Qt.AlignRight|Qt.AlignVCenter)
-            u=QLabel(unit)
-            u.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};background:transparent;')
-            u.setAlignment(Qt.AlignLeft|Qt.AlignVCenter)
-            rl.addStretch(); rl.addWidget(v); rl.addWidget(u); rl.addStretch()
-            vl.addWidget(t); vl.addWidget(row)
-            if attr in _tooltips:
-                tip = _tooltips[attr][2]
-                w.setToolTip(tip); t.setToolTip(tip); v.setToolTip(tip); u.setToolTip(tip)
-            setattr(self, attr, v)
-            self._unit_lbls[attr] = u
-            self._metric_meta.append((attr, hue, light, big, t, u))
-            return w
-
-        def _vsep():
-            f=QFrame(); f.setFrameShape(QFrame.VLine); f.setFixedWidth(1)
-            _c = '#1a1a2a' if _theme != 'light' else T('border')
-            f.setStyleSheet(f'color:{_c};background:{_c};')
-            self._vseps.append(f); return f
-
-        # 브랜드 그라디언트 정렬 hue: 시안203 / 블루224 / 퍼플270 / 핑크326·320 / 레드4
-        nl.addStretch()
-        nl.addWidget(_metric('M  Momentary',    'LUFS', '_lbl_M',  big=False, hue=203, light=158))
-        nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
-        nl.addWidget(_metric('S  Short-term',   'LUFS', '_lbl_S',  big=False, hue=224, light=156))
-        nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
-        nl.addWidget(_metric('True-peak Max',   'dBTP', '_lbl_TP', big=True,  hue=4,   light=168))
-        nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
-        nl.addWidget(_metric('Loudness Range',  'LU',   '_lbl_LRA',big=False, hue=270, light=160))
-        nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
-        nl.addWidget(_metric('PLR  pk/loud',    'LU',   '_lbl_PLR',big=False, hue=326, light=162))
-        nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
-        nl.addWidget(_metric('PSR  pk/short',   'LU',   '_lbl_PSR',big=False, hue=320, light=162))
-        nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
-        nl.addWidget(_metric('Δ Target',        'LU',   '_lbl_DEV',big=False, hue=140, light=160))
-        nl.addStretch()
-        nl.addWidget(self._build_target_ctrl())
-        nl.addSpacing(4)
-        root.addWidget(num_bar)
+        # ── Row 3: 히스토리 | 컴플라이언스 ──
+        self._hist=LoudnessHistoryCanvas()
+        hist_card,_=self._card(self._hist, pad=8)
+        row3=QHBoxLayout(); row3.setSpacing(12)
+        row3.addWidget(hist_card,2); row3.addWidget(self._build_compliance_card(),1)
+        rw3=QWidget(); rw3.setLayout(row3)
+        root.addWidget(rw3,1)
 
         self._disp_timer=QTimer(self)
         self._disp_timer.timeout.connect(self._refresh_display)
         self._disp_timer.start(80)
 
+    # ── 카드 헬퍼 ────────────────────────────────────────────────
+    def _card(self, inner, pad=8):
+        dark=(_theme!='light')
+        f=QFrame(); f.setObjectName('stCard')
+        f.setStyleSheet('#stCard{background:%s;border:1px solid %s;border-radius:14px;}' %
+                        (('#141416' if dark else T('panel')), ('#2A2A2C' if dark else T('border'))))
+        lay=QVBoxLayout(f); lay.setContentsMargins(pad,pad,pad,pad); lay.setSpacing(0); lay.addWidget(inner)
+        return f, lay
+
+    def _metric_card(self, title, unit, attr, hue, light):
+        dark=(_theme!='light'); col=_metric_col(hue,light)
+        f=QFrame(); f.setObjectName('stMc')
+        f.setStyleSheet('#stMc{background:%s;border:1px solid %s;border-radius:12px;}' %
+                        (('#141416' if dark else T('panel')), ('#2A2A2C' if dark else T('border'))))
+        h=QHBoxLayout(f); h.setContentsMargins(12,8,10,8); h.setSpacing(9)
+        bar=QFrame(); bar.setFixedWidth(4)
+        bar.setStyleSheet(f'background:{col};border:none;border-radius:2px;')
+        colw=QWidget(); colw.setStyleSheet('background:transparent;')
+        v=QVBoxLayout(colw); v.setContentsMargins(0,0,0,0); v.setSpacing(1)
+        t=QLabel(title); t.setStyleSheet(f'font-size:{FS_XS}px;color:{self._metric_lbl_col()};letter-spacing:0.5px;background:transparent;')
+        valrow=QWidget(); valrow.setStyleSheet('background:transparent;')
+        vr=QHBoxLayout(valrow); vr.setContentsMargins(0,0,0,0); vr.setSpacing(3)
+        val=QLabel('—'); val.setStyleSheet(f'font-size:{FS_METRIC}px;font-weight:bold;color:{col};background:transparent;')
+        u=QLabel(unit); u.setStyleSheet(f'font-size:{FS_XS}px;color:{self._metric_lbl_col()};background:transparent;')
+        u.setAlignment(Qt.AlignLeft|Qt.AlignBottom)
+        vr.addWidget(val); vr.addWidget(u); vr.addStretch()
+        v.addWidget(t); v.addWidget(valrow)
+        h.addWidget(bar); h.addWidget(colw,1)
+        setattr(self, attr, val); self._unit_lbls[attr]=u
+        self._metric_meta.append((attr,hue,light,False,t,u))
+        return f
+
+    def _build_compliance_card(self):
+        dark=(_theme!='light')
+        f=QFrame(); f.setObjectName('stCard')
+        f.setStyleSheet('#stCard{background:%s;border:1px solid %s;border-radius:14px;}' %
+                        (('#141416' if dark else T('panel')), ('#2A2A2C' if dark else T('border'))))
+        v=QVBoxLayout(f); v.setContentsMargins(14,12,14,12); v.setSpacing(6)
+        title=QLabel('COMPLIANCE'); title.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};letter-spacing:1px;background:transparent;')
+        self._comp_circle=QLabel('—'); self._comp_circle.setFixedSize(72,72); self._comp_circle.setAlignment(Qt.AlignCenter)
+        self._comp_circle.setStyleSheet(f'background:{T("bg3") if dark else T("bg3")};border-radius:36px;color:{T("text_dim")};font-size:34px;font-weight:bold;')
+        self._lbl_comp=QLabel('—'); self._lbl_comp.setAlignment(Qt.AlignHCenter)
+        self._lbl_comp.setStyleSheet(f'font-size:{FS_BODY}px;font-weight:bold;color:{T("text_dim")};background:transparent;')
+        v.addWidget(title); v.addStretch()
+        cc=QHBoxLayout(); cc.addStretch(); cc.addWidget(self._comp_circle); cc.addStretch(); v.addLayout(cc)
+        v.addWidget(self._lbl_comp); v.addStretch()
+        return f
+
     def _metric_lbl_col(self):
         return '#3a3a52' if _theme != 'light' else T('text_dim')
 
     def _build_hero_panel(self):
-        """시안C 히어로 — PROGRAM LOUDNESS 거대 그라디언트 숫자 + 타겟/편차 + 컴플라이언스."""
-        w = QWidget(); w.setObjectName('stHero')
-        w.setStyleSheet('#stHero{background:%s;}' % (T('bg') if _theme != 'light' else T('bg2')))
-        vl = QVBoxLayout(w); vl.setContentsMargins(24, 12, 24, 12); vl.setSpacing(2)
+        """시안C 히어로 — PROGRAM LOUDNESS 거대 그라디언트 숫자 + 타겟/편차."""
+        w = QWidget(); w.setStyleSheet('background:transparent;')
+        vl = QVBoxLayout(w); vl.setContentsMargins(16, 8, 16, 8); vl.setSpacing(4)
         vl.addStretch()
         lbl = QLabel('PROGRAM LOUDNESS'); lbl.setAlignment(Qt.AlignHCenter)
         lbl.setStyleSheet(f'font-size:{FS_BODY}px;color:{self._metric_lbl_col()};'
                           f'letter-spacing:2px;background:transparent;')
-        self._lbl_I = _GradientNumber(72)
+        self._lbl_I = _GradientNumber(120)
         self._lbl_hero_sub = QLabel('—'); self._lbl_hero_sub.setAlignment(Qt.AlignHCenter)
         self._lbl_hero_sub.setStyleSheet(f'font-size:{FS_LG}px;color:{T("text_dim")};background:transparent;')
-        self._lbl_comp = QLabel('—'); self._lbl_comp.setAlignment(Qt.AlignHCenter)
-        self._lbl_comp.setStyleSheet(f'font-size:{FS_LG}px;font-weight:bold;color:{T("text_dim")};background:transparent;')
-        vl.addWidget(lbl); vl.addWidget(self._lbl_I); vl.addWidget(self._lbl_hero_sub)
-        vl.addSpacing(8); vl.addWidget(self._lbl_comp)
+        vl.addWidget(lbl); vl.addWidget(self._lbl_I, 1); vl.addWidget(self._lbl_hero_sub)
         vl.addStretch()
         return w
 
@@ -14556,23 +14529,16 @@ class StereoLoudnessPage(QWidget):
         self._refresh_display(force=True)
 
     def restyle_theme(self):
-        """테마 토글(다크↔라이트) 시 하단 메트릭 바/구분선/값색 + 스코프 재적용."""
-        dark = (_theme != 'light')
-        if hasattr(self, '_num_bar'):
-            self._num_bar.setStyleSheet('#stNumBar{background:%s;}' % (T('bg') if dark else T('bg2')))
-        _sc = '#1a1a2a' if dark else T('border')
-        for f in getattr(self, '_vseps', []):
-            f.setStyleSheet(f'color:{_sc};background:{_sc};')
+        """테마 토글(다크↔라이트) 시 카드 메트릭 값색 + 스코프 재적용."""
         _lc = self._metric_lbl_col()
         for attr, hue, light, big, t_lbl, u_lbl in getattr(self, '_metric_meta', []):
             v = getattr(self, attr, None)
-            fs = FS_METRIC_BIG if big else FS_METRIC
             if v is not None:
-                v.setStyleSheet(f'font-size:{fs}px;font-weight:bold;color:{_metric_col(hue, light)};background:transparent;')
-            t_lbl.setStyleSheet(f'font-size:{FS_SM}px;color:{_lc};letter-spacing:1px;background:transparent;')
-            u_lbl.setStyleSheet(f'font-size:{FS_SM}px;color:{_lc};background:transparent;')
-        if hasattr(self, '_sep'):
-            self._sep.setStyleSheet(f'color:{T("border")};background:{T("border")};')
+                v.setStyleSheet(f'font-size:{FS_METRIC}px;font-weight:bold;color:{_metric_col(hue, light)};background:transparent;')
+            if t_lbl is not None:
+                t_lbl.setStyleSheet(f'font-size:{FS_XS}px;color:{_lc};letter-spacing:0.5px;background:transparent;')
+            if u_lbl is not None:
+                u_lbl.setStyleSheet(f'font-size:{FS_XS}px;color:{_lc};background:transparent;')
         if hasattr(self, '_vs'): self._vs.update()
         if hasattr(self, '_radar'): self._radar.update()
         for wn in (getattr(self, '_vs_win', None), getattr(self, '_radar_win', None)):
@@ -14618,8 +14584,7 @@ class StereoLoudnessPage(QWidget):
 
     def _popout_vs(self):
         if self._vs_win and self._vs_win.isVisible(): return
-        self._ml.removeWidget(self._vs)
-        self._sep.setVisible(False)
+        self._vs_card_l.removeWidget(self._vs)
         self._vs_win = self._make_popout_win(self._vs, 'Vectorscope')
         def _vs_close(e): self._return_vs(); e.accept()
         self._vs_win.closeEvent = _vs_close
@@ -14627,13 +14592,11 @@ class StereoLoudnessPage(QWidget):
 
     def _return_vs(self):
         if self._vs_win: self._vs_win.hide()
-        self._ml.insertWidget(0, self._vs, 1)
-        self._sep.setVisible(True)
+        self._vs_card_l.addWidget(self._vs)
 
     def _popout_radar(self):
         if self._radar_win and self._radar_win.isVisible(): return
-        self._ml.removeWidget(self._radar)
-        self._sep.setVisible(False)
+        self._radar_card_l.removeWidget(self._radar)
         self._radar_win = self._make_popout_win(self._radar, 'Loudness Radar')
         def _radar_close(e): self._return_radar(); e.accept()
         self._radar_win.closeEvent = _radar_close
@@ -14641,8 +14604,7 @@ class StereoLoudnessPage(QWidget):
 
     def _return_radar(self):
         if self._radar_win: self._radar_win.hide()
-        self._ml.addWidget(self._radar, 1)
-        self._sep.setVisible(True)
+        self._radar_card_l.addWidget(self._radar)
 
     def start(self,dev_idx,sr,l_ch,r_ch,engine):
         # 공유 오디오 엔진 구독 — 장치당 단일 스트림이라 Spectrum/TF와 같은 장치 동시 사용 가능.
@@ -14711,42 +14673,36 @@ class StereoLoudnessPage(QWidget):
         self._lbl_TP.setText(f'{m.peak_hold:.1f}' if m.peak_hold>-100 else '—')
         self._lbl_PLR.setText(f'{m.PLR:.1f}' if m.I>-100 else '—')
         self._lbl_PSR.setText(f'{m.PSR:.1f}' if m.S>-100 else '—')
-        # Δ Target = I − target (LU), 색: |Δ|≤1 초록 / ≤3 노랑 / 그 외 빨강
-        if m.I>-100:
-            dev=m.I-self._target
-            self._lbl_DEV.setText(f'{dev:+.1f}')
-            dc=(T('green') if abs(dev)<=1.0 else T('yellow') if abs(dev)<=3.0 else T('red'))
-        else:
-            self._lbl_DEV.setText('—'); dc=self._metric_lbl_col()
-        self._lbl_DEV.setStyleSheet(f'font-size:{FS_METRIC}px;font-weight:bold;color:{dc};background:transparent;')
         # True Peak: -1 dBTP 초과면 빨강 경고
         if m.peak_hold>-100:
-            tpc=T('red') if m.peak_hold>-1.0 else _metric_col(45,168)
-            self._lbl_TP.setStyleSheet(f'font-size:{FS_METRIC_BIG}px;font-weight:bold;color:{tpc};background:transparent;')
+            tpc=T('red') if m.peak_hold>-1.0 else _metric_col(4,168)
+            self._lbl_TP.setStyleSheet(f'font-size:{FS_METRIC}px;font-weight:bold;color:{tpc};background:transparent;')
         # M 라벨 색상: target=-23 기준
         if m.M>-100:
             c=(T('green') if m.M<-20 else
                T('yellow') if m.M<-16 else T('red'))
             self._lbl_M.setStyleSheet(
                 f'font-size:{FS_METRIC}px;font-weight:bold;color:{c};background:transparent;')
-        # 히어로 보조줄 + 컴플라이언스 (시안C)
-        if hasattr(self, '_lbl_hero_sub'):
-            if m.I>-100:
-                dev=m.I-self._target
-                self._lbl_hero_sub.setText(f'LUFS   ·   Target {self._target:+.0f}   ·   {dev:+.1f} LU')
-                tp_ok = (m.peak_hold<=-1.0) or (m.peak_hold<=-100)
-                ok = (abs(dev)<=1.0) and tp_ok
-                if ok:
-                    self._lbl_comp.setText(f'✓ PASS   ·   TP {m.peak_hold:.1f} dBTP')
-                    cc=T('green')
-                else:
-                    why='loudness' if abs(dev)>1.0 else 'true-peak'
-                    self._lbl_comp.setText(f'✗ CHECK {why}')
-                    cc=(T('yellow') if abs(dev)<=3.0 and tp_ok else T('red'))
-                self._lbl_comp.setStyleSheet(f'font-size:{FS_LG}px;font-weight:bold;color:{cc};background:transparent;')
+        # 히어로 보조줄 + 컴플라이언스 카드 (시안C)
+        if m.I>-100:
+            dev=m.I-self._target
+            self._lbl_hero_sub.setText(f'LUFS   ·   Target {self._target:+.0f}   ·   {dev:+.1f} LU')
+            tp_ok = (m.peak_hold<=-1.0) or (m.peak_hold<=-100)
+            ok = (abs(dev)<=1.0) and tp_ok
+            if ok:
+                self._comp_circle.setText('✓'); circ=T('green')
+                self._lbl_comp.setText(f'PASS · TP {m.peak_hold:.1f} / LRA {m.LRA:.1f}'); cc=T('green')
             else:
-                self._lbl_hero_sub.setText('—'); self._lbl_comp.setText('—')
-                self._lbl_comp.setStyleSheet(f'font-size:{FS_LG}px;font-weight:bold;color:{T("text_dim")};background:transparent;')
+                self._comp_circle.setText('✗')
+                circ=(T('yellow') if abs(dev)<=3.0 and tp_ok else T('red')); cc=circ
+                why='loudness' if abs(dev)>1.0 else 'true-peak'
+                self._lbl_comp.setText(f'CHECK {why}')
+            self._comp_circle.setStyleSheet(f'background:{circ};border-radius:36px;color:#000;font-size:34px;font-weight:bold;')
+            self._lbl_comp.setStyleSheet(f'font-size:{FS_BODY}px;font-weight:bold;color:{cc};background:transparent;')
+        else:
+            self._lbl_hero_sub.setText('—'); self._lbl_comp.setText('—')
+            self._comp_circle.setText('—')
+            self._comp_circle.setStyleSheet(f'background:{T("bg3")};border-radius:36px;color:{T("text_dim")};font-size:34px;font-weight:bold;')
 
 
 class _TFPopoutWindow(QWidget):
