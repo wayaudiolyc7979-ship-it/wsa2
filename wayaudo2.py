@@ -7010,6 +7010,109 @@ class MTWEngine:
         return f_out, H, coh
 
 
+def _gen_ess(T, f1, f2, sr, fade=0.01):
+    """Farina exponential sine sweep.  x(t)=sin[2π·f1·L·(e^{t/L}-1)], L=T/ln(f2/f1)."""
+    N = int(round(T * sr))
+    t = np.arange(N, dtype=np.float64) / sr
+    L = T / np.log(f2 / f1)
+    x = np.sin(2 * np.pi * f1 * L * (np.exp(t / L) - 1.0))
+    nf = int(fade * sr)
+    if nf > 0 and N > 2 * nf:
+        w_ = np.ones(N)
+        w_[:nf] = np.linspace(0, 1, nf); w_[-nf:] = np.linspace(1, 0, nf)
+        x = x * w_
+    return x.astype(np.float64)
+
+
+def _ess_inverse(x, T, f1, f2, sr):
+    """Farina inverse filter: time-reversed sweep × +6 dB/oct amplitude envelope.
+    Convolving the measured response with this yields an IR whose linear part is at
+    the matched-filter peak and whose nth harmonic sits Δt_n = L·ln(n) earlier."""
+    N = len(x)
+    L = T / np.log(f2 / f1)
+    k = np.arange(N, dtype=np.float64)
+    finst = f1 * np.exp((k / sr) / L)        # instantaneous freq of the forward sweep
+    env = finst / finst[0]                    # ∝ frequency  → +6 dB/oct
+    inv = x[::-1] * env[::-1]
+    # normalize so an identity system gives unit-height linear peak
+    peak = np.max(np.abs(_fft_convolve(x, inv)))
+    if peak > 0:
+        inv = inv / peak
+    return inv
+
+
+def _fft_convolve(a, b):
+    """Linear convolution via FFT (full), float64."""
+    n = len(a) + len(b) - 1
+    nfft = 1 << (int(n - 1).bit_length())
+    A = np.fft.rfft(a, nfft); B = np.fft.rfft(b, nfft)
+    return np.fft.irfft(A * B, nfft)[:n]
+
+
+def farina_analyze(y, x, sr, T, f1, f2, harmonics=(2, 3, 4, 5)):
+    """Deconvolve an ESS measurement into linear transfer function + harmonic IRs.
+
+    y : measured response, x : reference sweep (same as played).
+    Returns dict: freqs, H (linear complex TF), ir (linear IR, 0-centered t_ms),
+    t_ms, harmonics {n:(t_peak_ms, mag_at_fund)}, thd (percent vs freq), snr_db.
+    Pure DSP — headless-testable.
+    """
+    x = np.asarray(x, dtype=np.float64); y = np.asarray(y, dtype=np.float64)
+    N = len(x)
+    L = T / np.log(f2 / f1)
+    inv = _ess_inverse(x, T, f1, f2, sr)
+    g = _fft_convolve(y, inv)              # measured IR (linear peak + harmonics before it)
+    g_ref = _fft_convolve(x, inv)          # identity reference (delta at n0)
+    n0 = int(np.argmax(np.abs(g_ref)))     # linear-peak index
+
+    # harmonic peak positions: nth harmonic is Δt_n = L·ln(n) earlier
+    dt = {n: L * np.log(n) for n in harmonics}
+    # linear window: from just after the 2nd-harmonic position up to a tail past n0
+    pre = int(0.5 * dt[2] * sr)            # keep clear of harmonic energy
+    pre = max(pre, int(0.002 * sr))
+    tail = int(0.05 * sr)
+    lo = max(0, n0 - pre); hi = min(len(g), n0 + tail)
+    lin = g[lo:hi]; lin_ref = g_ref[lo:hi]
+    nwin = len(lin)
+    H = np.fft.rfft(lin) / (np.fft.rfft(lin_ref) + 1e-30)
+    freqs = np.fft.rfftfreq(nwin, 1.0 / sr)
+    # restrict to swept band
+    H[(freqs < f1) | (freqs > f2)] = 0.0
+
+    # 0-centered linear IR for the IR canvas
+    ir = np.fft.fftshift(np.fft.irfft(H, n=nwin)).astype(np.float32)
+    t_ms = (np.arange(nwin) - nwin // 2) / sr * 1000.0
+
+    # harmonic IR peaks + magnitude
+    harm = {}
+    half = int(0.5 * (dt[2] * sr))
+    for n in harmonics:
+        center = n0 - int(round(dt[n] * sr))
+        a = max(0, center - half // 2); b = min(len(g), center + half // 2)
+        if b - a < 8:
+            continue
+        seg = g[a:b]
+        harm[n] = (float((center - n0) / sr * 1000.0), float(np.max(np.abs(seg))))
+
+    # THD(%) vs frequency: ratio of summed harmonic energy to fundamental
+    lin_peak = float(np.max(np.abs(g[lo:hi])))
+    if lin_peak > 0 and len(harm) > 0:
+        h_sum = np.sqrt(sum(v[1] ** 2 for v in harm.values()))
+        thd = 100.0 * h_sum / lin_peak
+    else:
+        thd = 0.0
+
+    # crude SNR: linear-window energy vs out-of-window residual
+    resid = np.concatenate([g[:lo], g[hi:]])
+    noise = float(np.sqrt(np.mean(resid ** 2))) if len(resid) else 1e-9
+    sig = float(np.sqrt(np.mean(g[lo:hi] ** 2)))
+    snr_db = 20 * np.log10(max(sig, 1e-12) / max(noise, 1e-12))
+
+    return {"freqs": freqs, "H": H, "ir": ir, "t_ms": t_ms,
+            "harmonics": harm, "thd": thd, "snr_db": snr_db, "n0": n0, "L": L,
+            "g": g}
+
+
 def _draw_tf_sel_border(widget, p):
     """선택된 TF 분석창 외곽 하이라이트 — 클릭한 캔버스에 액센트 테두리(은은한 글로우+또렷 라인)."""
     if not getattr(widget, '_tf_selected', False):
