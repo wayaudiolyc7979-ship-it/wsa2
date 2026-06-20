@@ -13627,6 +13627,8 @@ class LoudnessMeter:
         self._M=-100.0; self._S=-100.0; self._S_fast=-100.0
         self._I=-100.0; self._LRA=0.0; self._TP=-100.0; self._PH=-100.0
         self._tp_tail_l=None; self._tp_tail_r=None   # True Peak 4× 오버샘플 연속성 테일
+        self._lra_st=[]                # EBU 3342 LRA: 프로그램 전체 short-term(3s) 값 누적
+        self._maxM=-100.0; self._maxS=-100.0   # Max Momentary / Max Short-term
 
     @staticmethod
     def _lufs(ms):
@@ -13669,16 +13671,18 @@ class LoudnessMeter:
                 self._sq_hist.append(ms)
                 self._fast_hist.append(ms)
                 if self._int_on: self._int_sq.append(ms)
+                # EBU 3342: full 3s short-term 값을 프로그램 전체에 누적 (블록당 1회)
+                if self._int_on and len(self._sq_hist)>=30:
+                    self._lra_st.append(self._lufs(float(np.mean(self._sq_hist))))
                 self._acc_l=0.0; self._acc_r=0.0; self._acc_n=0
         N=len(self._sq_hist)
         if N>=4: self._M=self._lufs(float(np.mean(list(self._sq_hist)[-4:])))
         if N>=5: self._S_fast=self._lufs(float(np.mean(self._fast_hist)))
         if N>=10: self._S=self._lufs(float(np.mean(list(self._sq_hist))))
+        if self._M>self._maxM: self._maxM=self._M
+        if self._S>self._maxS: self._maxS=self._S
         self._compute_I()
-        if N>=10:
-            vals=np.array([self._lufs(v) for v in self._sq_hist if v>1e-12])
-            if len(vals)>=4:
-                self._LRA=float(max(0,np.percentile(vals,95)-np.percentile(vals,10)))
+        self._compute_LRA()
 
     def _compute_I(self):
         if not self._int_sq or len(self._int_sq)<10: return
@@ -13691,8 +13695,23 @@ class LoudnessMeter:
         g2=arr[arr>rel_gate]
         if len(g2)>0: self._I=self._lufs(float(np.mean(g2)))
 
+    def _compute_LRA(self):
+        """EBU Tech 3342: 프로그램 전체 short-term 분포 → 절대게이트(-70) +
+        상대게이트(절대게이트 평균 -20 LU) → 10~95 백분위 차이."""
+        if len(self._lra_st)<4: return
+        arr=np.array(self._lra_st)
+        arr=arr[arr>-70.0]                       # 절대 게이트
+        if len(arr)<4: return
+        ms=10**((arr+0.691)/10.0)                # LUFS→평균제곱 환산
+        mean_lufs=self._lufs(float(np.mean(ms))) # 절대게이트 분포의 평균 라우드니스
+        rel=mean_lufs-20.0                        # 상대 게이트(-20 LU)
+        g=arr[arr>rel]
+        if len(g)<2: return
+        self._LRA=float(max(0.0,np.percentile(g,95)-np.percentile(g,10)))
+
     def start_integration(self):
         self._int_sq=[]; self._int_on=True; self._I=-100.0
+        self._lra_st=[]; self._LRA=0.0; self._maxM=-100.0; self._maxS=-100.0
 
     def stop_integration(self): self._int_on=False
 
@@ -13703,6 +13722,7 @@ class LoudnessMeter:
         self._M=-100.0; self._S=-100.0; self._S_fast=-100.0
         self._I=-100.0; self._LRA=0.0; self._TP=-100.0; self._PH=-100.0
         self._tp_tail_l=None; self._tp_tail_r=None
+        self._lra_st=[]; self._maxM=-100.0; self._maxS=-100.0
 
     @property
     def M(self): return self._M
@@ -13718,6 +13738,16 @@ class LoudnessMeter:
     def TP(self): return self._TP
     @property
     def peak_hold(self): return self._PH
+    @property
+    def MaxM(self): return self._maxM
+    @property
+    def MaxS(self): return self._maxS
+    @property
+    def PLR(self):   # Peak-to-Loudness Ratio (TruePeak − Integrated)
+        return (self._TP - self._I) if self._I > -100.0 else 0.0
+    @property
+    def PSR(self):   # Peak-to-Short-term Ratio (TruePeak − Short-term)
+        return (self._TP - self._S) if self._S > -100.0 else 0.0
 
 
 def _spec_color(frac: float, lightness: int = 160, alpha: int = 255) -> 'QColor':
