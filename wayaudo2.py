@@ -14476,7 +14476,7 @@ class StereoLoudnessPage(QWidget):
         return f
 
     def _metric_lbl_col(self):
-        return '#A6ABB5' if _theme != 'light' else T('text_dim')
+        return '#C4C8D0' if _theme != 'light' else T('text_dim')
 
     def _build_hero_panel(self):
         """시안C 히어로 — PROGRAM LOUDNESS 거대 그라디언트 숫자 + 타겟/편차."""
