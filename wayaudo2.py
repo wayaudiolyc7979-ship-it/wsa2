@@ -13760,6 +13760,29 @@ def _spec_color(frac: float, lightness: int = 160, alpha: int = 255) -> 'QColor'
     c.setAlpha(alpha)
     return c
 
+def _brand_color(frac, lightness=160, alpha=255):
+    """SPECTRA 브랜드 그라디언트(_SPECTRA_GRAD_STOPS) 샘플 → QColor.
+    _spec_color와 동일 시그니처라 라우드니스 캔버스에서 지역 치환으로 드롭인 교체 가능.
+    lightness(기본160) 비율로 명도 조절(글로우=낮음/크리스프=높음), alpha 투명도."""
+    f = max(0.0, min(1.0, frac))
+    stops = _SPECTRA_GRAD_STOPS
+    col = QColor(stops[-1][1])
+    for i in range(len(stops) - 1):
+        a, ca = stops[i]; b, cb = stops[i + 1]
+        if a <= f <= b:
+            t = (f - a) / (b - a) if b > a else 0.0
+            ca = QColor(ca); cb = QColor(cb)
+            col = QColor(int(ca.red() + (cb.red() - ca.red()) * t),
+                         int(ca.green() + (cb.green() - ca.green()) * t),
+                         int(ca.blue() + (cb.blue() - ca.blue()) * t))
+            break
+    h, s, l, _ = col.getHsl()
+    nl = max(0, min(255, int(l * (lightness / 160.0))))
+    if _theme == 'light':
+        nl = max(40, min(150, int(nl * 0.6)))
+    c = QColor.fromHsl(h, s, nl); c.setAlpha(alpha)
+    return c
+
 def _metric_col(hue, light=160):
     """라우드니스 메트릭 값 색 (HSL). 라이트 테마: 흰 바 대비 위해 명도 낮춤."""
     if _theme == 'light':
@@ -13790,6 +13813,7 @@ class VectorscopeCanvas(QWidget):
         self._corr=float(np.mean(ls*rs))/denom
 
     def paintEvent(self, ev):
+        _spec_color = _brand_color   # SPECTRA 브랜드 그라디언트로 스코프 재색 (이 메서드 한정)
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
         W, H = self.width(), self.height()
         dark = (_theme != 'light')
@@ -14009,19 +14033,12 @@ class LoudnessRadarCanvas(QWidget):
         return int(R_in+(R_out-R_in)*t)
 
     def _lufs_color(self, lufs):
-        # -52→-34: blue, -34→-16: green, -16→-4: yellow, -4→2: red
+        # SPECTRA 브랜드 그라디언트로 라우드니스 매핑 (조용=파랑 → 큼=빨강)
         if lufs <= -100: return QColor(0, 0, 0, 0)
         lufs = max(-52.0, min(2.0, lufs))
-        pts = [(-52, 50,  90, 230, 200), (-34, 40, 210,  60, 225),
-               (-16, 255, 220,   0, 240), (-4, 255,  60,  20, 250),
-               (  2, 200,  20,  20, 255)]
-        for i in range(len(pts)-1):
-            l0,r0,g0,b0,a0=pts[i]; l1,r1,g1,b1,a1=pts[i+1]
-            if l0<=lufs<=l1:
-                t=(lufs-l0)/(l1-l0)
-                return QColor(int(r0+t*(r1-r0)),int(g0+t*(g1-g0)),
-                              int(b0+t*(b1-b0)),int(a0+t*(a1-a0)))
-        return QColor(*pts[-1][1:])
+        t = (lufs - (-52.0)) / (2.0 - (-52.0))
+        alpha = int(200 + 55 * t)
+        return _brand_color(t, 160, alpha)
 
     def paintEvent(self, ev):
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
@@ -14029,6 +14046,7 @@ class LoudnessRadarCanvas(QWidget):
         dark = (_theme != 'light')
         def ov(a): return QColor(255, 255, 255, a) if dark else QColor(26, 38, 62, a)
         p.fillRect(0, 0, W, H, QColor(1, 1, 3) if dark else QColor(T('bg')))
+        _spec_color = _brand_color   # SPECTRA 브랜드 그라디언트로 레이더 재색 (이 메서드 한정)
 
         # ── Layout ────────────────────────────────────────────────
         PAD_H = 46; PAD_T = 28; PAD_B = 54
