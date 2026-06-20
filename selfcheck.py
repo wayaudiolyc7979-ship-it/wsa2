@@ -194,6 +194,29 @@ def _farina_render():
 check('Farina ESS 스윕 (LP복원+THD)', _farina_render)
 
 
+def _mtw_live_method():
+    """라이브 렌더 메서드 _render_mtw + _render_mtw_ir 자체를 실제 캔버스로 구동(스텁)."""
+    from PyQt5.QtWidgets import QLabel
+    sr = 48000
+    class Stub: pass
+    s = Stub(); s.sample_rate = sr; s.delay_ms = 0.0; s.smooth_bpo = 3
+    s._mtw = w.MTWEngine(sr, 4096, 5)
+    s.avg_lbl = QLabel(); s.mag_cvs = w.TFMagCanvas(); s.mag_cvs.resize(900, 360)
+    s.phase_cvs = w.TFPhaseCanvas(); s.phase_cvs.resize(900, 360)
+    s.ir_cvs = w.TFIRCanvas(); s.ir_cvs.resize(900, 280)
+    s._render_mtw_ir = w.TransferFunctionWindow._render_mtw_ir.__get__(s)
+    m = s._mtw.master_len; rng = np.random.default_rng(7)
+    ax = np.fft.rfftfreq(m, 1.0 / sr)
+    H = (1.0 / np.sqrt(1 + (ax / 2500.0) ** 2)) * (1.0 - 0.9 * np.exp(-((ax - 50.0) ** 2) / (2 * 2.5 ** 2)))
+    for _ in range(30):
+        ref = rng.standard_normal(m); meas = np.fft.irfft(np.fft.rfft(ref) * H, n=m)
+        w.TransferFunctionWindow._render_mtw(s, ref.astype(np.float32), meas.astype(np.float32),
+                                             0.5, 0.25, True)
+    assert s.avg_lbl.text() == 'MTW', f"avg_lbl={s.avg_lbl.text()!r}"
+    return _save(s.mag_cvs, 'mtw_live_mag.png')
+check('MTW 라이브 렌더 메서드 (_render_mtw)', _mtw_live_method)
+
+
 # ─────────────────────────────────────────────────────────────
 ok = sum(1 for r in _results if r[0])
 print(f'\n=== {ok}/{len(_results)} PASS' + ('' if ok == len(_results) else '  ⚠️ 실패 있음') +

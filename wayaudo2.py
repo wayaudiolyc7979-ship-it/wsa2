@@ -10205,6 +10205,9 @@ class TransferFunctionWindow(QWidget):
         self._mc_threads = {}         # {device_idx: (thread, routing_list)}
         self._last_ref_fft = None; self._last_meas_fft = None
         self._last_ref_rms = 0.0; self._last_meas_rms = 0.0
+        # v1.7 라이브 엔진: Single FFT(기본) ↔ MTW. MTW는 시간영역 버퍼를 보관.
+        self._tf_engine_mtw = False; self._mtw = None
+        self._last_ref_buf = None; self._last_meas_buf = None
         self._rta_sub = None        # RTA 전용 엔진 구독(제너레이터/Start 없이 마이크 스펙트럼)
         self._rta_ch = 0
         self._rta_avg_buf = deque(maxlen=16)   # RTA FIFO 평균(스펙트럼 Avg와 동일 처리)
@@ -10591,6 +10594,13 @@ class TransferFunctionWindow(QWidget):
             f'padding:3px 12px;border-radius:{RADIUS_CTRL}px;font-weight:bold;')
         self.start_btn.clicked.connect(self._toggle)
         self.start_btn.hide()  # 제너레이터 ON/OFF가 자동으로 start/stop 제어
+
+        tl.addWidget(_lb('Engine'))
+        self.eng_cb = RoundComboBox(); self.eng_cb.addItems(['Single', 'MTW'])
+        self.eng_cb._align_center = True
+        self.eng_cb.setFixedWidth(72); self.eng_cb.setFixedHeight(30)
+        self.eng_cb.setToolTip('Single = 고정 FFT  ·  MTW = 멀티레이트(저역 고해상도, Smaart식)')
+        self.eng_cb.currentIndexChanged.connect(self._engine_changed); tl.addWidget(self.eng_cb); tl.addSpacing(10)
 
         tl.addWidget(_lb('FFT'))
         self.fft_cb = RoundComboBox(); self.fft_cb.addItems(TF_FFT_LABELS); self.fft_cb.setCurrentIndex(2)
@@ -11611,18 +11621,24 @@ class TransferFunctionWindow(QWidget):
 
     def _on_frame(self, ref_buf, meas_buf):
         # TFSyncThread/TFDuplexThread: 두 채널을 동일 콜백에서 수신 → ΔT=0 원자 처리
-        # Hanning window 캐시 — 매 콜백마다 재생성 금지
         n = len(ref_buf)
-        if not hasattr(self, '_hann_win') or self._hann_win is None or len(self._hann_win) != n:
-            self._hann_win = np.hanning(n).astype(np.float32)
-        win = self._hann_win
         rms_r = float(np.sqrt(np.mean(ref_buf ** 2)))
         rms_m = float(np.sqrt(np.mean(meas_buf ** 2)))
-        fft_r = np.fft.rfft(ref_buf * win).astype(complex)
-        fft_m = np.fft.rfft(meas_buf * win).astype(complex)
-        with QMutexLocker(self._mutex):
-            self._last_ref_fft = fft_r; self._last_ref_rms = rms_r
-            self._last_meas_fft = fft_m; self._last_meas_rms = rms_m
+        if self._tf_engine_mtw:
+            # MTW: 시간영역 버퍼만 보관 (엔진이 자체 멀티레이트 FFT 수행) — 콜백 FFT 생략
+            with QMutexLocker(self._mutex):
+                self._last_ref_buf = ref_buf; self._last_ref_rms = rms_r
+                self._last_meas_buf = meas_buf; self._last_meas_rms = rms_m
+        else:
+            # Hanning window 캐시 — 매 콜백마다 재생성 금지
+            if not hasattr(self, '_hann_win') or self._hann_win is None or len(self._hann_win) != n:
+                self._hann_win = np.hanning(n).astype(np.float32)
+            win = self._hann_win
+            fft_r = np.fft.rfft(ref_buf * win).astype(complex)
+            fft_m = np.fft.rfft(meas_buf * win).astype(complex)
+            with QMutexLocker(self._mutex):
+                self._last_ref_fft = fft_r; self._last_ref_rms = rms_r
+                self._last_meas_fft = fft_m; self._last_meas_rms = rms_m
         # Primary 카드 레벨 직접 업데이트 — 체크박스(가시) ON 이면 표시 (Start/Stop 무관)
         if (hasattr(self, '_level_cards') and self._level_cards and self._level_cards[0].is_graph_visible()):
             pc = self._level_cards[0]
@@ -11933,8 +11949,10 @@ class TransferFunctionWindow(QWidget):
                 self._on_ref(frame)
         with QMutexLocker(self._mutex):
             X = self._last_ref_fft; Y = self._last_meas_fft
+            ref_b = self._last_ref_buf; meas_b = self._last_meas_buf
             rr = self._last_ref_rms; mr = self._last_meas_rms
             self._last_ref_fft = None; self._last_meas_fft = None
+            self._last_ref_buf = None; self._last_meas_buf = None
             self._last_ref_rms = 0.0; self._last_meas_rms = 0.0
 
         # VU 미터 업데이트 — 항상 (⏻ 버튼 제거됨)
@@ -11990,6 +12008,11 @@ class TransferFunctionWindow(QWidget):
         # primary 표시 여부: 분석중(_display_on)이고 그래프 표시 체크(is_graph_visible)일 때만
         _pc = self._level_cards[0] if (hasattr(self, '_level_cards') and self._level_cards) else None
         _primary_show = (_pc is None) or (_pc._display_on and _pc.is_graph_visible())
+
+        # ── MTW 라이브 엔진 경로 (primary 전용, v1.7) — 시간영역 버퍼를 멀티레이트 분석 ──
+        if self._tf_engine_mtw and self._mtw is not None:
+            self._render_mtw(ref_b, meas_b, rr, mr, _primary_show)
+            return
 
         # ── Primary 누적·렌더 (Ref/Meas 데이터 충분할 때만; 없으면 extra 카드만 렌더) ──
         H_raw = None
@@ -12665,6 +12688,64 @@ class TransferFunctionWindow(QWidget):
         with QMutexLocker(self._mutex):
             self._cross_acc = None; self._auto_acc_x = None; self._auto_acc_y = None; self._n_avg = 0
         self._extra_pair_acc = [None] * len(self._extra_pairs)
+        if self._mtw is not None:
+            self._mtw.reset()
+
+    def _render_mtw(self, ref_b, meas_b, rr, mr, primary_show):
+        """MTW 라이브 렌더 — 시간영역 버퍼를 멀티레이트 엔진에 push 후 결과를 캔버스로."""
+        if ref_b is None or meas_b is None or rr < 1e-6 or mr < 1e-6:
+            return
+        if self._mtw.sr != self.sample_rate:                 # SR 변경 추종
+            self._mtw = MTWEngine(self.sample_rate, n_fft=self._mtw.n_fft, n_stages=self._mtw.n_stages)
+        if len(ref_b) < self._mtw.master_len:                # 마스터 버퍼 아직 미충전
+            self.avg_lbl.setText('MTW…'); return
+        self._mtw.push(ref_b, meas_b)
+        res = self._mtw.result()
+        if res is None:
+            return
+        f_m, H_m, coh_m = res
+        f_m = f_m.astype(np.float32)
+        if self.delay_ms != 0.0:
+            H_m = H_m * np.exp(1j * 2 * np.pi * f_m * (self.delay_ms / 1000.0))
+        f_out, mag_out, ph_wrap, ph_unwr, grp_ms = _tf_smooth(f_m, H_m, self.smooth_bpo)
+        coh_out = np.clip(np.interp(f_out, f_m, coh_m), 0.0, 1.0).astype(np.float32)
+        self.avg_lbl.setText('MTW')
+        if primary_show:
+            self.phase_cvs.set_data(f_out, ph_wrap, ph_unwr, grp_ms, coh_out, mag_out)
+            self.mag_cvs.set_data(f_out, mag_out, coh_out, ph_wrap)
+            self._render_mtw_ir(f_m, H_m)
+
+    def _render_mtw_ir(self, f_m, H_m):
+        """MTW 복소 H(로그그리드)를 선형 그리드로 보간 → irfft → 0중심 IR."""
+        nyq = self.sample_rate / 2.0
+        nlin = 4096
+        flin = np.linspace(0.0, nyq, nlin)
+        Hlin = (np.interp(flin, f_m, H_m.real) + 1j * np.interp(flin, f_m, H_m.imag))
+        N = 2 * (nlin - 1)
+        h = np.fft.fftshift(np.fft.irfft(Hlin, n=N)).astype(np.float32)
+        t_ms = ((np.arange(N) - N // 2) / self.sample_rate * 1000.0).astype(np.float32)
+        self.ir_cvs.set_data(t_ms, h)
+        self.ir_cvs._delay_ms = self.delay_ms
+
+    def _engine_changed(self, idx):
+        """라이브 엔진 전환: 0=Single FFT(기본), 1=MTW. fft_size 조정 후 분석 재시작."""
+        mtw = (idx == 1)
+        self._tf_engine_mtw = mtw
+        if mtw:
+            if self._mtw is None or self._mtw.sr != self.sample_rate:
+                self._mtw = MTWEngine(self.sample_rate, n_fft=4096, n_stages=5)
+            self.fft_size = self._mtw.master_len    # 마스터 롤링버퍼 길이로 소스 구성
+            if hasattr(self, 'fft_cb'): self.fft_cb.setEnabled(False)
+        else:
+            self._mtw = None
+            if hasattr(self, 'fft_cb'):
+                self.fft_size = TF_FFT_SIZES[self.fft_cb.currentIndex()]
+                self.fft_cb.setEnabled(True)
+        self._recalc_target(); self._reset_avg()
+        self.ir_cvs.clear(); self._sync_ir_delay_marker()
+        _diag('tf_engine', mtw=mtw, fft_size=self.fft_size)
+        if self._running:
+            self._stop(); self._start()
 
     def _delayed_restart(self):
         """분석 스트림만 재시작 — 제너레이터는 절대 건드리지 않음.
