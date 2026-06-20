@@ -14446,7 +14446,7 @@ class StereoLoudnessPage(QWidget):
         bar.setStyleSheet(f'background:{col};border:none;border-radius:2px;')
         colw=QWidget(); colw.setStyleSheet('background:transparent;')
         v=QVBoxLayout(colw); v.setContentsMargins(0,0,0,0); v.setSpacing(1)
-        t=QLabel(title); t.setStyleSheet(f'font-size:{FS_XS}px;color:{self._metric_lbl_col()};letter-spacing:0.5px;background:transparent;')
+        t=QLabel(title); t.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};letter-spacing:0.5px;background:transparent;')
         valrow=QWidget(); valrow.setStyleSheet('background:transparent;')
         vr=QHBoxLayout(valrow); vr.setContentsMargins(0,0,0,0); vr.setSpacing(3)
         val=QLabel('—'); val.setStyleSheet(f'font-size:{FS_METRIC}px;font-weight:bold;color:{col};background:transparent;')
@@ -14476,7 +14476,7 @@ class StereoLoudnessPage(QWidget):
         return f
 
     def _metric_lbl_col(self):
-        return '#3a3a52' if _theme != 'light' else T('text_dim')
+        return '#A6ABB5' if _theme != 'light' else T('text_dim')
 
     def _build_hero_panel(self):
         """시안C 히어로 — PROGRAM LOUDNESS 거대 그라디언트 숫자 + 타겟/편차."""
