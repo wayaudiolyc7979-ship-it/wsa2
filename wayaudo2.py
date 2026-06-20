@@ -12079,42 +12079,61 @@ class TransferFunctionWindow(QWidget):
 
     # ── 딜레이 자동 탐지 (2단계: 2초 측정 후 계산) ──────────────────────
     def _on_sweep_captured(self, ref_arr, meas_arr):
-        """단일 스윕 캡처 완료 → 역필터 계산 → 캔버스 업데이트 → 자동 Stop."""
+        """단일 스윕 캡처 완료 → Farina ESS 분석(상승) 또는 Wiener(하강) → 캔버스 → 자동 Stop."""
         n = len(ref_arr)
-        REF = np.fft.rfft(ref_arr.astype(np.float64))
-        MIC = np.fft.rfft(meas_arr.astype(np.float64))
-        # 정규화된 역필터 (Wiener deconvolution 간략화): H = MIC·REF* / (|REF|² + ε)
-        eps = float(np.max(np.abs(REF)) ** 2) * 1e-6
-        H = (MIC * np.conj(REF)) / (np.abs(REF) ** 2 + eps)
-        H = H.astype(np.complex64)
-        freqs = np.fft.rfftfreq(n, 1.0 / self.sample_rate).astype(np.float32)
-
-        # 딜레이 보정 적용
-        if self.delay_ms != 0.0:
-            H_disp = H * np.exp(1j * 2 * np.pi * freqs * (self.delay_ms / 1000.0)).astype(np.complex64)
-        else:
-            H_disp = H
-
-        f_out, mag_out, ph_wrap, ph_unwr, grp_ms = _tf_smooth(freqs, H_disp, self.smooth_bpo)
-        coh_out = np.ones(len(f_out), dtype=np.float32)  # 역필터 = 코히런스 1.0
-
-        self.phase_cvs.set_data(f_out, ph_wrap, ph_unwr, grp_ms, coh_out, mag_out)
-        self.mag_cvs.set_data(f_out, mag_out, coh_out, ph_wrap)
-
-        # IR: 역필터 결과 시간 도메인
-        h_full = np.fft.fftshift(np.fft.irfft(H, n=n)).astype(np.float32)
-        t_ms = (np.arange(n, dtype=np.float32) - n // 2) / self.sample_rate * 1000.0
-        self.ir_cvs.set_data(t_ms, h_full)
-
-        dur_ms = n / self.sample_rate * 1000.0
-        self._fft_lbl.setText(f'Sweep 1-shot: {n} smp / {dur_ms:.0f} ms')
-        self.avg_lbl.setText('Done ✓')
+        sr = self.sample_rate
+        f1 = float(self._sweep_f_lo); f2 = float(self._sweep_f_hi)
+        T = n / sr
+        # 상승 스윕 + 유효 대역이면 Farina ESS(선형 TF 무왜곡 + THD/고조파 분리)
+        use_farina = bool(self._sweep_asc) and (0 < f1 < f2)
+        if use_farina:
+            try:
+                res = farina_analyze(meas_arr.astype(np.float64), ref_arr.astype(np.float64),
+                                     sr, T, f1, f2)
+                freqs = res["freqs"].astype(np.float32)
+                H = res["H"].astype(np.complex64)
+                if self.delay_ms != 0.0:
+                    H_disp = H * np.exp(1j * 2 * np.pi * freqs * (self.delay_ms / 1000.0)).astype(np.complex64)
+                else:
+                    H_disp = H
+                f_out, mag_out, ph_wrap, ph_unwr, grp_ms = _tf_smooth(freqs, H_disp, self.smooth_bpo)
+                coh_out = np.ones(len(f_out), dtype=np.float32)
+                self.phase_cvs.set_data(f_out, ph_wrap, ph_unwr, grp_ms, coh_out, mag_out)
+                self.mag_cvs.set_data(f_out, mag_out, coh_out, ph_wrap)
+                self.ir_cvs.set_data(res["t_ms"].astype(np.float32), res["ir"].astype(np.float32))
+                self.ir_cvs._delay_ms = self.delay_ms
+                self._fft_lbl.setText(f'Sweep (Farina): {T*1000:.0f} ms  ·  THD {res["thd"]:.2f}%  ·  SNR {res["snr_db"]:.0f} dB')
+                self.avg_lbl.setText('Done ✓')
+                _diag('sweep_farina', n=n, thd=round(res["thd"], 3), snr=round(res["snr_db"], 1),
+                      harm={k: round(v[0], 1) for k, v in res["harmonics"].items()})
+            except Exception as e:
+                _alog.warning(f'_on_sweep_captured Farina failed → Wiener fallback: {e}')
+                use_farina = False
+        if not use_farina:
+            REF = np.fft.rfft(ref_arr.astype(np.float64))
+            MIC = np.fft.rfft(meas_arr.astype(np.float64))
+            eps = float(np.max(np.abs(REF)) ** 2) * 1e-6
+            H = ((MIC * np.conj(REF)) / (np.abs(REF) ** 2 + eps)).astype(np.complex64)
+            freqs = np.fft.rfftfreq(n, 1.0 / sr).astype(np.float32)
+            if self.delay_ms != 0.0:
+                H_disp = H * np.exp(1j * 2 * np.pi * freqs * (self.delay_ms / 1000.0)).astype(np.complex64)
+            else:
+                H_disp = H
+            f_out, mag_out, ph_wrap, ph_unwr, grp_ms = _tf_smooth(freqs, H_disp, self.smooth_bpo)
+            coh_out = np.ones(len(f_out), dtype=np.float32)
+            self.phase_cvs.set_data(f_out, ph_wrap, ph_unwr, grp_ms, coh_out, mag_out)
+            self.mag_cvs.set_data(f_out, mag_out, coh_out, ph_wrap)
+            h_full = np.fft.fftshift(np.fft.irfft(H, n=n)).astype(np.float32)
+            t_ms = (np.arange(n, dtype=np.float32) - n // 2) / sr * 1000.0
+            self.ir_cvs.set_data(t_ms, h_full)
+            self._fft_lbl.setText(f'Sweep 1-shot: {n} smp / {T*1000:.0f} ms')
+            self.avg_lbl.setText('Done ✓')
 
         # 자동 Stop
         self._stop_sig_gen()
         self.sig_on_btn.setChecked(False)
         self.sig_on_btn.setText('Play'); _apply_txn(self.sig_on_btn, False)
-        _alog.debug(f'_on_sweep_captured: n={n} deconv done')
+        _alog.debug(f'_on_sweep_captured: n={n} farina={use_farina}')
 
     def _find_delay(self):
         DelayFinderDialog(self, self).exec_()

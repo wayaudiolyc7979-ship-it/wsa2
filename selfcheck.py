@@ -153,6 +153,48 @@ check('ShowMode 헤드라인 Slow 평활', _showmode_smooth)
 
 
 # ─────────────────────────────────────────────────────────────
+#  v1.7 엔진 — MTW + Farina ESS (DSP 코어 렌더 + 정확성)
+# ─────────────────────────────────────────────────────────────
+def _mtw_render():
+    sr = 48000; rng = np.random.default_rng(5)
+    eng = w.MTWEngine(sr, 8192, 8); m = eng.master_len
+    ax = np.fft.rfftfreq(m, 1.0 / sr)
+    H = (1.0 / np.sqrt(1 + (ax / 2000.0) ** 2)) * (1.0 - 0.9 * np.exp(-((ax - 60.0) ** 2) / (2 * 3.0 ** 2)))
+    for _ in range(40):
+        ref = rng.standard_normal(m); meas = np.fft.irfft(np.fft.rfft(ref) * H, n=m)
+        eng.push(ref.astype(np.float32), meas.astype(np.float32))
+    f, Hc, coh = eng.result()
+    mag = 20 * np.log10(np.abs(Hc) + 1e-30)
+    dip = mag[np.argmin(np.abs(f - 60))]
+    assert dip < -10, f'MTW 60Hz 노치 분해 실패 dip={dip:.1f}'   # 단일FFT는 -7.5, MTW는 -19.7
+    cv = w.TFMagCanvas(); cv.resize(900, 360)
+    cv.set_data(f.astype(np.float32), mag.astype(np.float32), coh.astype(np.float32),
+                (np.angle(Hc) * 180 / np.pi).astype(np.float32))
+    return _save(cv, 'mtw_mag.png') + f'  (60Hz dip {dip:.1f}dB)'
+check('MTWEngine 멀티레이트 TF (60Hz 노치 분해)', _mtw_render)
+
+
+def _farina_render():
+    from scipy.signal import firwin
+    sr = 48000; T = 4.0; f1, f2 = 20.0, 20000.0
+    x = w._gen_log_sweep(int(T * sr), sr, f1, f2)
+    h = firwin(257, 3000.0, fs=sr)
+    ylin = w._fft_convolve(x, h)[:len(x)]
+    meas = ylin + 0.12 * ylin ** 2 + 0.05 * ylin ** 3   # 12%/5% 고조파 주입
+    res = w.farina_analyze(meas.astype(np.float64), x.astype(np.float64), sr, T, f1, f2)
+    f_out, mag, pw, pu, grp = w._tf_smooth(res['freqs'].astype(np.float32),
+                                           res['H'].astype(np.complex64), 3)
+    # 선형 통과대역 평탄(왜곡 무오염) + THD 검출
+    pb = mag[np.argmin(np.abs(f_out - 1000))]
+    assert abs(pb) < 1.5, f'Farina 통과대역 비평탄 {pb:.1f}dB'
+    assert res['thd'] > 3.0, f'Farina THD 미검출 {res["thd"]:.2f}%'
+    cv = w.TFMagCanvas(); cv.resize(900, 360)
+    cv.set_data(f_out, mag, np.ones(len(f_out), np.float32), pw)
+    return _save(cv, 'sweep_farina_mag.png') + f'  (THD {res["thd"]:.1f}%)'
+check('Farina ESS 스윕 (LP복원+THD)', _farina_render)
+
+
+# ─────────────────────────────────────────────────────────────
 ok = sum(1 for r in _results if r[0])
 print(f'\n=== {ok}/{len(_results)} PASS' + ('' if ok == len(_results) else '  ⚠️ 실패 있음') +
       f'   이미지: {_DIR} ===')
