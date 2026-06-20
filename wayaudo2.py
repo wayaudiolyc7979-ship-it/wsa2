@@ -14402,15 +14402,27 @@ class StereoLoudnessPage(QWidget):
         root.addWidget(rw1,0)
 
         # ── Row 2: 메트릭 카드 6개 ──
-        specs=[('M  MOMENTARY','LUFS','_lbl_M',203,158),
-               ('S  SHORT-TERM','LUFS','_lbl_S',224,156),
-               ('TRUE PEAK','dBTP','_lbl_TP',4,168),
-               ('LRA','LU','_lbl_LRA',270,160),
-               ('PLR  pk/loud','LU','_lbl_PLR',326,162),
-               ('PSR  pk/short','LU','_lbl_PSR',320,162)]
+        specs=[('M  MOMENTARY','LUFS','_lbl_M',203,158,
+                'Momentary 라우드니스 (약 400ms 이동평균)\n'
+                '지금 이 순간의 레벨로 가장 빠르게 반응합니다.'),
+               ('S  SHORT-TERM','LUFS','_lbl_S',224,156,
+                'Short-term 라우드니스 (3초 이동평균)\n'
+                '짧은 구간의 평균 레벨을 보여줍니다.'),
+               ('TRUE PEAK','dBTP','_lbl_TP',4,168,
+                'True Peak (4× 오버샘플 — 샘플 사이 피크까지 검출)\n'
+                '0 dBFS 이상이면 클리핑 위험. 방송/스트리밍은 보통 -1 dBTP 이하 권장.'),
+               ('LRA','LU','_lbl_LRA',270,160,
+                'Loudness Range (EBU 3342) — 조용한 구간과 시끄러운 구간의 차이\n'
+                '클수록 다이내믹 레인지가 넓음. 음악 5~15 LU / 드라마·광고는 더 좁게.'),
+               ('PLR  pk/loud','LU','_lbl_PLR',326,162,
+                'Peak-to-Loudness Ratio = True Peak − Integrated\n'
+                '전체 다이내믹 여유. 클수록 다이내믹이 살아있고, 작으면 강하게 압축된 마스터.'),
+               ('PSR  pk/short','LU','_lbl_PSR',320,162,
+                'Peak-to-Short-term Ratio = True Peak − Short-term\n'
+                '순간 다이내믹/리미팅 정도. 값이 작으면 과도한 리미팅 신호.')]
         row2=QHBoxLayout(); row2.setSpacing(10)
-        for title,unit,attr,hue,light in specs:
-            row2.addWidget(self._metric_card(title,unit,attr,hue,light),1)
+        for title,unit,attr,hue,light,tip in specs:
+            row2.addWidget(self._metric_card(title,unit,attr,hue,light,tip),1)
         row2.addWidget(self._build_target_ctrl(),0)
         rw2=QWidget(); rw2.setLayout(row2); rw2.setFixedHeight(92)
         root.addWidget(rw2,0)
@@ -14436,11 +14448,12 @@ class StereoLoudnessPage(QWidget):
         lay=QVBoxLayout(f); lay.setContentsMargins(pad,pad,pad,pad); lay.setSpacing(0); lay.addWidget(inner)
         return f, lay
 
-    def _metric_card(self, title, unit, attr, hue, light):
+    def _metric_card(self, title, unit, attr, hue, light, tip=''):
         dark=(_theme!='light'); col=_metric_col(hue,light)
         f=QFrame(); f.setObjectName('stMc')
         f.setStyleSheet('#stMc{background:%s;border:1px solid %s;border-radius:12px;}' %
                         (('#141416' if dark else T('panel')), ('#2A2A2C' if dark else T('border'))))
+        if tip: f.setToolTip(tip)
         h=QHBoxLayout(f); h.setContentsMargins(12,8,10,8); h.setSpacing(9)
         bar=QFrame(); bar.setFixedWidth(4)
         bar.setStyleSheet(f'background:{col};border:none;border-radius:2px;')
@@ -14455,6 +14468,8 @@ class StereoLoudnessPage(QWidget):
         vr.addWidget(val); vr.addWidget(u); vr.addStretch()
         v.addWidget(t); v.addWidget(valrow)
         h.addWidget(bar); h.addWidget(colw,1)
+        if tip:
+            for x in (colw, t, valrow, val, u, bar): x.setToolTip(tip)
         setattr(self, attr, val); self._unit_lbls[attr]=u
         self._metric_meta.append((attr,hue,light,False,t,u))
         return f
