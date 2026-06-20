@@ -14306,24 +14306,26 @@ class LoudnessRadarCanvas(QWidget):
 
 
 class _GradientNumber(QWidget):
-    """SPECTRA 브랜드 그라디언트로 그리는 초대형 숫자 (Program Loudness 히어로)."""
-    def __init__(self, size=72):
+    """SPECTRA 브랜드 그라디언트로 그리는 초대형 숫자 (Program Loudness 히어로).
+    폰트 크기를 위젯 크기에 맞춰 자동 스케일 → 패널을 꽉 채움(빈 공간 방지)."""
+    def __init__(self, size=120):
         super().__init__()
         self._text = '—'; self._size = size
-        self.setMinimumHeight(int(size * 1.3))
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.setMinimumHeight(96)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
     def setText(self, t):
         if t != self._text: self._text = t; self.update()
     def text(self): return self._text
     def paintEvent(self, e):
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        f = QFont('Helvetica Neue', self._size); f.setWeight(QFont.Black); p.setFont(f)
         r = self.rect()
+        fs = max(32, int(min(r.height() * 0.78, r.width() * 0.30)))
+        f = QFont('Helvetica Neue', fs); f.setWeight(QFont.Black); p.setFont(f)
         if self._text in ('—', ''):
             p.setPen(QColor(T('text_dim')))
         else:
-            p.setPen(QPen(QBrush(_spectra_grad_obj(r.left() + r.width() * 0.18,
-                                                    r.left() + r.width() * 0.82)), 1))
+            p.setPen(QPen(QBrush(_spectra_grad_obj(r.left() + r.width() * 0.14,
+                                                    r.left() + r.width() * 0.86)), 1))
         p.drawText(r, Qt.AlignCenter, self._text)
 
 
@@ -14393,7 +14395,8 @@ class StereoLoudnessPage(QWidget):
         self._radar=LoudnessRadarCanvas()
         ml.addWidget(self._vs,1); ml.addWidget(self._sep); ml.addWidget(self._radar,1)
         ml.addWidget(self._build_hero_panel(), 2)   # 시안C 거대 그라디언트 PROGRAM 히어로
-        root.addWidget(self._main_w,1)
+        self._main_w.setMaximumHeight(430)           # 링+히어로 행 높이 제한(빈 공간 방지)
+        root.addWidget(self._main_w,0)
         self._vs.popout_requested.connect(self._popout_vs)
         self._radar.popout_requested.connect(self._popout_radar)
         self._vs_win=None; self._radar_win=None
@@ -14407,9 +14410,9 @@ class StereoLoudnessPage(QWidget):
         )
         root.addWidget(spec_sep)
 
-        # 라우드니스 히스토리 그래프 (시안C)
-        self._hist = LoudnessHistoryCanvas(); self._hist.setFixedHeight(120)
-        root.addWidget(self._hist)
+        # 라우드니스 히스토리 그래프 (시안C) — 남는 세로 공간을 채움(빈 공간 제거)
+        self._hist = LoudnessHistoryCanvas(); self._hist.setMinimumHeight(150)
+        root.addWidget(self._hist, 1)
 
         # 하단 숫자 패널
         num_bar=QWidget(); num_bar.setFixedHeight(80)
