@@ -217,6 +217,21 @@ def _mtw_live_method():
 check('MTW 라이브 렌더 메서드 (_render_mtw)', _mtw_live_method)
 
 
+def _loudness_page():
+    """StereoLoudnessPage 전체 렌더 — 브랜드 그라디언트 캔버스 + 브랜드색 메트릭 + PLR/PSR."""
+    pg = w.StereoLoudnessPage(); pg.resize(1280, 760)
+    pg._meter = w.LoudnessMeter(48000); pg._meter.start_integration(); pg._running = True
+    rng = np.random.default_rng(0)
+    for _ in range(40):
+        L = (rng.standard_normal(4800) * 0.08).astype(np.float32); R = L.copy()
+        pg._on_chunk(L, R)
+    pg.set_target(-23.0); pg._refresh_display(force=True)
+    assert hasattr(pg, '_lbl_PLR') and hasattr(pg, '_lbl_PSR'), 'PLR/PSR 메트릭 누락'
+    assert pg._lbl_PLR.text() not in ('—', ''), f'PLR 미표시 {pg._lbl_PLR.text()!r}'
+    return _save(pg, 'loudness_page.png')
+check('StereoLoudnessPage (브랜드+PLR/PSR)', _loudness_page)
+
+
 # ─────────────────────────────────────────────────────────────
 ok = sum(1 for r in _results if r[0])
 print(f'\n=== {ok}/{len(_results)} PASS' + ('' if ok == len(_results) else '  ⚠️ 실패 있음') +

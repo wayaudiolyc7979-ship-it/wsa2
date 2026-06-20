@@ -14402,16 +14402,21 @@ class StereoLoudnessPage(QWidget):
             f.setStyleSheet(f'color:{_c};background:{_c};')
             self._vseps.append(f); return f
 
+        # 브랜드 그라디언트 정렬 hue: 시안203 / 블루224 / 퍼플270 / 핑크326·320 / 레드4
         nl.addStretch()
-        nl.addWidget(_metric('M  Momentary',    'LUFS', '_lbl_M',  big=False, hue=230, light=155))
+        nl.addWidget(_metric('M  Momentary',    'LUFS', '_lbl_M',  big=False, hue=203, light=158))
         nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
-        nl.addWidget(_metric('S  Short-term',   'LUFS', '_lbl_S',  big=False, hue=195, light=152))
+        nl.addWidget(_metric('S  Short-term',   'LUFS', '_lbl_S',  big=False, hue=224, light=156))
         nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
-        nl.addWidget(_metric('Program Loudness','LUFS', '_lbl_I',  big=True,  hue=140, light=165))
+        nl.addWidget(_metric('Program Loudness','LUFS', '_lbl_I',  big=True,  hue=270, light=180))
         nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
-        nl.addWidget(_metric('True-peak Max',   'dBTP', '_lbl_TP', big=True,  hue=45,  light=168))
+        nl.addWidget(_metric('True-peak Max',   'dBTP', '_lbl_TP', big=True,  hue=4,   light=168))
         nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
-        nl.addWidget(_metric('Loudness Range',  'LU',   '_lbl_LRA',big=False, hue=18,  light=152))
+        nl.addWidget(_metric('Loudness Range',  'LU',   '_lbl_LRA',big=False, hue=270, light=160))
+        nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
+        nl.addWidget(_metric('PLR  pk/loud',    'LU',   '_lbl_PLR',big=False, hue=326, light=162))
+        nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
+        nl.addWidget(_metric('PSR  pk/short',   'LU',   '_lbl_PSR',big=False, hue=320, light=162))
         nl.addSpacing(8); nl.addWidget(_vsep()); nl.addSpacing(8)
         nl.addWidget(_metric('Δ Target',        'LU',   '_lbl_DEV',big=False, hue=140, light=160))
         nl.addStretch()
@@ -14612,6 +14617,8 @@ class StereoLoudnessPage(QWidget):
         self._lbl_I.setText(fmt(m.I))
         self._lbl_LRA.setText(f'{m.LRA:.1f}' if m.LRA>0 else '—')
         self._lbl_TP.setText(f'{m.peak_hold:.1f}' if m.peak_hold>-100 else '—')
+        self._lbl_PLR.setText(f'{m.PLR:.1f}' if m.I>-100 else '—')
+        self._lbl_PSR.setText(f'{m.PSR:.1f}' if m.S>-100 else '—')
         # Δ Target = I − target (LU), 색: |Δ|≤1 초록 / ≤3 노랑 / 그 외 빨강
         if m.I>-100:
             dev=m.I-self._target
