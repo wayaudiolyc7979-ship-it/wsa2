@@ -3742,11 +3742,6 @@ class VUMeter(QWidget):
 
 # ───────────────────────────────────────────
 #  캘리브레이션 다이얼로그
-# QApplication 전역에 설치된 단일키 단축키 필터들(_TFKeyFilter/_MainKeyFilter/_CanvasKeyRouter).
-# 모달 텍스트 입력 다이얼로그 동안 '실제로' 제거해 macOS IME 첫 조합 가로채기를 방지.
-_APP_KEY_FILTERS = []
-
-
 # ───────────────────────────────────────────
 def _text_input_dialog(parent, title, label, default=''):
     """QInputDialog 대신 사용하는 커스텀 텍스트 입력 다이얼로그.
@@ -3754,21 +3749,15 @@ def _text_input_dialog(parent, title, label, default=''):
     반환: (text, ok)
     """
     dlg = QDialog(parent)
-    dlg.setWindowTitle(title)
-    # 네이티브 타이틀바 사용(프레임리스 미적용) — macOS에서 Qt.FramelessWindowHint 창은
-    # IME 첫 한글 조합 세션을 못 띄워 첫 글자 자모가 분리됨. 본문은 다크 스타일 유지.
-    dlg.setStyleSheet('QDialog{background:%s;} QLabel{color:%s;background:transparent;}'
-                      % (T('panel'), T('text')))
+    dlg.setWindowTitle(title); _apply_dark_titlebar(dlg)
     dlg.setMinimumWidth(300)
     lay = QVBoxLayout(dlg); lay.setSpacing(10); lay.setContentsMargins(16, 16, 16, 12)
     lay.addWidget(QLabel(label))
     le = __import__('PyQt5.QtWidgets', fromlist=['QLineEdit']).QLineEdit(default)
     le.setStyleSheet('QLineEdit{background:#fff;color:#111;border:1px solid #aaa;'
                      'border-radius:4px;padding:4px 8px;font-size:13px;}')
-    le.setAttribute(Qt.WA_InputMethodEnabled, True)
+    le.selectAll()
     lay.addWidget(le)
-    if default:
-        QTimer.singleShot(0, le.selectAll)   # 리네임 시 기존 텍스트 선택(포커스는 Qt가 자동)
     btn_row = QHBoxLayout()
     cancel = QPushButton(_tx('Cancel')); ok_btn = QPushButton('OK')
     ok_btn.setDefault(True)
@@ -3777,16 +3766,10 @@ def _text_input_dialog(parent, title, label, default=''):
     btn_row.addStretch(); btn_row.addWidget(cancel); btn_row.addWidget(ok_btn)
     lay.addLayout(btn_row)
     le.returnPressed.connect(dlg.accept)
-    # macOS IME 첫 조합 보호: 입력 동안 전역 단축키 필터를 실제로 제거 → 닫으면 복원.
-    _app = QApplication.instance()
-    _suspended = list(_APP_KEY_FILTERS)
-    for _f in _suspended:
-        _app.removeEventFilter(_f)
-    try:
-        ok = dlg.exec_() == QDialog.Accepted
-    finally:
-        for _f in _suspended:
-            _app.installEventFilter(_f)
+    # NOTE: 한글 첫 글자가 분리되는 현상은 PyQt5 5.15 + macOS 자체 버그(순수 Qt 다이얼로그에서도
+    # 재현, 우리 코드 무관). 새 창의 첫 키가 IME 조합 세션을 못 띄움 — 입력칸을 한 번 클릭하면 정상.
+    # 프로그램적 우회(포커스/Cocoa makeFirstResponder/inputContext activate/합성클릭) 모두 무효라 보류.
+    ok = dlg.exec_() == QDialog.Accepted
     return le.text(), ok
 
 
@@ -10603,7 +10586,6 @@ class TransferFunctionWindow(QWidget):
         # G/L 단축키: QShortcut 대신 앱 레벨 이벤트 필터 사용 (포커스/상태 무관)
         self._key_filter = _TFKeyFilter(self)
         QApplication.instance().installEventFilter(self._key_filter)
-        _APP_KEY_FILTERS.append(self._key_filter)
         # 기본 엔진 = Adaptive (멀티레이트). UI/엔진 셋업은 _engine_changed 가 처리.
         self.eng_cb.setCurrentIndex(1)
         QTimer.singleShot(0, self._restore_tf_captures)
@@ -15441,7 +15423,6 @@ class MainWindow(QMainWindow):
         # S 키 = Spectrum/Stereo 탭 Start·Stop 토글 (이벤트필터 — 텍스트 입력칸에선 가로채지 않음)
         self._main_key_filter = _MainKeyFilter(self)
         QApplication.instance().installEventFilter(self._main_key_filter)
-        _APP_KEY_FILTERS.append(self._main_key_filter)
 
         QTimer.singleShot(0, self._setup_macos_titlebar)
 
@@ -19304,7 +19285,6 @@ if __name__=='__main__':
     win = MainWindow()
     _key_router = _CanvasKeyRouter(win)
     app.installEventFilter(_key_router)
-    _APP_KEY_FILTERS.append(_key_router)
     if splash:
         def _launch():
             win.show()
