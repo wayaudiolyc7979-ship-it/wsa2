@@ -4282,7 +4282,7 @@ class _SplPanel(QWidget):
         self._dot = QLabel('●')
         self._dot.setStyleSheet('color:#33FF66;font-size:15px;background:transparent;')
         self._max_lbl = QLabel('Max: —')
-        self._max_lbl.setStyleSheet('color:#8E8E93;font-size:15px;background:transparent;')
+        self._max_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:15px;background:transparent;')
         max_row.addWidget(self._dot); max_row.addWidget(self._max_lbl)
         max_row.addStretch()
         layout.addLayout(max_row)
@@ -4377,7 +4377,7 @@ class _SplPanel(QWidget):
             f'color:{self._vc};font-size:{vs}px;font-weight:bold;'
             f'background:transparent;')
         self._dot.setStyleSheet(f'color:#00e676;font-size:{ms}px;background:transparent;')
-        self._max_lbl.setStyleSheet(f'color:#888888;font-size:{ms}px;background:transparent;')
+        self._max_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:{ms}px;background:transparent;')
 
     def set_value(self, val, max_val):
         vc = self._level_color(val)
@@ -4403,7 +4403,7 @@ class _SplPanel(QWidget):
             f'background:transparent;')
         self._val_lbl.setText('—'); self._max_lbl.setText('Max: —')
         self._dot.setStyleSheet(f'color:#33FF66;font-size:{self._max_fs}px;background:transparent;')
-        self._max_lbl.setStyleSheet(f'color:#8E8E93;font-size:{self._max_fs}px;background:transparent;')
+        self._max_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:{self._max_fs}px;background:transparent;')
 
 
 class _GradTimeBar(QWidget):
@@ -6142,9 +6142,9 @@ class _SplMeterBtn(QPushButton):
 
         # State-based background
         if self.isDown():
-            bg = QColor('#1e82f0')
+            bg = QColor(T('accent'))
         elif self.underMouse():
-            bg = QColor('#2C2C2E')
+            bg = QColor(T('bg3'))
         else:
             bg = QColor(0, 0, 0, 0)  # 완전 투명
 
@@ -6332,7 +6332,7 @@ class _DragGrip(QLabel):
         self._active = False
         self.setFixedWidth(10)
         self.setCursor(Qt.SizeVerCursor)
-        self.setStyleSheet('color:#48484A;font-size:10px;')
+        self.setStyleSheet(f'color:{T("text_dim")};font-size:10px;')
 
     def mousePressEvent(self, ev):
         if ev.button() == Qt.LeftButton:
@@ -6424,8 +6424,9 @@ class _CaptureDrawer(QWidget):
             'QPushButton:disabled{border-color:#2A2A2C;background:#161618;}')
         self._vis_all_btn.clicked.connect(self._on_vis_all_clicked)
         hl.addWidget(self._vis_all_btn)
-        hl.addWidget(QLabel('CAPTURES',
-            styleSheet='color:#4E7DF0;font-size:11px;font-weight:bold;'))
+        self._hdr_lbl = QLabel('CAPTURES',
+            styleSheet=f'color:{T("accent")};font-size:11px;font-weight:bold;')
+        hl.addWidget(self._hdr_lbl)
         hl.addStretch()
         self._avg_btn = QPushButton('Avg')
         self._avg_btn.setFixedSize(36, 20)
@@ -6505,15 +6506,15 @@ class _CaptureDrawer(QWidget):
         self._scroll.setFrameShape(QFrame.NoFrame)
         self._scroll.setObjectName('capScroll')
         self._scroll.setStyleSheet(
-            '#capScroll { background:#000000; border:1px solid #38383A; }'
-            'QScrollBar:vertical{width:5px;background:transparent;}'
-            'QScrollBar::handle:vertical{background:#38383A;border-radius:2px;}')
-        self._scroll.viewport().setStyleSheet('background:#000000;')
+            f'#capScroll {{ background:{T("bg")}; border:1px solid {T("border")}; }}'
+            f'QScrollBar:vertical{{width:5px;background:transparent;}}'
+            f'QScrollBar::handle:vertical{{background:{T("border")};border-radius:2px;}}')
+        self._scroll.viewport().setStyleSheet(f'background:{T("bg")};')
 
         self._inner = QWidget()
         self._inner.setObjectName('capInner')
         self._inner.setMouseTracking(True)
-        self._inner.setStyleSheet('#capInner { background:#000000; }')
+        self._inner.setStyleSheet(f'#capInner {{ background:{T("bg")}; }}')
         # 빈 공간 우클릭 → 전체삭제 메뉴
         self._inner.setContextMenuPolicy(Qt.CustomContextMenu)
         self._inner.customContextMenuRequested.connect(
@@ -6531,6 +6532,8 @@ class _CaptureDrawer(QWidget):
         """헤더 버튼(전체토글·Avg·Export·+Grp) 테마색 적용 — 라이트에서 검정 배경 방지.
         스크롤/이너/탭/패널은 MainWindow._apply_theme가 담당. 토글 시 거기서 이 메서드도 호출."""
         acc = T('accent'); bd = T('border')
+        if hasattr(self, '_hdr_lbl'):
+            self._hdr_lbl.setStyleSheet(f'color:{acc};font-size:11px;font-weight:bold;')
         if _theme == 'dark':
             btn_bg, grp_bg, grp_fg, dis_bg = '#1C1C1E', '#2C2C2E', '#8E8E93', '#161618'
         else:
@@ -7108,7 +7111,7 @@ class ColorPickerDialog(QDialog):
             r0,g0,b0,_ = top
             r1,g1,b1,_ = bot
             selected = (i == _bar_preset_idx)
-            border_css = '2px solid #ffffff' if selected else f'1px solid {brd}'
+            border_css = f'2px solid {T("text")}' if selected else f'1px solid {brd}'
             btn.setStyleSheet(
                 f'QPushButton {{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,'
                 f'stop:0 rgba({r0},{g0},{b0},220),stop:1 rgba({r1},{g1},{b1},60));'
@@ -9899,7 +9902,7 @@ class DelayFinderDialog(QDialog):
         self._progress.setFixedHeight(16); self._progress.setTextVisible(False)
         self._progress.setStyleSheet(
             f'QProgressBar{{background:{T("panel")};border:1px solid {T("border")};border-radius:4px;}}'
-            f'QProgressBar::chunk{{background:#4db6ff;border-radius:3px;}}')
+            f'QProgressBar::chunk{{background:{T("accent")};border-radius:3px;}}')
         lay.addWidget(self._progress)
 
         # FFT info row + ETC checkbox
@@ -10100,7 +10103,7 @@ class AllDelayFinderDialog(QDialog):
         self._progress.setFixedHeight(14); self._progress.setTextVisible(False)
         self._progress.setStyleSheet(
             f'QProgressBar{{background:{T("panel")};border:1px solid {T("border")};border-radius:4px;}}'
-            f'QProgressBar::chunk{{background:#4db6ff;border-radius:3px;}}')
+            f'QProgressBar::chunk{{background:{T("accent")};border-radius:3px;}}')
         lay.addWidget(self._progress)
 
         # 결과 테이블 헤더
@@ -10876,10 +10879,10 @@ class TransferFunctionWindow(QWidget):
         self._cards_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self._cards_scroll.viewport().setStyleSheet('background:transparent;')
         self._cards_scroll.setStyleSheet(
-            'QScrollArea{background:transparent;border:none;}'
-            'QScrollBar:vertical{width:6px;background:transparent;margin:0;}'
-            'QScrollBar::handle:vertical{background:#48484A;border-radius:3px;min-height:40px;}'
-            'QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}')
+            f'QScrollArea{{background:transparent;border:none;}}'
+            f'QScrollBar:vertical{{width:6px;background:transparent;margin:0;}}'
+            f'QScrollBar::handle:vertical{{background:{T("border")};border-radius:3px;min-height:40px;}}'
+            f'QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{{height:0;}}')
         mpl.addWidget(self._cards_scroll, 1)   # stretch=1 → 남는 세로 공간을 카드 영역이 차지
 
         self._extra_pairs_w = QWidget(); self._extra_pairs_w.hide()
@@ -11654,6 +11657,12 @@ class TransferFunctionWindow(QWidget):
 
     def restyle_theme(self):
         """테마 토글(다크↔라이트) 시 측정 카드들의 인라인-구운 색을 재적용."""
+        if hasattr(self, '_cards_scroll'):
+            self._cards_scroll.setStyleSheet(
+                f'QScrollArea{{background:transparent;border:none;}}'
+                f'QScrollBar:vertical{{width:6px;background:transparent;margin:0;}}'
+                f'QScrollBar::handle:vertical{{background:{T("border")};border-radius:3px;min-height:40px;}}'
+                f'QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{{height:0;}}')
         if not hasattr(self, '_cards_layout'):
             return
         for i in range(self._cards_layout.count()):
@@ -15970,10 +15979,10 @@ class MainWindow(QMainWindow):
         sc.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         sc.viewport().setStyleSheet('background:transparent;')
         sc.setStyleSheet(
-            'QScrollArea{background:transparent;border:none;}'
-            'QScrollBar:horizontal{height:6px;background:transparent;margin:0;}'
-            'QScrollBar::handle:horizontal{background:#48484A;border-radius:3px;min-width:40px;}'
-            'QScrollBar::add-line:horizontal,QScrollBar::sub-line:horizontal{width:0;}')
+            f'QScrollArea{{background:transparent;border:none;}}'
+            f'QScrollBar:horizontal{{height:6px;background:transparent;margin:0;}}'
+            f'QScrollBar::handle:horizontal{{background:{T("border")};border-radius:3px;min-width:40px;}}'
+            f'QScrollBar::add-line:horizontal,QScrollBar::sub-line:horizontal{{width:0;}}')
         # 자연 폭 미만으로 좁아지면 압축 대신 스크롤 (폴리시 후 최종 sizeHint로 재설정)
         def _set_min():
             content.setMinimumWidth(content.sizeHint().width())
@@ -16088,10 +16097,10 @@ class MainWindow(QMainWindow):
         self._ch_cards_scroll.setMinimumHeight(120)
         self._ch_cards_scroll.viewport().setStyleSheet('background:transparent;')
         self._ch_cards_scroll.setStyleSheet(
-            'QScrollArea{background:transparent;border:none;}'
-            'QScrollBar:vertical{width:6px;background:transparent;margin:0;}'
-            'QScrollBar::handle:vertical{background:#48484A;border-radius:3px;min-height:40px;}'
-            'QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}')
+            f'QScrollArea{{background:transparent;border:none;}}'
+            f'QScrollBar:vertical{{width:6px;background:transparent;margin:0;}}'
+            f'QScrollBar::handle:vertical{{background:{T("border")};border-radius:3px;min-height:40px;}}'
+            f'QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{{height:0;}}')
         input_lay.addWidget(self._ch_cards_scroll, 1)
         # TF식 '+ Add Source' 점선 버튼 — 카드마다 장치+채널 독립 (멀티-장치 오버레이)
         self._ch_add_btn = _DashedAddButton('＋  Add Source')
