@@ -4093,7 +4093,7 @@ class CalibDialog(QDialog):
 class LeqWindow(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent, Qt.Window)
-        self.setWindowTitle(_tx('Time Average Level (LEQ)')); _apply_dark_titlebar(self, resizable=True)
+        self.setWindowTitle('Time Average Level (LEQ)'); _apply_dark_titlebar(self, resizable=True)
         self.setMinimumSize(340, 300)
         self.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
 
@@ -4114,7 +4114,7 @@ class LeqWindow(QWidget):
         self.dur_cb.setStyleSheet(f'background:{T("panel")};color:{T("text")};border:1px solid {T("border")};padding:3px;min-width:70px;')
         self.dur_cb.currentIndexChanged.connect(self._dur_changed)
         top.addWidget(self.dur_cb)
-        self.leq_start_btn = QPushButton(_tx('Start')); _apply_txn(self.leq_start_btn, False)
+        self.leq_start_btn = QPushButton('Start'); _apply_txn(self.leq_start_btn, False)
         self.leq_start_btn.setStyleSheet(f'background:rgba(78,125,240,25);color:{T("accent")};border:1px solid rgba(78,125,240,100);padding:4px 10px;border-radius:8px;')
         self.leq_start_btn.clicked.connect(self._toggle_leq)
         top.addWidget(self.leq_start_btn)
@@ -4122,12 +4122,12 @@ class LeqWindow(QWidget):
         layout.addLayout(top)
 
         # 진행바
-        self.progress_lbl = QLabel(_tx('Standby'))
+        self.progress_lbl = QLabel('Standby')
         self.progress_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:10px;')
         layout.addWidget(self.progress_lbl)
 
         # 결과 표시
-        result_group = QGroupBox(_tx('Live LEQ'))
+        result_group = QGroupBox('Live LEQ')
         result_group.setStyleSheet(f'QGroupBox{{border:1px solid {T("border")};border-radius:6px;margin-top:8px;color:{T("text_dim")};font-size:10px;}}')
         rg_layout = QVBoxLayout(result_group)
 
@@ -4147,7 +4147,7 @@ class LeqWindow(QWidget):
         layout.addWidget(result_group)
 
         # 리셋
-        rst = QPushButton('  ' + _tx('Reset')); rst.setIcon(_icon('refresh'))
+        rst = QPushButton('  Reset'); rst.setIcon(_icon('refresh'))
         rst.setStyleSheet(f'background:{T("panel")};color:{T("text_dim")};border:1px solid {T("border")};padding:4px;border-radius:8px;')
         rst.clicked.connect(self._reset_leq)
         layout.addWidget(rst)
@@ -4662,7 +4662,7 @@ class SplAlarmWindow(QWidget):
     def __init__(self, main):
         self._main = main
         super().__init__(main, Qt.Window)   # 메인의 자식 창 → 풀스크린 SPECTRA 위에 따라 뜸
-        self.setWindowTitle(_tx('SPL Alarm'))
+        self.setWindowTitle('SPL Alarm')
         self.setAttribute(Qt.WA_DeleteOnClose, False)
         self.setStyleSheet(f'background:{T("bg")};')
         self._cfg = self._load_cfg()
@@ -4797,7 +4797,7 @@ class ShowModeWindow(QWidget):
     def __init__(self, main):
         super().__init__()
         self._main = main
-        self.setWindowTitle(_tx('SPECTRA — Show Mode'))
+        self.setWindowTitle('SPECTRA — Show Mode')
         self._spl = -120.0; self._unit = 'dBA'
         self._peak = -120.0; self._leq = -120.0; self._leq_e = None
         self._last_paint = 0.0          # 리페인트 throttle (글랜스 차분하게)
@@ -4956,7 +4956,7 @@ class SplMeterWindow(QWidget):
         # macOS는 showEvent에서 네이티브 setLevel로(깜빡임 없음). 그 외 OS만 Qt 플래그.
         if self._always_top and sys.platform != 'darwin':
             self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
-        self.setWindowTitle(_tx('SPL Meter'))
+        self.setWindowTitle('SPL Meter')
         self.setAttribute(Qt.WA_DeleteOnClose, False)
 
         self._buf_a = deque(maxlen=self._PUSH_RATE * 60 * 60 * 3)  # 3 hr max
