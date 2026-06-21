@@ -5480,7 +5480,7 @@ class DeviceCardPopup(QFrame):
         hdr_title = QLabel(
             f'<span style="font-size:12px;font-weight:700;'
             f'color:{T("accent")};letter-spacing:2px;">AUDIO</span>'
-            f'&nbsp;<span style="font-size:10px;color:{T("text_dim")};">{_tx("Input Device")}</span>'
+            f'&nbsp;<span style="font-size:10px;color:{T("text_dim")};">Input Device</span>'
         )
         hdr_title.setStyleSheet('background:transparent; border:none;')
         hdr_lay.addWidget(hdr_title)
@@ -5508,7 +5508,7 @@ class DeviceCardPopup(QFrame):
         bot_sep.setStyleSheet(f'background:{T("border")}; border:none;')
         self._outer.addWidget(bot_sep)
 
-        ref_btn = QPushButton(_tx('Refresh Devices')); ref_btn.setIcon(_icon('refresh', 13))
+        ref_btn = QPushButton('Refresh Devices'); ref_btn.setIcon(_icon('refresh', 13))
         ref_btn.setFixedHeight(28)
         ref_btn.setStyleSheet(
             f'QPushButton {{ background:transparent; color:{T("text_dim")}; border:none; '
@@ -5549,7 +5549,7 @@ class DeviceCardPopup(QFrame):
         self._fill_cards(combo, disconnected_name)
         self.adjustSize()
         self.resize(fixed_w, self.sizeHint().height())
-        self._status_lbl.setText(_tx('✓ Refreshed'))
+        self._status_lbl.setText('✓ Refreshed')
         self._status_lbl.setVisible(True)
         QTimer.singleShot(2000, self._clear_status)
 
@@ -5590,7 +5590,7 @@ class DeviceCardPopup(QFrame):
         txt_lay.addWidget(name_lbl)
 
         if disconnected:
-            sub = QLabel(_tx('Disconnected'))
+            sub = QLabel('Disconnected')
             sub.setStyleSheet(f'color:{T("yellow")}; font-size:9px; background:transparent; border:none;')
             txt_lay.addWidget(sub)
         elif ch_count > 0:
@@ -5739,7 +5739,7 @@ class ChannelPopup(QFrame):
         self._vlay = QVBoxLayout(self)
         self._vlay.setContentsMargins(10, 8, 10, 10)
         self._vlay.setSpacing(1)
-        hdr = QLabel(_tx('Input Channels'))
+        hdr = QLabel('Input Channels')
         hdr.setStyleSheet(f'color:{T("text_dim")};font-size:11px;font-weight:600;'
                           f'padding-bottom:4px;')
         self._vlay.addWidget(hdr)
