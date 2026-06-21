@@ -14493,8 +14493,8 @@ class _GradientNumber(QWidget):
             f = QFont('Helvetica Neue', fs); f.setWeight(QFont.Normal); p.setFont(f)
             p.setPen(QColor(T('text_dim')))
         else:
-            # 글리프 ascent+descent 가 폰트 픽셀크기를 넘으므로 보수적으로(세로 잘림 방지)
-            fs = max(32, int(min(r.height() * 0.52, r.width() * 0.28)))
+            # 글리프 ascent+descent 고려 + 절대 상한(132)으로 큰 카드에서 숫자가 과대→sub줄 밀어내 잘리는 것 방지
+            fs = max(32, min(int(r.height() * 0.48), int(r.width() * 0.26), 132))
             f = QFont('Helvetica Neue', fs); f.setWeight(QFont.Black); p.setFont(f)
             p.setPen(QPen(QBrush(_spectra_grad_obj(r.left() + r.width() * 0.14,
                                                     r.left() + r.width() * 0.86)), 1))
@@ -14694,7 +14694,7 @@ class StereoLoudnessPage(QWidget):
     def _build_hero_panel(self):
         """시안C 히어로 — PROGRAM LOUDNESS 거대 그라디언트 숫자 + 타겟/편차."""
         w = QWidget(); w.setStyleSheet('background:transparent;')
-        vl = QVBoxLayout(w); vl.setContentsMargins(16, 8, 16, 8); vl.setSpacing(4)
+        vl = QVBoxLayout(w); vl.setContentsMargins(16, 8, 16, 16); vl.setSpacing(4)   # 하단 마진↑(sub줄 잘림 방지)
         # AVG(누적 평균=Integrated) ↔ LIVE(실시간 Short-term) 토글 — 카드 우상단
         self._hero_live = False
         seg = QWidget(); seg.setStyleSheet('background:transparent;')
