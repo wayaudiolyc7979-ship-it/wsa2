@@ -18056,11 +18056,11 @@ class MainWindow(QMainWindow):
     def spec_apply_state(self, d):
         try:
             if 'view' in d:
-                self._view_seg.set_active(
+                self._set_view(
                     {'fft':'fft','oct3':'oct3','oct12':'oct12','oct24':'oct24'}.get(d['view'], 'oct12'))
         except Exception: pass
         try:
-            if 'scale' in d: self._scale_seg.set_active('log' if d['scale']=='log' else 'lin')
+            if 'scale' in d: self._set_scale(d['scale'] == 'log')
         except Exception: pass
         for key, cb in (('sr', self.sr_cb), ('avg', self.avg_cb), ('hold', self.hold_cb),
                         ('db', self.db_cb), ('speed', self.spd_cb)):
