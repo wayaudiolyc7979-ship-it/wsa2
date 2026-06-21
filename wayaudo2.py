@@ -15242,7 +15242,7 @@ class StereoLoudnessPage(QWidget):
         # 히어로 숫자/제목 + 컴플라이언스 카드 — 평균(Integrated) ↔ 실시간(Short-term) 모드
         live = getattr(self, '_hero_live', False)
         hv = m.S if live else m.I    # 히어로가 보여줄 값
-        self._lbl_hero_title.setText(_tx('SHORT-TERM  (Live)') if live else 'PROGRAM LOUDNESS')
+        self._lbl_hero_title.setText('SHORT-TERM  (Live)' if live else 'PROGRAM LOUDNESS')
         self._lbl_I.setText(fmt(hv))
         if hv>-100:
             dev=hv-self._target
