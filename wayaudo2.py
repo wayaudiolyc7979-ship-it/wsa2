@@ -14621,7 +14621,7 @@ class StereoLoudnessPage(QWidget):
         for title,unit,attr,hue,light,tip in specs:
             row2.addWidget(self._metric_card(title,unit,attr,hue,light,tip),1)
         row2.addWidget(self._build_target_ctrl(),0)
-        rw2=QWidget(); rw2.setLayout(row2); rw2.setFixedHeight(92)
+        rw2=QWidget(); rw2.setLayout(row2); rw2.setFixedHeight(74)   # 콘텐츠에 맞춰 타이트(빈 하단 띠 제거)
         root.addWidget(rw2,0)
 
         # ── Row 3: 히스토리 | 컴플라이언스 ──
