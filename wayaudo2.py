@@ -8701,7 +8701,7 @@ class _MeasCard(QFrame):
         self._db_lbl = QLabel('—')
         self._db_lbl.setStyleSheet(f'color:{color};background:transparent;font-size:{FS_XS}px;font-weight:bold;')
         self._db_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self._start_btn = QPushButton(_tx('Start')); _apply_txn(self._start_btn, False)
+        self._start_btn = QPushButton('Start'); _apply_txn(self._start_btn, False)
         self._start_btn.setFixedHeight(20)
         self._start_btn.setStyleSheet(self._start_btn_ss())
         self._start_btn.clicked.connect(self._on_start_stop)
@@ -8769,7 +8769,7 @@ class _MeasCard(QFrame):
         self._lay.addWidget(hsep())
         # Meas device row
         row = QHBoxLayout(); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(3)
-        lbl = QLabel(_tx('Meas')); lbl.setFixedWidth(30)
+        lbl = QLabel('Meas'); lbl.setFixedWidth(30)
         lbl.setStyleSheet(ss_text(FS_XS))
         # 카드 내부 콤보 — 전역 QSS의 반투명 그라디언트(검정 바탕 위에서 까맣게 보임)를
         # 카드와 어울리는 불투명 배경으로 덮어쓴다. (restyle()로 테마 토글 시 재적용)
@@ -8781,7 +8781,7 @@ class _MeasCard(QFrame):
         self._lay.addLayout(row)
         # Delay row
         d_row = QHBoxLayout(); d_row.setContentsMargins(0, 0, 0, 0); d_row.setSpacing(3)
-        d_lbl = QLabel(_tx('Delay')); d_lbl.setFixedWidth(30)
+        d_lbl = QLabel('Delay'); d_lbl.setFixedWidth(30)
         d_lbl.setStyleSheet(ss_text(FS_XS))
         self._delay_spin = QDoubleSpinBox()
         self._delay_spin.setRange(-2000, 2000); self._delay_spin.setDecimals(2)
