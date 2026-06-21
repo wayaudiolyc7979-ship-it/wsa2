@@ -14486,11 +14486,15 @@ class _GradientNumber(QWidget):
     def paintEvent(self, e):
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
         r = self.rect()
-        fs = max(32, int(min(r.height() * 0.78, r.width() * 0.30)))
-        f = QFont('Helvetica Neue', fs); f.setWeight(QFont.Black); p.setFont(f)
         if self._text in ('—', ''):
+            # 빈 상태(미실행): '—'를 히어로 크기로 키우면 거대한 회색 막대처럼 보임 →
+            # 작고 가는 대시로 은은하게(Standby 표시).
+            fs = max(24, int(r.height() * 0.22))
+            f = QFont('Helvetica Neue', fs); f.setWeight(QFont.Normal); p.setFont(f)
             p.setPen(QColor(T('text_dim')))
         else:
+            fs = max(32, int(min(r.height() * 0.78, r.width() * 0.30)))
+            f = QFont('Helvetica Neue', fs); f.setWeight(QFont.Black); p.setFont(f)
             p.setPen(QPen(QBrush(_spectra_grad_obj(r.left() + r.width() * 0.14,
                                                     r.left() + r.width() * 0.86)), 1))
         p.drawText(r, Qt.AlignCenter, self._text)
