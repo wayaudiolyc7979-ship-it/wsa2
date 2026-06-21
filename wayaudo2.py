@@ -14973,19 +14973,25 @@ class StereoLoudnessPage(QWidget):
         self._disp_timer.start(80)
 
     # ── 카드 헬퍼 ────────────────────────────────────────────────
-    def _card(self, inner, pad=8):
+    def _card_bg_ss(self, obj='stCard', radius=14):
+        """카드 배경 스타일 — 다크 고정 hex / 라이트는 T() 토큰. 테마 토글 시 재적용용."""
         dark=(_theme!='light')
+        return '#%s{background:%s;border:1px solid %s;border-radius:%dpx;}' % (
+            obj, ('#141416' if dark else T('panel')),
+            ('#2A2A2C' if dark else T('border')), radius)
+
+    def _card(self, inner, pad=8):
         f=QFrame(); f.setObjectName('stCard')
-        f.setStyleSheet('#stCard{background:%s;border:1px solid %s;border-radius:14px;}' %
-                        (('#141416' if dark else T('panel')), ('#2A2A2C' if dark else T('border'))))
+        f.setStyleSheet(self._card_bg_ss('stCard', 14))
+        getattr(self, '_card_frames', self.__dict__.setdefault('_card_frames', [])).append((f, 'stCard', 14))
         lay=QVBoxLayout(f); lay.setContentsMargins(pad,pad,pad,pad); lay.setSpacing(0); lay.addWidget(inner)
         return f, lay
 
     def _metric_card(self, title, unit, attr, hue, light, tip=''):
-        dark=(_theme!='light'); col=_metric_col(hue,light)
+        col=_metric_col(hue,light)
         f=QFrame(); f.setObjectName('stMc')
-        f.setStyleSheet('#stMc{background:%s;border:1px solid %s;border-radius:12px;}' %
-                        (('#141416' if dark else T('panel')), ('#2A2A2C' if dark else T('border'))))
+        f.setStyleSheet(self._card_bg_ss('stMc', 12))
+        getattr(self, '_card_frames', self.__dict__.setdefault('_card_frames', [])).append((f, 'stMc', 12))
         if tip: f.setToolTip(tip)
         h=QHBoxLayout(f); h.setContentsMargins(12,8,10,8); h.setSpacing(9)
         bar=QFrame(); bar.setFixedWidth(4)
@@ -15010,8 +15016,8 @@ class StereoLoudnessPage(QWidget):
     def _build_compliance_card(self):
         dark=(_theme!='light')
         f=QFrame(); f.setObjectName('stCard')
-        f.setStyleSheet('#stCard{background:%s;border:1px solid %s;border-radius:14px;}' %
-                        (('#141416' if dark else T('panel')), ('#2A2A2C' if dark else T('border'))))
+        f.setStyleSheet(self._card_bg_ss('stCard', 14))
+        getattr(self, '_card_frames', self.__dict__.setdefault('_card_frames', [])).append((f, 'stCard', 14))
         v=QVBoxLayout(f); v.setContentsMargins(14,12,14,12); v.setSpacing(6)
         title=QLabel('COMPLIANCE'); title.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};letter-spacing:1px;background:transparent;')
         self._comp_circle=QLabel('—'); self._comp_circle.setFixedSize(72,72); self._comp_circle.setAlignment(Qt.AlignCenter)
@@ -15134,6 +15140,31 @@ class StereoLoudnessPage(QWidget):
                 t_lbl.setStyleSheet(f'font-size:{FS_XS}px;color:{_lc};letter-spacing:0.5px;background:transparent;')
             if u_lbl is not None:
                 u_lbl.setStyleSheet(f'font-size:{FS_XS}px;color:{_lc};background:transparent;')
+        # ── 카드 배경 프레임 재적용 (PROGRAM/메트릭6/COMPLIANCE 등) — 다크 고정 hex/라이트 T()
+        for f, obj, rad in getattr(self, '_card_frames', []):
+            try: f.setStyleSheet(self._card_bg_ss(obj, rad))
+            except Exception: pass
+        # 페이지 배경 + 히어로/컴플라이언스 텍스트 + 세그/LU 버튼
+        self.setStyleSheet('StereoLoudnessPage{background:%s;}' % T('bg'))
+        if hasattr(self, '_lbl_hero_title'):
+            self._lbl_hero_title.setStyleSheet(f'font-size:{FS_BODY}px;color:{_lc};'
+                              f'letter-spacing:2px;background:transparent;')
+        if hasattr(self, '_lbl_hero_sub'):
+            self._lbl_hero_sub.setStyleSheet(f'font-size:{FS_LG}px;color:{T("text_dim")};background:transparent;')
+        if hasattr(self, '_comp_circle'):
+            self._comp_circle.setStyleSheet(f'background:{T("bg3")};border-radius:36px;color:{T("text_dim")};font-size:34px;font-weight:bold;')
+        if hasattr(self, '_lbl_comp'):
+            self._lbl_comp.setStyleSheet(f'font-size:{FS_BODY}px;font-weight:bold;color:{T("text_dim")};background:transparent;')
+        if hasattr(self, '_hero_avg_btn'): self._hero_avg_btn.setStyleSheet(self._seg_btn_ss(left=True))
+        if hasattr(self, '_hero_live_btn'): self._hero_live_btn.setStyleSheet(self._seg_btn_ss(left=False))
+        if hasattr(self, '_lu_btn'):
+            self._lu_btn.setStyleSheet(
+                f"QPushButton{{background:{T('panel')};color:{T('text_dim')};border:1px solid {T('border')};"
+                f"border-radius:6px;font-size:11px;font-weight:bold;}}"
+                f"QPushButton:checked{{background:rgba(78,125,240,40);color:{T('accent')};"
+                f"border:1px solid {T('accent')};}}")
+        if hasattr(self, '_lbl_I'): self._lbl_I.update()
+        if hasattr(self, '_hist'): self._hist.update()
         if hasattr(self, '_vs'): self._vs.update()
         if hasattr(self, '_radar'): self._radar.update()
         for wn in (getattr(self, '_vs_win', None), getattr(self, '_radar_win', None)):
@@ -15558,11 +15589,11 @@ class MainWindow(QMainWindow):
         self._preset_cb.setToolTip(_tx('Load preset (applies all 3 tabs at once)'))
         self._preset_cb.currentIndexChanged.connect(self._on_preset_selected)
         _psqss = ss_btn_neutral() + 'QPushButton{padding:0;}'   # 아이콘 전용 — 패딩 제거해 테두리 타이트하게
-        _psave = QPushButton(); _psave.setIcon(_icon('save')); _psave.setToolTip(_tx('Save preset'))
-        _psave.setFixedSize(28, 28); _psave.setStyleSheet(_psqss); _psave.clicked.connect(self._on_preset_save)
-        _pdel = QPushButton(); _pdel.setIcon(_icon('trash')); _pdel.setToolTip(_tx('Delete preset'))
-        _pdel.setFixedSize(28, 28); _pdel.setStyleSheet(_psqss); _pdel.clicked.connect(self._on_preset_delete)
-        _right_lay.addWidget(self._preset_cb); _right_lay.addWidget(_psave); _right_lay.addWidget(_pdel)
+        self._preset_save_btn = QPushButton(); self._preset_save_btn.setIcon(_icon('save')); self._preset_save_btn.setToolTip(_tx('Save preset'))
+        self._preset_save_btn.setFixedSize(28, 28); self._preset_save_btn.setStyleSheet(_psqss); self._preset_save_btn.clicked.connect(self._on_preset_save)
+        self._preset_del_btn = QPushButton(); self._preset_del_btn.setIcon(_icon('trash')); self._preset_del_btn.setToolTip(_tx('Delete preset'))
+        self._preset_del_btn.setFixedSize(28, 28); self._preset_del_btn.setStyleSheet(_psqss); self._preset_del_btn.clicked.connect(self._on_preset_delete)
+        _right_lay.addWidget(self._preset_cb); _right_lay.addWidget(self._preset_save_btn); _right_lay.addWidget(self._preset_del_btn)
         self._refresh_preset_cb()
         _right_lay.addWidget(self.calib_btn)
         hl.addStretch(1)
@@ -16488,6 +16519,16 @@ class MainWindow(QMainWindow):
             f'color:{text_dim};border:1px solid {cb_bd};'
             f'padding:3px 10px;border-radius:7px;font-size:10px;')
         self.calib_btn.setIcon(_icon('sliders'))
+        # 헤더 아이콘 전용 버튼 (언어/프리셋 저장·삭제) — calib_btn과 동일 토큰, 패딩 타이트
+        _hdr_icon_ss = (
+            f'QPushButton{{background: qlineargradient(x1:0,y1:0,x2:0,y2:1,'
+            f'stop:0 {cb_bg0}, stop:1 {cb_bg1});'
+            f'color:{text_dim};border:1px solid {cb_bd};'
+            f'border-radius:7px;padding:0;font-size:10px;}}'
+            f'QPushButton:hover{{border:1px solid rgba({ar},{ag},{ab},160);color:{accent};}}')
+        if hasattr(self, 'lang_btn'): self.lang_btn.setStyleSheet(_hdr_icon_ss)
+        if hasattr(self, '_preset_save_btn'): self._preset_save_btn.setStyleSheet(_hdr_icon_ss)
+        if hasattr(self, '_preset_del_btn'): self._preset_del_btn.setStyleSheet(_hdr_icon_ss)
         # 오른쪽 사이드 패널 배경 + 왼쪽 경계선 (셀렉터 지정으로 자식 위젯 미영향)
         if hasattr(self, '_info_panel'):
             self._info_panel.setStyleSheet(
