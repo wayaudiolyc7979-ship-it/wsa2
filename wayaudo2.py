@@ -15202,6 +15202,15 @@ class MainWindow(QMainWindow):
         _right_lay.addStretch()
         _right_lay.addWidget(self.status_lbl)
         _right_lay.addWidget(self.theme_btn)
+        # ── Preset 드롭다운 + Save + 삭제 (Calibration 앞)
+        self._preset_cb = RoundComboBox(); self._preset_cb._align_center = True
+        self._preset_cb.setFixedHeight(28); self._preset_cb.setMinimumWidth(120)
+        self._preset_cb.setToolTip('프리셋 불러오기 (현재 세 탭 설정 통째 적용)')
+        self._preset_cb.currentIndexChanged.connect(self._on_preset_selected)
+        _psave = QPushButton('Save'); _psave.setFixedHeight(28); _psave.clicked.connect(self._on_preset_save)
+        _pdel = QPushButton('🗑'); _pdel.setFixedHeight(28); _pdel.setFixedWidth(34); _pdel.clicked.connect(self._on_preset_delete)
+        _right_lay.addWidget(self._preset_cb); _right_lay.addWidget(_psave); _right_lay.addWidget(_pdel)
+        self._refresh_preset_cb()
         _right_lay.addWidget(self.calib_btn)
         hl.addStretch(1)
         hl.addWidget(self.logo_w)
@@ -18142,6 +18151,50 @@ class MainWindow(QMainWindow):
                 except Exception as e: _alog.warning(f'apply_app_state {key} 실패: {e}')
         finally:
             self._presets_restoring = False
+
+    # ── Preset 핸들러 ──────────────────────────────────────────────────────────
+    def _refresh_preset_cb(self):
+        self._preset_cb.blockSignals(True)
+        self._preset_cb.clear(); self._preset_cb.addItem('— Preset —')
+        for name in sorted(self._settings.get('presets', {}).keys()):
+            self._preset_cb.addItem(name)
+        self._preset_cb.setCurrentIndex(0)
+        self._preset_cb.blockSignals(False)
+
+    def _on_preset_selected(self, idx):
+        if idx <= 0: return
+        name = self._preset_cb.currentText()
+        st = self._settings.get('presets', {}).get(name)
+        if isinstance(st, dict):
+            self._apply_app_state(st); _diag('preset_load', name=name)
+
+    def _on_preset_save(self):
+        name, ok = _text_input_dialog(self, '프리셋 저장', '이름:')
+        name = (name or '').strip()
+        if not ok or not name: return
+        presets = self._settings.setdefault('presets', {})
+        if name in presets:
+            if not _brand_msg(self, '덮어쓰기', f'"{name}" 프리셋을 덮어쓸까요?',
+                              kind='question', ok_text='덮어쓰기', cancel_text='취소'):
+                return
+        presets[name] = self._collect_app_state()
+        _save_settings(self._settings); self._refresh_preset_cb()
+        idx = self._preset_cb.findText(name)
+        if idx > 0:
+            self._preset_cb.blockSignals(True)
+            self._preset_cb.setCurrentIndex(idx)
+            self._preset_cb.blockSignals(False)
+        _diag('preset_save', name=name)
+
+    def _on_preset_delete(self):
+        name = self._preset_cb.currentText()
+        presets = self._settings.get('presets', {})
+        if self._preset_cb.currentIndex() <= 0 or name not in presets: return
+        if not _brand_msg(self, '삭제', f'"{name}" 프리셋을 삭제할까요?',
+                          kind='question', ok_text='삭제', cancel_text='취소', danger=True):
+            return
+        presets.pop(name, None); _save_settings(self._settings); self._refresh_preset_cb()
+        _diag('preset_delete', name=name)
 
     def _mark_session_dirty(self, *a):
         if self._presets_restoring: return
