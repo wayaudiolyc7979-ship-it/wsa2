@@ -16570,10 +16570,11 @@ class MainWindow(QMainWindow):
 
     def eventFilter(self, obj, event):
         if obj is self.hdr and event.type() == QEvent.MouseButtonDblClick:
-            if self.isFullScreen():
+            # 네이티브 전체화면(메뉴바가 커스텀 헤더를 덮음) 대신 최대화 — 메뉴바 아래로 꽉 채움
+            if self.isMaximized():
                 self.showNormal()
             else:
-                self.showFullScreen()
+                self.showMaximized()
             return True
         return super().eventFilter(obj, event)
 
