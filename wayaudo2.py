@@ -13986,8 +13986,8 @@ class VectorscopeCanvas(QWidget):
         dark = (_theme != 'light')
         def ov(a): return QColor(255, 255, 255, a) if dark else QColor(26, 38, 62, a)
         p.fillRect(0, 0, W, H, QColor(2, 2, 4) if dark else QColor(T('bg')))
-        # 라우드니스 레이더(PAD_H=46·PAD_T=28·PAD_B=54)와 동일 여백 → 원 크기 통일
-        sz = min(W - 92, H - 82); cx = W // 2; cy = 28 + sz // 2
+        # 하단에 상관(correlation) 바+라벨이 있어 레이더보다 바닥 여유를 더 줌(작은 창 잘림 방지)
+        sz = min(W - 92, H - 98); cx = W // 2; cy = 28 + sz // 2
         r = sz // 2
 
         # ── Background halo ───────────────────────────────────────────
@@ -14216,7 +14216,7 @@ class LoudnessRadarCanvas(QWidget):
         _spec_color = _brand_color   # SPECTRA 브랜드 그라디언트로 레이더 재색 (이 메서드 한정)
 
         # ── Layout ────────────────────────────────────────────────
-        PAD_H = 46; PAD_T = 28; PAD_B = 54
+        PAD_H = 46; PAD_T = 28; PAD_B = 64   # 바닥 라벨 잘림 방지 여유 확대
         size = min(W - PAD_H*2, H - PAD_T - PAD_B)
         cx = W // 2; cy = PAD_T + size // 2
         R_arc = size // 2
@@ -14493,8 +14493,8 @@ class _GradientNumber(QWidget):
             f = QFont('Helvetica Neue', fs); f.setWeight(QFont.Normal); p.setFont(f)
             p.setPen(QColor(T('text_dim')))
         else:
-            # 글리프 ascent+descent 가 폰트 픽셀크기를 넘으므로 0.78→0.60 으로(세로 잘림 방지)
-            fs = max(32, int(min(r.height() * 0.60, r.width() * 0.30)))
+            # 글리프 ascent+descent 가 폰트 픽셀크기를 넘으므로 보수적으로(세로 잘림 방지)
+            fs = max(32, int(min(r.height() * 0.52, r.width() * 0.28)))
             f = QFont('Helvetica Neue', fs); f.setWeight(QFont.Black); p.setFont(f)
             p.setPen(QPen(QBrush(_spectra_grad_obj(r.left() + r.width() * 0.14,
                                                     r.left() + r.width() * 0.86)), 1))
