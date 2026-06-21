@@ -874,6 +874,7 @@ _LUCIDE_ICONS = {
     'download': ('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>', False),
     'save':     ('<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>', False),
     'trash':    ('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>', False),
+    'globe':    ('<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>', False),
     'bolt':     ('<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>', True),
     'sun':      ('<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>', False),
     'moon':     ('<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>', False),
@@ -15508,10 +15509,10 @@ class MainWindow(QMainWindow):
         _right_lay.addStretch()
         _right_lay.addWidget(self.status_lbl)
         _right_lay.addWidget(self.theme_btn)
-        self.lang_btn = QPushButton('한' if _LANG == 'ko' else 'EN')
-        self.lang_btn.setFixedWidth(40); self.lang_btn.setFixedHeight(28)
-        self.lang_btn.setToolTip(_tx('Switch language (restarts)'))
-        self.lang_btn.setStyleSheet(ss_btn_neutral())
+        self.lang_btn = QPushButton(); self.lang_btn.setIcon(_icon('globe'))
+        self.lang_btn.setFixedSize(28, 28)
+        self.lang_btn.setToolTip('Language · 언어')   # 언어 무관하게 양쪽 표기
+        self.lang_btn.setStyleSheet(ss_btn_neutral() + 'QPushButton{padding:0;}')   # 아이콘 전용 타이트
         self.lang_btn.clicked.connect(self._on_lang_toggle)
         _right_lay.addWidget(self.lang_btn)
         # ── Preset 드롭다운 + Save + 삭제 (Calibration 앞)
