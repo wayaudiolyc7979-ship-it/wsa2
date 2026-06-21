@@ -15085,6 +15085,9 @@ class MainWindow(QMainWindow):
 
         # 설정 (마이크별 캘리브레이션)
         self._settings = _load_settings()
+        self._presets_restoring = False
+        self._session_timer = QTimer(self); self._session_timer.setSingleShot(True)
+        self._session_timer.timeout.connect(self._save_session)
 
         self._build_ui()
         self._build_menubar()          # macOS 네이티브 메뉴바 (About/Quit/Help)
@@ -15103,6 +15106,30 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._setup_macos_titlebar)
 
         self._render_t=QTimer(self); self._render_t.timeout.connect(self._render_frame); self._render_t.start(33)
+
+        # ── 세션 자동기억: preset 관련 컨트롤 시그널 → _mark_session_dirty 배선
+        for _cb in (self.sr_cb, self.avg_cb, self.hold_cb, self.db_cb, self.spd_cb,
+                    self._st_target_cb, self._st_l_cb, self._st_r_cb):
+            try: _cb.currentIndexChanged.connect(self._mark_session_dirty)
+            except Exception: pass
+        for _b in (self.peak_btn, self.spectro_btn):
+            try: _b.toggled.connect(self._mark_session_dirty)
+            except Exception: pass
+        try: self._view_seg.changed.connect(lambda *_: self._mark_session_dirty())
+        except Exception: pass
+        try: self._scale_seg.changed.connect(lambda *_: self._mark_session_dirty())
+        except Exception: pass
+        for _cb in (self.tf_win.eng_cb, self.tf_win.fft_cb, self.tf_win.avg_cb, self.tf_win.sm_cb,
+                    self.tf_win.ir_cb, self.tf_win.phase_cb, self.tf_win.unit_cb):
+            try: _cb.currentIndexChanged.connect(self._mark_session_dirty)
+            except Exception: pass
+        try: self.stereo_page._lu_btn.toggled.connect(self._mark_session_dirty)
+        except Exception: pass
+
+        # ── 시작 시 session 복원 (모든 위젯 존재 시점에서 deferred 실행)
+        _sess = self._settings.get('session')
+        if isinstance(_sess, dict):
+            QTimer.singleShot(0, lambda: self._apply_app_state(_sess))
 
     # ─────────────────────────────────────
     def _setup_macos_titlebar(self):
@@ -18083,6 +18110,50 @@ class MainWindow(QMainWindow):
                         if self.in_ch_cb.itemData(i) == d['ch']:
                             self.in_ch_cb.setCurrentIndex(i); break
         except Exception: pass
+
+    # ── 앱 전체 상태 직렬화 + 세션 자동기억 ───────────────────────────────
+    def _loud_get_full(self):
+        """Stereo 페이지 상태 + MainWindow 툴바의 target/L/R 콤보 인덱스."""
+        st = self.stereo_page.loud_get_state()
+        try: st['target'] = self._st_target_cb.currentIndex()
+        except Exception: pass
+        try: st['l'] = self._st_l_cb.currentIndex(); st['r'] = self._st_r_cb.currentIndex()
+        except Exception: pass
+        return st
+
+    def _loud_apply_full(self, d):
+        for key, cb in (('target', getattr(self, '_st_target_cb', None)),
+                        ('l', getattr(self, '_st_l_cb', None)), ('r', getattr(self, '_st_r_cb', None))):
+            try:
+                if cb is not None and key in d: cb.setCurrentIndex(int(d[key]))
+            except Exception: pass
+        self.stereo_page.loud_apply_state(d)
+
+    def _collect_app_state(self):
+        return {'tf': self.tf_win.get_state(), 'spec': self.spec_get_state(), 'loud': self._loud_get_full()}
+
+    def _apply_app_state(self, st):
+        self._presets_restoring = True
+        try:
+            for key, fn in (('tf', lambda d: self.tf_win.apply_state(d)),
+                            ('spec', self.spec_apply_state), ('loud', self._loud_apply_full)):
+                try:
+                    if isinstance(st.get(key), dict): fn(st[key])
+                except Exception as e: _alog.warning(f'apply_app_state {key} 실패: {e}')
+        finally:
+            self._presets_restoring = False
+
+    def _mark_session_dirty(self, *a):
+        if self._presets_restoring: return
+        self._session_timer.start(800)   # 0.8s 디바운스
+
+    def _save_session(self):
+        try:
+            self._settings['session'] = self._collect_app_state()
+            _save_settings(self._settings)
+            _diag('session_saved')
+        except Exception as e:
+            _alog.warning(f'_save_session 실패: {e}')
 
     def _toggle_peak(self):
         self.peak_hold=self.peak_btn.isChecked()
