@@ -13964,7 +13964,7 @@ class VectorscopeCanvas(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setMinimumSize(260,260)
+        self.setMinimumSize(200,200)
         self.setMouseTracking(True)
         self._L=np.zeros(self._BUF,dtype=np.float32)
         self._R=np.zeros(self._BUF,dtype=np.float32)
@@ -14138,7 +14138,7 @@ class LoudnessRadarCanvas(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setMinimumSize(280,280)
+        self.setMinimumSize(200,200)
         self.setMouseTracking(True)
         self._popout_rect = QRect(0,0,1,1)
         self._segs =[-100.0]*self._N_SEG
@@ -14596,7 +14596,7 @@ class StereoLoudnessPage(QWidget):
         row1=QHBoxLayout(); row1.setSpacing(12)
         # 스코프/레이더를 자주 보므로 비중을 키움(기존 1:1:2 → 5:5:6) + 행 높이 확대
         row1.addWidget(self._vs_card,5); row1.addWidget(self._radar_card,5); row1.addWidget(self._hero_card,6)
-        rw1=QWidget(); rw1.setLayout(row1); rw1.setMinimumHeight(340); rw1.setMaximumHeight(450)
+        rw1=QWidget(); rw1.setLayout(row1); rw1.setMinimumHeight(280); rw1.setMaximumHeight(450)
         root.addWidget(rw1,0)
 
         # ── Row 2: 메트릭 카드 6개 ──
