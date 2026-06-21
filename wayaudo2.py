@@ -10498,7 +10498,7 @@ class TransferFunctionWindow(QWidget):
             super().__init__(parent)
         else:
             super().__init__(parent, Qt.Window)
-            self.setWindowTitle(_tx('SPECTRA — Transfer Function'))
+            self.setWindowTitle('SPECTRA — Transfer Function')
             self.setMinimumSize(1020, 570)
         self._settings = settings or {}
         self._tf_primary_name = self._settings.get('tf_primary_name', '')  # primary 카드 사용자 이름
@@ -10648,7 +10648,7 @@ class TransferFunctionWindow(QWidget):
         rl = QVBoxLayout(self.rp); rl.setContentsMargins(10,10,10,10); rl.setSpacing(8)
 
         # 신호 발생기
-        sg = QGroupBox(_tx('Signal Generator'))
+        sg = QGroupBox('Signal Generator')
         sgl = QVBoxLayout(sg); sgl.setSpacing(5); sgl.setContentsMargins(8,14,8,8)
         tr = QHBoxLayout(); tr.setSpacing(4); tr.setContentsMargins(2,0,0,0)
         self.sig_pink_btn  = _CheckBtn('Pink');  self.sig_pink_btn.setChecked(True)
@@ -10771,7 +10771,7 @@ class TransferFunctionWindow(QWidget):
         sgl.addLayout(or_)
         self.sig_out_cb.currentIndexChanged.connect(self._sig_out_device_changed)
         self.sig_out_ch2_cb.currentIndexChanged.connect(self._sig_out_ch_changed)
-        self.sig_on_btn = QPushButton(_tx('Play  [G]')); _apply_txn(self.sig_on_btn, False); self.sig_on_btn.setCheckable(True)
+        self.sig_on_btn = QPushButton('Play  [G]'); _apply_txn(self.sig_on_btn, False); self.sig_on_btn.setCheckable(True)
         self.sig_on_btn.setStyleSheet(f'background:{T("panel")};color:{T("text_dim")};'
                                        f'border:1px solid {T("border")};padding:4px;border-radius:{RADIUS_CTRL}px;font-weight:bold;')
         self.sig_on_btn.clicked.connect(self._toggle_sig_gen); sgl.addWidget(self.sig_on_btn)
@@ -10779,7 +10779,7 @@ class TransferFunctionWindow(QWidget):
 
         # 입력 장치
         # ── Measurement 패널: 공유 Ref 섹션 + N개 Meas 채널 카드 ──
-        mp = QGroupBox(_tx('Measurement'))
+        mp = QGroupBox('Measurement')
         mpl = QVBoxLayout(mp); mpl.setContentsMargins(8,14,8,8); mpl.setSpacing(6)
 
         self._mon_btn = None
@@ -10808,7 +10808,7 @@ class TransferFunctionWindow(QWidget):
         self.ref_cb.currentIndexChanged.connect(self._ref_device_changed)
         self.ref_ch_cb.currentIndexChanged.connect(self._on_input_setting_changed)
         ref_row = QHBoxLayout(); ref_row.setContentsMargins(0,0,0,0); ref_row.setSpacing(3)
-        _rl = QLabel(_tx('In')); _rl.setFixedWidth(14)
+        _rl = QLabel('In'); _rl.setFixedWidth(14)
         _rl.setStyleSheet(ss_text(FS_XS))
         self.ref_cb.setMinimumWidth(100); self.ref_ch_cb.setMinimumWidth(44)
         ref_row.addWidget(_rl); ref_row.addWidget(self.ref_cb, 1); ref_row.addWidget(self.ref_ch_cb)
@@ -10915,7 +10915,7 @@ class TransferFunctionWindow(QWidget):
         self.start_btn.hide()  # 제너레이터 ON/OFF가 자동으로 start/stop 제어
 
         tl.addWidget(_lb('Engine'))
-        self.eng_cb = RoundComboBox(); self.eng_cb.addItems([_tx('Single'), _tx('Adaptive')])
+        self.eng_cb = RoundComboBox(); self.eng_cb.addItems(['Single', 'Adaptive'])
         self.eng_cb._align_center = True
         self.eng_cb.setFixedWidth(88); self.eng_cb.setFixedHeight(30)
         self.eng_cb.setToolTip(_tx('Single = fixed FFT  ·  Adaptive = multi-rate (high-res low end, adaptive resolution per frequency)'))
@@ -10957,7 +10957,7 @@ class TransferFunctionWindow(QWidget):
         self.find_btn = QPushButton('Find  [L]'); self.find_btn.setIcon(_icon('search')); self.find_btn.setFixedWidth(96); self.find_btn.setFixedHeight(30)
         self.find_btn.clicked.connect(self._find_all_delays); tl.addWidget(self.find_btn); tl.addSpacing(10)
 
-        self.tf_cap_btn = QPushButton(_tx('Capture')); self.tf_cap_btn.setFixedWidth(68); self.tf_cap_btn.setFixedHeight(30)
+        self.tf_cap_btn = QPushButton('Capture'); self.tf_cap_btn.setFixedWidth(68); self.tf_cap_btn.setFixedHeight(30)
         self.tf_cap_btn.setToolTip(_tx('Capture current TF snapshot (Mag + Phase + IR)   ·   Quick capture: Space'))
         self.tf_cap_btn.clicked.connect(lambda: self._do_tf_capture(prompt=True)); tl.addWidget(self.tf_cap_btn)
         # 토글 버튼 전용 스타일 — ON 시 확실히 채워져 보이게 (버튼별 직접 지정 → 전역 스타일에 안 묻힘)
@@ -11130,7 +11130,7 @@ class TransferFunctionWindow(QWidget):
         def _q_fn():
             try: result.put(('ok', sd.query_devices()))
             except Exception as e: result.put(('err', str(e)))
-        _internal_sigg_label = _tx('Internal (SigGen)')   # evaluate before 't' is shadowed by Thread
+        _internal_sigg_label = 'Internal (SigGen)'   # evaluate before 't' is shadowed by Thread
         t = threading.Thread(target=_q_fn, daemon=True); t.start(); t.join(timeout=3.0)
         if result.empty(): return
         status, payload = result.get_nowait()
@@ -12198,7 +12198,7 @@ class TransferFunctionWindow(QWidget):
         self._stop_analysis()   # 분석 스트림 정지 (UI/카드/버튼 리셋 포함)
         self._stop_sig_gen()    # 출력 스트림도 닫음 → 핑크 내장출력 누출 방지
         try:
-            self.status_lbl.setText(_tx('● Disconnected'))
+            self.status_lbl.setText('● Disconnected')
             self.status_lbl.setStyleSheet(f'color:{T("yellow")};font-size:11px;')
         except Exception: pass
         # 2초 후 장치 목록 갱신 (뽑힌 장치 제거 / 재연결 장치 등록)
@@ -12853,7 +12853,7 @@ class TransferFunctionWindow(QWidget):
             self._stabilizing = False
             self.tf_cap_btn.setEnabled(True)
             if timeout and not (converged and coh_ok):
-                self.avg_lbl.setText(_tx('Low coherence — captured as-is'))
+                self.avg_lbl.setText('Low coherence — captured as-is')
                 _alog.warning('안정화 캡쳐 타임아웃 — 코히런스 미달 상태로 캡쳐')
             self._capture_snapshot(self._stable_base)
 
@@ -12907,10 +12907,10 @@ class TransferFunctionWindow(QWidget):
             _BrandBox.information(self, _tx('Export'), _tx('No TF captures to export.'))
             return
         # 폴더 선택 다이얼로그 — accept 버튼을 '내보내기'로 (macOS 기본 'Open' 대신 명확하게)
-        dlg = QFileDialog(self, _tx('Select Export Folder'))
+        dlg = QFileDialog(self, 'Select Export Folder')
         dlg.setFileMode(QFileDialog.Directory)
         dlg.setOption(QFileDialog.ShowDirsOnly, True)
-        dlg.setLabelText(QFileDialog.Accept, _tx('Export'))
+        dlg.setLabelText(QFileDialog.Accept, 'Export')
         if dlg.exec_() != QFileDialog.Accepted:
             return
         sel = dlg.selectedFiles()
@@ -13555,8 +13555,8 @@ class TransferFunctionWindow(QWidget):
             self.sig_on_btn.setText('Play'); _apply_txn(self.sig_on_btn, False)
         from PyQt5.QtWidgets import QFileDialog, QMessageBox
         path, _ = QFileDialog.getOpenFileName(
-            self, _tx('Select Audio File'), '',
-            _tx('Audio Files (*.wav *.flac *.aiff *.aif *.ogg *.mp3 *.m4a *.caf);;All Files (*)'))
+            self, 'Select Audio File', '',
+            'Audio Files (*.wav *.flac *.aiff *.aif *.ogg *.mp3 *.m4a *.caf);;All Files (*)')
         if not path:
             self.sig_file_btn.setChecked(False)
             if not self.sig_white_btn.isChecked() and not self.sig_sweep_btn.isChecked() \
