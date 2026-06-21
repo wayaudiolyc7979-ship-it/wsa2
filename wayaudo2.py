@@ -3742,6 +3742,11 @@ class VUMeter(QWidget):
 
 # ───────────────────────────────────────────
 #  캘리브레이션 다이얼로그
+# QApplication 전역에 설치된 단일키 단축키 필터들(_TFKeyFilter/_MainKeyFilter/_CanvasKeyRouter).
+# 모달 텍스트 입력 다이얼로그 동안 '실제로' 제거해 macOS IME 첫 조합 가로채기를 방지.
+_APP_KEY_FILTERS = []
+
+
 # ───────────────────────────────────────────
 def _text_input_dialog(parent, title, label, default=''):
     """QInputDialog 대신 사용하는 커스텀 텍스트 입력 다이얼로그.
@@ -3758,9 +3763,8 @@ def _text_input_dialog(parent, title, label, default=''):
                      'border-radius:4px;padding:4px 8px;font-size:13px;}')
     le.setAttribute(Qt.WA_InputMethodEnabled, True)
     lay.addWidget(le)
-    # 포커스/전체선택을 다이얼로그가 완전히 표시된 뒤(이벤트 루프 1틱)로 미룸 —
-    # macOS에서 표시 전에 포커스가 잡히면 IME가 첫 한글 조합을 못 붙들어 자모가 분리돼 보이던 버그 방지.
-    QTimer.singleShot(0, lambda: (le.setFocus(), le.selectAll()))
+    if default:
+        QTimer.singleShot(0, le.selectAll)   # 리네임 시 기존 텍스트 선택(포커스는 Qt가 자동)
     btn_row = QHBoxLayout()
     cancel = QPushButton(_tx('Cancel')); ok_btn = QPushButton('OK')
     ok_btn.setDefault(True)
@@ -3769,7 +3773,16 @@ def _text_input_dialog(parent, title, label, default=''):
     btn_row.addStretch(); btn_row.addWidget(cancel); btn_row.addWidget(ok_btn)
     lay.addLayout(btn_row)
     le.returnPressed.connect(dlg.accept)
-    ok = dlg.exec_() == QDialog.Accepted
+    # macOS IME 첫 조합 보호: 입력 동안 전역 단축키 필터를 실제로 제거 → 닫으면 복원.
+    _app = QApplication.instance()
+    _suspended = list(_APP_KEY_FILTERS)
+    for _f in _suspended:
+        _app.removeEventFilter(_f)
+    try:
+        ok = dlg.exec_() == QDialog.Accepted
+    finally:
+        for _f in _suspended:
+            _app.installEventFilter(_f)
     return le.text(), ok
 
 
@@ -10586,6 +10599,7 @@ class TransferFunctionWindow(QWidget):
         # G/L 단축키: QShortcut 대신 앱 레벨 이벤트 필터 사용 (포커스/상태 무관)
         self._key_filter = _TFKeyFilter(self)
         QApplication.instance().installEventFilter(self._key_filter)
+        _APP_KEY_FILTERS.append(self._key_filter)
         # 기본 엔진 = Adaptive (멀티레이트). UI/엔진 셋업은 _engine_changed 가 처리.
         self.eng_cb.setCurrentIndex(1)
         QTimer.singleShot(0, self._restore_tf_captures)
@@ -15423,6 +15437,7 @@ class MainWindow(QMainWindow):
         # S 키 = Spectrum/Stereo 탭 Start·Stop 토글 (이벤트필터 — 텍스트 입력칸에선 가로채지 않음)
         self._main_key_filter = _MainKeyFilter(self)
         QApplication.instance().installEventFilter(self._main_key_filter)
+        _APP_KEY_FILTERS.append(self._main_key_filter)
 
         QTimer.singleShot(0, self._setup_macos_titlebar)
 
@@ -19285,6 +19300,7 @@ if __name__=='__main__':
     win = MainWindow()
     _key_router = _CanvasKeyRouter(win)
     app.installEventFilter(_key_router)
+    _APP_KEY_FILTERS.append(_key_router)
     if splash:
         def _launch():
             win.show()
