@@ -18991,11 +18991,7 @@ class MainWindow(QMainWindow):
         st_pop_act = QAction('Stereo Loudness in Separate Window', self)
         st_pop_act.setShortcut('Ctrl+Shift+L')   # macOS에선 Cmd+Shift+L로 매핑
         st_pop_act.triggered.connect(self._toggle_st_popout); view_menu.addAction(st_pop_act)
-        view_menu.addSeparator()
-        split_act = QAction('Split View (2 panes)', self)
-        split_act.setShortcut('Ctrl+Shift+2')    # macOS에선 Cmd+Shift+2로 매핑
-        split_act.triggered.connect(self._toggle_split); view_menu.addAction(split_act)
-        self._split_act = split_act
+        # (Split View(2칸 분할) 메뉴 제거 — 사용자가 안 씀. _toggle_split 구현은 휴면 상태로 남김.)
         help_menu = mb.addMenu('Help')
         about_act = QAction('About SPECTRA', self); about_act.setMenuRole(QAction.AboutRole)
         about_act.triggered.connect(self._show_license_info); help_menu.addAction(about_act)
