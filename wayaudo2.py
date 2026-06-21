@@ -15791,13 +15791,9 @@ class MainWindow(QMainWindow):
             'QPushButton:checked{background:#4E7DF0;color:#FFFFFF;border:1px solid #4E7DF0;}')
         self._st_popout_btn.setToolTip(_tx('Pop out to separate window (multi-monitor)'))
         self._st_popout_btn.clicked.connect(self._toggle_st_popout)
-        sl2.addWidget(self._st_popout_btn); sl2.addSpacing(6)
-        # 우측 토글 — 하단 메트릭 바 표시/숨김 (Spectrum/TF 우측 토글과 프레임 통일)
-        self._st_metricbar_btn = _RightPanelToggleBtn()
-        self._st_metricbar_btn.setChecked(True)
-        self._st_metricbar_btn.setToolTip(_tx('Show/hide bottom metric bar'))
-        self._st_metricbar_btn.clicked.connect(self._toggle_st_metricbar)
-        sl2.addWidget(self._st_metricbar_btn)
+        sl2.addWidget(self._st_popout_btn)
+        # (이전의 '하단 메트릭 바 토글' 버튼 제거 — 라우드니스 재디자인에서 _num_bar 가 사라져
+        #  토글이 무동작인 죽은 버튼이었음. Stereo 엔 토글할 우측/하단 패널이 없음.)
         # 툴바를 컨테이너로 감싸 sub_stack 페이지로 (팝아웃 시 떼었다 붙임)
         self._sp2 = QWidget(); self._sp2_lay = QHBoxLayout(self._sp2)
         self._sp2_lay.setContentsMargins(0, 0, 0, 0); self._sp2_lay.setSpacing(0)
@@ -16552,14 +16548,6 @@ class MainWindow(QMainWindow):
         self._spec_panel_btn.setChecked(vis); self._spec_panel_btn.update()
         self._settings['spec_panel_visible'] = vis
         _save_settings(self._settings)
-
-    def _toggle_st_metricbar(self):
-        """Stereo 하단 메트릭 바 표시/숨김 (우측 토글)."""
-        sp = getattr(self, 'stereo_page', None)
-        if sp is None or not hasattr(sp, '_num_bar'): return
-        vis = not sp._num_bar.isVisible()
-        sp._num_bar.setVisible(vis)
-        self._st_metricbar_btn.setChecked(vis); self._st_metricbar_btn.update()
 
     def _toggle_toolbar(self):
         vis = not self.toolbar_wrapper.isVisible()
