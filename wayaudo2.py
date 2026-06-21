@@ -14482,10 +14482,13 @@ class _GradientNumber(QWidget):
         # 세로는 sizeHint 고정(Expanding 금지) → 카드 높이에 따라 안 늘어남
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.setMinimumHeight(56)
-    def _fs(self):
-        return max(32, min(int(max(self.width(), 1) * 0.26), 132))   # 폭 기반 + 상한 132
+    def _fs_hint(self):
+        return max(32, min(int(max(self.width(), 1) * 0.24), 108))   # sizeHint용(폭 기반+상한)
+    def _fs_paint(self):
+        # 실제 칠할 폰트: 위젯 '실제 높이'에 맞춰 축소(짧은 카드=작게) + 폭/상한 한계
+        return max(24, min(int(self.height() * 0.72), int(self.width() * 0.24), 112))
     def sizeHint(self):
-        return QSize(220, int(self._fs() * 1.18))
+        return QSize(220, int(self._fs_hint() * 1.0))   # 위젯을 타이트하게 → sub줄 여유 확보
     def setText(self, t):
         if t != self._text: self._text = t; self.update()
     def text(self): return self._text
@@ -14494,11 +14497,11 @@ class _GradientNumber(QWidget):
         r = self.rect()
         if self._text in ('—', ''):
             # 빈 상태(미실행): 작고 가는 대시(회색 막대처럼 안 보이게)
-            fs = max(20, int(self._fs() * 0.32))
+            fs = max(18, int(self._fs_paint() * 0.34))
             f = QFont('Helvetica Neue', fs); f.setWeight(QFont.Normal); p.setFont(f)
             p.setPen(QColor(T('text_dim')))
         else:
-            fs = self._fs()
+            fs = self._fs_paint()
             f = QFont('Helvetica Neue', fs); f.setWeight(QFont.Black); p.setFont(f)
             p.setPen(QPen(QBrush(_spectra_grad_obj(r.left() + r.width() * 0.14,
                                                     r.left() + r.width() * 0.86)), 1))
