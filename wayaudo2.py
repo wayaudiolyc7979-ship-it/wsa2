@@ -17035,11 +17035,11 @@ class MainWindow(QMainWindow):
     def _build_tf_placeholder(self):
         ph = QWidget(); ph.setStyleSheet(f'background:{T("bg")};')
         v = QVBoxLayout(ph); v.addStretch()
-        lbl = QLabel(_tx('Transfer Function is in a separate window.'))
+        lbl = QLabel('Transfer Function is in a separate window.')
         lbl.setAlignment(Qt.AlignCenter)
         lbl.setStyleSheet(f'color:{T("text_dim")};font-size:15px;')
         v.addWidget(lbl)
-        btn = QPushButton(_tx('  Return to Main')); btn.setIcon(_icon('extlink'))
+        btn = QPushButton('  Return to Main'); btn.setIcon(_icon('extlink'))
         btn.setFixedHeight(34); btn.setStyleSheet(_txn_style('accent'))
         btn.clicked.connect(self._dock_tf)
         row = QHBoxLayout(); row.addStretch(); row.addWidget(btn); row.addStretch()
@@ -17125,11 +17125,11 @@ class MainWindow(QMainWindow):
     def _build_spec_placeholder(self):
         ph = QWidget(); ph.setStyleSheet(f'background:{T("bg")};')
         v = QVBoxLayout(ph); v.addStretch()
-        lbl = QLabel(_tx('Spectrum is in a separate window.'))
+        lbl = QLabel('Spectrum is in a separate window.')
         lbl.setAlignment(Qt.AlignCenter)
         lbl.setStyleSheet(f'color:{T("text_dim")};font-size:15px;')
         v.addWidget(lbl)
-        btn = QPushButton(_tx('  Return to Main')); btn.setIcon(_icon('extlink'))
+        btn = QPushButton('  Return to Main'); btn.setIcon(_icon('extlink'))
         btn.setFixedHeight(34); btn.setStyleSheet(_txn_style('accent'))
         btn.clicked.connect(self._dock_spec)
         row = QHBoxLayout(); row.addStretch(); row.addWidget(btn); row.addStretch()
@@ -17212,11 +17212,11 @@ class MainWindow(QMainWindow):
     def _build_st_placeholder(self):
         ph = QWidget(); ph.setStyleSheet(f'background:{T("bg")};')
         v = QVBoxLayout(ph); v.addStretch()
-        lbl = QLabel(_tx('Stereo Loudness is in a separate window.'))
+        lbl = QLabel('Stereo Loudness is in a separate window.')
         lbl.setAlignment(Qt.AlignCenter)
         lbl.setStyleSheet(f'color:{T("text_dim")};font-size:15px;')
         v.addWidget(lbl)
-        btn = QPushButton(_tx('  Return to Main')); btn.setIcon(_icon('extlink'))
+        btn = QPushButton('  Return to Main'); btn.setIcon(_icon('extlink'))
         btn.setFixedHeight(34); btn.setStyleSheet(_txn_style('accent'))
         btn.clicked.connect(self._dock_st)
         row = QHBoxLayout(); row.addStretch(); row.addWidget(btn); row.addStretch()
@@ -17289,7 +17289,7 @@ class MainWindow(QMainWindow):
         self._apply_tab_styles()
         self._split_on = True
         if hasattr(self, '_split_act'):
-            self._split_act.setText(_tx('Exit Split View'))
+            self._split_act.setText('Exit Split View')
 
     def _mount_tab(self, pane_idx, key):
         tb, body, sub_lay, _midx = self._split_tabinfo(key)
@@ -17343,7 +17343,7 @@ class MainWindow(QMainWindow):
             self.toolbar_underline.setVisible(vis)
         self._split_on = False
         if hasattr(self, '_split_act'):
-            self._split_act.setText(_tx('Split View (2 panes)'))
+            self._split_act.setText('Split View (2 panes)')
 
     # ─────────────────────────────────────
     def _show_device_popup(self):
@@ -17375,7 +17375,7 @@ class MainWindow(QMainWindow):
         name = self.dev_cb.currentText()
         if len(name) > 30:
             name = name[:28] + '..'
-        self.dev_btn.setText(name or _tx('Select Device'))
+        self.dev_btn.setText(name or 'Select Device')
 
     # ─────────────────────────────────────
     def _load_devices(self):
@@ -17390,7 +17390,7 @@ class MainWindow(QMainWindow):
             def _query():
                 try: result.put(('ok',sd.query_devices()))
                 except Exception as e: result.put(('err',str(e)))
-            _timed_out_msg = _tx('Device search timed out')
+            _timed_out_msg = 'Device search timed out'
             t=threading.Thread(target=_query,daemon=True); t.start()
             t.join(timeout=3.0)
             if result.empty():
@@ -17681,7 +17681,7 @@ class MainWindow(QMainWindow):
         self.start_btn.setText('Start (S)'); self._go_style(self.start_btn)
         self.status_lbl.setText('● Standby')
         self.status_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:11px;')
-        self.mic_st.setText(_tx('Disconnected'))
+        self.mic_st.setText('Disconnected')
         self.mic_st.setStyleSheet(f'color:{T("text_dim")};font-size:10px;')
         self.fft_cvs.clear(); self.oct_cvs.clear(); self.spectro_cvs.clear()
         self.fft_cvs.clear_all_channels(); self.oct_cvs.clear_all_channels()
@@ -17698,9 +17698,9 @@ class MainWindow(QMainWindow):
 
     def _on_audio_error(self,msg):
         self._stop()
-        self.status_lbl.setText(_tx('● Error'))
+        self.status_lbl.setText('● Error')
         self.status_lbl.setStyleSheet(f'color:{T("red")};font-size:11px;')
-        self.mic_st.setText(_tx('Device error'))
+        self.mic_st.setText('Device error')
         self.mic_st.setStyleSheet(f'color:{T("red")};font-size:10px;')
         from PyQt5.QtWidgets import QMessageBox
         _BrandBox.warning(self, _tx('Audio Error'),
@@ -17854,9 +17854,9 @@ class MainWindow(QMainWindow):
         if not dev_name: return   # 이미 Stop된 상태에서 중복 호출 방지
         self._disconnected_dev_name=dev_name   # Refresh 시 이 장치만 접근성 검사
         self._stop()
-        self.status_lbl.setText(_tx('● Disconnected'))
+        self.status_lbl.setText('● Disconnected')
         self.status_lbl.setStyleSheet(f'color:{T("yellow")};font-size:11px;')
-        self.mic_st.setText(_tx('Disconnected'))
+        self.mic_st.setText('Disconnected')
         self.mic_st.setStyleSheet(f'color:{T("yellow")};font-size:10px;')
         # 2초 후 장치 목록 자동 갱신 — combo box에서 뽑힌 장치 제거
         QTimer.singleShot(2000, self._auto_refresh_after_disconnect)
@@ -18969,7 +18969,7 @@ class MainWindow(QMainWindow):
     def _open_color_picker(self):
         global _custom_color, _bar_preset_idx
         init = QColor(*_custom_color) if _custom_color else QColor(*bar_top()[:3])
-        color = QColorDialog.getColor(init, self, _tx('Select Graph Color'))
+        color = QColorDialog.getColor(init, self, 'Select Graph Color')
         if color.isValid():
             _custom_color = (color.red(), color.green(), color.blue())
             _bar_preset_idx = 0
@@ -18992,28 +18992,28 @@ class MainWindow(QMainWindow):
         #   show_act.setShortcut('Ctrl+Shift+F')   # macOS에선 Cmd+Shift+F
         #   show_act.triggered.connect(self._open_show_mode); view_menu.addAction(show_act)
         view_menu.addSeparator()
-        spec_pop_act = QAction(_tx('Spectrum in Separate Window'), self)
+        spec_pop_act = QAction('Spectrum in Separate Window', self)
         spec_pop_act.setShortcut('Ctrl+Shift+S')   # macOS에선 Cmd+Shift+S로 매핑
         spec_pop_act.triggered.connect(self._toggle_spec_popout); view_menu.addAction(spec_pop_act)
-        tf_pop_act = QAction(_tx('Transfer Function in Separate Window'), self)
+        tf_pop_act = QAction('Transfer Function in Separate Window', self)
         tf_pop_act.setShortcut('Ctrl+Shift+T')   # macOS에선 Cmd+Shift+T로 매핑
         tf_pop_act.triggered.connect(self._toggle_tf_popout); view_menu.addAction(tf_pop_act)
-        st_pop_act = QAction(_tx('Stereo Loudness in Separate Window'), self)
+        st_pop_act = QAction('Stereo Loudness in Separate Window', self)
         st_pop_act.setShortcut('Ctrl+Shift+L')   # macOS에선 Cmd+Shift+L로 매핑
         st_pop_act.triggered.connect(self._toggle_st_popout); view_menu.addAction(st_pop_act)
         view_menu.addSeparator()
-        split_act = QAction(_tx('Split View (2 panes)'), self)
+        split_act = QAction('Split View (2 panes)', self)
         split_act.setShortcut('Ctrl+Shift+2')    # macOS에선 Cmd+Shift+2로 매핑
         split_act.triggered.connect(self._toggle_split); view_menu.addAction(split_act)
         self._split_act = split_act
         help_menu = mb.addMenu('Help')
-        about_act = QAction(_tx('About SPECTRA'), self); about_act.setMenuRole(QAction.AboutRole)
+        about_act = QAction('About SPECTRA', self); about_act.setMenuRole(QAction.AboutRole)
         about_act.triggered.connect(self._show_license_info); help_menu.addAction(about_act)
         man_act = QAction('Manual', self); man_act.setShortcut('Ctrl+?')
         man_act.triggered.connect(self._open_manual); help_menu.addAction(man_act)
-        sc_act = QAction(_tx('Keyboard Shortcuts'), self); sc_act.setShortcut('?')
+        sc_act = QAction('Keyboard Shortcuts', self); sc_act.setShortcut('?')
         sc_act.triggered.connect(self._show_shortcuts); help_menu.addAction(sc_act)
-        rn_act = QAction(_tx('Release Notes'), self)
+        rn_act = QAction('Release Notes', self)
         rn_act.triggered.connect(self._show_release_notes); help_menu.addAction(rn_act)
         log_act = QAction('Open Log Folder', self)
         log_act.triggered.connect(lambda: (os.startfile(_LOG_DIR) if _pl.system() == 'Windows'
@@ -19047,7 +19047,7 @@ class MainWindow(QMainWindow):
             md = open(path, encoding='utf-8').read()
         except Exception:
             md = '# Release Notes\n\nRELEASE_NOTES.md 파일을 찾을 수 없습니다.'
-        dlg = QDialog(self); dlg.setWindowTitle(_tx('Release Notes')); _apply_dark_titlebar(dlg, resizable=True)
+        dlg = QDialog(self); dlg.setWindowTitle('Release Notes'); _apply_dark_titlebar(dlg, resizable=True)
         dlg.resize(560, 660)
         dlg.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
         lay = QVBoxLayout(dlg); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
@@ -19060,7 +19060,7 @@ class MainWindow(QMainWindow):
         tb.setHtml(_md_to_html(md))
         lay.addWidget(tb, 1)
         btn_row = QHBoxLayout(); btn_row.setContentsMargins(12, 8, 12, 12); btn_row.addStretch()
-        close = QPushButton(_tx('Close')); close.setStyleSheet(ss_btn_primary())
+        close = QPushButton('Close'); close.setStyleSheet(ss_btn_primary())
         close.clicked.connect(dlg.accept); btn_row.addWidget(close)
         lay.addLayout(btn_row)
         dlg.exec_()
@@ -19070,10 +19070,10 @@ class MainWindow(QMainWindow):
         mid = _get_machine_id()
         key = load_license() or '(none)'
         valid, _r = verify_license(key) if key != '(none)' else (False, '')
-        status = _tx('Activated') if valid else _tx('Not activated')
+        status = 'Activated' if valid else 'Not activated'
         status_col = T('green') if valid else T('text_dim')
 
-        dlg = QDialog(self); dlg.setWindowTitle(_tx('About SPECTRA'))
+        dlg = QDialog(self); dlg.setWindowTitle('About SPECTRA')
         _apply_dark_titlebar(dlg)
         dlg.setStyleSheet(f'QDialog{{background:{T("bg2")};}}')
         root = QVBoxLayout(dlg); root.setContentsMargins(30, 24, 30, 22); root.setSpacing(0)
@@ -19085,7 +19085,7 @@ class MainWindow(QMainWindow):
         wm = QVBoxLayout(); wm.setSpacing(1)
         name = QLabel('SPECTRA')
         name.setStyleSheet(f'font-size:24px;font-weight:700;letter-spacing:5px;color:{T("text")};background:transparent;')
-        sub = QLabel(_tx('Spectrum Analyzer'))
+        sub = QLabel('Spectrum Analyzer')
         sub.setStyleSheet(f'font-size:11px;color:{T("text_dim")};letter-spacing:1px;background:transparent;')
         wm.addWidget(name); wm.addWidget(sub)
         hdr.addLayout(wm); hdr.addStretch()
@@ -19110,14 +19110,14 @@ class MainWindow(QMainWindow):
             root.addLayout(r); root.addSpacing(7)
         _row('License', status, status_col)
         _row('Machine ID', mid)
-        _row('Serial', f'{key[:24]}…' if key != '(none)' else _tx('(none)'))
+        _row('Serial', f'{key[:24]}…' if key != '(none)' else '(none)')
         _row('Log', _LOG_DIR)
 
         root.addSpacing(12)
         btns = QHBoxLayout(); btns.addStretch()
-        copy_btn = QPushButton(_tx('Copy Machine ID')); copy_btn.setStyleSheet(ss_btn_neutral())
+        copy_btn = QPushButton('Copy Machine ID'); copy_btn.setStyleSheet(ss_btn_neutral())
         copy_btn.clicked.connect(lambda: QApplication.clipboard().setText(mid))
-        close_btn = QPushButton(_tx('Close')); close_btn.setStyleSheet(ss_btn_primary())
+        close_btn = QPushButton('Close'); close_btn.setStyleSheet(ss_btn_primary())
         close_btn.clicked.connect(dlg.accept)
         btns.addWidget(copy_btn); btns.addWidget(close_btn)
         root.addLayout(btns)
