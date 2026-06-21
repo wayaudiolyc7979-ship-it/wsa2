@@ -14474,12 +14474,18 @@ class LoudnessRadarCanvas(QWidget):
 
 class _GradientNumber(QWidget):
     """SPECTRA 브랜드 그라디언트로 그리는 초대형 숫자 (Program Loudness 히어로).
-    폰트 크기를 위젯 크기에 맞춰 자동 스케일 → 패널을 꽉 채움(빈 공간 방지)."""
+    ★폰트 크기를 '폭'으로만 결정(높이 무관)+상한 → 카드가 아무리 커져도 위젯 높이는 sizeHint
+    로 고정되어 늘어나지 않음. 따라서 위/아래 stretch가 빈 공간을 흡수해 sub줄을 절대 안 밀어냄."""
     def __init__(self, size=120):
         super().__init__()
         self._text = '—'; self._size = size
-        self.setMinimumHeight(96)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # 세로는 sizeHint 고정(Expanding 금지) → 카드 높이에 따라 안 늘어남
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.setMinimumHeight(56)
+    def _fs(self):
+        return max(32, min(int(max(self.width(), 1) * 0.26), 132))   # 폭 기반 + 상한 132
+    def sizeHint(self):
+        return QSize(220, int(self._fs() * 1.18))
     def setText(self, t):
         if t != self._text: self._text = t; self.update()
     def text(self): return self._text
@@ -14487,14 +14493,12 @@ class _GradientNumber(QWidget):
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
         r = self.rect()
         if self._text in ('—', ''):
-            # 빈 상태(미실행): '—'를 히어로 크기로 키우면 거대한 회색 막대처럼 보임 →
-            # 작고 가는 대시로 은은하게(Standby 표시).
-            fs = max(24, int(r.height() * 0.22))
+            # 빈 상태(미실행): 작고 가는 대시(회색 막대처럼 안 보이게)
+            fs = max(20, int(self._fs() * 0.32))
             f = QFont('Helvetica Neue', fs); f.setWeight(QFont.Normal); p.setFont(f)
             p.setPen(QColor(T('text_dim')))
         else:
-            # 글리프 ascent+descent 고려 + 절대 상한(132)으로 큰 카드에서 숫자가 과대→sub줄 밀어내 잘리는 것 방지
-            fs = max(32, min(int(r.height() * 0.48), int(r.width() * 0.26), 132))
+            fs = self._fs()
             f = QFont('Helvetica Neue', fs); f.setWeight(QFont.Black); p.setFont(f)
             p.setPen(QPen(QBrush(_spectra_grad_obj(r.left() + r.width() * 0.14,
                                                     r.left() + r.width() * 0.86)), 1))
@@ -14720,7 +14724,8 @@ class StereoLoudnessPage(QWidget):
         self._lbl_I = _GradientNumber(120)
         self._lbl_hero_sub = QLabel('—'); self._lbl_hero_sub.setAlignment(Qt.AlignHCenter)
         self._lbl_hero_sub.setStyleSheet(f'font-size:{FS_LG}px;color:{T("text_dim")};background:transparent;')
-        vl.addWidget(self._lbl_hero_title); vl.addWidget(self._lbl_I, 1); vl.addWidget(self._lbl_hero_sub)
+        # _lbl_I 는 stretch 없이(고정 높이) — 위/아래 addStretch 가 빈 공간 흡수 → sub줄 항상 보장
+        vl.addWidget(self._lbl_hero_title); vl.addWidget(self._lbl_I); vl.addWidget(self._lbl_hero_sub)
         vl.addStretch()
         return w
 
