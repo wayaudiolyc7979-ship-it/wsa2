@@ -11055,7 +11055,7 @@ class TransferFunctionWindow(QWidget):
         try:
             if 'slots' in d:
                 for i, name in enumerate(d['slots'][:len(self._tf_slot_plot)]):
-                    self._set_tf_slot(i, name) if hasattr(self, '_set_tf_slot') else None
+                    self._tf_set_slot(i, name) if hasattr(self, '_tf_set_slot') else None
         except Exception: pass
         try:
             if 'panel' in d and bool(d['panel']) != self.rp.isVisible(): self._toggle_tf_panel()
