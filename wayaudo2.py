@@ -560,6 +560,76 @@ _TR_KO = {        # {english_ui_string: 쉬운_한국어}
     'Language': '언어',
     'Restart': '재시작',
     'Please restart the app manually.': '앱을 직접 다시 시작해 주세요.',
+    # ── 누락 UI 문자열 (KO 번역 완성) ─────────────────────────────────────
+    'Time Average Level (LEQ)': '시간 평균 레벨 (LEQ)',
+    'Start': '시작',
+    'Standby': '대기 중',
+    '● Standby': '● 대기 중',
+    'Live LEQ': '라이브 LEQ',
+    'SPL Alarm Settings': 'SPL 알람 설정',
+    'SPL Alarm': 'SPL 알람',
+    'Keep on top': '항상 위에',
+    'Alarm settings': '알람 설정',
+    'SPECTRA — Show Mode': 'SPECTRA — 쇼 모드',
+    'SPL Meter': 'SPL 미터',
+    'Reset Max': '최대값 초기화',
+    'Input Channels': '입력 채널',
+    'Open SPL Meter': 'SPL 미터 열기',
+    'Open SPL Alarm': 'SPL 알람 열기',
+    'Avg': '평균',
+    'Spectrum': '스펙트럼',
+    'Transfer Fn': '전달함수',
+    'No groups — create one with “+ Grp”': '그룹 없음 — “+ Grp”으로 만드세요',
+    'Move to Group': '그룹으로 이동',
+    'Remove from Group': '그룹에서 제거',
+    'Recapture': '다시 캡처',
+    'Delete All': '모두 삭제',
+    'Bar Color': '막대 색',
+    'Meas': '측정',
+    'Delay': '딜레이',
+    'Advanced Settings': '고급 설정',
+    'Sweep Settings': '스윕 설정',
+    'Sweep Configuration': '스윕 구성',
+    'Direction': '방향',
+    'Apply': '적용',
+    'Sine Settings': '사인파 설정',
+    'Sine Configuration': '사인파 구성',
+    'Frequency': '주파수',
+    'FFT Size: —': 'FFT 크기: —',
+    'Insert': '삽입',
+    'Find Delay': '딜레이 찾기',
+    'Advanced': '고급',
+    'Insert All (Enter)': '모두 삽입 (Enter)',
+    'Find Again (L)': '다시 찾기 (L)',
+    'SPECTRA — Transfer Function': 'SPECTRA — 전달함수',
+    'Play  [G]': '재생  [G]',
+    'Measurement': '측정',
+    'In': '입력',
+    'Internal (SigGen)': '내부 (신호 발생기)',
+    'SPECTRA — Spectrum': 'SPECTRA — 스펙트럼',
+    'SPECTRA — Stereo Loudness': 'SPECTRA — 스테레오 라우드니스',
+    'Light': '라이트',
+    'Calibration': '보정',
+    'Start (S)': '시작 (S)',
+    'Start / Stop  (S)': '시작 / 정지  (S)',
+    'Color': '색상',
+    'LEVEL': '레벨',
+    'INFO': '정보',
+    'INPUT': '입력',
+    'Help': '도움말',
+    'Log': '로그',
+    'License': '라이선스',
+    'Device search timed out': '장치 검색 시간 초과',
+    'Release Notes': '릴리즈 노트',
+    'About SPECTRA': 'SPECTRA 정보',
+    'Spectrum Analyzer': '스펙트럼 분석기',
+    'Single': '단일',
+    'Adaptive': '어댑티브',
+    'Peak': '피크',
+    'Hold': '홀드',
+    'Range': '범위',
+    'Speed': '속도',
+    'Target': '타겟',
 }        # ── _TR_KO 끝 ────────────────────────────────────────────────────
 _LANG = 'en'       # 'en' | 'ko' — 모듈 로드 끝에서 확정
 
@@ -4023,7 +4093,7 @@ class CalibDialog(QDialog):
 class LeqWindow(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent, Qt.Window)
-        self.setWindowTitle('Time Average Level (LEQ)'); _apply_dark_titlebar(self, resizable=True)
+        self.setWindowTitle(t('Time Average Level (LEQ)')); _apply_dark_titlebar(self, resizable=True)
         self.setMinimumSize(340, 300)
         self.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
 
@@ -4044,7 +4114,7 @@ class LeqWindow(QWidget):
         self.dur_cb.setStyleSheet(f'background:{T("panel")};color:{T("text")};border:1px solid {T("border")};padding:3px;min-width:70px;')
         self.dur_cb.currentIndexChanged.connect(self._dur_changed)
         top.addWidget(self.dur_cb)
-        self.leq_start_btn = QPushButton('Start'); _apply_txn(self.leq_start_btn, False)
+        self.leq_start_btn = QPushButton(t('Start')); _apply_txn(self.leq_start_btn, False)
         self.leq_start_btn.setStyleSheet(f'background:rgba(78,125,240,25);color:{T("accent")};border:1px solid rgba(78,125,240,100);padding:4px 10px;border-radius:8px;')
         self.leq_start_btn.clicked.connect(self._toggle_leq)
         top.addWidget(self.leq_start_btn)
@@ -4052,12 +4122,12 @@ class LeqWindow(QWidget):
         layout.addLayout(top)
 
         # 진행바
-        self.progress_lbl = QLabel('Standby')
+        self.progress_lbl = QLabel(t('Standby'))
         self.progress_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:10px;')
         layout.addWidget(self.progress_lbl)
 
         # 결과 표시
-        result_group = QGroupBox('Live LEQ')
+        result_group = QGroupBox(t('Live LEQ'))
         result_group.setStyleSheet(f'QGroupBox{{border:1px solid {T("border")};border-radius:6px;margin-top:8px;color:{T("text_dim")};font-size:10px;}}')
         rg_layout = QVBoxLayout(result_group)
 
@@ -4077,7 +4147,7 @@ class LeqWindow(QWidget):
         layout.addWidget(result_group)
 
         # 리셋
-        rst = QPushButton('  Reset'); rst.setIcon(_icon('refresh'))
+        rst = QPushButton('  ' + t('Reset')); rst.setIcon(_icon('refresh'))
         rst.setStyleSheet(f'background:{T("panel")};color:{T("text_dim")};border:1px solid {T("border")};padding:4px;border-radius:8px;')
         rst.clicked.connect(self._reset_leq)
         layout.addWidget(rst)
@@ -4520,7 +4590,7 @@ class SplAlarmConfigDialog(QDialog):
     """SPL Alarm settings — metric / limit / amber margin / LEQ time."""
     def __init__(self, metrics, leq_labels, cfg, parent=None):
         super().__init__(parent)
-        self.setWindowTitle('SPL Alarm Settings'); _apply_dark_titlebar(self)
+        self.setWindowTitle(t('SPL Alarm Settings')); _apply_dark_titlebar(self)
         self.setMinimumWidth(320)
         self.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
         self._metric_ids = list(metrics.keys())
@@ -4592,7 +4662,7 @@ class SplAlarmWindow(QWidget):
     def __init__(self, main):
         self._main = main
         super().__init__(main, Qt.Window)   # 메인의 자식 창 → 풀스크린 SPECTRA 위에 따라 뜸
-        self.setWindowTitle('SPL Alarm')
+        self.setWindowTitle(t('SPL Alarm'))
         self.setAttribute(Qt.WA_DeleteOnClose, False)
         self.setStyleSheet(f'background:{T("bg")};')
         self._cfg = self._load_cfg()
@@ -4608,9 +4678,9 @@ class SplAlarmWindow(QWidget):
         self._eng = _SplMetricEngine(self._leq_secs(), calib)
 
         self._pin_btn = _PinBtn(); self._pin_btn.setChecked(self._always_top)
-        self._pin_btn.setToolTip('Keep on top')
+        self._pin_btn.setToolTip(t('Keep on top'))
         self._pin_btn.clicked.connect(self._toggle_on_top)
-        self._set_btn = _SettingsBtn(); self._set_btn.setToolTip('Alarm settings')
+        self._set_btn = _SettingsBtn(); self._set_btn.setToolTip(t('Alarm settings'))
         self._set_btn.clicked.connect(self._open_config)
 
         lay = QVBoxLayout(self); lay.setContentsMargins(10, 10, 10, 10)
@@ -4727,7 +4797,7 @@ class ShowModeWindow(QWidget):
     def __init__(self, main):
         super().__init__()
         self._main = main
-        self.setWindowTitle('SPECTRA — Show Mode')
+        self.setWindowTitle(t('SPECTRA — Show Mode'))
         self._spl = -120.0; self._unit = 'dBA'
         self._peak = -120.0; self._leq = -120.0; self._leq_e = None
         self._last_paint = 0.0          # 리페인트 throttle (글랜스 차분하게)
@@ -4886,7 +4956,7 @@ class SplMeterWindow(QWidget):
         # macOS는 showEvent에서 네이티브 setLevel로(깜빡임 없음). 그 외 OS만 Qt 플래그.
         if self._always_top and sys.platform != 'darwin':
             self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
-        self.setWindowTitle('SPL Meter')
+        self.setWindowTitle(t('SPL Meter'))
         self.setAttribute(Qt.WA_DeleteOnClose, False)
 
         self._buf_a = deque(maxlen=self._PUSH_RATE * 60 * 60 * 3)  # 3 hr max
@@ -4914,13 +4984,13 @@ class SplMeterWindow(QWidget):
 
         # ── 타이틀바(✕ 옆): 상단고정 토글 + 설정(슬라이더) + Reset Max
         self._pin_btn = _PinBtn(); self._pin_btn.setChecked(self._always_top)
-        self._pin_btn.setToolTip('Keep on top')
+        self._pin_btn.setToolTip(t('Keep on top'))
         self._pin_btn.clicked.connect(self._toggle_on_top)
         self._set_btn = _SettingsBtn()
         self._set_btn.setToolTip(t('Settings'))
         self._set_btn.clicked.connect(self._open_layout_dialog)
         self._reset_btn = _ResetMaxBtn()
-        self._reset_btn.setToolTip('Reset Max')
+        self._reset_btn.setToolTip(t('Reset Max'))
         self._reset_btn.clicked.connect(self._reset_max)
         _apply_dark_titlebar(self, resizable=True, aux=[self._pin_btn, self._set_btn, self._reset_btn])
 
@@ -5669,7 +5739,7 @@ class ChannelPopup(QFrame):
         self._vlay = QVBoxLayout(self)
         self._vlay.setContentsMargins(10, 8, 10, 10)
         self._vlay.setSpacing(1)
-        hdr = QLabel('Input Channels')
+        hdr = QLabel(t('Input Channels'))
         hdr.setStyleSheet(f'color:{T("text_dim")};font-size:11px;font-weight:600;'
                           f'padding-bottom:4px;')
         self._vlay.addWidget(hdr)
@@ -6057,7 +6127,7 @@ class _SplMeterBtn(QPushButton):
         super().__init__(parent)
         self.setFixedSize(28, 28)
         self.setCursor(Qt.PointingHandCursor)
-        self.setToolTip('Open SPL Meter')
+        self.setToolTip(t('Open SPL Meter'))
 
     def enterEvent(self, e): self.update()
     def leaveEvent(self, e): self.update()
@@ -6092,7 +6162,7 @@ class _SplAlarmBtn(QPushButton):
         super().__init__(parent)
         self.setFixedSize(28, 28)
         self.setCursor(Qt.PointingHandCursor)
-        self.setToolTip('Open SPL Alarm')
+        self.setToolTip(t('Open SPL Alarm'))
 
     def enterEvent(self, e): self.update()
     def leaveEvent(self, e): self.update()
@@ -6353,7 +6423,7 @@ class _CaptureDrawer(QWidget):
         hl.addWidget(QLabel('CAPTURES',
             styleSheet='color:#4E7DF0;font-size:11px;font-weight:bold;'))
         hl.addStretch()
-        self._avg_btn = QPushButton('Avg')
+        self._avg_btn = QPushButton(t('Avg'))
         self._avg_btn.setFixedSize(36, 20)
         self._avg_btn.setToolTip(t('Average checked TF captures'))
         self._avg_btn.setStyleSheet(
@@ -6393,8 +6463,8 @@ class _CaptureDrawer(QWidget):
         tbl = QHBoxLayout(self._seg_pill)
         tbl.setContentsMargins(2, 2, 2, 2); tbl.setSpacing(2)
 
-        self._spec_tab_btn = QPushButton('Spectrum')
-        self._tf_tab_btn   = QPushButton('Transfer Fn')
+        self._spec_tab_btn = QPushButton(t('Spectrum'))
+        self._tf_tab_btn   = QPushButton(t('Transfer Fn'))
         _tab_ss = (
             'QPushButton{font-size:11px;font-weight:600;border:none;'
             'background:transparent;color:#8E8E93;padding:0 4px;border-radius:6px;}'
@@ -6905,25 +6975,25 @@ class _CaptureDrawer(QWidget):
 
         menu = QMenu(self)
         if not names:
-            act = menu.addAction('No groups — create one with “+ Grp”')
+            act = menu.addAction(t('No groups — create one with “+ Grp”'))
             act.setEnabled(False)
         else:
-            title = menu.addAction('Move to Group'); title.setEnabled(False)
+            title = menu.addAction(t('Move to Group')); title.setEnabled(False)
             for g in names:
                 act = menu.addAction(('✓ ' if g == cur_group else '    ') + g)
                 act.triggered.connect(
                     lambda _=False, gg=g, m=mode, i=cap_idx: self.move_to_group_req.emit(m, i, gg))
         if cur_group:
             menu.addSeparator()
-            ung = menu.addAction('Remove from Group')
+            ung = menu.addAction(t('Remove from Group'))
             ung.triggered.connect(
                 lambda _=False, m=mode, i=cap_idx: self.move_to_group_req.emit(m, i, ''))
         menu.addSeparator()
-        rc = menu.addAction('Recapture')
+        rc = menu.addAction(t('Recapture'))
         rc.triggered.connect(
             lambda _=False, m=mode, i=cap_idx: self.recapture_requested.emit(m, i))
         menu.addSeparator()
-        da = menu.addAction('Delete All')
+        da = menu.addAction(t('Delete All'))
         da.triggered.connect(lambda _=False, m=mode: self.delete_all_requested.emit(m))
         menu.exec_(global_pos)
 
@@ -6931,7 +7001,7 @@ class _CaptureDrawer(QWidget):
         """캡쳐 패널 빈 공간 우클릭 → Delete All (현재 탭 기준 — Spectrum/TF 동일)."""
         from PyQt5.QtWidgets import QMenu
         menu = QMenu(self)
-        da = menu.addAction('Delete All')
+        da = menu.addAction(t('Delete All'))
         da.setEnabled(bool(self._cur_caps()))
         da.triggered.connect(lambda _=False: self.delete_all_requested.emit(self._panel_tab))
         menu.exec_(global_pos)
@@ -7015,7 +7085,7 @@ class ColorPickerDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle('Bar Color')
+        self.setWindowTitle(t('Bar Color'))
         # WA_TranslucentBackground 제거 — Intel Mac에서 클릭 이벤트를 삼킴
         self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
         # 불투명 배경을 palette로 지정 (DropdownPopup과 동일 방식)
@@ -8631,7 +8701,7 @@ class _MeasCard(QFrame):
         self._db_lbl = QLabel('—')
         self._db_lbl.setStyleSheet(f'color:{color};background:transparent;font-size:{FS_XS}px;font-weight:bold;')
         self._db_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self._start_btn = QPushButton('Start'); _apply_txn(self._start_btn, False)
+        self._start_btn = QPushButton(t('Start')); _apply_txn(self._start_btn, False)
         self._start_btn.setFixedHeight(20)
         self._start_btn.setStyleSheet(self._start_btn_ss())
         self._start_btn.clicked.connect(self._on_start_stop)
@@ -8699,7 +8769,7 @@ class _MeasCard(QFrame):
         self._lay.addWidget(hsep())
         # Meas device row
         row = QHBoxLayout(); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(3)
-        lbl = QLabel('Meas'); lbl.setFixedWidth(30)
+        lbl = QLabel(t('Meas')); lbl.setFixedWidth(30)
         lbl.setStyleSheet(ss_text(FS_XS))
         # 카드 내부 콤보 — 전역 QSS의 반투명 그라디언트(검정 바탕 위에서 까맣게 보임)를
         # 카드와 어울리는 불투명 배경으로 덮어쓴다. (restyle()로 테마 토글 시 재적용)
@@ -8711,7 +8781,7 @@ class _MeasCard(QFrame):
         self._lay.addLayout(row)
         # Delay row
         d_row = QHBoxLayout(); d_row.setContentsMargins(0, 0, 0, 0); d_row.setSpacing(3)
-        d_lbl = QLabel('Delay'); d_lbl.setFixedWidth(30)
+        d_lbl = QLabel(t('Delay')); d_lbl.setFixedWidth(30)
         d_lbl.setStyleSheet(ss_text(FS_XS))
         self._delay_spin = QDoubleSpinBox()
         self._delay_spin.setRange(-2000, 2000); self._delay_spin.setDecimals(2)
@@ -9635,7 +9705,7 @@ class TFDuplexThread(QThread):
 class _DelayAdvancedDialog(QDialog):
     def __init__(self, parent=None, speed_ms=343.0):
         super().__init__(parent)
-        self.setWindowTitle('Advanced Settings'); _apply_dark_titlebar(self)
+        self.setWindowTitle(t('Advanced Settings')); _apply_dark_titlebar(self)
         self.setFixedSize(300, 140)
         self.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
         lay = QVBoxLayout(self); lay.setContentsMargins(16,16,16,16); lay.setSpacing(10)
@@ -9661,7 +9731,7 @@ class SweepConfigDialog(QDialog):
     """스윕 신호 설정 팝업 (시간·주파수 구간)."""
     def __init__(self, parent, dur=10, f_lo=20.0, f_hi=20000.0):
         super().__init__(parent)
-        self.setWindowTitle('Sweep Settings'); _apply_dark_titlebar(self)
+        self.setWindowTitle(t('Sweep Settings')); _apply_dark_titlebar(self)
         self.setModal(True)
         self.setFixedWidth(280)
         bg = T('bg2'); bd = T('border'); tx = T('text'); td = T('text_dim'); ac = T('accent')
@@ -9683,7 +9753,7 @@ class SweepConfigDialog(QDialog):
         lay = QVBoxLayout(self); lay.setSpacing(12); lay.setContentsMargins(18, 16, 18, 16)
 
         # 제목
-        title = QLabel('Sweep Configuration')
+        title = QLabel(t('Sweep Configuration'))
         title.setStyleSheet(f'color:{tx};font-size:13px;font-weight:bold;')
         lay.addWidget(title)
 
@@ -9716,7 +9786,7 @@ class SweepConfigDialog(QDialog):
 
         # 스윕 방향
         dir_h = QHBoxLayout(); dir_h.setSpacing(12)
-        dir_lbl = QLabel('Direction'); dir_lbl.setFixedWidth(100)
+        dir_lbl = QLabel(t('Direction')); dir_lbl.setFixedWidth(100)
         dir_lbl.setStyleSheet(f'color:{td};font-size:11px;')
         self._rb_up   = QRadioButton('Low → High'); self._rb_up.setChecked(True)
         self._rb_down = QRadioButton('High → Low')
@@ -9730,7 +9800,7 @@ class SweepConfigDialog(QDialog):
 
         # OK / Cancel
         btn_h = QHBoxLayout(); btn_h.setSpacing(8)
-        ok_btn = QPushButton('Apply')
+        ok_btn = QPushButton(t('Apply'))
         ok_btn.setStyleSheet(ss_btn_primary())
         cancel_btn = QPushButton(t('Cancel'))
         cancel_btn.setStyleSheet(ss_btn_neutral())
@@ -9753,7 +9823,7 @@ class SineConfigDialog(QDialog):
     """사인파 신호 설정 팝업 (주파수) — SPECTRA 브랜드 (상단 그라디언트 라인)."""
     def __init__(self, parent, freq=1000.0):
         super().__init__(parent)
-        self.setWindowTitle('Sine Settings'); _apply_dark_titlebar(self)
+        self.setWindowTitle(t('Sine Settings')); _apply_dark_titlebar(self)
         self.setModal(True)
         self.setFixedWidth(300)
         tx = T('text'); td = T('text_dim'); bd = T('border')
@@ -9771,12 +9841,12 @@ class SineConfigDialog(QDialog):
         lay.setSpacing(12); lay.setContentsMargins(18, 16, 18, 16)
         outer.addWidget(body)
 
-        title = QLabel('Sine Configuration')
+        title = QLabel(t('Sine Configuration'))
         title.setStyleSheet(f'color:{tx};font-size:13px;font-weight:bold;background:transparent;')
         lay.addWidget(title)
 
         row = QHBoxLayout(); row.setSpacing(8)
-        flbl = QLabel('Frequency'); flbl.setFixedWidth(100)
+        flbl = QLabel(t('Frequency')); flbl.setFixedWidth(100)
         flbl.setStyleSheet(f'color:{td};font-size:11px;background:transparent;')
         self._freq_spin = QDoubleSpinBox()
         self._freq_spin.setRange(10.0, 24000.0); self._freq_spin.setDecimals(1)
@@ -9788,7 +9858,7 @@ class SineConfigDialog(QDialog):
         lay.addSpacing(2); lay.addWidget(hsep())
         btn_h = QHBoxLayout(); btn_h.setSpacing(8); btn_h.addStretch()
         cancel_btn = QPushButton(t('Cancel')); cancel_btn.setStyleSheet(ss_btn_neutral())
-        ok_btn = QPushButton('Apply'); ok_btn.setStyleSheet(ss_btn_primary())
+        ok_btn = QPushButton(t('Apply')); ok_btn.setStyleSheet(ss_btn_primary())
         ok_btn.setDefault(True)
         cancel_btn.clicked.connect(self.reject)
         ok_btn.clicked.connect(self.accept)
@@ -9830,7 +9900,7 @@ class DelayFinderDialog(QDialog):
 
         # FFT info row + ETC checkbox
         info_row = QHBoxLayout(); info_row.setSpacing(10)
-        self._fft_lbl = QLabel('FFT Size: —')
+        self._fft_lbl = QLabel(t('FFT Size: —'))
         self._fft_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:11px;')
         info_row.addWidget(self._fft_lbl, 1)
         self._etc_chk = QCheckBox('ETC')
@@ -9868,9 +9938,9 @@ class DelayFinderDialog(QDialog):
         # Buttons
         btn_row = QHBoxLayout(); btn_row.setSpacing(6)
         btn_style = ss_btn_neutral()   # 다이얼로그 버튼 통일
-        self.insert_btn   = QPushButton('Insert');     self.insert_btn.setEnabled(False)
-        self.find_btn     = QPushButton('Find Delay')
-        self.advanced_btn = QPushButton('Advanced')
+        self.insert_btn   = QPushButton(t('Insert'));     self.insert_btn.setEnabled(False)
+        self.find_btn     = QPushButton(t('Find Delay'))
+        self.advanced_btn = QPushButton(t('Advanced'))
         self.cancel_btn   = QPushButton(t('Cancel'))
         for b in (self.insert_btn, self.find_btn, self.advanced_btn, self.cancel_btn):
             b.setStyleSheet(btn_style); btn_row.addWidget(b)
@@ -10046,8 +10116,8 @@ class AllDelayFinderDialog(QDialog):
 
         btn_row = QHBoxLayout(); btn_row.setSpacing(6)
         btn_s = ss_btn_neutral()   # 다이얼로그 버튼 통일
-        self._insert_btn = QPushButton('Insert All (Enter)'); self._insert_btn.setEnabled(False)
-        self._find_btn   = QPushButton('Find Again (L)')
+        self._insert_btn = QPushButton(t('Insert All (Enter)')); self._insert_btn.setEnabled(False)
+        self._find_btn   = QPushButton(t('Find Again (L)'))
         self._cancel_btn = QPushButton(t('Cancel'))
         for b in (self._insert_btn, self._find_btn, self._cancel_btn):
             b.setStyleSheet(btn_s)
@@ -10428,7 +10498,7 @@ class TransferFunctionWindow(QWidget):
             super().__init__(parent)
         else:
             super().__init__(parent, Qt.Window)
-            self.setWindowTitle('SPECTRA — Transfer Function')
+            self.setWindowTitle(t('SPECTRA — Transfer Function'))
             self.setMinimumSize(1020, 570)
         self._settings = settings or {}
         self._tf_primary_name = self._settings.get('tf_primary_name', '')  # primary 카드 사용자 이름
@@ -10701,7 +10771,7 @@ class TransferFunctionWindow(QWidget):
         sgl.addLayout(or_)
         self.sig_out_cb.currentIndexChanged.connect(self._sig_out_device_changed)
         self.sig_out_ch2_cb.currentIndexChanged.connect(self._sig_out_ch_changed)
-        self.sig_on_btn = QPushButton('Play  [G]'); _apply_txn(self.sig_on_btn, False); self.sig_on_btn.setCheckable(True)
+        self.sig_on_btn = QPushButton(t('Play  [G]')); _apply_txn(self.sig_on_btn, False); self.sig_on_btn.setCheckable(True)
         self.sig_on_btn.setStyleSheet(f'background:{T("panel")};color:{T("text_dim")};'
                                        f'border:1px solid {T("border")};padding:4px;border-radius:{RADIUS_CTRL}px;font-weight:bold;')
         self.sig_on_btn.clicked.connect(self._toggle_sig_gen); sgl.addWidget(self.sig_on_btn)
@@ -10709,7 +10779,7 @@ class TransferFunctionWindow(QWidget):
 
         # 입력 장치
         # ── Measurement 패널: 공유 Ref 섹션 + N개 Meas 채널 카드 ──
-        mp = QGroupBox('Measurement')
+        mp = QGroupBox(t('Measurement'))
         mpl = QVBoxLayout(mp); mpl.setContentsMargins(8,14,8,8); mpl.setSpacing(6)
 
         self._mon_btn = None
@@ -10738,7 +10808,7 @@ class TransferFunctionWindow(QWidget):
         self.ref_cb.currentIndexChanged.connect(self._ref_device_changed)
         self.ref_ch_cb.currentIndexChanged.connect(self._on_input_setting_changed)
         ref_row = QHBoxLayout(); ref_row.setContentsMargins(0,0,0,0); ref_row.setSpacing(3)
-        _rl = QLabel('In'); _rl.setFixedWidth(14)
+        _rl = QLabel(t('In')); _rl.setFixedWidth(14)
         _rl.setStyleSheet(ss_text(FS_XS))
         self.ref_cb.setMinimumWidth(100); self.ref_ch_cb.setMinimumWidth(44)
         ref_row.addWidget(_rl); ref_row.addWidget(self.ref_cb, 1); ref_row.addWidget(self.ref_ch_cb)
@@ -10845,7 +10915,7 @@ class TransferFunctionWindow(QWidget):
         self.start_btn.hide()  # 제너레이터 ON/OFF가 자동으로 start/stop 제어
 
         tl.addWidget(_lb('Engine'))
-        self.eng_cb = RoundComboBox(); self.eng_cb.addItems(['Single', 'Adaptive'])
+        self.eng_cb = RoundComboBox(); self.eng_cb.addItems([t('Single'), t('Adaptive')])
         self.eng_cb._align_center = True
         self.eng_cb.setFixedWidth(88); self.eng_cb.setFixedHeight(30)
         self.eng_cb.setToolTip(t('Single = fixed FFT  ·  Adaptive = multi-rate (high-res low end, adaptive resolution per frequency)'))
@@ -11060,6 +11130,7 @@ class TransferFunctionWindow(QWidget):
         def _q_fn():
             try: result.put(('ok', sd.query_devices()))
             except Exception as e: result.put(('err', str(e)))
+        _internal_sigg_label = t('Internal (SigGen)')   # evaluate before 't' is shadowed by Thread
         t = threading.Thread(target=_q_fn, daemon=True); t.start(); t.join(timeout=3.0)
         if result.empty(): return
         status, payload = result.get_nowait()
@@ -11070,7 +11141,7 @@ class TransferFunctionWindow(QWidget):
         self._restoring_devices = True
         try:
             self.ref_cb.clear(); self.meas_cb.clear(); self.sig_out_cb.clear()
-            self.ref_cb.addItem('Internal (SigGen)', None)
+            self.ref_cb.addItem(_internal_sigg_label, None)
             for i, d in enumerate(payload):
                 tag = ''
                 if d['max_input_channels'] >= 1:
@@ -15204,7 +15275,7 @@ class _TFPopoutWindow(QWidget):
         super().__init__(None, Qt.Window)
         self._mainwin = mainwin
         self._docking = False
-        self.setWindowTitle('SPECTRA — Transfer Function')
+        self.setWindowTitle(t('SPECTRA — Transfer Function'))
         self.setMinimumSize(1020, 570)
 
     def closeEvent(self, e):
@@ -15220,7 +15291,7 @@ class _SpectrumPopoutWindow(QWidget):
         super().__init__(None, Qt.Window)
         self._mainwin = mainwin
         self._docking = False
-        self.setWindowTitle('SPECTRA — Spectrum')
+        self.setWindowTitle(t('SPECTRA — Spectrum'))
         self.setMinimumSize(900, 520)
 
     def closeEvent(self, e):
@@ -15236,7 +15307,7 @@ class _StereoPopoutWindow(QWidget):
         super().__init__(None, Qt.Window)
         self._mainwin = mainwin
         self._docking = False
-        self.setWindowTitle('SPECTRA — Stereo Loudness')
+        self.setWindowTitle(t('SPECTRA — Stereo Loudness'))
         self.setMinimumSize(900, 520)
 
     def closeEvent(self, e):
@@ -15425,11 +15496,11 @@ class MainWindow(QMainWindow):
         self.logo_w = QWidget()
         _lw = QHBoxLayout(self.logo_w); _lw.setContentsMargins(0, 0, 0, 0); _lw.setSpacing(9)
         _lw.addWidget(self.logo_mark); _lw.addWidget(self.logo_lbl)
-        self.status_lbl = QLabel('● Standby')
-        self.theme_btn = QPushButton('Light'); self.theme_btn.setIcon(_icon('sun'))
+        self.status_lbl = QLabel(t('● Standby'))
+        self.theme_btn = QPushButton(t('Light')); self.theme_btn.setIcon(_icon('sun'))
         self.theme_btn.setFixedWidth(72); self.theme_btn.setFixedHeight(28)
         self.theme_btn.clicked.connect(self._toggle_theme)
-        self.calib_btn = QPushButton('Calibration'); self.calib_btn.setIcon(_icon('sliders'))
+        self.calib_btn = QPushButton(t('Calibration')); self.calib_btn.setIcon(_icon('sliders'))
         self.calib_btn.setFixedWidth(108); self.calib_btn.setFixedHeight(28)
         self.calib_btn.clicked.connect(self._open_calib)
         _right_w = QWidget(); _right_lay = QHBoxLayout(_right_w)
@@ -15535,9 +15606,9 @@ class MainWindow(QMainWindow):
         self._drawer_btn.clicked.connect(self._toggle_capture_drawer)
         sl0.addWidget(self._drawer_btn)
         sl0.addSpacing(4)
-        self.start_btn=QPushButton('Start (S)')
+        self.start_btn=QPushButton(t('Start (S)'))
         self.start_btn.setFixedWidth(92); self.start_btn.setFixedHeight(30)
-        self.start_btn.setToolTip('Start / Stop  (S)')
+        self.start_btn.setToolTip(t('Start / Stop  (S)'))
         self.start_btn.clicked.connect(self._toggle)
         sl0.addWidget(self.start_btn)
         sl0.addSpacing(8)
@@ -15567,18 +15638,18 @@ class MainWindow(QMainWindow):
         self.sr_cb.currentIndexChanged.connect(self._sr_changed)
         sl0.addWidget(self.sr_cb)
         sl0.addSpacing(12)
-        sl0.addWidget(self._lbl('Avg'))
+        sl0.addWidget(self._lbl(t('Avg')))
         self.avg_cb=RoundComboBox(); self.avg_cb._align_center=True; self.avg_cb.addItems(['None','4x','8x','16x'])
         self.avg_cb.setCurrentIndex(3); self.avg_cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.avg_cb.setMinimumWidth(54); self.avg_cb.setFixedHeight(30)
         self.avg_cb.currentIndexChanged.connect(self._avg_changed)
         sl0.addWidget(self.avg_cb)
         sl0.addSpacing(12)
-        sl0.addWidget(self._lbl('Peak'))
+        sl0.addWidget(self._lbl(t('Peak')))
         self.peak_btn=_CheckBtn('ON'); self.peak_btn.setChecked(True)
         self.peak_btn.setFixedWidth(50); self.peak_btn.setFixedHeight(30)
         self.peak_btn.clicked.connect(self._toggle_peak)
-        rst=QPushButton('Reset'); rst.setFixedWidth(62); rst.setFixedHeight(30)
+        rst=QPushButton(t('Reset')); rst.setFixedWidth(62); rst.setFixedHeight(30)
         rst.clicked.connect(self._reset_peak)
         sl0.addWidget(self.peak_btn); sl0.addWidget(rst)
         sl0.addSpacing(12)
@@ -15588,7 +15659,7 @@ class MainWindow(QMainWindow):
         self.spec_cap_btn.clicked.connect(self._do_spec_capture)
         sl0.addWidget(self.spec_cap_btn)
         sl0.addSpacing(12)
-        sl0.addWidget(self._lbl('Hold'))
+        sl0.addWidget(self._lbl(t('Hold')))
         self.hold_cb=RoundComboBox(); self.hold_cb._align_center=True
         self.hold_cb.addItems(['Fast','0.3s','0.5s','1s'])
         self.hold_cb.setCurrentIndex(3)
@@ -15597,7 +15668,7 @@ class MainWindow(QMainWindow):
         self.hold_cb.currentIndexChanged.connect(self._set_peak_hold_time)
         sl0.addWidget(self.hold_cb)
         sl0.addSpacing(12)
-        sl0.addWidget(self._lbl('Range'))
+        sl0.addWidget(self._lbl(t('Range')))
         self.db_cb=RoundComboBox(); self.db_cb._align_center=True; self.db_cb.addItems(['72 dB','96 dB','120 dB'])
         self.db_cb.setCurrentIndex(1); self.db_cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.db_cb.setMinimumWidth(62); self.db_cb.setFixedHeight(30)
@@ -15605,7 +15676,7 @@ class MainWindow(QMainWindow):
         self.db_cb.currentIndexChanged.connect(self._db_changed)
         sl0.addWidget(self.db_cb)
         sl0.addSpacing(12)
-        sl0.addWidget(self._lbl('Speed'))
+        sl0.addWidget(self._lbl(t('Speed')))
         self.spd_cb=RoundComboBox(); self.spd_cb._align_center=True
         self.spd_cb.addItems([lb for lb,*_ in SPEED_LEVELS])
         self.spd_cb.setCurrentIndex(self.speed_idx)
@@ -15614,7 +15685,7 @@ class MainWindow(QMainWindow):
         self.spd_cb.currentIndexChanged.connect(self._set_speed)
         sl0.addWidget(self.spd_cb)
         sl0.addSpacing(12)
-        self.color_btn=QPushButton('Color')
+        self.color_btn=QPushButton(t('Color'))
         self.color_btn.setFixedWidth(56); self.color_btn.setFixedHeight(30)
         self.color_btn.clicked.connect(self._open_color_picker)
         sl0.addWidget(self.color_btn)
@@ -15653,9 +15724,9 @@ class MainWindow(QMainWindow):
         sl2.setContentsMargins(8,6,8,6); sl2.setSpacing(4)   # 3탭 툴바 메트릭 통일(Spectrum 기준)
 
         # Start/Stop 버튼
-        self._st_start_btn=QPushButton('Start (S)'); _apply_txn(self._st_start_btn, False)
+        self._st_start_btn=QPushButton(t('Start (S)')); _apply_txn(self._st_start_btn, False)
         self._st_start_btn.setFixedWidth(92); self._st_start_btn.setFixedHeight(30)
-        self._st_start_btn.setToolTip('Start / Stop  (S)')
+        self._st_start_btn.setToolTip(t('Start / Stop  (S)'))
         self._st_start_btn.clicked.connect(self._st_toggle)
         sl2.addWidget(self._st_start_btn)
         sl2.addSpacing(10)
@@ -15686,7 +15757,7 @@ class MainWindow(QMainWindow):
         sl2.addSpacing(10)
 
         # Target LUFS
-        sl2.addWidget(self._lbl('Target'))
+        sl2.addWidget(self._lbl(t('Target')))
         self._st_target_cb=RoundComboBox(); self._st_target_cb._align_center=True
         self._st_target_cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self._st_target_cb.setMinimumWidth(84); self._st_target_cb.setFixedHeight(30)
@@ -15910,7 +15981,7 @@ class MainWindow(QMainWindow):
         level_lay = QVBoxLayout(level_w); level_lay.setContentsMargins(8,8,8,8); level_lay.setSpacing(4)
         hdr_row = QHBoxLayout(); hdr_row.setContentsMargins(0,0,0,6); hdr_row.setSpacing(5)
         level_icon = _SidebarIcon('level', T('accent'), 15)
-        level_title = QLabel('LEVEL')
+        level_title = QLabel(t('LEVEL'))
         level_title.setStyleSheet(ss_text(FS_LG, 'text_dim', True))
         spl_btn = _SplMeterBtn()
         spl_btn.clicked.connect(self._open_spl_meter)
@@ -15964,7 +16035,7 @@ class MainWindow(QMainWindow):
         info_lay = QVBoxLayout(info_w); info_lay.setContentsMargins(8,8,8,8); info_lay.setSpacing(4)
         info_hdr = QHBoxLayout(); info_hdr.setContentsMargins(0,0,0,6); info_hdr.setSpacing(5)
         info_icon = _SidebarIcon('info', T('accent'), 15)
-        info_title = QLabel('INFO')
+        info_title = QLabel(t('INFO'))
         info_title.setStyleSheet(ss_text(FS_LG, 'text_dim', True))
         info_hdr.addWidget(info_icon); info_hdr.addWidget(info_title); info_hdr.addStretch()
         info_lay.addLayout(info_hdr)
@@ -15985,7 +16056,7 @@ class MainWindow(QMainWindow):
         input_lay = QVBoxLayout(input_w); input_lay.setContentsMargins(8,8,8,8); input_lay.setSpacing(5)
         in_hdr = QHBoxLayout(); in_hdr.setContentsMargins(0,0,0,6); in_hdr.setSpacing(5)
         in_icon = _SidebarIcon('input', T('accent'), 15)
-        in_title = QLabel('INPUT')
+        in_title = QLabel(t('INPUT'))
         in_title.setStyleSheet(ss_text(FS_LG, 'text_dim', True))
         in_hdr.addWidget(in_icon); in_hdr.addWidget(in_title); in_hdr.addStretch()
         input_lay.addLayout(in_hdr)
@@ -16021,15 +16092,15 @@ class MainWindow(QMainWindow):
 
         # ── 하단 유틸리티 버튼 ──
         util_row = QHBoxLayout(); util_row.setSpacing(4)
-        help_btn = self._help_btn = QPushButton('Help')
+        help_btn = self._help_btn = QPushButton(t('Help'))
         help_btn.setFixedHeight(22)
         help_btn.setToolTip(t('Open user manual'))
         help_btn.clicked.connect(self._open_manual)
-        log_btn = self._log_btn = QPushButton('Log')
+        log_btn = self._log_btn = QPushButton(t('Log'))
         log_btn.setFixedHeight(22)
         log_btn.setToolTip(t('Bundle recent logs into a zip file when reporting issues.\nSend that file to the developer. (No personal data or license key included)'))
         log_btn.clicked.connect(self._export_logs)
-        lic_btn = self._lic_btn = QPushButton('License')
+        lic_btn = self._lic_btn = QPushButton(t('License'))
         lic_btn.setFixedHeight(22)
         lic_btn.setToolTip(t('About SPECTRA · License info'))
         lic_btn.clicked.connect(self._show_license_info)
@@ -17319,10 +17390,11 @@ class MainWindow(QMainWindow):
             def _query():
                 try: result.put(('ok',sd.query_devices()))
                 except Exception as e: result.put(('err',str(e)))
+            _timed_out_msg = t('Device search timed out')
             t=threading.Thread(target=_query,daemon=True); t.start()
             t.join(timeout=3.0)
             if result.empty():
-                self.dev_cb.addItem('Device search timed out',-1)
+                self.dev_cb.addItem(_timed_out_msg,-1)
                 self.dev_cb.blockSignals(False); return
             status,payload=result.get_nowait()
             if status=='err':
@@ -18935,13 +19007,13 @@ class MainWindow(QMainWindow):
         split_act.triggered.connect(self._toggle_split); view_menu.addAction(split_act)
         self._split_act = split_act
         help_menu = mb.addMenu('Help')
-        about_act = QAction('About SPECTRA', self); about_act.setMenuRole(QAction.AboutRole)
+        about_act = QAction(t('About SPECTRA'), self); about_act.setMenuRole(QAction.AboutRole)
         about_act.triggered.connect(self._show_license_info); help_menu.addAction(about_act)
         man_act = QAction('Manual', self); man_act.setShortcut('Ctrl+?')
         man_act.triggered.connect(self._open_manual); help_menu.addAction(man_act)
         sc_act = QAction(t('Keyboard Shortcuts'), self); sc_act.setShortcut('?')
         sc_act.triggered.connect(self._show_shortcuts); help_menu.addAction(sc_act)
-        rn_act = QAction('Release Notes', self)
+        rn_act = QAction(t('Release Notes'), self)
         rn_act.triggered.connect(self._show_release_notes); help_menu.addAction(rn_act)
         log_act = QAction('Open Log Folder', self)
         log_act.triggered.connect(lambda: (os.startfile(_LOG_DIR) if _pl.system() == 'Windows'
@@ -18975,7 +19047,7 @@ class MainWindow(QMainWindow):
             md = open(path, encoding='utf-8').read()
         except Exception:
             md = '# Release Notes\n\nRELEASE_NOTES.md 파일을 찾을 수 없습니다.'
-        dlg = QDialog(self); dlg.setWindowTitle('Release Notes'); _apply_dark_titlebar(dlg, resizable=True)
+        dlg = QDialog(self); dlg.setWindowTitle(t('Release Notes')); _apply_dark_titlebar(dlg, resizable=True)
         dlg.resize(560, 660)
         dlg.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
         lay = QVBoxLayout(dlg); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
@@ -19001,7 +19073,7 @@ class MainWindow(QMainWindow):
         status = t('Activated') if valid else t('Not activated')
         status_col = T('green') if valid else T('text_dim')
 
-        dlg = QDialog(self); dlg.setWindowTitle('About SPECTRA')
+        dlg = QDialog(self); dlg.setWindowTitle(t('About SPECTRA'))
         _apply_dark_titlebar(dlg)
         dlg.setStyleSheet(f'QDialog{{background:{T("bg2")};}}')
         root = QVBoxLayout(dlg); root.setContentsMargins(30, 24, 30, 22); root.setSpacing(0)
@@ -19013,7 +19085,7 @@ class MainWindow(QMainWindow):
         wm = QVBoxLayout(); wm.setSpacing(1)
         name = QLabel('SPECTRA')
         name.setStyleSheet(f'font-size:24px;font-weight:700;letter-spacing:5px;color:{T("text")};background:transparent;')
-        sub = QLabel('Spectrum Analyzer')
+        sub = QLabel(t('Spectrum Analyzer'))
         sub.setStyleSheet(f'font-size:11px;color:{T("text_dim")};letter-spacing:1px;background:transparent;')
         wm.addWidget(name); wm.addWidget(sub)
         hdr.addLayout(wm); hdr.addStretch()
