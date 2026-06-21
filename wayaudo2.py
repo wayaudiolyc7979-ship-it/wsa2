@@ -14493,7 +14493,8 @@ class _GradientNumber(QWidget):
             f = QFont('Helvetica Neue', fs); f.setWeight(QFont.Normal); p.setFont(f)
             p.setPen(QColor(T('text_dim')))
         else:
-            fs = max(32, int(min(r.height() * 0.78, r.width() * 0.30)))
+            # 글리프 ascent+descent 가 폰트 픽셀크기를 넘으므로 0.78→0.60 으로(세로 잘림 방지)
+            fs = max(32, int(min(r.height() * 0.60, r.width() * 0.30)))
             f = QFont('Helvetica Neue', fs); f.setWeight(QFont.Black); p.setFont(f)
             p.setPen(QPen(QBrush(_spectra_grad_obj(r.left() + r.width() * 0.14,
                                                     r.left() + r.width() * 0.86)), 1))
@@ -14595,7 +14596,7 @@ class StereoLoudnessPage(QWidget):
         row1=QHBoxLayout(); row1.setSpacing(12)
         # 스코프/레이더를 자주 보므로 비중을 키움(기존 1:1:2 → 5:5:6) + 행 높이 확대
         row1.addWidget(self._vs_card,5); row1.addWidget(self._radar_card,5); row1.addWidget(self._hero_card,6)
-        rw1=QWidget(); rw1.setLayout(row1); rw1.setMinimumHeight(340); rw1.setMaximumHeight(520)
+        rw1=QWidget(); rw1.setLayout(row1); rw1.setMinimumHeight(340); rw1.setMaximumHeight(450)
         root.addWidget(rw1,0)
 
         # ── Row 2: 메트릭 카드 6개 ──
