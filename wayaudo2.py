@@ -14332,14 +14332,22 @@ class _GradientNumber(QWidget):
 class LoudnessHistoryCanvas(QWidget):
     """Short-term 라우드니스 시간 그래프 — 브랜드 그라디언트 채움 + 타겟선."""
     _LO = -42.0; _HI = 0.0
+    _WINDOW_S = 60.0      # 레이더와 동일한 60초 윈도우
+    _STEP_S   = 0.1       # 0.1초마다 한 점 (600점 = 60초)
     def __init__(self):
         super().__init__()
-        self._vals = deque(maxlen=900); self._target = -23.0
+        self._vals = deque(maxlen=int(self._WINDOW_S / self._STEP_S)); self._target = -23.0
+        self._last_t = 0.0
         self.setMinimumHeight(110)
     def set_target(self, t): self._target = float(t); self.update()
     def push(self, v):
-        if v > -100: self._vals.append(float(v)); self.update()
-    def reset(self): self._vals.clear(); self.update()
+        # 오디오 블록마다(~10ms) 들어오지만 0.1초 간격으로만 적재 → 60초 윈도우
+        if v <= -100: return
+        now = time.monotonic()
+        if now - self._last_t < self._STEP_S: return
+        self._last_t = now
+        self._vals.append(float(v)); self.update()
+    def reset(self): self._vals.clear(); self._last_t = 0.0; self.update()
     def paintEvent(self, e):
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
         dark = (_theme != 'light'); W, H = self.width(), self.height()
@@ -14356,10 +14364,27 @@ class LoudnessHistoryCanvas(QWidget):
         p.setPen(QPen(QColor(T('green')), 1, Qt.DashLine)); p.drawLine(0, int(ty), W, int(ty))
         vals = list(self._vals)
         if len(vals) < 2: return
-        path = QPainterPath()
-        for i, v in enumerate(vals):
-            x = W * i / (len(vals) - 1); yy = y(v)
-            path.moveTo(x, yy) if i == 0 else path.lineTo(x, yy)
+        # short-term 값은 블록 단위로 갱신돼 그대로 이으면 계단처럼 보인다.
+        # 표시용으로만 가벼운 이동평균을 거쳐 단차를 완화한 뒤 곡선으로 그린다.
+        n = len(vals)
+        if n >= 5:
+            k = 4  # ±4 샘플 이동평균(저장값은 그대로, 화면만 부드럽게)
+            sm = []
+            for i in range(n):
+                a = max(0, i - k); b = min(n, i + k + 1)
+                sm.append(sum(vals[a:b]) / (b - a))
+            vals = sm
+        # 점 좌표 산출
+        pts = [(W * i / (n - 1), y(v)) for i, v in enumerate(vals)]
+        # Catmull-Rom 스플라인 → 베지어로 변환해 부드러운 곡선 생성
+        path = QPainterPath(); path.moveTo(*pts[0])
+        for i in range(n - 1):
+            p0 = pts[i - 1] if i > 0 else pts[0]
+            p1 = pts[i]; p2 = pts[i + 1]
+            p3 = pts[i + 2] if i + 2 < n else pts[n - 1]
+            c1 = (p1[0] + (p2[0] - p0[0]) / 6.0, p1[1] + (p2[1] - p0[1]) / 6.0)
+            c2 = (p2[0] - (p3[0] - p1[0]) / 6.0, p2[1] - (p3[1] - p1[1]) / 6.0)
+            path.cubicTo(c1[0], c1[1], c2[0], c2[1], p2[0], p2[1])
         g = QLinearGradient(0, H, 0, 0)
         g.setColorAt(0.0, QColor('#1FA2FF')); g.setColorAt(0.5, QColor('#9B5DE5')); g.setColorAt(1.0, QColor('#FF453A'))
         # filled area
