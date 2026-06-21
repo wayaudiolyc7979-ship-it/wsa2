@@ -844,6 +844,17 @@ THEMES = {
 _theme = 'dark'
 def T(key): return THEMES[_theme][key]
 
+def _popout_toggle_ss():
+    """팝아웃/툴바 토글 버튼 공용 스타일시트 (테마 인식). 다크는 기존 하드코딩과 바이트 동일."""
+    # text_dim 다크값(#8E8E93)·border 다크값(#38383A)이 기존 하드코딩(#9A9AA0/#48484A)과 달라 다크는 옛 hex 유지
+    bg3 = T('bg3'); accent = T('accent')
+    txt = '#9A9AA0' if _theme == 'dark' else T('text_dim')
+    bd  = '#48484A' if _theme == 'dark' else T('border')
+    return (f'QPushButton{{background:{bg3};color:{txt};border:1px solid {bd};'
+            'border-radius:7px;font-size:14px;font-weight:bold;}'
+            f'QPushButton:hover{{border-color:{accent};}}'
+            f'QPushButton:checked{{background:{accent};color:#FFFFFF;border:1px solid {accent};}}')
+
 # ── 디자인 토큰 (UI 통일 단일 소스) ──────────────────────
 # 위젯 스타일시트용 폰트 크기 (px) — 컴팩트 4단 스케일
 FS_XS, FS_SM, FS_BODY, FS_LG = 9, 10, 11, 13
@@ -988,7 +999,8 @@ class _DarkTitleBar(QWidget):
                 b.setParent(self); lay.addWidget(b)
             lay.addSpacing(6)
         self._x = QPushButton('✕'); self._x.setFixedSize(24, 24); self._x.setCursor(Qt.PointingHandCursor)
-        self._x.setStyleSheet('QPushButton{border:none;background:transparent;color:#9A9AA0;font-size:13px;border-radius:6px;}'
+        _x_col = '#9A9AA0' if _theme == 'dark' else T('text_dim')
+        self._x.setStyleSheet(f'QPushButton{{border:none;background:transparent;color:{_x_col};font-size:13px;border-radius:6px;}}'
                               'QPushButton:hover{background:#FF453A;color:#FFFFFF;}')
         self._x.clicked.connect(self._close)
         lay.addWidget(self._x)
@@ -10979,11 +10991,7 @@ class TransferFunctionWindow(QWidget):
         self.tf_cap_btn.setToolTip(_tx('Capture current TF snapshot (Mag + Phase + IR)   ·   Quick capture: Space'))
         self.tf_cap_btn.clicked.connect(lambda: self._do_tf_capture(prompt=True)); tl.addWidget(self.tf_cap_btn)
         # 토글 버튼 전용 스타일 — ON 시 확실히 채워져 보이게 (버튼별 직접 지정 → 전역 스타일에 안 묻힘)
-        _toggle_ss = (
-            'QPushButton{background:#2C2C2E;color:#9A9AA0;border:1px solid #48484A;'
-            'border-radius:7px;font-size:14px;font-weight:bold;}'
-            'QPushButton:hover{border-color:#4E7DF0;}'
-            'QPushButton:checked{background:#4E7DF0;color:#FFFFFF;border:1px solid #4E7DF0;}')
+        _toggle_ss = _popout_toggle_ss()
         self.delta_btn = QPushButton(''); self.delta_btn.setIcon(_icon('delta')); self.delta_btn.setFixedWidth(30); self.delta_btn.setFixedHeight(30)
         self.delta_btn.setCheckable(True)
         self.delta_btn.setStyleSheet(_toggle_ss)
@@ -11657,6 +11665,12 @@ class TransferFunctionWindow(QWidget):
 
     def restyle_theme(self):
         """테마 토글(다크↔라이트) 시 측정 카드들의 인라인-구운 색을 재적용."""
+        # TF 툴바 토글 버튼(델타/스테이블/팝아웃) 테마 재적용
+        for _btn in (getattr(self, 'delta_btn', None),
+                     getattr(self, 'tf_stable_btn', None),
+                     getattr(self, '_popout_btn', None)):
+            if _btn is not None:
+                _btn.setStyleSheet(_popout_toggle_ss())
         if hasattr(self, '_cards_scroll'):
             self._cards_scroll.setStyleSheet(
                 f'QScrollArea{{background:transparent;border:none;}}'
@@ -15718,11 +15732,7 @@ class MainWindow(QMainWindow):
         self._spec_popout_btn = QPushButton(''); self._spec_popout_btn.setIcon(_icon('extlink'))
         self._spec_popout_btn.setFixedWidth(30); self._spec_popout_btn.setFixedHeight(30)
         self._spec_popout_btn.setCheckable(True)
-        self._spec_popout_btn.setStyleSheet(
-            'QPushButton{background:#2C2C2E;color:#9A9AA0;border:1px solid #48484A;'
-            'border-radius:7px;font-size:14px;font-weight:bold;}'
-            'QPushButton:hover{border-color:#4E7DF0;}'
-            'QPushButton:checked{background:#4E7DF0;color:#FFFFFF;border:1px solid #4E7DF0;}')
+        self._spec_popout_btn.setStyleSheet(_popout_toggle_ss())
         self._spec_popout_btn.setToolTip(_tx('Pop out to separate window (multi-monitor)'))
         self._spec_popout_btn.clicked.connect(self._toggle_spec_popout)
         sl0.addWidget(self._spec_popout_btn); sl0.addSpacing(6)
@@ -15807,11 +15817,7 @@ class MainWindow(QMainWindow):
         self._st_popout_btn = QPushButton(''); self._st_popout_btn.setIcon(_icon('extlink'))
         self._st_popout_btn.setFixedWidth(30); self._st_popout_btn.setFixedHeight(30)
         self._st_popout_btn.setCheckable(True)
-        self._st_popout_btn.setStyleSheet(
-            'QPushButton{background:#2C2C2E;color:#9A9AA0;border:1px solid #48484A;'
-            'border-radius:7px;font-size:14px;font-weight:bold;}'
-            'QPushButton:hover{border-color:#4E7DF0;}'
-            'QPushButton:checked{background:#4E7DF0;color:#FFFFFF;border:1px solid #4E7DF0;}')
+        self._st_popout_btn.setStyleSheet(_popout_toggle_ss())
         self._st_popout_btn.setToolTip(_tx('Pop out to separate window (multi-monitor)'))
         self._st_popout_btn.clicked.connect(self._toggle_st_popout)
         sl2.addWidget(self._st_popout_btn)
@@ -16552,6 +16558,11 @@ class MainWindow(QMainWindow):
         if _spla is not None: _spla.restyle_theme()
         # 캡처 드로어 행 재빌드 (테마 전환 시 T() 색상 갱신)
         self._refresh_capture_drawer()
+        # 팝아웃 토글 버튼(스펙트럼/스테레오) 테마 재적용
+        for _btn in (getattr(self, '_spec_popout_btn', None),
+                     getattr(self, '_st_popout_btn', None)):
+            if _btn is not None:
+                _btn.setStyleSheet(_popout_toggle_ss())
 
     def _go_style(self, b):   _apply_txn(b, False)   # 시작=로고블루 틴트
     def _stop_style(self, b): _apply_txn(b, True)    # 정지=레드 틴트
