@@ -15275,7 +15275,7 @@ class _TFPopoutWindow(QWidget):
         super().__init__(None, Qt.Window)
         self._mainwin = mainwin
         self._docking = False
-        self.setWindowTitle(_tx('SPECTRA — Transfer Function'))
+        self.setWindowTitle('SPECTRA — Transfer Function')
         self.setMinimumSize(1020, 570)
 
     def closeEvent(self, e):
@@ -15291,7 +15291,7 @@ class _SpectrumPopoutWindow(QWidget):
         super().__init__(None, Qt.Window)
         self._mainwin = mainwin
         self._docking = False
-        self.setWindowTitle(_tx('SPECTRA — Spectrum'))
+        self.setWindowTitle('SPECTRA — Spectrum')
         self.setMinimumSize(900, 520)
 
     def closeEvent(self, e):
@@ -15307,7 +15307,7 @@ class _StereoPopoutWindow(QWidget):
         super().__init__(None, Qt.Window)
         self._mainwin = mainwin
         self._docking = False
-        self.setWindowTitle(_tx('SPECTRA — Stereo Loudness'))
+        self.setWindowTitle('SPECTRA — Stereo Loudness')
         self.setMinimumSize(900, 520)
 
     def closeEvent(self, e):
