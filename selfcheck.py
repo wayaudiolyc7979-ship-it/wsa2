@@ -195,26 +195,40 @@ check('Farina ESS 스윕 (LP복원+THD)', _farina_render)
 
 
 def _mtw_live_method():
-    """라이브 렌더 메서드 _render_mtw + _render_mtw_ir 자체를 실제 캔버스로 구동(스텁)."""
+    """MTW 라이브 렌더가 Single과 동일한 공통 테일(_render_primary_H)을 타는지 + IR 임펄스가
+    주입한 딜레이 위치에 오는지(=딜레이 파인더/센터링 정상 동작의 전제) 검증."""
     from PyQt5.QtWidgets import QLabel
     sr = 48000
     class Stub: pass
     s = Stub(); s.sample_rate = sr; s.delay_ms = 0.0; s.smooth_bpo = 3
     s._mtw = w.MTWEngine(sr, 4096, 5)
+    s.fft_size = s._mtw.master_len           # _render_primary_H 의 irfft n
     s.avg_lbl = QLabel(); s.mag_cvs = w.TFMagCanvas(); s.mag_cvs.resize(900, 360)
     s.phase_cvs = w.TFPhaseCanvas(); s.phase_cvs.resize(900, 360)
     s.ir_cvs = w.TFIRCanvas(); s.ir_cvs.resize(900, 280)
-    s._render_mtw_ir = w.TransferFunctionWindow._render_mtw_ir.__get__(s)
+    s._render_primary_H = w.TransferFunctionWindow._render_primary_H.__get__(s)
+    # 모션 스무딩 경로: 목표곡선 저장 + 30fps 보간 페인트 (테스트는 즉시 flush)
+    s._pm_prev = None; s._pm_targ = None; s._pm_t0 = 0.0; s._pm_done = True
+    s._pm_lerp = w.TransferFunctionWindow._pm_lerp
+    s._pm_lerp_ang = w.TransferFunctionWindow._pm_lerp_ang
+    s._pm_push_target = w.TransferFunctionWindow._pm_push_target.__get__(s)
+    s._pm_smooth_paint = w.TransferFunctionWindow._pm_smooth_paint.__get__(s)
     m = s._mtw.master_len; rng = np.random.default_rng(7)
-    ax = np.fft.rfftfreq(m, 1.0 / sr)
-    H = (1.0 / np.sqrt(1 + (ax / 2500.0) ** 2)) * (1.0 - 0.9 * np.exp(-((ax - 50.0) ** 2) / (2 * 2.5 ** 2)))
+    freqs = np.fft.rfftfreq(m, 1.0 / sr).astype(np.float32)
+    t_ms = (np.arange(m, dtype=np.float32) - m // 2) / sr * 1000.0
+    D = 240                                  # meas 가 ref 보다 240샘플(=5.0ms) 늦음
+    exp_ms = D / sr * 1000.0
     for _ in range(30):
-        ref = rng.standard_normal(m); meas = np.fft.irfft(np.fft.rfft(ref) * H, n=m)
+        ref = rng.standard_normal(m); meas = np.roll(ref, D)
         w.TransferFunctionWindow._render_mtw(s, ref.astype(np.float32), meas.astype(np.float32),
-                                             0.5, 0.25, True)
+                                             0.5, 0.5, freqs, t_ms, True)
+    s._pm_t0 -= 1.0; s._pm_smooth_paint()    # fr≥1 강제 → 목표곡선을 캔버스로 flush
     assert s.avg_lbl.text() == 'MTW', f"avg_lbl={s.avg_lbl.text()!r}"
-    return _save(s.mag_cvs, 'mtw_live_mag.png')
-check('MTW 라이브 렌더 메서드 (_render_mtw)', _mtw_live_method)
+    # 핵심: IR 임펄스(포락선 피크)가 물리 도착=딜레이 위치(+5ms)에 있어야 함 (Single과 동일)
+    assert abs(s.ir_cvs.peak_ms - exp_ms) < 0.3, \
+        f"IR 임펄스 위치 {s.ir_cvs.peak_ms:.2f}ms ≠ 주입 딜레이 {exp_ms:.2f}ms"
+    return _save(s.mag_cvs, 'mtw_live_mag.png') + f'  (IR 임펄스 {s.ir_cvs.peak_ms:.2f}ms = 주입 {exp_ms:.1f}ms)'
+check('MTW 라이브 렌더 = Single 공통테일 + IR 딜레이정렬', _mtw_live_method)
 
 
 def _loudness_page():

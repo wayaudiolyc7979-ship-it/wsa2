@@ -6821,9 +6821,11 @@ class ColorPickerDialog(QDialog):
 # ───────────────────────────────────────────
 TF_SMOOTH_BPO    = [0, 48, 24, 12, 6, 3, 1]
 TF_SMOOTH_LABELS = ['None', '1/48', '1/24', '1/12', '1/6', '1/3', '1/1 Oct']
-TF_AVG_SEC       = [0.5, 1, 2, 4, 8, 16]
+TF_AVG_SEC       = [4, 8, 16, 32, 64]
+TF_AVG_LABELS    = ['Fast', 'Quick', 'Normal', 'Smooth', 'Stable']   # 응답 속도(빠름→안정)
 TF_FFT_SIZES     = [4096, 8192, 16384, 32768]
 TF_FFT_LABELS    = ['4K', '8K', '16K', '32K']
+TF_RENDER_MS     = 100   # TF 렌더/누적 주기(=기존 10fps 유지). 평균시정수도 이 주기 기준.
 TF_PHASE_MODES   = ['Wrapped', 'Unwrapped', 'Group Delay']
 TF_IR_MODES      = ['Lin', 'ETC', 'Log']
 
@@ -6961,7 +6963,8 @@ class MTWEngine:
             if self._sxy[s] is None:
                 self._sxy[s] = sxy; self._sxx[s] = sxx; self._syy[s] = syy; self._n[s] = 1
             else:
-                self._n[s] = min(self._n[s] + 1, self.avg_target)
+                # 목표 시정수에 ~10프레임 만에 도달(1씩 올리면 큰 avg에서 한참 동일하게 보임)
+                self._n[s] = min(self._n[s] + max(1, self.avg_target // 10), self.avg_target)
                 a = 1.0 / self._n[s]; b = 1.0 - a
                 self._sxy[s] = b * self._sxy[s] + a * sxy
                 self._sxx[s] = b * self._sxx[s] + a * sxx
@@ -7930,9 +7933,13 @@ class TFMagCanvas(QWidget):
         # 실제 롤오프는 보존. (2/98은 노이즈 outlier까지 잡아 -48~+27 같은 과도범위 발생)
         lo = float(np.percentile(combined, 5)); hi = float(np.percentile(combined, 95))
         pad = max((hi - lo) * 0.12, 3.0)
-        # 합리적 한계로 클램프 — 비정상 데이터로 인한 극단 범위 방지
-        self.db_min = max(int(np.floor((lo - pad) / 3)) * 3, -36)
-        self.db_max = min(int(np.ceil((hi + pad) / 3)) * 3, 24)
+        dmin = lo - pad; dmax = hi + pad
+        if dmax - dmin < 12.0:          # 납작한/저레벨 곡선에서 축 붕괴 방지 (최소 12dB 폭)
+            mid = 0.5 * (dmin + dmax); dmin = mid - 6.0; dmax = mid + 6.0
+        # 3dB 격자 스냅 + 넓은 안전한계. (기존 -36 하한이 저레벨 TF(예: 루프백 -54dB)를 잘라
+        #  -33~-36 같은 붕괴 범위를 만들던 버그 → 하한 -120 으로 완화)
+        self.db_min = max(int(np.floor(dmin / 3)) * 3, -120)
+        self.db_max = min(int(np.ceil(dmax / 3)) * 3, 60)
         self._cache=None; self.update()
 
     def mouseDoubleClickEvent(self,e):
@@ -9877,7 +9884,8 @@ class AllDelayFinderDialog(QDialog):
             if idx < len(self._row_widgets):
                 self._row_widgets[idx][0].setText(label)
 
-        # 누적값 수집
+        # 누적값 수집 — primary는 헬퍼로(Single=누적, MTW=버퍼 산출). 자체 락 사용.
+        prim_cross, prim_auto = tw._primary_delay_cross_auto()
         tasks = []
         with QMutexLocker(tw._mutex):
             for enc, label, cross_flag, _ in pairs:
@@ -9885,8 +9893,7 @@ class AllDelayFinderDialog(QDialog):
                     tasks.append((enc, label, None, None))
                     continue
                 if enc == -1:
-                    cross = tw._cross_acc.copy() if tw._cross_acc is not None else None
-                    auto_x = tw._auto_acc_x.copy() if tw._auto_acc_x is not None else None
+                    cross, auto_x = prim_cross, prim_auto
                 else:
                     acc = tw._extra_pair_acc[enc] if enc < len(tw._extra_pair_acc) else None
                     cross = acc['cross'].copy() if acc else None
@@ -10191,7 +10198,7 @@ class TransferFunctionWindow(QWidget):
         self._settings = settings or {}
         self._tf_primary_name = self._settings.get('tf_primary_name', '')  # primary 카드 사용자 이름
         self.sample_rate = 48000; self.fft_size = 16384
-        self.smooth_bpo = 3; self.averaging_sec = 2.0
+        self.smooth_bpo = 3; self.averaging_sec = 16.0   # 기본 Normal(16초)
         self.delay_ms = 0.0; self.phase_mode = 0; self.coh_blank = 0.5
         self._ref_capture_idx = None; self._delta_on = False  # Δ 비교 상태
         self._stabilizing = False; self._stable_timer = None  # 안정화 캡쳐 상태
@@ -10208,6 +10215,7 @@ class TransferFunctionWindow(QWidget):
         # v1.7 라이브 엔진: Single FFT(기본) ↔ MTW. MTW는 시간영역 버퍼를 보관.
         self._tf_engine_mtw = False; self._mtw = None
         self._last_ref_buf = None; self._last_meas_buf = None
+        self._mtw_H_lin = None      # MTW 최신 선형그리드 H (영속) — 딜레이 파인더용
         self._rta_sub = None        # RTA 전용 엔진 구독(제너레이터/Start 없이 마이크 스펙트럼)
         self._rta_ch = 0
         self._rta_avg_buf = deque(maxlen=16)   # RTA FIFO 평균(스펙트럼 Avg와 동일 처리)
@@ -10247,7 +10255,11 @@ class TransferFunctionWindow(QWidget):
         self.setAcceptDrops(True)   # 오디오 파일 드래그&드롭 → File 측정 신호 로드
         self._find_result_sig.connect(self._apply_find_result)
         self._find_pair_result_sig.connect(self._apply_find_pair_result)
-        self._timer = QTimer(self); self._timer.timeout.connect(self._render); self._timer.start(100)
+        self._timer = QTimer(self); self._timer.timeout.connect(self._render); self._timer.start(TF_RENDER_MS)
+        # primary 곡선 모션 스무딩: 10fps 누적 사이를 30fps로 보간 페인트 (데이터/평균 불변)
+        self._pm_prev = None; self._pm_targ = None; self._pm_t0 = 0.0; self._pm_done = True
+        self._pm_smooth_t = QTimer(self)
+        self._pm_smooth_t.timeout.connect(self._pm_smooth_paint); self._pm_smooth_t.start(33)
         # RTA 소비자 — 스펙트럼 _render_frame과 동일하게 30fps 고정 타이머가 페인트 구동
         # (콜백 지터와 분리 → 버벅임 제거). 구독 없으면 즉시 반환하므로 idle 비용 0.
         self._rta_render_t = QTimer(self); self._rta_render_t.timeout.connect(self._rta_render_frame); self._rta_render_t.start(33)
@@ -10608,12 +10620,16 @@ class TransferFunctionWindow(QWidget):
         self.fft_cb.setFixedWidth(58); self.fft_cb.setFixedHeight(30)
         self.fft_cb.currentIndexChanged.connect(self._fft_changed); tl.addWidget(self.fft_cb); tl.addSpacing(10)
 
-        tl.addWidget(_lb('Avg'))
+        tl.addWidget(_lb('Response'))
         self.avg_cb = RoundComboBox()
-        self.avg_cb.addItems([f'{s}s' if s!=int(s) else f'{int(s)}s' for s in TF_AVG_SEC])
-        self.avg_cb.setCurrentIndex(2)
+        # 응답 속도(평균 시정수) — 단어 라벨, 툴팁에 실제 초 표시
+        for _lbl, _sec in zip(TF_AVG_LABELS, TF_AVG_SEC):
+            self.avg_cb.addItem(_lbl)
+        self.avg_cb.setCurrentIndex(TF_AVG_SEC.index(16))   # 기본 Normal(16s)
+        self.avg_cb.setToolTip('응답 속도 — Fast(빠름·민감) … Stable(느림·안정).\n'
+                               '값이 클수록 평균을 길게 잡아 곡선이 차분해집니다.')
         self.avg_cb._align_center = True
-        self.avg_cb.setFixedWidth(52); self.avg_cb.setFixedHeight(30)
+        self.avg_cb.setFixedWidth(74); self.avg_cb.setFixedHeight(30)
         self.avg_cb.currentIndexChanged.connect(self._avg_changed); tl.addWidget(self.avg_cb); tl.addSpacing(10)
 
         tl.addWidget(_lb('Smooth'))
@@ -11598,23 +11614,32 @@ class TransferFunctionWindow(QWidget):
 
     # ── 오디오 콜백 ──────────────────────────
     def _on_ref(self, buf):
+        rms = float(np.sqrt(np.mean(buf ** 2)))
+        if self._tf_engine_mtw:
+            # MTW(Internal Loopback/분리 콜백 경로): 시간영역 버퍼만 보관, 콜백 FFT 생략
+            with QMutexLocker(self._mutex):
+                self._last_ref_buf = buf; self._last_ref_rms = rms
+            return
         n = len(buf)
         if not hasattr(self, '_hann_win') or self._hann_win is None or len(self._hann_win) != n:
             self._hann_win = np.hanning(n).astype(np.float32)
         win = self._hann_win
-        rms = float(np.sqrt(np.mean(buf ** 2)))
         fft = np.fft.rfft(buf * win).astype(complex)
         with QMutexLocker(self._mutex):
             self._last_ref_fft = fft; self._last_ref_rms = rms
 
     def _on_meas(self, buf):
-        if not hasattr(self, '_hann_win') or self._hann_win is None or len(self._hann_win) != len(buf):
-            self._hann_win = np.hanning(len(buf)).astype(np.float32)
-        win = self._hann_win
         rms = float(np.sqrt(np.mean(buf ** 2)))
-        fft = np.fft.rfft(buf * win).astype(complex)
-        with QMutexLocker(self._mutex):
-            self._last_meas_fft = fft; self._last_meas_rms = rms
+        if self._tf_engine_mtw:
+            with QMutexLocker(self._mutex):
+                self._last_meas_buf = buf; self._last_meas_rms = rms
+        else:
+            if not hasattr(self, '_hann_win') or self._hann_win is None or len(self._hann_win) != len(buf):
+                self._hann_win = np.hanning(len(buf)).astype(np.float32)
+            win = self._hann_win
+            fft = np.fft.rfft(buf * win).astype(complex)
+            with QMutexLocker(self._mutex):
+                self._last_meas_fft = fft; self._last_meas_rms = rms
         # Primary 카드 M 레벨 즉시 업데이트 — 체크박스(가시) ON 이면 표시 (Start/Stop 무관)
         if (self._level_cards and self._level_cards[0].is_graph_visible() and rms > 1e-9):
             self._level_cards[0].set_meas(20 * _math.log10(rms))
@@ -12011,7 +12036,7 @@ class TransferFunctionWindow(QWidget):
 
         # ── MTW 라이브 엔진 경로 (primary 전용, v1.7) — 시간영역 버퍼를 멀티레이트 분석 ──
         if self._tf_engine_mtw and self._mtw is not None:
-            self._render_mtw(ref_b, meas_b, rr, mr, _primary_show)
+            self._render_mtw(ref_b, meas_b, rr, mr, freqs, t_ms, _primary_show)
             return
 
         # ── Primary 누적·렌더 (Ref/Meas 데이터 충분할 때만; 없으면 extra 카드만 렌더) ──
@@ -12024,9 +12049,10 @@ class TransferFunctionWindow(QWidget):
                 self._cross_acc = S_xy.copy(); self._auto_acc_x = S_xx.copy()
                 self._auto_acc_y = S_yy.copy(); self._n_avg = 1
             else:
-                # 워밍업 구간: 선형 누적 (running mean) → 안정 후: EMA (리셋 없음)
-                self._n_avg = min(self._n_avg + 1, self._avg_target)
-                α = 1.0 / self._n_avg   # 1→1/N 으로 수렴, 이후 1/N 고정
+                # 워밍업: 목표 시정수에 ~1초(10프레임) 만에 도달 → Avg 설정이 즉시 체감됨.
+                # (1프레임씩 올리면 avg=16은 16초 걸려 그 사이 모든 Avg가 동일하게 보였음)
+                self._n_avg = min(self._n_avg + max(1, self._avg_target // 10), self._avg_target)
+                α = 1.0 / self._n_avg   # 목표 도달 후 1/target 고정 = 시정수 = Avg초
                 β = 1.0 - α
                 self._cross_acc  = β * self._cross_acc  + α * S_xy
                 self._auto_acc_x = β * self._auto_acc_x + α * S_xx
@@ -12034,32 +12060,10 @@ class TransferFunctionWindow(QWidget):
             self.avg_lbl.setText(f'Avg: {self._n_avg} / {self._avg_target}')
             if self._n_avg >= 3:   # 초기 3프레임 미만: EMA 수렴 전, 표시 생략
                 H_raw = self._cross_acc / np.maximum(self._auto_acc_x, 1e-30)
-                # Phase/Mag 표시용: 딜레이 위상 보정 적용
-                if self.delay_ms != 0.0:
-                    H_disp = H_raw * np.exp(1j * 2 * np.pi * freqs * (self.delay_ms / 1000.0))
-                else:
-                    H_disp = H_raw
                 gamma2 = np.clip(np.abs(self._cross_acc) ** 2 /
                                  np.maximum(self._auto_acc_x * self._auto_acc_y, 1e-60), 0.0, 1.0)
-                f_out, mag_out, ph_wrap, ph_unwr, grp_ms = _tf_smooth(freqs, H_disp, self.smooth_bpo)
-                mask = (freqs >= 18) & (freqs <= 22000)
-                f_m = freqs[mask]; g_m = gamma2[mask]
-                if len(f_m) > 1:
-                    # 코히런스도 1/3 oct 스무딩 적용 (주황선 노이즈 제거)
-                    bpo_c = max(self.smooth_bpo, 3)
-                    half_c = 2 ** (0.5 / bpo_c)
-                    g_cum = np.zeros(len(g_m) + 1); g_cum[1:] = np.cumsum(g_m)
-                    lo_c = np.searchsorted(f_m, f_out / half_c, 'left')
-                    hi_c = np.searchsorted(f_m, f_out * half_c, 'right')
-                    cnt_c = hi_c - lo_c; val_c = cnt_c > 0
-                    coh_out = np.interp(f_out, f_m, g_m)
-                    coh_out[val_c] = (g_cum[hi_c[val_c]] - g_cum[lo_c[val_c]]) / cnt_c[val_c]
-                    coh_out = coh_out.astype(np.float32)
-                else:
-                    coh_out = None
-                if _primary_show:
-                    self.phase_cvs.set_data(f_out, ph_wrap, ph_unwr, grp_ms, coh_out, mag_out)
-                    self.mag_cvs.set_data(f_out, mag_out, coh_out, ph_wrap)
+                # Single·MTW 공통 렌더 테일 (mag/phase/IR + 딜레이 마커)
+                self._render_primary_H(H_raw, gamma2, freqs, t_ms, _primary_show)
         else:
             # primary 비활성(카드1 Stop 등) → avg 표시는 활성 extra 카드 기준
             _ns = [a['n'] for a in self._extra_pair_acc if a is not None]
@@ -12093,16 +12097,10 @@ class TransferFunctionWindow(QWidget):
             h_ex = np.fft.fftshift(np.fft.irfft(H_ex_raw, n=self.fft_size)).astype(np.float32)
             self.ir_cvs.set_tf_extra(i, color, t_ms, h_ex, delay=pair_delay)
 
-        # Live IR (primary): 딜레이 보정 없이 raw H → 임펄스가 실제 도착(=딜레이) 위치에.
-        # 딜레이는 녹색 마커로 표시되고, primary 가 front 면 뷰가 그 위치로 센터링된다.
-        if _primary_show and H_raw is not None:
-            h_full = np.fft.fftshift(np.fft.irfft(H_raw, n=self.fft_size)).astype(np.float32)
-            self.ir_cvs.set_data(t_ms, h_full)
-            self.ir_cvs._delay_ms = self.delay_ms   # primary 딜레이 마커 위치
-
     # ── 딜레이 자동 탐지 (2단계: 2초 측정 후 계산) ──────────────────────
     def _on_sweep_captured(self, ref_arr, meas_arr):
         """단일 스윕 캡처 완료 → Farina ESS 분석(상승) 또는 Wiener(하강) → 캔버스 → 자동 Stop."""
+        self._pm_targ = None; self._pm_done = True   # 라이브 모션 스무딩 비활성(스윕 결과 직접 표시)
         n = len(ref_arr)
         sr = self.sample_rate
         f1 = float(self._sweep_f_lo); f2 = float(self._sweep_f_hi)
@@ -12682,17 +12680,101 @@ class TransferFunctionWindow(QWidget):
 
     # ── 컨트롤 핸들러 ────────────────────────
     def _recalc_target(self):
-        self._avg_target = max(2, int(self.averaging_sec * self.sample_rate / (self.fft_size // 4)))
+        # 누적(EMA)은 렌더 주기마다 1회 일어나므로 평균 프레임 수 = 평균초 / 렌더주기.
+        # (기존엔 fft_size//4 hop 가정 → MTW 같은 큰 fft에서 평균이 과소 → 너무 빠르고 튐)
+        self._avg_target = max(2, int(self.averaging_sec * 1000.0 / TF_RENDER_MS))
+        # MTW 엔진 내부 EMA도 동일 시정수로 — 렌더 주기 바뀌어도 평균초가 실시간 평균초와 일치
+        if self._mtw is not None:
+            self._mtw.avg_target = self._avg_target
 
     def _reset_avg(self):
         with QMutexLocker(self._mutex):
             self._cross_acc = None; self._auto_acc_x = None; self._auto_acc_y = None; self._n_avg = 0
         self._extra_pair_acc = [None] * len(self._extra_pairs)
+        self._mtw_H_lin = None
+        self._pm_prev = None; self._pm_targ = None; self._pm_done = True   # 모션 스무딩 버퍼 비움
         if self._mtw is not None:
             self._mtw.reset()
 
-    def _render_mtw(self, ref_b, meas_b, rr, mr, primary_show):
-        """MTW 라이브 렌더 — 시간영역 버퍼를 멀티레이트 엔진에 push 후 결과를 캔버스로."""
+    def _render_primary_H(self, H_raw, gamma2, freqs, t_ms, primary_show):
+        """primary H(f)[선형 freqs 그리드] → mag/phase/IR 캔버스. Single·MTW 공통 렌더 테일.
+        IR은 raw H로 생성(임펄스가 실제 도착=딜레이 위치) + 딜레이 마커 = Single과 동일 거동."""
+        # Phase/Mag 표시용: 딜레이 위상 보정
+        if self.delay_ms != 0.0:
+            H_disp = H_raw * np.exp(1j * 2 * np.pi * freqs * (self.delay_ms / 1000.0))
+        else:
+            H_disp = H_raw
+        f_out, mag_out, ph_wrap, ph_unwr, grp_ms = _tf_smooth(freqs, H_disp, self.smooth_bpo)
+        # 코히런스 1/3 oct 스무딩 (Single과 동일)
+        mask = (freqs >= 18) & (freqs <= 22000)
+        f_m = freqs[mask]; g_m = np.clip(gamma2[mask], 0.0, 1.0)
+        if len(f_m) > 1:
+            bpo_c = max(self.smooth_bpo, 3)
+            half_c = 2 ** (0.5 / bpo_c)
+            g_cum = np.zeros(len(g_m) + 1); g_cum[1:] = np.cumsum(g_m)
+            lo_c = np.searchsorted(f_m, f_out / half_c, 'left')
+            hi_c = np.searchsorted(f_m, f_out * half_c, 'right')
+            cnt_c = hi_c - lo_c; val_c = cnt_c > 0
+            coh_out = np.interp(f_out, f_m, g_m)
+            coh_out[val_c] = (g_cum[hi_c[val_c]] - g_cum[lo_c[val_c]]) / cnt_c[val_c]
+            coh_out = coh_out.astype(np.float32)
+        else:
+            coh_out = None
+        if primary_show:
+            # Live IR: 딜레이 보정 없이 raw H → 임펄스가 실제 도착(=딜레이) 위치에.
+            h_full = np.fft.fftshift(np.fft.irfft(H_raw, n=self.fft_size)).astype(np.float32)
+            # 캔버스에 직접 set_data 하지 않고 "목표 곡선"으로 저장 → 30fps 보간 타이머가
+            # 10fps 갱신 사이를 부드럽게 그려준다(데이터 속도/평균은 불변, 모션만 매끈).
+            self._pm_push_target(f_out, mag_out, coh_out, ph_wrap, ph_unwr, grp_ms, t_ms, h_full)
+
+    # ── primary 곡선 모션 스무딩 (10fps 누적 → 30fps 보간 페인트) ──────────
+    def _pm_push_target(self, f, mag, coh, pw, pu, gm, t_ms, h):
+        """새 목표 곡선 도착(10fps). 이전 목표→prev로 옮기고 보간 시작."""
+        self._pm_prev = self._pm_targ
+        self._pm_targ = {'f': f, 'mag': mag, 'coh': coh, 'pw': pw, 'pu': pu,
+                         'gm': gm, 't_ms': t_ms, 'h': h}
+        self._pm_t0 = time.monotonic(); self._pm_done = False
+
+    @staticmethod
+    def _pm_lerp(a, b, fr):
+        """길이 같을 때만 선형보간, 아니면 목표값 그대로(스무딩/FFT 변경 시 스냅)."""
+        if a is None or b is None or len(a) != len(b):
+            return b
+        return a + (b - a) * fr
+
+    @staticmethod
+    def _pm_lerp_ang(a, b, fr):
+        """wrapped 위상(±180°) 전용 — 최단각 경로 보간 후 [-180,180]로 재랩.
+        직선보간하면 ±180 경계를 0으로 쓸고 지나가 세로선 artifact 발생 → 방지."""
+        if a is None or b is None or len(a) != len(b):
+            return b
+        d = (b - a + 180.0) % 360.0 - 180.0      # 델타를 [-180,180]로
+        return (a + d * fr + 180.0) % 360.0 - 180.0
+
+    def _pm_smooth_paint(self):
+        """30fps: prev→targ 보간값을 캔버스에 push. frac 1 도달 후엔 idle(반복 페인트 방지)."""
+        t = self._pm_targ
+        if t is None or self._pm_done:
+            return
+        p = self._pm_prev
+        fr = (time.monotonic() - self._pm_t0) / (TF_RENDER_MS / 1000.0)
+        if fr >= 1.0:
+            fr = 1.0; self._pm_done = True
+        L = self._pm_lerp; A = self._pm_lerp_ang
+        mag = L(p['mag'], t['mag'], fr) if p else t['mag']
+        coh = L(p['coh'], t['coh'], fr) if p else t['coh']
+        pw  = A(p['pw'],  t['pw'],  fr) if p else t['pw']   # wrapped 위상=최단각 보간(artifact 방지)
+        pu  = L(p['pu'],  t['pu'],  fr) if p else t['pu']
+        gm  = L(p['gm'],  t['gm'],  fr) if p else t['gm']
+        h   = L(p['h'],   t['h'],   fr) if p else t['h']
+        self.phase_cvs.set_data(t['f'], pw, pu, gm, coh, mag)
+        self.mag_cvs.set_data(t['f'], mag, coh, pw)
+        self.ir_cvs.set_data(t['t_ms'], h)
+        self.ir_cvs._delay_ms = self.delay_ms
+
+    def _render_mtw(self, ref_b, meas_b, rr, mr, freqs, t_ms, primary_show):
+        """MTW 라이브 렌더 — 멀티레이트 엔진 결과(로그그리드 H)를 Single과 동일한 선형
+        freqs 그리드로 보간 → 공통 렌더 테일(_render_primary_H)로 Single과 완전 동일 거동."""
         if ref_b is None or meas_b is None or rr < 1e-6 or mr < 1e-6:
             return
         if self._mtw.sr != self.sample_rate:                 # SR 변경 추종
@@ -12705,27 +12787,13 @@ class TransferFunctionWindow(QWidget):
             return
         f_m, H_m, coh_m = res
         f_m = f_m.astype(np.float32)
-        if self.delay_ms != 0.0:
-            H_m = H_m * np.exp(1j * 2 * np.pi * f_m * (self.delay_ms / 1000.0))
-        f_out, mag_out, ph_wrap, ph_unwr, grp_ms = _tf_smooth(f_m, H_m, self.smooth_bpo)
-        coh_out = np.clip(np.interp(f_out, f_m, coh_m), 0.0, 1.0).astype(np.float32)
+        # 로그그리드 H/coh → 선형 freqs 그리드 보간 (Single과 동일한 입력 형태로 변환)
+        H_raw = (np.interp(freqs, f_m, H_m.real)
+                 + 1j * np.interp(freqs, f_m, H_m.imag)).astype(np.complex64)
+        gamma2 = np.clip(np.interp(freqs, f_m, coh_m), 0.0, 1.0).astype(np.float32)
+        self._mtw_H_lin = H_raw      # 영속 보관 (딜레이 파인더가 매 프레임 비워지는 버퍼 대신 사용)
         self.avg_lbl.setText('MTW')
-        if primary_show:
-            self.phase_cvs.set_data(f_out, ph_wrap, ph_unwr, grp_ms, coh_out, mag_out)
-            self.mag_cvs.set_data(f_out, mag_out, coh_out, ph_wrap)
-            self._render_mtw_ir(f_m, H_m)
-
-    def _render_mtw_ir(self, f_m, H_m):
-        """MTW 복소 H(로그그리드)를 선형 그리드로 보간 → irfft → 0중심 IR."""
-        nyq = self.sample_rate / 2.0
-        nlin = 4096
-        flin = np.linspace(0.0, nyq, nlin)
-        Hlin = (np.interp(flin, f_m, H_m.real) + 1j * np.interp(flin, f_m, H_m.imag))
-        N = 2 * (nlin - 1)
-        h = np.fft.fftshift(np.fft.irfft(Hlin, n=N)).astype(np.float32)
-        t_ms = ((np.arange(N) - N // 2) / self.sample_rate * 1000.0).astype(np.float32)
-        self.ir_cvs.set_data(t_ms, h)
-        self.ir_cvs._delay_ms = self.delay_ms
+        self._render_primary_H(H_raw, gamma2, freqs, t_ms, primary_show)
 
     def _engine_changed(self, idx):
         """라이브 엔진 전환: 0=Single FFT(기본), 1=MTW. fft_size 조정 후 분석 재시작."""
@@ -12864,6 +12932,21 @@ class TransferFunctionWindow(QWidget):
         if not primary_active and not extra_active and self._running:
             self._stop_analysis()
 
+    def _primary_delay_cross_auto(self):
+        """딜레이 파인더용 primary cross/auto_x 스펙트럼.
+        Single=콜백 누적 스펙트럼, MTW=영속 보관 중인 선형그리드 H(_mtw_H_lin) 사용.
+        반환 (cross, auto_x) 또는 (None, None). 워커는 H=cross/auto 로 IR 피크를 찾으므로
+        MTW는 cross=H, auto_x=1 로 주면 H=H 가 되어 동일 로직 재사용."""
+        if self._tf_engine_mtw:
+            H = self._mtw_H_lin
+            if H is None: return None, None
+            H = H.copy()
+            return H, np.ones(len(H), dtype=np.float32)
+        with QMutexLocker(self._mutex):
+            cross  = self._cross_acc.copy()  if self._cross_acc  is not None else None
+            auto_x = self._auto_acc_x.copy() if self._auto_acc_x is not None else None
+        return cross, auto_x
+
     def _find_delay_for_pair(self, pair_idx):
         """카드별 Auto Find Delay — IR 피크로 딜레이 계산 후 해당 카드 delay_spin 업데이트."""
         import threading
@@ -12882,11 +12965,10 @@ class TransferFunctionWindow(QWidget):
                     '딜레이 값은 수동으로 입력하세요.\n'
                     '(또는 Word Clock / ADAT로 클럭 동기화 후 사용)')
                 return
-        with QMutexLocker(self._mutex):
-            if pair_idx is None:
-                cross  = self._cross_acc.copy()  if self._cross_acc  is not None else None
-                auto_x = self._auto_acc_x.copy() if self._auto_acc_x is not None else None
-            else:
+        if pair_idx is None:
+            cross, auto_x = self._primary_delay_cross_auto()
+        else:
+            with QMutexLocker(self._mutex):
                 if pair_idx >= len(self._extra_pair_acc): return
                 acc = self._extra_pair_acc[pair_idx]
                 if acc is None: return
@@ -12952,7 +13034,9 @@ class TransferFunctionWindow(QWidget):
         if self._running: self._stop(); self._start()
 
     def _avg_changed(self, idx):
-        self.averaging_sec = TF_AVG_SEC[idx]; self._recalc_target(); self._reset_avg()
+        # Response(평균 시정수)만 바꾸고 누적은 유지 → 곡선이 그 자리에서 즉시 전환(재수렴/쓸어내림 없음).
+        # (_reset_avg 를 호출하면 평균을 버리고 다시 쌓아 "위→아래 내려옴" 처럼 보였음)
+        self.averaging_sec = TF_AVG_SEC[idx]; self._recalc_target()
 
     def _smooth_changed(self, idx):
         self.smooth_bpo = TF_SMOOTH_BPO[idx]; self._reset_avg()
@@ -14422,8 +14506,9 @@ class StereoLoudnessPage(QWidget):
         self._radar_card, self._radar_card_l = self._card(self._radar, pad=8)
         self._hero_card, _ = self._card(self._build_hero_panel(), pad=12)
         row1=QHBoxLayout(); row1.setSpacing(12)
-        row1.addWidget(self._vs_card,1); row1.addWidget(self._radar_card,1); row1.addWidget(self._hero_card,2)
-        rw1=QWidget(); rw1.setLayout(row1); rw1.setMinimumHeight(290); rw1.setMaximumHeight(430)
+        # 스코프/레이더를 자주 보므로 비중을 키움(기존 1:1:2 → 5:5:6) + 행 높이 확대
+        row1.addWidget(self._vs_card,5); row1.addWidget(self._radar_card,5); row1.addWidget(self._hero_card,6)
+        rw1=QWidget(); rw1.setLayout(row1); rw1.setMinimumHeight(340); rw1.setMaximumHeight(520)
         root.addWidget(rw1,0)
 
         # ── Row 2: 메트릭 카드 6개 ──
@@ -14522,16 +14607,49 @@ class StereoLoudnessPage(QWidget):
         """시안C 히어로 — PROGRAM LOUDNESS 거대 그라디언트 숫자 + 타겟/편차."""
         w = QWidget(); w.setStyleSheet('background:transparent;')
         vl = QVBoxLayout(w); vl.setContentsMargins(16, 8, 16, 8); vl.setSpacing(4)
-        vl.addStretch()
-        lbl = QLabel('PROGRAM LOUDNESS'); lbl.setAlignment(Qt.AlignHCenter)
-        lbl.setStyleSheet(f'font-size:{FS_BODY}px;color:{self._metric_lbl_col()};'
+        # AVG(누적 평균=Integrated) ↔ LIVE(실시간 Short-term) 토글 — 카드 우상단
+        self._hero_live = False
+        seg = QWidget(); seg.setStyleSheet('background:transparent;')
+        sl = QHBoxLayout(seg); sl.setContentsMargins(0,0,0,0); sl.setSpacing(0)
+        self._hero_avg_btn  = QPushButton('AVG')
+        self._hero_live_btn = QPushButton('LIVE')
+        for b in (self._hero_avg_btn, self._hero_live_btn):
+            b.setCheckable(True); b.setFixedSize(52, 22); b.setCursor(Qt.PointingHandCursor)
+        self._hero_avg_btn.setChecked(True)
+        self._hero_avg_btn.setToolTip('AVG — 누적 평균(Integrated). 방송/스트리밍 납품 기준값')
+        self._hero_live_btn.setToolTip('LIVE — 실시간(Short-term 3초). 작업 중 모니터링용')
+        self._hero_avg_btn.setStyleSheet(self._seg_btn_ss(left=True))
+        self._hero_live_btn.setStyleSheet(self._seg_btn_ss(left=False))
+        self._hero_avg_btn.clicked.connect(lambda: self._set_hero_mode(False))
+        self._hero_live_btn.clicked.connect(lambda: self._set_hero_mode(True))
+        sl.addStretch(); sl.addWidget(self._hero_avg_btn); sl.addWidget(self._hero_live_btn)
+        vl.addWidget(seg)            # 우상단 고정
+        vl.addStretch()             # 아래 본문(제목·숫자)은 카드 중앙 정렬
+
+        self._lbl_hero_title = QLabel('PROGRAM LOUDNESS'); self._lbl_hero_title.setAlignment(Qt.AlignHCenter)
+        self._lbl_hero_title.setStyleSheet(f'font-size:{FS_BODY}px;color:{self._metric_lbl_col()};'
                           f'letter-spacing:2px;background:transparent;')
         self._lbl_I = _GradientNumber(120)
         self._lbl_hero_sub = QLabel('—'); self._lbl_hero_sub.setAlignment(Qt.AlignHCenter)
         self._lbl_hero_sub.setStyleSheet(f'font-size:{FS_LG}px;color:{T("text_dim")};background:transparent;')
-        vl.addWidget(lbl); vl.addWidget(self._lbl_I, 1); vl.addWidget(self._lbl_hero_sub)
+        vl.addWidget(self._lbl_hero_title); vl.addWidget(self._lbl_I, 1); vl.addWidget(self._lbl_hero_sub)
         vl.addStretch()
         return w
+
+    def _seg_btn_ss(self, left):
+        """히어로 모드 세그먼트 버튼 스타일(좌/우 라운드)."""
+        rad = 'border-top-left-radius:6px;border-bottom-left-radius:6px;' if left \
+              else 'border-top-right-radius:6px;border-bottom-right-radius:6px;'
+        return (f"QPushButton{{background:{T('panel')};color:{T('text_dim')};"
+                f"border:1px solid {T('border')};{rad}font-size:11px;font-weight:bold;}}"
+                f"QPushButton:checked{{background:rgba(78,125,240,40);color:{T('accent')};"
+                f"border:1px solid {T('accent')};}}")
+
+    def _set_hero_mode(self, live):
+        self._hero_live = bool(live)
+        self._hero_avg_btn.setChecked(not live)
+        self._hero_live_btn.setChecked(live)
+        self._refresh_display(force=True)
 
     def _build_target_ctrl(self):
         """우측 컨트롤 — LU(타겟 상대) 표시 토글. 타겟 프리셋 선택은 상단 툴바 콤보가 담당."""
@@ -14708,7 +14826,6 @@ class StereoLoudnessPage(QWidget):
             return f'{v-self._target:+.1f}' if self._lu_mode else f'{v:.1f}'
         self._lbl_M.setText(fmt(m.M))
         self._lbl_S.setText(fmt(m.S))
-        self._lbl_I.setText(fmt(m.I))
         self._lbl_LRA.setText(f'{m.LRA:.1f}' if m.LRA>0 else '—')
         self._lbl_TP.setText(f'{m.peak_hold:.1f}' if m.peak_hold>-100 else '—')
         self._lbl_PLR.setText(f'{m.PLR:.1f}' if m.I>-100 else '—')
@@ -14723,10 +14840,15 @@ class StereoLoudnessPage(QWidget):
                T('yellow') if m.M<-16 else T('red'))
             self._lbl_M.setStyleSheet(
                 f'font-size:{FS_METRIC}px;font-weight:bold;color:{c};background:transparent;')
-        # 히어로 보조줄 + 컴플라이언스 카드 (시안C)
-        if m.I>-100:
-            dev=m.I-self._target
-            self._lbl_hero_sub.setText(f'LUFS   ·   Target {self._target:+.0f}   ·   {dev:+.1f} LU')
+        # 히어로 숫자/제목 + 컴플라이언스 카드 — 평균(Integrated) ↔ 실시간(Short-term) 모드
+        live = getattr(self, '_hero_live', False)
+        hv = m.S if live else m.I    # 히어로가 보여줄 값
+        self._lbl_hero_title.setText('SHORT-TERM  (실시간)' if live else 'PROGRAM LOUDNESS')
+        self._lbl_I.setText(fmt(hv))
+        if hv>-100:
+            dev=hv-self._target
+            mode_lbl='S' if live else 'LUFS'
+            self._lbl_hero_sub.setText(f'{mode_lbl}   ·   Target {self._target:+.0f}   ·   {dev:+.1f} LU')
             tp_ok = (m.peak_hold<=-1.0) or (m.peak_hold<=-100)
             ok = (abs(dev)<=1.0) and tp_ok
             if ok:
