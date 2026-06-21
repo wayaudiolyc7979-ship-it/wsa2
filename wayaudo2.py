@@ -555,6 +555,11 @@ _TR_KO = {        # {english_ui_string: 쉬운_한국어}
     'TF Average': 'TF 평균',
     'Signal Generator': '신호 발생기',
     'Send Logs Failed': '로그 보내기 실패',
+    # ── 언어 토글 ────────────────────────────────────────────────────────
+    'Switch language (restarts)': '언어 바꾸기 (재시작)',
+    'Language': '언어',
+    'Restart': '재시작',
+    'Please restart the app manually.': '앱을 직접 다시 시작해 주세요.',
 }        # ── _TR_KO 끝 ────────────────────────────────────────────────────
 _LANG = 'en'       # 'en' | 'ko' — 모듈 로드 끝에서 확정
 
@@ -15432,6 +15437,12 @@ class MainWindow(QMainWindow):
         _right_lay.addStretch()
         _right_lay.addWidget(self.status_lbl)
         _right_lay.addWidget(self.theme_btn)
+        self.lang_btn = QPushButton('한' if _LANG == 'ko' else 'EN')
+        self.lang_btn.setFixedWidth(40); self.lang_btn.setFixedHeight(28)
+        self.lang_btn.setToolTip(t('Switch language (restarts)'))
+        self.lang_btn.setStyleSheet(ss_btn_neutral())
+        self.lang_btn.clicked.connect(self._on_lang_toggle)
+        _right_lay.addWidget(self.lang_btn)
         # ── Preset 드롭다운 + Save + 삭제 (Calibration 앞)
         self._preset_cb = RoundComboBox(); self._preset_cb._align_center = True
         self._preset_cb.setFixedHeight(28); self._preset_cb.setMinimumWidth(120); self._preset_cb.setMaximumWidth(180)
@@ -16559,6 +16570,25 @@ class MainWindow(QMainWindow):
         global _theme
         _theme='light' if _theme=='dark' else 'dark'
         self._apply_theme()
+
+    def _on_lang_toggle(self):
+        global _LANG
+        new = 'en' if _LANG == 'ko' else 'ko'
+        msg = ('언어를 바꾸려면 앱을 다시 시작합니다. 계속할까요?'
+               if new == 'ko' else 'Restart the app to change language. Continue?')
+        if _brand_msg(self, t('Language'), msg, kind='question', cancel_text=t('Cancel')) is not True:
+            return
+        self._settings['lang'] = new
+        _save_settings(self._settings)
+        self._restart_app()
+
+    def _restart_app(self):
+        import os, sys
+        try:
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        except Exception as e:
+            _alog.error(f'restart failed: {e}')
+            _brand_msg(self, t('Restart'), t('Please restart the app manually.'))
 
     def _auto_range_for_calib(self):
         if self.calib_offset <= 5:
