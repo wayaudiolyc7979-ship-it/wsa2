@@ -6423,7 +6423,7 @@ class _CaptureDrawer(QWidget):
         hl.addWidget(QLabel('CAPTURES',
             styleSheet='color:#4E7DF0;font-size:11px;font-weight:bold;'))
         hl.addStretch()
-        self._avg_btn = QPushButton(_tx('Avg'))
+        self._avg_btn = QPushButton('Avg')
         self._avg_btn.setFixedSize(36, 20)
         self._avg_btn.setToolTip(_tx('Average checked TF captures'))
         self._avg_btn.setStyleSheet(
@@ -6463,8 +6463,8 @@ class _CaptureDrawer(QWidget):
         tbl = QHBoxLayout(self._seg_pill)
         tbl.setContentsMargins(2, 2, 2, 2); tbl.setSpacing(2)
 
-        self._spec_tab_btn = QPushButton(_tx('Spectrum'))
-        self._tf_tab_btn   = QPushButton(_tx('Transfer Fn'))
+        self._spec_tab_btn = QPushButton('Spectrum')
+        self._tf_tab_btn   = QPushButton('Transfer Fn')
         _tab_ss = (
             'QPushButton{font-size:11px;font-weight:600;border:none;'
             'background:transparent;color:#8E8E93;padding:0 4px;border-radius:6px;}'
@@ -6774,7 +6774,7 @@ class _CaptureDrawer(QWidget):
             items = groups[gname]
             collapsed  = self._collapsed.get((mode, gname), False)
             is_pending = (len(items) == 0)
-            cnt_str    = _tx('empty') if is_pending else str(len(items))
+            cnt_str    = 'empty' if is_pending else str(len(items))
 
             is_target = (self._target.get(mode, '') == gname)   # 새 캡쳐가 들어갈 활성 타겟?
             ghdr = QWidget(); ghdr.setFixedHeight(28)
@@ -6841,7 +6841,7 @@ class _CaptureDrawer(QWidget):
                     self._row_registry.append((mode, i, row))
                     self._ilay.insertWidget(pos, row); pos += 1
             elif not collapsed and is_pending:
-                ph = QLabel(_tx('  Next capture goes here'))
+                ph = QLabel('  Next capture goes here')
                 ph.setStyleSheet(
                     f'color:{T("text_dim")};font-size:13px;font-style:italic;padding:2px 4px;')
                 self._ilay.insertWidget(pos, ph); pos += 1
@@ -8438,7 +8438,7 @@ class TFMagCanvas(QWidget):
         dh=H-pt-pb; rng=max(self.db_max-self.db_min,1.0)
         # 무신호(측정 곡선 없음) → 브랜드 엠프티 스테이트 안내
         if self.mag is None and not self._tf_extra:
-            _draw_idle_hint(p, pl, pt, uw, dh, text=_tx('Play a signal to start measuring'))
+            _draw_idle_hint(p, pl, pt, uw, dh, text='Play a signal to start measuring')
         _CUR  = QColor(255,220,50,210)
         _PEER = QColor(255,220,50,100)
         # 피어 커서: 수직선 + 수평선 (자기 데이터로 y 계산)
