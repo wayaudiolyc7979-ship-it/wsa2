@@ -27,7 +27,7 @@
 
 - [x] **About 화면** — ✅✅검증완료(2026-06-15). License 버튼→SPECTRA 마크+버전 1.6+머신ID, 다크/라이트 둘 다 가독성 OK, Copy Machine ID 동작 확인. *(상세: project_v1_5_verify_checklist)*
 - [x] **엠프티 스테이트** — ✅✅검증완료(2026-06-15). Start 전/Stop 후 중앙 SPECTRA 웨이브 마크+"Press Start to begin". **검증 중 버그 발견·수정:** `_start()`가 `_idle_hint=False`로 끄는데 `_stop()`이 다시 안 켜서 한 번 Start하면 영영 안 뜨던 것 → `_stop()` 캔버스 clear 직후 `fft_cvs._idle_hint=True; oct_cvs._idle_hint=True` 복귀(`wayaudo2.py:14000`). 옥타브 확인, FFT 동일 메커니즘.
-- [ ] **DisplayName (.app)** — 빌드된 .app이 메뉴바/Dock에 "SPECTRA"로 뜨는지(소스실행 말고 .app).
+- [ ] **DisplayName (.app)** — 빌드된 .app이 메뉴바/Dock에 "SPECTRA"로 뜨는지(소스실행 말고 .app). ⭐**이때 메뉴얼 `menubar.png` 촬영**: .app 실행(앱 이름=SPECTRA) → View(또는 Help) 메뉴 펼친 채 `⌘⇧4 → Space`로 캡쳐 → `docs/img/menubar.png` 저장. (소스 python 실행 시 앱메뉴가 "Python"으로 떠서 지금 찍으면 안 됨.) → 이러면 MANUAL.html 스크린샷 11/11 완성.
 - [x] **UI 개선 #1~5 육안** — ✅✅검증완료(2026-06-15). #1 네이티브 메뉴바·#2 Stereo 하단 메트릭바 토글·#3 캡쳐 토스트·#4 단축키 툴팁·#5 TF 엠프티 전부 정상. (#6 드롭도 ✅완료)
 - [x] **팝아웃 풀스크린** — ✅✅검증완료(2026-06-15). 라우드니스/벡터스코프 팝아웃→풀스크린 Space 튐 없음. *(상세: project_popout_fullscreen_fix)*
 - [x] **GUI 육안 묶음** — ✅검증완료(2026-06-15). 팝아웃 아이콘 / 툴바 3탭 동일 / 축 dB라벨 / 다이얼로그 통일 / 라이트·다크 가독성 육안 OK. *(상세: project_v1_2_verify_checklist)*
@@ -71,7 +71,7 @@
 
 ## 📄 E. 문서
 
-- [ ] **MANUAL.html 스크린샷** — 탭별 실제 캡쳐 docs/img/*.png 덮어쓰기 → 번호 콜아웃 완성. *(상세: project_todo_manual_screenshots)*
+- [~] **MANUAL.html v1.7 리뉴얼** — ✅**전면 재작성 완료(2026-06-21)**: 15섹션, 전 기능 + 버튼별 ①②③ 콜아웃, 신규(공통/창분리/SPL알람/TF엔진·RTA·Units/라우드니스 시안C/재캡쳐/프리셋·언어토글). 스크린샷 **10/11 완료**(stereo·tf·spl_alarm·capture_drawer는 Claude 자체렌더 또는 사용자 실촬영, popout_split·spectrum·calib·spl·spl_settings·tf_delta 반영). **남은 1장 = `menubar.png` → ⚠️아래 빌드 항목에서 촬영.** *(상세: project_todo_manual_screenshots)*
 - [ ] **README.md 작성** — 깃허브 대문(소개·기능·설치·빌드·문서링크), 민감정보 주의. *(상세: project_todo_readme)*
 - [ ] **LANDING.html 디테일** — 앱 미리보기 교체·다운로드/문의 링크·가격(배포방향 정해지면). *(상세: project_todo_landing_details)*
 - [ ] **문서 내용/오타 검토** — MANUAL/LANDING/RELEASE_NOTES 맥 브라우저로 열어 문구·디자인·링크 확인.

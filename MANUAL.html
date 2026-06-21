@@ -18,8 +18,8 @@
   a{color:var(--accent);text-decoration:none}
   .wrap{display:flex;max-width:1180px;margin:0 auto;gap:0}
   /* ── 사이드바 ── */
-  nav{position:sticky;top:0;align-self:flex-start;width:248px;height:100vh;overflow-y:auto;
-    padding:26px 16px 40px;border-right:1px solid var(--line);flex:0 0 248px;}
+  nav{position:sticky;top:0;align-self:flex-start;width:266px;height:100vh;overflow-y:auto;
+    padding:26px 16px 40px;border-right:1px solid var(--line);flex:0 0 266px;}
   nav .brand{display:flex;align-items:center;gap:9px;margin-bottom:4px}
   nav .brand svg{width:34px;height:20px}
   nav .brand b{font-size:18px;letter-spacing:3px;font-weight:800}
@@ -62,10 +62,25 @@
   .pill{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:6px;
     padding:1px 9px;font-size:13px;color:#cfd3da;margin:1px 2px}
   .q{color:var(--accent);font-weight:650}
+  /* ── 스크린샷 + 번호 콜아웃 ── */
   .shot{margin:18px 0 10px}
+  .shot .frame{position:relative;display:block}
   .shot img{width:100%;border:1px solid var(--line);border-radius:12px;display:block;background:#0a0b0e}
   .shot figcaption{color:var(--dim);font-size:13px;margin-top:9px;text-align:center}
   .shot figcaption b{color:var(--accent)}
+  /* CSS 번호 뱃지 — 실제 스크린샷 입수 후 left/top(%)만 보정하면 됨 */
+  .cz{position:absolute;width:23px;height:23px;border-radius:50%;
+    background:#1FA2FF;color:#fff;font-size:13px;font-weight:800;
+    display:flex;align-items:center;justify-content:center;transform:translate(-50%,-50%);
+    box-shadow:0 0 0 2px rgba(0,0,0,.55),0 1px 6px rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.5)}
+  .ph{display:flex;align-items:center;justify-content:center;text-align:center;
+    border:1.5px dashed #3a4150;border-radius:12px;background:#0a0b0e;
+    min-height:230px;color:#6b7079;font-size:13.5px;line-height:1.6;padding:20px}
+  .ph b{color:#8fa0c0;display:block;font-size:14px;margin-bottom:4px}
+  .ph code{color:#5b8cff;background:#141821;padding:1px 7px;border-radius:5px}
+  /* 번호 범례 표 */
+  .legend td:first-child{width:30px;color:#1FA2FF;font-weight:800;text-align:center}
+  .legend .lbl{color:#fff;font-weight:600}
   footer{margin-top:60px;padding-top:24px;border-top:1px solid var(--line);color:#6b7079;font-size:13px;text-align:center}
   @media(max-width:860px){nav{display:none}main{padding:28px 20px 80px}.hero h1{font-size:32px;letter-spacing:6px}}
 </style>
@@ -77,10 +92,6 @@
     <stop offset=".5" stop-color="#9B5DE5"/><stop offset=".7" stop-color="#F15BB5"/>
     <stop offset=".85" stop-color="#FF9F0A"/><stop offset="1" stop-color="#FF453A"/>
   </linearGradient></defs></svg>
-<script type="text/template" id="mark">
-  <svg viewBox="0 0 110 60"><path d="M2 30 Q14 30 20 18 T38 30 Q48 6 56 30 T74 30 Q84 48 92 30 T108 30"
-    fill="none" stroke="url(#wave)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-</script>
 
 <div class="wrap">
 <!-- ───────── 사이드바 ───────── -->
@@ -91,17 +102,21 @@
   <a href="#intro">1. SPECTRA가 뭐예요?</a>
   <a href="#start">2. 처음 시작하기</a>
   <a href="#basics">3. 알아두면 좋은 기초</a>
+  <div class="sec">공통 사용법</div>
+  <a href="#common">4. 메뉴바 · 트랜스포트 · 패널</a>
+  <a href="#windows">5. 창 분리 & 동시 보기</a>
   <div class="sec">3개의 탭</div>
-  <a href="#spectrum">4. Spectrum (실시간 분석)</a>
-  <a href="#tf">5. Transfer Function</a>
-  <a href="#stereo">6. Stereo Loudness</a>
+  <a href="#spectrum">6. Spectrum (실시간 분석)</a>
+  <a href="#tf">7. Transfer Function</a>
+  <a href="#stereo">8. Stereo Loudness</a>
   <div class="sec">도구 & 기타</div>
-  <a href="#calib">7. 마이크 캘리브레이션</a>
-  <a href="#spl">8. SPL Meter</a>
-  <a href="#capture">9. 캡쳐로 비교하기</a>
-  <a href="#keys">10. 단축키</a>
-  <a href="#license">11. 라이선스 & About</a>
-  <a href="#trouble">12. 문제 해결</a>
+  <a href="#calib">9. 마이크 캘리브레이션</a>
+  <a href="#spl">10. SPL Meter 창</a>
+  <a href="#alarm">11. SPL 알람 창</a>
+  <a href="#capture">12. 캡쳐로 비교하기</a>
+  <a href="#keys">13. 단축키</a>
+  <a href="#license">14. 라이선스 · About · 로그</a>
+  <a href="#trouble">15. 문제 해결</a>
 </nav>
 
 <!-- ───────── 본문 ───────── -->
@@ -115,7 +130,8 @@
   </div>
 
   <p style="font-size:17px;color:var(--dim)">이 설명서는 <b style="color:#fff">처음 쓰는 분</b>도 따라 할 수 있게 만들었어요.
-  어려운 오디오 용어는 그때그때 쉬운 말로 풀어드릴게요. 순서대로 읽으셔도 좋고, 왼쪽 목차에서 필요한 부분만 보셔도 됩니다.</p>
+  어려운 오디오 용어는 그때그때 쉬운 말로 풀어드릴게요. 순서대로 읽으셔도 좋고, 왼쪽 목차에서 필요한 부분만 보셔도 됩니다.
+  각 화면 그림 아래에는 <b style="color:#fff">버튼마다 번호(①②③)</b>를 붙여 "이 버튼이 무슨 일을 하는지" 하나하나 설명해 두었습니다.</p>
 
   <!-- 1 -->
   <h2 id="intro"><span class="n">1</span>SPECTRA가 뭐예요?</h2>
@@ -144,7 +160,7 @@
     <tr><td><b>디스플레이</b></td><td colspan="2">1280 × 800 이상 권장</td></tr>
     <tr><td><b>저장 공간</b></td><td colspan="2">약 200 MB</td></tr>
   </table>
-  <div class="note">정확한 <b>dBSPL(소음) 측정</b>이 필요하면 <b>측정용 마이크 + 캘리브레이터</b>를 함께 쓰는 것을 권장합니다(7번 참고). 일반 주파수 분석·상대 비교는 어떤 마이크로도 가능합니다.</div>
+  <div class="note">정확한 <b>dBSPL(소음) 측정</b>이 필요하면 <b>측정용 마이크 + 캘리브레이터</b>를 함께 쓰는 것을 권장합니다(9번 참고). 일반 주파수 분석·상대 비교는 어떤 마이크로도 가능합니다.</div>
 
   <h3>설치 — 🍎 macOS</h3>
   <div class="steps">
@@ -164,17 +180,31 @@
     <li>화면에 보이는 <b>머신 ID</b>를 복사해서 판매자에게 전달하세요. (이 PC 전용 ID예요)</li>
     <li>받은 <b>시리얼 키</b>를 입력칸에 붙여넣고 <b>활성화</b>를 누르면 끝.</li>
   </ol>
-  <div class="note">라이선스는 <b>이 컴퓨터에 한 번만</b> 등록하면 됩니다. 나중에 정보는 우측 아래 <b>License</b> 버튼(About 화면)에서 다시 볼 수 있어요.</div>
+  <div class="note">라이선스는 <b>이 컴퓨터에 한 번만</b> 등록하면 됩니다. 나중에 정보는 우측 아래 <b>License</b> 버튼(About 화면)에서 다시 볼 수 있어요(14번).</div>
 
-  <h3>화면 살펴보기</h3>
+  <h3>화면 한눈에 보기</h3>
   <ul>
-    <li><b>맨 위 (헤더)</b> — 가운데 SPECTRA 로고, 오른쪽에 <span class="pill">☀️ Light / 🌙 Dark</span>(밝은/어두운 화면 전환)와 <span class="pill">Calibration</span>(마이크 보정) 버튼.</li>
+    <li><b>메뉴바</b> — 맨 위(맥은 화면 최상단)의 <b>View · Help</b> 메뉴. 별도 창 띄우기·동시 보기·단축키·릴리즈 노트 등이 여기 있어요(4번).</li>
+    <li><b>헤더</b> — 가운데 SPECTRA 로고, 오른쪽에 줄지어:
+      <span class="pill">☀️ Light / 🌙 Dark</span>(밝은/어두운 화면 전환),
+      <span class="pill">한 / EN</span>(한국어 ↔ 영어, 누르면 <b>재시작</b>),
+      <span class="pill">— Preset —</span> + <span class="pill">💾</span> + <span class="pill">🗑️</span>(프리셋 — 아래 참고),
+      <span class="pill">Calibration</span>(마이크 보정, 9번).</li>
     <li><b>탭 줄</b> — Spectrum / Transfer Function / Stereo Loudness 3개 탭.</li>
-    <li><b>툴바</b> — 그 탭의 설정 버튼들이 한 줄로.</li>
+    <li><b>툴바</b> — 그 탭의 설정 버튼들이 한 줄로(▶ Start도 여기).</li>
     <li><b>그래프</b> — 가운데 큰 영역. 여기에 소리가 그려져요.</li>
-    <li><b>우측 패널</b> — 레벨 수치, 정보, 입력 장치 선택.</li>
+    <li><b>우측 패널</b> — 레벨 수치(LEVEL), 정보(INFO), 입력 장치 선택(INPUT).</li>
   </ul>
   <div class="tip"><b>가장 먼저 할 일</b> — 우측 <b>INPUT</b>에서 <b>오디오 장치(마이크/인터페이스)</b>와 <b>채널</b>을 고른 뒤, 왼쪽 위 <b>▶ Start</b>를 누르면 분석이 시작됩니다.</div>
+
+  <h3>프리셋 (Preset) — 설정을 통째로 저장·불러오기</h3>
+  <p>헤더의 <b>— Preset —</b> 드롭다운과 옆 <b>💾 저장 · 🗑️ 삭제</b> 아이콘은 <b>세 탭(Spectrum·TF·Stereo)의 설정을 한 번에</b> 저장하고 불러옵니다.</p>
+  <ul>
+    <li><b>💾 저장</b> — 지금 설정을 이름 붙여 저장(같은 이름이면 덮어쓰기 확인).</li>
+    <li><b>드롭다운에서 선택</b> — 저장해 둔 프리셋을 고르면 세 탭 설정이 <b>한 번에 적용</b>돼요.</li>
+    <li><b>🗑️ 삭제</b> — 현재 선택된 프리셋 삭제.</li>
+  </ul>
+  <div class="tip">현장마다 쓰는 설정(뷰 모드·평균·범위·타겟 등)이 다르면 <b>"공연용", "스튜디오용"</b>처럼 프리셋을 만들어 두고 한 번에 전환하세요.</div>
 
   <!-- 3 -->
   <h2 id="basics"><span class="n">3</span>알아두면 좋은 기초 (1분 컷)</h2>
@@ -183,100 +213,228 @@
     <tr><th>용어</th><th>쉽게 말하면</th></tr>
     <tr><td><b>주파수 (Hz)</b></td><td>음의 <b>높낮이</b>. 숫자가 작으면 저음(둥둥), 크면 고음(쨍). 그래프의 <b>가로축</b>이에요. (20Hz~20kHz가 사람 귀 범위)</td></tr>
     <tr><td><b>레벨 (dB)</b></td><td>소리의 <b>크기</b>. 위로 갈수록 큼. 그래프의 <b>세로축</b>이에요. dB는 0에 가까울수록 크고, 음수(-60 등)로 갈수록 작아요.</td></tr>
-    <tr><td><b>dBSPL</b></td><td>실제 공기 중 <b>소음 크기</b>(데시벨). 도서관 ~40, 대화 ~60, 콘서트 ~100. 정확히 보려면 마이크 <b>캘리브레이션</b>이 필요해요(7번).</td></tr>
+    <tr><td><b>dBSPL</b></td><td>실제 공기 중 <b>소음 크기</b>(데시벨). 도서관 ~40, 대화 ~60, 콘서트 ~100. 정확히 보려면 마이크 <b>캘리브레이션</b>이 필요해요(9번).</td></tr>
   </table>
   <div class="tip">정리하면 — <b>가로 = 음의 높낮이</b>, <b>세로 = 소리 크기</b>. 산봉우리가 높이 솟은 위치가 "그 음이 강하게 들어있다"는 뜻이에요.</div>
 
   <!-- 4 -->
-  <h2 id="spectrum"><span class="n">4</span>Spectrum 탭 — 실시간 주파수 분석</h2>
+  <h2 id="common"><span class="n">4</span>공통 요소 — 메뉴바 · 트랜스포트 · 우측 패널</h2>
+  <p class="lead">어느 탭에서나 똑같이 쓰는 부분이에요. 한 번만 익히면 됩니다.</p>
+
+  <figure class="shot">
+    <div class="ph"><span><b>📷 촬영 예정 — <code>docs/img/menubar.png</code></b>View·Help 메뉴를 펼친 모습 (맥 화면 최상단 메뉴바)</span></div>
+    <figcaption>▲ <b>메뉴바</b> — View(보기)·Help(도움말) 메뉴를 펼친 모습.</figcaption>
+  </figure>
+
+  <h3>View 메뉴 (보기)</h3>
+  <table>
+    <tr><th>항목</th><th>무엇</th><th>단축키</th></tr>
+    <tr><td><b>SPL Meter</b></td><td>큰 소음계 창 열기(10번)</td><td>—</td></tr>
+    <tr><td><b>SPL Alarm</b></td><td>소음 한계 알람 창 열기(11번)</td><td>—</td></tr>
+    <tr><td><b>Spectrum in Separate Window</b></td><td>Spectrum 탭을 별도 창으로 분리</td><td><kbd>⌘⇧S</kbd></td></tr>
+    <tr><td><b>Transfer Function in Separate Window</b></td><td>TF 탭을 별도 창으로 분리</td><td><kbd>⌘⇧T</kbd></td></tr>
+    <tr><td><b>Stereo Loudness in Separate Window</b></td><td>Stereo 탭을 별도 창으로 분리</td><td><kbd>⌘⇧L</kbd></td></tr>
+    <tr><td><b>Split View (2 panes)</b></td><td>두 탭을 좌우로 동시에 보기</td><td><kbd>⌘⇧2</kbd></td></tr>
+  </table>
+  <div class="note">별도 창·동시 보기는 <b>듀얼 모니터</b>에서 특히 유용해요. 자세한 사용법은 <a href="#windows">5번</a>에 있습니다. (Windows에서는 단축키가 <kbd>Ctrl</kbd> 조합으로 동작)</div>
+
+  <h3>Help 메뉴 (도움말)</h3>
+  <table>
+    <tr><th>항목</th><th>무엇</th><th>단축키</th></tr>
+    <tr><td><b>About SPECTRA</b></td><td>버전·머신 ID·라이선스 상태(14번)</td><td>—</td></tr>
+    <tr><td><b>Manual</b></td><td>이 사용 설명서 열기</td><td><kbd>⌘?</kbd></td></tr>
+    <tr><td><b>Keyboard Shortcuts</b></td><td>단축키 치트시트 띄우기</td><td><kbd>?</kbd></td></tr>
+    <tr><td><b>Release Notes</b></td><td>버전별 변경 내용 보기</td><td>—</td></tr>
+    <tr><td><b>Open Log Folder</b></td><td>진단용 로그 폴더 열기(문의 시 첨부)</td><td>—</td></tr>
+    <tr><td><b>Quit SPECTRA</b></td><td>종료</td><td><kbd>⌘Q</kbd></td></tr>
+  </table>
+
+  <h3>▶ Start / ■ Stop (트랜스포트)</h3>
+  <p>각 탭 툴바 왼쪽의 <b>Start/Stop</b> 버튼이 분석을 켜고 끕니다. <kbd>S</kbd> 키로도 토글돼요.</p>
+  <ul>
+    <li><b>▶ Start</b> — 로고 블루 + ▶ 아이콘. 누르면 분석 시작.</li>
+    <li><b>■ Stop</b> — 빨강 + ■ 아이콘. 누르면 정지.</li>
+  </ul>
+  <div class="tip">세 탭은 <b>오디오 엔진을 공유</b>해서, 같은 장치를 여러 탭이 <b>동시에</b> 측정할 수 있어요. 예: Spectrum으로 보면서 Stereo Loudness도 같이 돌리기.</div>
+
+  <h3>우측 패널 — LEVEL · INFO · INPUT</h3>
+  <p>화면 오른쪽 세로 패널이에요. 툴바 맨 오른쪽 아이콘으로 <b>접었다 펼 수</b> 있습니다.</p>
+  <table>
+    <tr><th>구역</th><th>보여주는 것</th></tr>
+    <tr><td><b>LEVEL</b></td><td>현재 <b>SPL</b>(소음 크기), <b>Peak Hold</b>(최고값), <b>Dominant</b>(가장 강한 주파수), <b>dBA / dBC</b>(사람 귀 보정 소음치), <b>LAeq / LCeq</b>(평균 소음). 헤더 우측의 두 아이콘으로 <span class="pill">SPL 알람 창</span>·<span class="pill">SPL Meter 창</span>을 띄울 수 있어요.</td></tr>
+    <tr><td><b>INFO</b></td><td>현재 설정 정보 — <b>샘플레이트 · FFT 크기 · 해상도(Hz) · 캘리브 값 · 반응 속도</b>.</td></tr>
+    <tr><td><b>INPUT</b></td><td>분석할 <b>장치와 채널</b> 선택. 각 카드에 체크박스(표시 ON/OFF)·장치명·채널·레벨미터가 있어요. <b>＋ Add Source</b>로 여러 장치/채널을 <b>동시에 겹쳐</b> 볼 수 있습니다(각 카드 색으로 구분).</td></tr>
+  </table>
+  <p>패널 맨 아래에는 <b>Help · Log · License</b> 작은 버튼 3개가 있어요(각각 설명서·로그 내보내기·About 창).</p>
+  <div class="tip"><b>A/C 가중이 뭐예요?</b> — 사람 귀는 모든 음을 똑같이 듣지 않아요. <b>dBA</b>는 사람 귀 느낌에 맞춘 소음치(소음 측정 표준), <b>dBC</b>는 저음까지 포함한 값입니다. <b>LAeq/LCeq</b>는 그 값을 일정 시간 평균낸 거예요.</div>
+
+  <!-- 5 -->
+  <h2 id="windows"><span class="n">5</span>창 분리 & 동시 보기</h2>
+  <p class="lead">탭을 떼어내 별도 창으로 띄우거나, 두 탭을 한 화면에 나란히 볼 수 있어요. (듀얼 모니터에 좋아요)</p>
+
+  <figure class="shot">
+    <div class="frame"><img src="docs/img/popout_split.png" alt="Spectrum·Transfer Function을 각각 별도 창으로 분리"></div>
+    <figcaption>▲ <b>창 분리(팝아웃)</b> — <b>Spectrum</b>과 <b>Transfer Function</b>을 각각 독립 창으로 띄운 모습. 동시에 측정이 흐릅니다(엔진 공유).</figcaption>
+  </figure>
+
+  <h3>탭을 별도 창으로 (팝아웃)</h3>
+  <ul>
+    <li><b>View 메뉴</b>에서 <b>"○○ in Separate Window"</b>를 고르거나, 단축키 <kbd>⌘⇧S</kbd>(Spectrum)·<kbd>⌘⇧T</kbd>(TF)·<kbd>⌘⇧L</kbd>(Stereo)를 누르면 그 탭이 <b>독립 창</b>으로 떨어져요.</li>
+    <li>창은 본체와 따로 움직이고, 위치·크기를 기억합니다. 닫으면 다시 본체 탭으로 돌아와요.</li>
+    <li>오디오 엔진을 공유하므로 분리해도 <b>측정은 그대로</b> 흐릅니다.</li>
+  </ul>
+
+  <h3>동시 보기 (Split View)</h3>
+  <p><b>View → Split View (2 panes)</b> 또는 <kbd>⌘⇧2</kbd> — 화면을 <b>좌우 2칸</b>으로 나눠 서로 다른 탭을 동시에 봅니다. 예: 왼쪽 Transfer Function, 오른쪽 Spectrum.</p>
+
+  <h3>벡터스코프 · 레이더 팝아웃</h3>
+  <p>Stereo Loudness 탭의 <b>벡터스코프</b>와 <b>라우드니스 레이더</b>는 각 그림 모서리의 <span class="pill">↗</span> 아이콘으로 <b>각각 별도 창</b>으로 띄울 수 있어요(8번).</p>
+  <div class="note">맥에서 <b>전체화면(풀스크린)</b> 중에도 별도 창/미터가 본 화면 위에 정상 크기로 떠요. 검은 화면이나 다른 데스크탑(Space)으로 튀지 않습니다.</div>
+
+  <!-- 6 -->
+  <h2 id="spectrum"><span class="n">6</span>Spectrum 탭 — 실시간 주파수 분석</h2>
   <p class="lead">지금 들어오는 소리에 어떤 음들이 얼마나 들어있는지 실시간으로 봅니다.</p>
-  <figure class="shot"><img src="docs/img/spectrum.png" alt="Spectrum 탭 전체화면">
-    <figcaption>▲ <b>Spectrum 탭</b> 전체화면 — 위 툴바의 각 버튼과 우측 패널 설명은 아래에 이어집니다.</figcaption></figure>
+  <figure class="shot">
+    <div class="frame">
+      <img src="docs/img/spectrum.png" alt="Spectrum 탭 전체화면">
+      <!-- 번호 뱃지: 실제 스크린샷 입수 후 left/top(%) 보정. 툴바 왼→오 순서 -->
+      <span class="cz" style="left:6%;top:5.5%">1</span>
+      <span class="cz" style="left:20%;top:5.5%">2</span>
+      <span class="cz" style="left:31%;top:5.5%">3</span>
+      <span class="cz" style="left:40%;top:5.5%">4</span>
+      <span class="cz" style="left:50%;top:5.5%">5</span>
+      <span class="cz" style="left:60%;top:5.5%">6</span>
+      <span class="cz" style="left:70%;top:5.5%">7</span>
+      <span class="cz" style="left:80%;top:5.5%">8</span>
+      <span class="cz" style="left:90%;top:5.5%">9</span>
+    </div>
+    <figcaption>▲ <b>Spectrum 탭</b> — 위 툴바의 번호별 설명은 아래 표를 보세요. (번호 위치는 실제 화면에 맞춰 조정됩니다)</figcaption>
+  </figure>
+
+  <h3>툴바 버튼 — 번호별 설명</h3>
+  <table class="legend">
+    <tr><th>#</th><th>버튼</th><th>무엇 / 언제</th></tr>
+    <tr><td>1</td><td class="lbl">▶ Start / ■ Stop</td><td>분석 시작·정지(<kbd>S</kbd>). 왼쪽 드로어 토글 아이콘도 함께 있어요(캡쳐 목록 열기).</td></tr>
+    <tr><td>2</td><td class="lbl">FFT / 1/3 / 1/12 / 1/24</td><td>뷰 모드. <b>FFT</b>=가장 정밀, <b>1/3·1/12·1/24</b>=옥타브 밴드로 귀에 가깝게 묶어 보기(1/12 기본).</td></tr>
+    <tr><td>3</td><td class="lbl">+Spectro</td><td>스펙트로그램 추가. 시간에 따른 변화를 <b>색 히트맵</b>으로 아래로 흘려보여요.</td></tr>
+    <tr><td>4</td><td class="lbl">Log / Lin</td><td>가로축 눈금. <b>Log</b>=사람 귀처럼 저음을 넓게(추천), <b>Lin</b>=고르게.</td></tr>
+    <tr><td>5</td><td class="lbl">SR</td><td>샘플레이트(44.1 / 48 / 88.2 / 96 kHz). 보통 장치에 맞춰 그대로.</td></tr>
+    <tr><td>6</td><td class="lbl">Avg</td><td>평균(None / 4x / 8x / 16x). 곡선이 떨리면 올려서 <b>부드럽게</b>, 정밀히 보려면 낮게.</td></tr>
+    <tr><td>7</td><td class="lbl">Peak (ON / Reset)</td><td>피크 홀드. 지나간 <b>최고값을 선으로</b> 남겨요. <b>Reset</b>으로 지움. 옆 <b>Hold</b>로 유지 시간(Fast~1s) 설정.</td></tr>
+    <tr><td>8</td><td class="lbl">Range / Speed / Color</td><td><b>Range</b>=세로축 dB 폭(72/96/120dB), <b>Speed</b>=곡선 반응 속도, <b>Color</b>=곡선 색 변경.</td></tr>
+    <tr><td>9</td><td class="lbl">Capture · ↗ · 패널 토글</td><td><b>Capture</b>=현재 곡선 박제(<kbd>Space</kbd>, 12번), <b>↗</b>=Spectrum을 별도 창으로, 맨 끝 아이콘=우측 패널 접기/펴기.</td></tr>
+  </table>
 
   <h3>화면 읽는 법</h3>
   <p>가로축이 주파수(저음 왼쪽 → 고음 오른쪽), 세로축이 크기(dB)예요. 소리가 들어오면 울퉁불퉁한 곡선이 춤춥니다. 봉우리가 솟은 곳 = 그 음이 강한 것.</p>
+  <div class="tip">마우스를 그래프 위에 올리면 <b>그 지점의 주파수·dB(·음이름)</b>이 작은 정보창으로 떠요. <b>더블클릭</b>하면 세로축이 데이터에 맞게 자동 정렬됩니다. <kbd>↑</kbd><kbd>↓</kbd>로 dB 범위를 위아래로 옮길 수 있어요.</div>
 
-  <h3>뷰 모드 (어떻게 보여줄까)</h3>
-  <table>
-    <tr><th>버튼</th><th>뜻</th><th>쉽게</th></tr>
-    <tr><td><b>FFT</b></td><td>가장 정밀한 분석</td><td>아주 촘촘하게 본다. 정확한 주파수 찾을 때.</td></tr>
-    <tr><td><b>1/3 · 1/12 · 1/24</b></td><td>옥타브 밴드</td><td>주파수를 <b>귀에 가깝게 묶어서</b> 본다. 1/3은 큼직하게, 1/24는 곱게. 방/스피커 튜닝엔 1/12·1/24가 보기 좋아요.</td></tr>
-    <tr><td><b>+Spectro</b></td><td>스펙트로그램 추가</td><td>시간에 따라 소리가 어떻게 변했는지 <b>히트맵(색)</b>으로. 아래로 흘러내려요.</td></tr>
-    <tr><td><b>Log / Lin</b></td><td>가로축 눈금 방식</td><td><b>Log</b>=사람 귀처럼 저음을 넓게(추천), <b>Lin</b>=고르게.</td></tr>
-  </table>
-
-  <h3>컨트롤 버튼들</h3>
-  <table>
-    <tr><th>버튼</th><th>무엇</th><th>언제/왜</th></tr>
-    <tr><td><b>SR</b></td><td>샘플레이트(44.1~96kHz)</td><td>보통 그대로. 장치에 맞춰 자동.</td></tr>
-    <tr><td><b>Avg</b></td><td>평균 (None/4x/8x/16x)</td><td>곡선이 너무 떨리면 평균을 올려 <b>부드럽게</b>. 정밀히 보려면 낮게.</td></tr>
-    <tr><td><b>Peak</b></td><td>피크 홀드 ON/Reset</td><td>지나간 <b>최고값을 선으로 남겨</b> 보여줘요. Reset으로 지움.</td></tr>
-    <tr><td><b>Hold</b></td><td>피크 유지 시간</td><td>최고값을 몇 초 붙잡을지.</td></tr>
-    <tr><td><b>Range</b></td><td>세로축 범위(예: 96dB)</td><td>표시할 dB 폭. <kbd>↑</kbd><kbd>↓</kbd>로 위아래 이동도 가능.</td></tr>
-    <tr><td><b>Speed</b></td><td>반응 속도</td><td>곡선이 따라오는 빠르기.</td></tr>
-    <tr><td><b>Color</b></td><td>곡선/색 설정</td><td>취향대로 색 변경.</td></tr>
-    <tr><td><b>Capture</b></td><td>현재 화면 스냅샷 저장</td><td>지금 곡선을 <b>찰칵 박제</b>해서 나중과 비교. <kbd>Space</kbd>로도 가능.</td></tr>
-  </table>
-
-  <h3>우측 패널 (LEVEL · INFO · INPUT)</h3>
-  <ul>
-    <li><b>LEVEL</b> — 현재 SPL(소음 크기), Peak Hold(최고값), Dominant(가장 강한 주파수), <b>dBA/dBC</b>(사람 귀 보정 소음치), <b>LAeq/LCeq</b>(평균 소음). 우측 위 <span class="pill">↗</span> 아이콘으로 <b>큰 SPL 미터 창</b>을 따로 띄울 수 있어요(8번).</li>
-    <li><b>INFO</b> — 샘플레이트·FFT 크기·해상도·캘리브 값 등 현재 설정 정보.</li>
-    <li><b>INPUT</b> — 분석할 <b>장치와 채널</b> 선택. <b>+ Add Source</b>로 여러 장치/채널을 동시에 겹쳐 볼 수 있어요(각 카드 색으로 구분).</li>
-  </ul>
-  <div class="tip"><b>A/C 가중이 뭐예요?</b> — 사람 귀는 모든 음을 똑같이 듣지 않아요. <b>dBA</b>는 사람 귀 느낌에 맞춘 소음치(소음 측정 표준), <b>dBC</b>는 저음까지 포함한 값입니다.</div>
-
-  <!-- 5 -->
-  <h2 id="tf"><span class="n">5</span>Transfer Function 탭 — 스피커·방 음향 측정</h2>
-  <p class="lead">스피커나 방이 소리를 "어떻게 바꾸는지"를 측정합니다. (Smaart 같은 전문 측정과 같은 원리)</p>
+  <!-- 7 -->
+  <h2 id="tf"><span class="n">7</span>Transfer Function 탭 — 스피커·방 음향 측정</h2>
+  <p class="lead">스피커나 방이 소리를 "어떻게 바꾸는지"를 측정합니다. (전문 측정기와 같은 원리)</p>
   <div class="tip"><b>쉽게 말하면</b> — 한쪽으로 <b>기준 신호를 내보내고</b>, 다른 쪽 마이크로 <b>실제로 들리는 소리를 받아서</b>, 둘을 비교합니다. "원본 대비 어디가 커지고/작아지고/늦게 도착했나"를 그래프로 보여줘요. 스피커 EQ 잡거나 방 음향 진단할 때 핵심 도구예요.</div>
-  <figure class="shot"><img src="docs/img/tf.png" alt="Transfer Function 탭 전체화면">
-    <figcaption>▲ <b>Transfer Function 탭</b> — 왼쪽 3단 그래프(IR·위상·매그니튜드), 오른쪽 신호 발생기·측정 패널.</figcaption></figure>
+  <figure class="shot">
+    <div class="frame">
+      <img src="docs/img/tf.png" alt="Transfer Function 탭 전체화면 (v1.7)">
+      <span class="cz" style="left:8%;top:12.3%">1</span>
+      <span class="cz" style="left:14%;top:12.3%">2</span>
+      <span class="cz" style="left:25%;top:12.3%">3</span>
+      <span class="cz" style="left:55%;top:12.3%">4</span>
+      <span class="cz" style="left:62%;top:12.3%">5</span>
+      <span class="cz" style="left:88%;top:19.5%">6</span>
+    </div>
+    <figcaption>▲ <b>Transfer Function 탭</b> — <b>위 툴바</b>(번호 ①~⑤), 왼쪽 3단 그래프(IR · 위상 · 매그니튜드+코히런스), 오른쪽 신호 발생기·측정 패널(⑥). 설명은 아래 표.</figcaption>
+  </figure>
+
+  <h3>툴바 버튼 — 번호별 설명</h3>
+  <table class="legend">
+    <tr><th>#</th><th>버튼</th><th>무엇 / 언제</th></tr>
+    <tr><td>1</td><td class="lbl">Engine (Single / Adaptive)</td><td><b>측정 엔진</b> 선택. <b>Single</b>=고정 FFT(가볍고 단순), <b>Adaptive</b>=주파수마다 해상도를 달리해 <b>저역까지 촘촘하게</b>(라이브 현장 튜닝 추천). 자세히는 아래 "엔진" 참고.</td></tr>
+    <tr><td>2</td><td class="lbl">FFT</td><td>분석 크기. 클수록 저역 분해능↑·반응↓. (Adaptive에서는 자동이라 비활성화)</td></tr>
+    <tr><td>3</td><td class="lbl">Response(Avg) / Smooth</td><td><b>반응 속도(평균 시간)</b> — Fast(빠르고 민감)~Stable(느리고 안정). <b>Smooth</b>=곡선 매끄럽기.</td></tr>
+    <tr><td>4</td><td class="lbl">IR Mode / Units</td><td><b>IR Mode</b>=임펄스 응답 표시 방식, <b>Units</b>=딜레이 단위 <b>ms / ms·m / m</b> 전환(거리 환산, 음속 343 m/s).</td></tr>
+    <tr><td>5</td><td class="lbl">Phase / △ Delta</td><td><b>Phase</b>=위상 표시 방식(Wrapped/Unwrapped 등), <b>△</b>=기준 캡쳐 대비 <b>차이(±dB)</b>만 보기(12번).</td></tr>
+    <tr><td>6</td><td class="lbl">신호 발생기 · Ref / Meas 카드</td><td>오른쪽 패널. 측정 신호를 내보내고(아래 ①), 기준·측정 입력을 고릅니다(아래 ②).</td></tr>
+  </table>
 
   <h3>① 신호 발생기 (Signal Generator)</h3>
   <p>측정용 소리를 내보내는 부분이에요.</p>
   <ul>
-    <li><b>Pink / White / Sweep</b> — 측정 신호 종류. <b>Pink(핑크 노이즈)</b>가 일반적인 음향 측정용 "쉬익~" 소리예요. <b>Sweep</b>는 저음→고음으로 훑는 신호.</li>
+    <li><b>Pink / White / Sine / Sweep</b> — 측정 신호 종류.
+      <ul>
+        <li><b>Pink(핑크 노이즈)</b> — 일반 음향 측정용 "쉬익~" 소리(가장 많이 씀).</li>
+        <li><b>White</b> — 모든 주파수가 같은 에너지인 노이즈.</li>
+        <li><b>Sine(사인파)</b> — 단일 주파수 순음. 버튼을 누르면 주파수(10~24000Hz)를 정해요(예: "Sine 1k"). THD 같은 단일음 점검에 유용.</li>
+        <li><b>Sweep</b> — 저음→고음으로 훑는 신호. <b>정밀 측정·THD</b>에 좋아요(아래 "엔진" 참고).</li>
+      </ul>
+    </li>
     <li><b>File…</b> — 직접 만든 음원 파일로 측정. 오디오 파일을 <b>창에 끌어다 놓아도</b> 바로 불러옵니다(WAV·FLAC·AIFF·MP3 등).</li>
     <li><b>Level</b> — 내보내는 소리 크기. − / + 로 조절.</li>
-    <li><b>Out</b> — 어느 출력 채널로 내보낼지.</li>
+    <li><b>Out</b> — 어느 출력 채널로 내보낼지(다채널 인터페이스면 Out 3·4 등도 가능).</li>
     <li><b>▶ Play</b> (<kbd>G</kbd>) — 신호 재생/정지.</li>
   </ul>
 
   <h3>② 기준(Reference)과 측정(Measurement)</h3>
   <ul>
     <li><b>Reference</b> — "원본" 신호. 보통 <b>Internal (SigGen)</b>(방금 그 발생기 소리)로 둡니다.</li>
-    <li><b>Measurement</b> — 마이크로 받은 "실제" 소리. <b>Meas</b>에서 마이크 장치/채널을 고르세요.</li>
+    <li><b>Measurement</b> — 마이크로 받은 "실제" 소리. <b>Meas</b>에서 마이크 장치/채널을 고르세요. 각 카드에는 <b>레벨바</b>(초록≤−9 / 노랑 / 빨강&gt;−3 dBFS)가 있어 입력 크기를 확인할 수 있어요.</li>
+    <li><b>측정 카드 추가</b> — 여러 지점을 동시에 측정/비교(각 색으로 구분).</li>
   </ul>
   <div class="note">즉 SPECTRA가 <b>원본(Reference) ↔ 마이크 소리(Measurement)</b>를 비교해서 결과를 그립니다.</div>
 
   <h3>③ 딜레이(Delay) 맞추기 — 중요!</h3>
   <p>마이크가 스피커에서 떨어져 있으면 소리가 <b>조금 늦게</b> 도착해요. 이 시간차를 맞춰줘야 정확한 측정이 됩니다.</p>
-  <div class="steps">신호를 재생한 상태에서 <b>Auto</b> 버튼(<kbd>L</kbd>)을 누르면 — SPECTRA가 <b>딜레이를 자동으로 찾아</b> 맞춰줍니다. 끝!</div>
+  <div class="steps">신호를 재생한 상태에서 <b>Auto / Find</b> 버튼(<kbd>L</kbd>)을 누르면 — SPECTRA가 <b>딜레이를 자동으로 찾아</b> 맞춰줍니다. 끝!</div>
+  <div class="tip">툴바 <b>Units</b>를 <b>ms·m</b>나 <b>m</b>로 바꾸면 딜레이가 <b>거리(미터)</b>로도 표시돼요(음속 343 m/s 기준). 측정 카드 딜레이칸 옆에 <code>= N.NN m</code>로 나옵니다.</div>
 
   <h3>④ 결과 그래프 3종</h3>
   <table>
     <tr><th>그래프</th><th>무엇을 보나</th><th>쉽게</th></tr>
-    <tr><td><b>Live IR</b><br>(임펄스 응답)</td><td>소리가 도착하는 모양/시점</td><td>맨 위. 뾰족한 봉우리 = 소리가 도착한 순간. 딜레이 확인용.</td></tr>
-    <tr><td><b>Phase</b><br>(위상)</td><td>주파수별 타이밍 어긋남</td><td>가운데. <b>Wrapped/Unwrapped</b>로 표시 방식 전환. 스피커 정렬·크로스오버 점검.</td></tr>
+    <tr><td><b>Live IR</b><br>(임펄스 응답)</td><td>소리가 도착하는 모양/시점</td><td>맨 위. 뾰족한 봉우리 = 소리가 도착한 순간. 딜레이 확인용. <kbd>Ctrl</kbd>+<kbd>+</kbd>/<kbd>−</kbd>로 시간축 확대·축소.</td></tr>
+    <tr><td><b>Phase</b><br>(위상)</td><td>주파수별 타이밍 어긋남</td><td>가운데. 스피커 정렬·크로스오버 점검.</td></tr>
     <tr><td><b>Magnitude + Coherence</b><br>(크기 + 신뢰도)</td><td>주파수별로 커졌나/작아졌나 + 그 측정이 믿을 만한가</td><td>맨 아래. 곡선이 평평하면 "착색 없이 고르게" = 좋음. <b>코히어런스</b>는 0~1, 1에 가까울수록 신뢰도 높음.</td></tr>
   </table>
   <div class="tip"><b>코히어런스(Coherence)가 뭐예요?</b> — "이 측정값을 믿어도 되나"를 0~1로 나타낸 점수예요. 주변이 시끄럽거나 신호가 약하면 낮아집니다. <b>높은(1에 가까운) 구간의 결과만</b> 신뢰하세요.</div>
 
-  <h3>⑤ 그 외 컨트롤</h3>
-  <ul>
-    <li><b>FFT / Avg / Smooth</b> — 분석 정밀도/평균/곡선 매끄럽기. Avg를 올리면 안정적, Smooth는 보기 좋게 다듬어요.</li>
-    <li><b>Find</b> (<kbd>L</kbd>) — 딜레이 자동 찾기(위와 동일).</li>
-    <li><b>Capture</b> — 현재 측정 곡선 저장(비교용).</li>
-    <li><b>△ (델타)</b> — 저장한 곡선 대비 <b>차이</b>만 보기. EQ 전후 비교에 유용.</li>
-    <li><b>측정 채널 추가</b> — 여러 지점을 동시에 측정/비교(각 색으로).</li>
-  </ul>
+  <h3>⑤ 측정 엔진 — Single vs Adaptive</h3>
+  <p>v1.7부터 측정 방식을 고를 수 있어요. 툴바 <b>Engine</b> 콤보에서 바꿉니다(바꾸면 분석이 재시작돼요).</p>
+  <table>
+    <tr><th>엔진</th><th>특징</th><th>이럴 때</th></tr>
+    <tr><td><b>Single</b></td><td>고정 크기 FFT 하나로 분석. 가볍고 단순.</td><td>간단히 볼 때, 저사양에서.</td></tr>
+    <tr><td><b>Adaptive</b></td><td>주파수 대역마다 분석 길이를 달리해 <b>저역은 길게(촘촘히)·고역은 짧게(빠르게)</b>. 전 대역 고른 해상도.</td><td><b>라이브 현장 튜닝</b> — 실시간으로 EQ 조정하며 볼 때(추천).</td></tr>
+  </table>
+  <div class="tip"><b>정밀 측정·THD</b>가 필요하면 발생기에서 <b>Sweep</b>를 한 방 쏘세요. 가만히·조용한 상태에서 스윕을 재생하면 왜곡 없는 깨끗한 측정과 함께 <b>THD/SNR</b> 값을 얻을 수 있어요. (현장 라이브=Adaptive, 한 방 정밀=Sweep — REW/전문 측정 워크플로우와 동일)</div>
 
-  <!-- 6 -->
-  <h2 id="stereo"><span class="n">6</span>Stereo Loudness 탭 — 스테레오 & 음량(LUFS)</h2>
-  <p class="lead">좌우(L/R) 스테레오 상태와, 방송·음원에서 쓰는 "체감 음량"을 봅니다.</p>
-  <figure class="shot"><img src="docs/img/stereo.png" alt="Stereo Loudness 탭 전체화면">
-    <figcaption>▲ <b>Stereo Loudness 탭</b> — 왼쪽 벡터스코프, 오른쪽 라우드니스 레이더, 아래 M/S/I/TP/LRA 메트릭.</figcaption></figure>
+  <h3>⑥ TF 안에서 RTA(스펙트럼) 같이 보기</h3>
+  <p>Transfer Function 탭에서도 <b>RTA(실시간 옥타브/FFT 스펙트럼)</b>를 함께 띄울 수 있어요. 측정 마이크 입력을 그대로 스펙트럼으로 보여줍니다 — 측정과 별개로 "지금 마이크에 뭐가 들어오나"를 확인할 때 좋아요.</p>
+
+  <h3>⑦ 캡쳐 · Export</h3>
+  <p>TF에서도 측정 곡선을 캡쳐해 비교하고, <b>CSV + PNG로 내보낼</b> 수 있어요. 자세한 건 <a href="#capture">12번 캡쳐</a>를 보세요.</p>
+
+  <!-- 8 -->
+  <h2 id="stereo"><span class="n">8</span>Stereo Loudness 탭 — 스테레오 & 음량(LUFS)</h2>
+  <p class="lead">좌우(L/R) 스테레오 상태와, 방송·음원에서 쓰는 "체감 음량"을 봅니다. (v1.7에서 새 디자인)</p>
+  <figure class="shot">
+    <div class="frame">
+      <img src="docs/img/stereo.png" alt="Stereo Loudness 탭 전체화면 (v1.7)">
+      <span class="cz" style="left:16%;top:27%">1</span>
+      <span class="cz" style="left:47%;top:27%">2</span>
+      <span class="cz" style="left:80%;top:27%">3</span>
+      <span class="cz" style="left:45%;top:58%">4</span>
+      <span class="cz" style="left:82%;top:82%">5</span>
+    </div>
+    <figcaption>▲ <b>Stereo Loudness 탭(v1.7)</b> — 좌측 벡터스코프·레이더, 우측 거대 <b>PROGRAM 음량</b>, 아래 지표 칩 + 히스토리 + 컴플라이언스. 번호 설명은 아래.</figcaption>
+  </figure>
+
+  <h3>화면 구성 — 번호별 설명</h3>
+  <table class="legend">
+    <tr><th>#</th><th>영역</th><th>무엇</th></tr>
+    <tr><td>1</td><td class="lbl">벡터스코프</td><td>좌우 채널의 위상/이미지 관계. 모서리 <span class="pill">↗</span>로 별도 창 가능.</td></tr>
+    <tr><td>2</td><td class="lbl">라우드니스 레이더</td><td>시간에 따른 음량을 원형으로. 모서리 <span class="pill">↗</span>로 별도 창 가능.</td></tr>
+    <tr><td>3</td><td class="lbl">PROGRAM (히어로)</td><td>거대 그라디언트 숫자 = <b>통합 음량(Integrated)</b>. <b>AVG/LIVE</b> 토글로 누적평균↔실시간(단기) 전환. 아래에 목표·편차(LU) 표시.</td></tr>
+    <tr><td>4</td><td class="lbl">지표 칩 6개</td><td>M / S / TP / LRA / PLR / PSR (아래 표 참고).</td></tr>
+    <tr><td>5</td><td class="lbl">히스토리 + 컴플라이언스</td><td>왼쪽=음량 시간 그래프(목표선 포함), 오른쪽=<b>PASS / CHECK</b> 합격 뱃지.</td></tr>
+  </table>
 
   <h3>왼쪽 — 벡터스코프 (Vectorscope)</h3>
   <p>좌우 채널의 <b>위상/이미지 관계</b>를 동그란 그림으로 보여줘요.</p>
@@ -286,119 +444,189 @@
     <li>아래 <b>상관도(+1 ~ −1)</b> — +1=완벽히 같음(모노 안전), 0=넓은 스테레오, −1=위상 반전(주의).</li>
   </ul>
 
-  <h3>오른쪽 — 라우드니스 레이더</h3>
+  <h3>가운데 — 라우드니스 레이더</h3>
   <p>시간에 따른 음량을 원형(레이더)으로 그려요. 방송 규격 맞출 때 핵심.</p>
   <div class="tip"><b>LUFS가 뭐예요?</b> — 사람이 실제로 느끼는 <b>"체감 음량"</b> 단위예요. 단순 피크가 아니라 "전체적으로 얼마나 크게 들리나". 방송/스트리밍은 이 값으로 규격을 정합니다(예: 방송 −23 LUFS, 유튜브 −14 등).</div>
+
+  <h3>오른쪽 — PROGRAM (히어로 숫자)</h3>
+  <p>가장 크게 보이는 그라디언트 숫자가 <b>통합 음량(Integrated)</b> = 처음부터 지금까지 전체 평균이에요. <b>규격과 비교하는 가장 중요한 값</b>입니다.</p>
+  <ul>
+    <li><b>AVG / LIVE</b> — <b>AVG</b>=누적 통합값(납품 기준), <b>LIVE</b>=실시간 단기값(작업 중 모니터).</li>
+    <li><b>Target</b> — 목표 음량 설정(상단). 숫자 아래에 목표 대비 <b>편차(±LU)</b>가 떠요.</li>
+    <li><b>LU 토글</b> — 절대값(LUFS) ↔ 목표 기준 상대값(LU) 전환.</li>
+  </ul>
+
+  <h3>지표 칩 6개</h3>
   <table>
     <tr><th>지표</th><th>뜻</th><th>쉽게</th></tr>
     <tr><td><b>M</b> (Momentary)</td><td>순간 음량(~0.4초)</td><td>지금 이 순간 얼마나 큰가</td></tr>
     <tr><td><b>S</b> (Short-term)</td><td>단기 음량(3초)</td><td>최근 몇 초 평균</td></tr>
-    <tr><td><b>I / Program</b></td><td>통합 음량(전체)</td><td><b>제일 중요</b> — 처음부터 지금까지 전체 평균. 규격과 비교하는 값.</td></tr>
-    <tr><td><b>TP</b> (True Peak)</td><td>실제 최고 피크(dBTP)</td><td>클리핑(찌그러짐) 위험 체크. 보통 −1dBTP 이하 권장.</td></tr>
-    <tr><td><b>LRA</b></td><td>음량 범위(다이내믹)</td><td>조용한 곳과 큰 곳의 차이. 클수록 다이내믹.</td></tr>
+    <tr><td><b>TP</b> (True Peak)</td><td>실제 최고 피크(dBTP)</td><td>클리핑(찌그러짐) 위험 체크. 보통 −1dBTP 이하 권장(넘으면 빨강).</td></tr>
+    <tr><td><b>LRA</b></td><td>음량 범위(EBU 3342)</td><td>조용한 곳과 큰 곳의 차이. 클수록 다이내믹(음악 5~15 LU).</td></tr>
+    <tr><td><b>PLR</b> (pk/loud)</td><td>True Peak − Integrated</td><td>전체 다이내믹 여유. 높을수록 다이내믹, 낮으면 강하게 압축된 마스터.</td></tr>
+    <tr><td><b>PSR</b> (pk/short)</td><td>True Peak − Short-term</td><td>순간 다이내믹/리미팅 강도. 낮으면 과도하게 눌린 상태.</td></tr>
   </table>
+
+  <h3>컴플라이언스 & 컨트롤</h3>
   <ul>
-    <li><b>Target</b> — 목표 음량(−23 LUFS 등) 설정. 레이더에 기준선으로 표시.</li>
-    <li><b>Reset I / Reset TP</b> — 통합 음량 / 트루피크 측정을 초기화(새로 시작).</li>
+    <li><b>COMPLIANCE 뱃지</b> — 목표 음량·트루피크 기준을 만족하면 <b>✓ PASS</b>(초록), 벗어나면 <b>✗ CHECK</b>(노랑/빨강)로 알려줘요.</li>
+    <li><b>Target / 플랫폼 기준</b> — 방송 −23, 애플 −16, 스포티파이/유튜브 −14 등 목표를 정하면 레이더·히어로·컴플라이언스에 반영.</li>
+    <li><b>Reset I / Reset TP</b> — 통합 음량 / 트루피크 측정을 초기화(새 곡·새 세션 시작 시).</li>
     <li><b>L · R</b> — 좌/우로 쓸 입력 채널 지정.</li>
   </ul>
+  <div class="note"><b>Stereo Loudness</b> 탭에서는 <kbd>Space</kbd> 캡쳐가 동작하지 않아요(비교 대상이 곡선이 아니라서).</div>
 
-  <!-- 7 -->
-  <h2 id="calib"><span class="n">7</span>마이크 캘리브레이션 (정확한 소음 측정)</h2>
+  <!-- 9 -->
+  <h2 id="calib"><span class="n">9</span>마이크 캘리브레이션 (정확한 소음 측정)</h2>
   <p class="lead">화면의 dBSPL 숫자를 <b>실제와 똑같이</b> 맞추는 작업입니다.</p>
   <p>마이크마다 감도가 달라서, 보정을 안 하면 화면 숫자가 실제 소음과 다를 수 있어요. <b>캘리브레이터(기준기)</b>가 있으면 정확히 맞출 수 있습니다.</p>
-  <figure class="shot"><img src="docs/img/calib.png" alt="마이크 캘리브레이션 창">
-    <figcaption>▲ <b>Calibration</b> 창 — 채널 목록 + 기준값(94/114 dBSPL) 선택 + 레벨 측정.</figcaption></figure>
+  <figure class="shot">
+    <div class="frame"><img src="docs/img/calib.png" alt="마이크 캘리브레이션 창"></div>
+    <figcaption>▲ <b>Calibration</b> 창 — 채널 목록 + 기준값(94/114 dBSPL) 선택 + 레벨 측정.</figcaption>
+  </figure>
   <div class="steps">
-    헤더의 <b>Calibration</b> 버튼 클릭 → ① 마이크에 캘리브레이터를 끼우고 켜기 → ② 기준값(<b>94</b> 또는 <b>114 dBSPL</b>) 선택 → ③ <b>레벨 측정</b> → SPECTRA가 오프셋을 자동 계산해 맞춰줍니다.
+    헤더의 <b>Calibration</b> 버튼 클릭 → ① 마이크에 캘리브레이터를 끼우고 켜기 → ② 기준값(<b>94</b> 또는 <b>114 dBSPL</b>) 선택 → ③ <b>Measure Level (3s)</b>로 3초 측정 → ④ <b>Auto Calculate</b>가 오프셋을 자동 계산해 맞춰줍니다.
   </div>
-  <div class="note"><b>다채널 인터페이스</b>를 쓰면 채널마다 따로 보정할 수 있어요. 채널 목록에서 채널을 고른 뒤 각각 측정하면, 설정값이 채널별로 저장됩니다.</div>
-  <div class="tip">캘리브레이터가 없어도 SPECTRA는 잘 작동해요. 다만 dBSPL <b>절대값</b>이 정확하지 않을 뿐, 주파수 분석·상대 비교는 문제없습니다.</div>
-
-  <!-- 8 -->
-  <h2 id="spl"><span class="n">8</span>SPL Meter (큰 소음계 창)</h2>
-  <p class="lead">멀리서도 보이는 <b>큰 숫자 소음계</b>를 별도 창으로 띄웁니다.</p>
-  <p>Spectrum 탭의 <b>LEVEL</b> 패널 우측 위 <span class="pill">↗</span> 아이콘을 누르면 열려요. 공연장에서 객석 소음을 모니터하거나, 측정값을 크게 띄워둘 때 좋아요.</p>
-  <figure class="shot"><img src="docs/img/spl.png" alt="SPL Meter 창">
-    <figcaption>▲ <b>SPL Meter</b> 창 — 자유 그리드 + 칸별 지표 + Max 기록.</figcaption></figure>
   <ul>
-    <li><b>Max 표시</b> — 각 칸에 최고값을 기록. ↺ 버튼으로 리셋.</li>
-    <li>창 크기는 자유롭게 늘리거나 줄일 수 있고, 글자도 따라 커집니다.</li>
+    <li><b>채널 목록</b> — <b>다채널 인터페이스</b>면 채널마다 따로 보정. 채널을 고른 뒤 각각 측정하면 설정값이 <b>채널별로 저장</b>돼요.</li>
+    <li><b>Applied Offset</b> — 자동 계산값을 수동으로 미세 조정할 수 있어요. <b>Reset</b>으로 해당 채널 보정 초기화.</li>
+  </ul>
+  <div class="tip">캘리브레이터가 없어도 SPECTRA는 잘 작동해요. 다만 dBSPL <b>절대값</b>이 정확하지 않을 뿐, 주파수 분석·상대 비교는 문제없습니다.</div>
+  <div class="note">캘리브레이션은 <b>Spectrum 탭·SPL 미터</b>의 절대 SPL에 적용돼요. <b>Transfer Function</b>의 매그니튜드는 측정÷기준의 <b>상대 이득(dB)</b>이라 캘리브와 무관합니다(정상).</div>
+
+  <!-- 10 -->
+  <h2 id="spl"><span class="n">10</span>SPL Meter (큰 소음계 창)</h2>
+  <p class="lead">멀리서도 보이는 <b>큰 숫자 소음계</b>를 별도 창으로 띄웁니다.</p>
+  <p><b>View 메뉴 → SPL Meter</b>, 또는 LEVEL 패널 헤더의 <span class="pill">↗</span> 아이콘으로 열려요. 공연장에서 객석 소음을 모니터하거나, 측정값을 크게 띄워둘 때 좋아요. <b>SPL 미터가 따로 열려 있지 않아도</b> 측정은 백그라운드에서 계속됩니다.</p>
+  <figure class="shot">
+    <div class="frame"><img src="docs/img/spl.png" alt="SPL Meter 창"></div>
+    <figcaption>▲ <b>SPL Meter</b> 창 — 자유 그리드 + 칸별 지표 + Max 기록.</figcaption>
+  </figure>
+  <ul>
+    <li><b>핀(고정) 버튼</b> — 항상 다른 창 위에 떠 있게(always-on-top). 마우스를 떼면 타이틀바가 숨어 <b>숫자판만 꽉</b> 차요(글랜스 모드).</li>
+    <li><b>Reset Max</b> — 각 칸의 최고값 기록 초기화.</li>
+    <li>창 크기는 자유롭게 늘리거나 줄일 수 있고, 글자도 따라 커집니다(Smaart식 스케일).</li>
   </ul>
 
   <h3>⚙️ SPL 설정 창 — 화면 구성 바꾸기</h3>
   <p>창 오른쪽 위 <span class="pill">⚙️</span> 아이콘을 누르면 <b>SPL 설정</b> 창이 열려요. 여기서 소음계를 <b>내 마음대로 배치</b>할 수 있습니다.</p>
-  <figure class="shot"><img src="docs/img/spl_settings.png" alt="SPL 설정 창">
-    <figcaption>▲ <b>SPL 설정</b> 창 — 행·열 개수와 각 칸의 지표를 고르는 곳.</figcaption></figure>
+  <figure class="shot">
+    <div class="frame"><img src="docs/img/spl_settings.png" alt="SPL 설정 창"></div>
+    <figcaption>▲ <b>SPL 설정</b> 창 — 행·열 개수와 각 칸의 지표, 측정 소스를 고르는 곳.</figcaption>
+  </figure>
   <ul>
-    <li><b>LEQ time</b> — 평균값(LAeq·LCeq)을 낼 <b>시간</b>이에요. <span class="pill">1분 ~ 3시간</span>. 예: <b>3 hr</b>로 두면 3시간 평균 소음을 보여줍니다(공연·행사 누적 소음 측정에 유용).</li>
-    <li><b>행(Row) · 열(Col)</b> — 숫자판을 <b>몇 칸으로 나눌지</b> 정합니다. 예: 행 4 × 열 1 = 위아래로 4칸. 최대 4×4까지.</li>
-    <li><b>각 칸 지표 선택</b> — 칸마다 보여줄 값을 고릅니다: <b>dB SPL A Slow</b>(A가중·일반 소음), <b>dB SPL C Slow</b>(C가중·저음 포함), <b>dB LAeq</b>(A가중 평균), <b>dB LCeq</b>(C가중 평균) 등. 안 쓸 칸은 <b>“— 없음”</b>으로 두면 빈칸이 됩니다.</li>
-    <li>다 고른 뒤 <b>OK</b>를 누르면 소음계 창에 바로 반영돼요. (취소하려면 <b>Cancel</b>)</li>
+    <li><b>측정 소스</b> — 어느 입력(primary 또는 추가한 소스 카드)을 SPL로 잴지 선택.</li>
+    <li><b>LEQ time</b> — 평균값(LAeq·LCeq)을 낼 <b>시간</b>(1분 ~ 3시간). 예: <b>3 hr</b>=3시간 평균 소음(공연·행사 누적 측정에 유용).</li>
+    <li><b>행(Row) · 열(Col)</b> — 숫자판을 <b>몇 칸으로 나눌지</b>(최대 4×4).</li>
+    <li><b>각 칸 지표 선택</b> — 칸마다 보여줄 값: <b>dB SPL A/C Slow·Fast</b>, <b>dBA·dBC</b>, <b>LAeq·LCeq</b>(평균), <b>Peak·Peak C·dBFS Peak</b>, <b>Clock(시계)</b> 등. 안 쓸 칸은 <b>"— 없음"</b>으로.</li>
+    <li>다 고른 뒤 <b>OK</b>를 누르면 바로 반영돼요.</li>
   </ul>
-  <div class="tip"><b>A 가중 vs C 가중</b>: <b>A</b>는 사람 귀가 느끼는 시끄러움(법적 소음 기준에 주로 사용), <b>C</b>는 저음까지 포함한 전체 음압이에요. <b>Slow</b>는 숫자가 천천히 부드럽게 움직이는 모드라 읽기 편합니다.</div>
+  <div class="tip"><b>A 가중 vs C 가중</b>: <b>A</b>는 사람 귀가 느끼는 시끄러움(법적 소음 기준에 주로 사용), <b>C</b>는 저음까지 포함한 전체 음압. <b>Slow</b>는 숫자가 천천히 부드럽게 움직여 읽기 편하고, <b>Fast</b>는 민감하게 반응해요.</div>
 
-  <!-- 9 -->
-  <h2 id="capture"><span class="n">9</span>캡쳐로 비교하기 (Capture)</h2>
+  <!-- 11 -->
+  <h2 id="alarm"><span class="n">11</span>SPL 알람 창 (소음 한계 알람)</h2>
+  <p class="lead">소음이 <b>정해둔 한계</b>에 가까워지거나 넘으면 <b>신호등 색</b>으로 알려주는 독립 창이에요.</p>
+  <p><b>View 메뉴 → SPL Alarm</b>, 또는 LEVEL 패널 헤더의 알람 아이콘으로 열립니다. 공연장 FOH에서 멀찍이 띄워두고 "지금 한계 안인가?"를 한눈에 보는 용도예요. <b>SPL 미터와 무관한 완전 독립 창</b>이라 미터를 안 켜도 동작합니다.</p>
+  <figure class="shot">
+    <div class="frame"><img src="docs/img/spl_alarm.png" alt="SPL 알람 창 (초과 상태)" style="width:auto;max-width:300px;margin:0 auto"></div>
+    <figcaption>▲ <b>SPL Alarm</b> 창 — 3구 신호등(초록·노랑·<b style="color:#FF453A">빨강</b>) + 거대 숫자 + 한계 대비 <b>▲ 초과</b> 표시.</figcaption>
+  </figure>
+  <ul>
+    <li><b>신호등 색</b> — <b>초록</b>(여유) → <b>노랑</b>(한계 −N dB 접근) → <b>빨강</b>(초과, 깜빡임 + "N초째").</li>
+    <li><b>거대 숫자</b> — 선택한 지표 값 / 한계, 그 아래 <b>▼여유</b> 또는 <b>▲초과</b>.</li>
+    <li>창 크기에 맞춰 글자가 커지고, <b>핀(고정)</b>으로 항상 위에, 마우스를 떼면 <b>카드만</b> 꽉 차요(글랜스).</li>
+  </ul>
+  <h3>⚙️ 알람 설정</h3>
+  <p>타이틀바 <span class="pill">⚙️</span>로 설정 창을 엽니다.</p>
+  <ul>
+    <li><b>마스터 지표</b> — 무엇을 기준으로 알람할지(LAeq · LCeq · dBA · dBC · SPL · Peak 등).</li>
+    <li><b>한계(Limit)</b> — 빨강이 되는 기준값(예: 100 dBA).</li>
+    <li><b>노랑 여유(Amber headroom)</b> — 한계 몇 dB 전부터 노랑으로 경고할지(예: −3 dB).</li>
+    <li><b>LEQ time</b> — LEQ 지표일 때 평균 시간.</li>
+  </ul>
+  <div class="tip">단위는 선택한 지표대로 표기돼요(예: "100 dB LAeq 10min"). LEQ 계열은 적분 시간(분)이 함께 붙습니다.</div>
+
+  <!-- 12 -->
+  <h2 id="capture"><span class="n">12</span>캡쳐로 비교하기 (Capture)</h2>
   <p class="lead">지금 보이는 곡선을 <b>그대로 박제</b>해서, 나중 측정과 <b>겹쳐 비교</b>하는 기능이에요.</p>
-  <p><b>"캡쳐"는 화면 사진(스크린샷)이 아니에요.</b> 현재 그래프를 색깔 있는 <b>고정 곡선</b>으로 저장해 두면, 그 위로 <b>지금 들어오는 소리(라이브)</b>가 계속 그려져요. 그래서 “전 vs 후”, “스피커 A vs B”, “이 자리 vs 저 자리”를 한눈에 비교할 수 있습니다. <b>Spectrum</b> 탭과 <b>Transfer Function</b> 탭에서 쓸 수 있어요.</p>
+  <p><b>"캡쳐"는 화면 사진(스크린샷)이 아니에요.</b> 현재 그래프를 색깔 있는 <b>고정 곡선</b>으로 저장해 두면, 그 위로 <b>지금 들어오는 소리(라이브)</b>가 계속 그려져요. 그래서 "전 vs 후", "스피커 A vs B", "이 자리 vs 저 자리"를 한눈에 비교할 수 있습니다. <b>Spectrum</b>·<b>Transfer Function</b> 탭에서 쓸 수 있어요.</p>
+  <figure class="shot">
+    <div class="frame"><img src="docs/img/capture_drawer.png" alt="캡쳐 서랍(목록) 패널" style="width:auto;max-width:240px;margin:0 auto"></div>
+    <figcaption>▲ <b>캡쳐 서랍</b> — 저장된 곡선 목록. 이름·색·표시 ON/OFF·그룹(Speaker A·Room)·재캡쳐를 관리해요.</figcaption>
+  </figure>
 
   <h3>캡쳐하는 법</h3>
   <ul>
-    <li><b>Capture 버튼</b> 또는 <kbd>Space</kbd> 키를 누르면 현재 곡선이 박제됩니다. (<b>Spectrum</b>은 이름을 물어보고, <b>TF</b>는 자동 이름으로 빠르게 저장돼요.)</li>
-    <li>저장되면 화면에 <b>✓ Captured</b> 표시가 잠깐 떴다 사라져요.</li>
-    <li>캡쳐마다 <b>다른 색</b>이 자동으로 배정되고, <b>목록(서랍)</b>에서 이름·색을 확인하고 <b>표시 ON/OFF</b>, <b>삭제</b>할 수 있어요.</li>
+    <li><b>Capture 버튼</b> 또는 <kbd>Space</kbd> — 현재 곡선을 박제. (Spectrum은 이름을 묻고, TF는 자동 이름으로 빠르게 저장.) 저장되면 <b>✓ Captured</b> 표시가 잠깐 떠요.</li>
+    <li>캡쳐마다 <b>다른 색</b>이 자동 배정되고(라이브 색과 안 겹치게), <b>목록(서랍)</b>에서 확인·표시 ON/OFF·삭제할 수 있어요.</li>
+    <li><b>재캡쳐(Recapture, <kbd>R</kbd>)</b> — 기존 캡쳐의 <b>색·이름·그룹은 그대로 두고 곡선 데이터만</b> 현재 라이브로 덮어써요(제자리 다시 찍기). 행 우클릭 메뉴에도 있어요.</li>
   </ul>
-  <div class="note">캡쳐는 <b>저장돼요.</b> 앱을 껐다 켜도 캡쳐해 둔 곡선이 그대로 남아 있어, 어제 측정과 오늘 측정을 비교할 수 있습니다.</div>
+  <div class="note">캡쳐는 <b>저장돼요.</b> 앱을 껐다 켜도 캡쳐해 둔 곡선이 그대로 남아, 어제 측정과 오늘 측정을 비교할 수 있습니다.</div>
+
+  <h3>목록 정리 — 일괄 토글 · 그룹 · Delete All</h3>
+  <ul>
+    <li><b>전체 표시/숨김 토글</b> — 목록 제목 옆 웨이브 아이콘으로 모든 캡쳐를 한 번에 켜고 꺼요. 그룹마다도 토글 가능.</li>
+    <li><b>그룹</b> — <b>＋ Grp</b>로 그룹을 만들고, 그룹 헤더 <b>이름을 클릭</b>하면 새 캡쳐가 그 그룹으로 들어가요(◉ 하이라이트). 화살표로 접기.</li>
+    <li><b>Delete All</b> — 행/빈 공간 우클릭 → 현재 탭의 캡쳐 전체 삭제(확인 후).</li>
+  </ul>
 
   <h3>TF 캡쳐 — 내보내기 (CSV + PNG)</h3>
-  <p>Transfer Function 탭에서는 캡쳐한 측정값을 <b>파일로 내보낼 수</b> 있어요. 툴바의 <b>내보내기</b>(Export) 버튼을 누르고 폴더를 고르면:</p>
+  <p>Transfer Function 탭에서는 캡쳐한 측정값을 <b>파일로 내보낼 수</b> 있어요. 툴바의 <b>Export</b> 버튼을 누르고 폴더를 고르면:</p>
   <ul>
-    <li><b>CSV 파일</b> — 주파수별 크기(dB)·위상·코히런스 <b>숫자 데이터</b>. 엑셀에서 열거나 보고서에 쓸 수 있어요. (<code>tf_captures_날짜.csv</code>)</li>
-    <li><b>PNG 그림</b> — 그래프 이미지로도 저장돼요. (<code>tf_이름_날짜.png</code>)</li>
+    <li><b>CSV 파일</b> — 주파수별 크기(dB)·위상·코히런스 <b>숫자 데이터</b>. 엑셀·보고서용. (<code>tf_captures_날짜.csv</code>)</li>
+    <li><b>PNG 그림</b> — 그래프 이미지. (<code>tf_이름_날짜.png</code>)</li>
   </ul>
-  <h3>TF 툴바의 두 버튼 — <span class="pill">△</span> Delta · <span class="pill">⧗</span> 안정화 캡쳐</h3>
-  <p>Transfer Function 툴바의 <b>Capture</b> 버튼 옆에 작은 아이콘 2개가 있어요.</p>
-  <ul>
-    <li><b><span class="pill">△</span> Delta 비교</b> — 곡선을 <b>기준 대비 차이(Δ)</b>로 보여줘요.
-      <br>① 먼저 캡쳐 목록에서 기준으로 삼을 캡쳐의 <b>R</b> 버튼을 눌러 <b>기준(Reference)</b>으로 지정 → ② <b>△</b> 버튼을 켜면, 나머지 곡선이 그 기준에서 <b>얼마나 달라졌는지(±dB)</b>만 표시됩니다.
-      <br>“보정 전 → 후가 몇 dB 바뀌었나”, “A 자리 → B 자리 차이”를 정확히 볼 때 좋아요. (기준을 안 정하면 동작 안 함, 기준을 해제하면 △도 자동으로 꺼져요.)</li>
-    <li><b><span class="pill">⧗</span> 안정화 캡쳐</b> — 버튼처럼 바로 찍지 않고, <b>측정이 안정될 때까지 기다렸다가 자동으로</b> 깨끗한 한 장을 캡쳐해요.
-      <br>켜고 캡쳐하면 <b>“Stabilizing…”</b>이 뜨면서 ① 평균이 충분히 쌓이고 ② <b>코히런스</b>(신호 신뢰도)가 안정될 때까지(최대 5초) 기다린 뒤 캡쳐합니다.
-      <br>순간값은 흔들려서 부정확할 수 있는데, 이 기능을 쓰면 <b>믿을 수 있는 안정된 측정</b>이 남아요. (5초 안에 안정 안 되면 “낮은 코히런스”라고 알리고 그대로 캡쳐 — 주변 소음↓·신호 레벨↑ 하면 개선돼요.)</li>
-  </ul>
-  <figure class="shot"><img src="docs/img/tf_delta.png" alt="TF Delta 비교 화면">
-    <figcaption>▲ <b>△ Delta 켠 화면</b> — 왼쪽 <b>CAPTURES</b> 목록에 기준 캡쳐가 있고, 아래 그래프에서 <b>빨간 기준선(0)</b> 대비 <b>초록 곡선의 차이(±dB)</b>가 보입니다. 기준과 같으면 평평하게, 달라진 만큼 출렁여요.</figcaption></figure>
-  <div class="tip"><b>코히런스(Coherence)란?</b> 측정 신호가 잡음에 얼마나 안 묻혔는지를 0~1로 나타내는 “신뢰도 점수”예요. 1에 가까울수록 그 구간 측정을 믿어도 됩니다. 안정화 캡쳐는 이 값이 높아질 때까지 기다리는 거예요.</div>
-  <div class="note"><b>Stereo Loudness</b> 탭에서는 <kbd>Space</kbd> 캡쳐가 동작하지 않아요(비교 대상이 곡선이 아니라서).</div>
 
-  <!-- 10 -->
-  <h2 id="keys"><span class="n">10</span>단축키</h2>
+  <h3>TF — <span class="pill">△</span> Delta · <span class="pill">⧗</span> 안정화 캡쳐</h3>
+  <ul>
+    <li><b><span class="pill">△</span> Delta 비교</b> — 곡선을 <b>기준 대비 차이(Δ)</b>로 표시.
+      ① 캡쳐 목록에서 기준 캡쳐의 <b>R</b> 버튼으로 <b>기준(Reference)</b> 지정 → ② <b>△</b>를 켜면 나머지 곡선이 그 기준에서 <b>얼마나 달라졌는지(±dB)</b>만 보여요. "보정 전→후", "A 자리→B 자리" 차이 볼 때. (기준 미지정이면 동작 안 함)</li>
+    <li><b><span class="pill">⧗</span> 안정화 캡쳐</b> — 바로 찍지 않고 <b>측정이 안정될 때까지(평균·코히런스, 최대 5초) 기다렸다</b> 깨끗한 한 장을 자동 캡쳐. <b>"Stabilizing…"</b> 표시 후 저장돼요. (5초 내 안정 안 되면 알리고 그대로 캡쳐 — 주변 소음↓·신호 레벨↑로 개선)</li>
+  </ul>
+  <figure class="shot">
+    <div class="frame"><img src="docs/img/tf_delta.png" alt="TF Delta 비교 화면"></div>
+    <figcaption>▲ <b>△ Delta 켠 화면</b> — <b>CAPTURES</b> 목록에 기준 캡쳐, 아래 그래프에서 <b>기준선(0)</b> 대비 <b>차이(±dB)</b>가 보여요.</figcaption>
+  </figure>
+
+  <!-- 13 -->
+  <h2 id="keys"><span class="n">13</span>단축키</h2>
   <table>
     <tr><th>키</th><th>기능</th></tr>
-    <tr><td><kbd>Space</kbd></td><td>현재 곡선 캡쳐(박제해서 비교) — <a href="#capture">9번</a> 참고. Spectrum·TF에서</td></tr>
+    <tr><td><kbd>Space</kbd></td><td>현재 곡선 캡쳐(박제해서 비교) — Spectrum·TF</td></tr>
+    <tr><td><kbd>R</kbd></td><td>선택한 캡쳐 <b>재캡쳐</b>(제자리 다시 찍기) — Spectrum·TF</td></tr>
+    <tr><td><kbd>S</kbd></td><td>분석 시작/정지(Start·Stop)</td></tr>
     <tr><td><kbd>L</kbd></td><td>(Transfer Function) 딜레이 자동 찾기 = Find/Auto</td></tr>
     <tr><td><kbd>G</kbd></td><td>(Transfer Function) 신호 발생기 재생/정지</td></tr>
-    <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>그래프 dB 범위 위/아래로 이동(±6dB) — Spectrum·TF</td></tr>
+    <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>그래프 dB 범위 위/아래로 이동 — Spectrum·TF</td></tr>
+    <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>(TF) 캡쳐 선택 이동</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>Ctrl</kbd>+<kbd>−</kbd></td><td>(TF) 임펄스 응답(IR) 시간축 확대/축소</td></tr>
+    <tr><td><kbd>⌘⇧S</kbd> / <kbd>⌘⇧T</kbd> / <kbd>⌘⇧L</kbd></td><td>Spectrum / TF / Stereo 탭을 별도 창으로</td></tr>
+    <tr><td><kbd>⌘⇧2</kbd></td><td>동시 보기(Split View) 토글</td></tr>
+    <tr><td><kbd>?</kbd></td><td>단축키 치트시트 / <kbd>⌘?</kbd> 설명서 열기</td></tr>
+    <tr><td><kbd>⌘Q</kbd></td><td>종료</td></tr>
   </table>
-  <div class="tip">마우스로 그래프 위를 움직이면 <b>그 지점의 주파수·dB 값</b>이 작은 정보창으로 떠요. 그래프를 <b>더블클릭</b>하면 세로축이 데이터에 맞게 자동 정렬됩니다.</div>
+  <div class="tip">마우스로 그래프 위를 움직이면 <b>그 지점의 주파수·dB 값</b>이 작은 정보창으로 떠요. 그래프를 <b>더블클릭</b>하면 세로축이 데이터에 맞게 자동 정렬됩니다. (Windows에서는 <kbd>⌘</kbd> 대신 <kbd>Ctrl</kbd>)</div>
 
-  <!-- 11 -->
-  <h2 id="license"><span class="n">11</span>라이선스 & About</h2>
-  <p>우측 아래 <b>License</b> 버튼을 누르면 <b>About SPECTRA</b> 창이 열려요 — 버전, 머신 ID, 라이선스 상태, 로그 위치를 볼 수 있고 <b>Copy Machine ID</b>로 머신 ID를 복사할 수 있습니다.</p>
-  <p>옆 <b>Log</b> 버튼은 문제 발생 시 진단용 기록 파일을 엽니다(문의할 때 함께 보내면 좋아요).</p>
+  <!-- 14 -->
+  <h2 id="license"><span class="n">14</span>라이선스 · About · 릴리즈 노트 · 로그</h2>
+  <p>우측 아래 <b>License</b> 버튼(또는 <b>Help → About SPECTRA</b>)을 누르면 <b>About SPECTRA</b> 창이 열려요 — 버전, 머신 ID, 라이선스 상태, 로그 위치를 볼 수 있고 <b>Copy Machine ID</b>로 머신 ID를 복사할 수 있습니다.</p>
+  <ul>
+    <li><b>Release Notes</b> (Help 메뉴) — 버전별 변경 내용을 브랜드 창으로 봅니다.</li>
+    <li><b>Open Log Folder</b> (Help 메뉴) / 패널의 <b>Log</b> 버튼 — 문제 발생 시 진단용 기록 파일을 엽니다(문의할 때 함께 보내면 좋아요).</li>
+  </ul>
 
-  <!-- 12 -->
-  <h2 id="trouble"><span class="n">12</span>문제 해결</h2>
+  <!-- 15 -->
+  <h2 id="trouble"><span class="n">15</span>문제 해결</h2>
   <table>
     <tr><th>증상</th><th>해결</th></tr>
     <tr><td>그래프가 안 움직여요</td><td>① 왼쪽 위 <b>▶ Start</b>를 눌렀는지 ② 우측 <b>INPUT</b>에서 올바른 장치/채널을 골랐는지 확인.</td></tr>
     <tr><td>장치(마이크)가 목록에 없어요</td><td>케이블 연결 후, 장치 선택 콤보를 다시 열어보세요. USB는 뽑았다 끼우면 자동으로 다시 잡습니다.</td></tr>
     <tr><td>USB 인터페이스를 뽑았더니 멈췄어요</td><td>다시 꽂으면 자동 복구됩니다. 안 되면 장치를 다시 선택하세요.</td></tr>
-    <tr><td>소음(dBSPL) 숫자가 실제와 달라요</td><td>마이크 <b>캘리브레이션</b>(7번)을 하세요.</td></tr>
-    <tr><td>Transfer Function 결과가 이상/불안정</td><td>신호를 재생하고 <b>Auto(딜레이)</b>를 먼저 맞추세요. <b>코히어런스</b>가 낮은 구간은 신뢰하지 마세요(주변 소음↓, 신호 레벨↑).</td></tr>
+    <tr><td>소음(dBSPL) 숫자가 실제와 달라요</td><td>마이크 <b>캘리브레이션</b>(9번)을 하세요.</td></tr>
+    <tr><td>Transfer Function 결과가 이상/불안정</td><td>신호를 재생하고 <b>Auto(딜레이, <kbd>L</kbd>)</b>를 먼저 맞추세요. <b>코히어런스</b>가 낮은 구간은 신뢰하지 마세요(주변 소음↓, 신호 레벨↑). 라이브엔 <b>Adaptive</b> 엔진, 정밀엔 <b>Sweep</b>를 권장.</td></tr>
     <tr><td>매그니튜드 곡선이 화면 밖(아래)에 있어요</td><td>마이크 입력 레벨이 낮아서예요. 그래프를 <b>더블클릭</b>하면 자동으로 맞춰지고, 인터페이스에서 마이크 게인을 올리면 0dB 쪽으로 올라옵니다.</td></tr>
+    <tr><td>별도 창/미터가 전체화면에서 안 보여요</td><td>최신 버전에서 전체화면 위로 정상 표시되도록 처리됐어요. 그래도 안 보이면 본 창을 잠깐 일반 화면으로 했다 다시 시도하세요.</td></tr>
+    <tr><td>라우드니스(LUFS)가 부정확해요</td><td>아날로그 입력은 절대 LUFS를 위해 게인 캘리브가 필요해요. 96kHz는 K-가중 보정이 제한적이라 48/44.1kHz 권장.</td></tr>
   </table>
 
   <footer>
