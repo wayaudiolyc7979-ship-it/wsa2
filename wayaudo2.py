@@ -569,6 +569,8 @@ _LUCIDE_ICONS = {
     'folder':   ('<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>', False),
     'hourglass':('<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>', False),
     'download': ('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>', False),
+    'save':     ('<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>', False),
+    'trash':    ('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>', False),
     'bolt':     ('<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>', True),
     'sun':      ('<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>', False),
     'moon':     ('<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>', False),
@@ -15207,8 +15209,10 @@ class MainWindow(QMainWindow):
         self._preset_cb.setFixedHeight(28); self._preset_cb.setMinimumWidth(120); self._preset_cb.setMaximumWidth(180)
         self._preset_cb.setToolTip('프리셋 불러오기 (현재 세 탭 설정 통째 적용)')
         self._preset_cb.currentIndexChanged.connect(self._on_preset_selected)
-        _psave = QPushButton('Save'); _psave.setFixedHeight(28); _psave.setStyleSheet(ss_btn_neutral()); _psave.clicked.connect(self._on_preset_save)
-        _pdel = QPushButton('Delete'); _pdel.setFixedHeight(28); _pdel.setStyleSheet(ss_btn_neutral()); _pdel.clicked.connect(self._on_preset_delete)
+        _psave = QPushButton(); _psave.setIcon(_icon('save')); _psave.setToolTip('프리셋 저장')
+        _psave.setFixedHeight(28); _psave.setFixedWidth(34); _psave.setStyleSheet(ss_btn_neutral()); _psave.clicked.connect(self._on_preset_save)
+        _pdel = QPushButton(); _pdel.setIcon(_icon('trash')); _pdel.setToolTip('프리셋 삭제')
+        _pdel.setFixedHeight(28); _pdel.setFixedWidth(34); _pdel.setStyleSheet(ss_btn_neutral()); _pdel.clicked.connect(self._on_preset_delete)
         _right_lay.addWidget(self._preset_cb); _right_lay.addWidget(_psave); _right_lay.addWidget(_pdel)
         self._refresh_preset_cb()
         _right_lay.addWidget(self.calib_btn)
