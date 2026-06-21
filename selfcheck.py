@@ -223,7 +223,7 @@ def _mtw_live_method():
         w.TransferFunctionWindow._render_mtw(s, ref.astype(np.float32), meas.astype(np.float32),
                                              0.5, 0.5, freqs, t_ms, True)
     s._pm_t0 -= 1.0; s._pm_smooth_paint()    # fr≥1 강제 → 목표곡선을 캔버스로 flush
-    assert s.avg_lbl.text() == 'MTW', f"avg_lbl={s.avg_lbl.text()!r}"
+    assert s.avg_lbl.text() == 'Adaptive', f"avg_lbl={s.avg_lbl.text()!r}"
     # 핵심: IR 임펄스(포락선 피크)가 물리 도착=딜레이 위치(+5ms)에 있어야 함 (Single과 동일)
     assert abs(s.ir_cvs.peak_ms - exp_ms) < 0.3, \
         f"IR 임펄스 위치 {s.ir_cvs.peak_ms:.2f}ms ≠ 주입 딜레이 {exp_ms:.2f}ms"
@@ -244,6 +244,21 @@ def _loudness_page():
     assert pg._lbl_PLR.text() not in ('—', ''), f'PLR 미표시 {pg._lbl_PLR.text()!r}'
     return _save(pg, 'loudness_page.png')
 check('StereoLoudnessPage (브랜드+PLR/PSR)', _loudness_page)
+
+
+def _loud_state_roundtrip():
+    """StereoLoudnessPage loud_get_state/loud_apply_state 라운드트립."""
+    pg = w.StereoLoudnessPage(); pg.resize(1280, 760)
+    pg._set_hero_mode(True)            # LIVE
+    pg._lu_btn.setChecked(True)        # LU 모드
+    st = pg.loud_get_state()
+    assert st == {'lu_mode': True, 'hero_live': True}, st
+    # 기본값으로 리셋 후 복원
+    pg._set_hero_mode(False); pg._lu_btn.setChecked(False)
+    pg.loud_apply_state(st)
+    assert pg._hero_live is True and pg._lu_mode is True, (pg._hero_live, pg._lu_mode)
+    return 'loud state roundtrip OK'
+check('Loudness 상태 직렬화 라운드트립', _loud_state_roundtrip)
 
 
 # ─────────────────────────────────────────────────────────────

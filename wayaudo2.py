@@ -501,7 +501,7 @@ THEMES = {
         'border':    '#38383A',
         'text':      '#FFFFFF',
         'text_dim':  '#8E8E93',
-        'graph_txt': '#9CA0A8',
+        'graph_txt': '#C8CCD4',
         'accent':    '#4E7DF0',
         'accent2':   '#FF9F0A',
         'accent3':   '#9B5DE5',
@@ -10266,6 +10266,8 @@ class TransferFunctionWindow(QWidget):
         # G/L 단축키: QShortcut 대신 앱 레벨 이벤트 필터 사용 (포커스/상태 무관)
         self._key_filter = _TFKeyFilter(self)
         QApplication.instance().installEventFilter(self._key_filter)
+        # 기본 엔진 = Adaptive (멀티레이트). UI/엔진 셋업은 _engine_changed 가 처리.
+        self.eng_cb.setCurrentIndex(1)
         QTimer.singleShot(0, self._restore_tf_captures)
 
     # ── UI ──────────────────────────────────
@@ -10608,10 +10610,10 @@ class TransferFunctionWindow(QWidget):
         self.start_btn.hide()  # 제너레이터 ON/OFF가 자동으로 start/stop 제어
 
         tl.addWidget(_lb('Engine'))
-        self.eng_cb = RoundComboBox(); self.eng_cb.addItems(['Single', 'MTW'])
+        self.eng_cb = RoundComboBox(); self.eng_cb.addItems(['Single', 'Adaptive'])
         self.eng_cb._align_center = True
-        self.eng_cb.setFixedWidth(72); self.eng_cb.setFixedHeight(30)
-        self.eng_cb.setToolTip('Single = 고정 FFT  ·  MTW = 멀티레이트(저역 고해상도, Smaart식)')
+        self.eng_cb.setFixedWidth(88); self.eng_cb.setFixedHeight(30)
+        self.eng_cb.setToolTip('Single = 고정 FFT  ·  Adaptive = 멀티레이트(저역 고해상도, 주파수별 적응 해상도)')
         self.eng_cb.currentIndexChanged.connect(self._engine_changed); tl.addWidget(self.eng_cb); tl.addSpacing(10)
 
         tl.addWidget(_lb('FFT'))
@@ -12780,7 +12782,7 @@ class TransferFunctionWindow(QWidget):
         if self._mtw.sr != self.sample_rate:                 # SR 변경 추종
             self._mtw = MTWEngine(self.sample_rate, n_fft=self._mtw.n_fft, n_stages=self._mtw.n_stages)
         if len(ref_b) < self._mtw.master_len:                # 마스터 버퍼 아직 미충전
-            self.avg_lbl.setText('MTW…'); return
+            self.avg_lbl.setText('Adaptive…'); return
         self._mtw.push(ref_b, meas_b)
         res = self._mtw.result()
         if res is None:
@@ -12792,7 +12794,7 @@ class TransferFunctionWindow(QWidget):
                  + 1j * np.interp(freqs, f_m, H_m.imag)).astype(np.complex64)
         gamma2 = np.clip(np.interp(freqs, f_m, coh_m), 0.0, 1.0).astype(np.float32)
         self._mtw_H_lin = H_raw      # 영속 보관 (딜레이 파인더가 매 프레임 비워지는 버퍼 대신 사용)
-        self.avg_lbl.setText('MTW')
+        self.avg_lbl.setText('Adaptive')
         self._render_primary_H(H_raw, gamma2, freqs, t_ms, primary_show)
 
     def _engine_changed(self, idx):
@@ -14650,6 +14652,18 @@ class StereoLoudnessPage(QWidget):
         self._hero_avg_btn.setChecked(not live)
         self._hero_live_btn.setChecked(live)
         self._refresh_display(force=True)
+
+    def loud_get_state(self):
+        """페이지 내부 표시 상태(LU 모드 / AVG·LIVE). device·target·L/R 은 MainWindow 소관."""
+        return {'lu_mode': bool(self._lu_mode), 'hero_live': bool(self._hero_live)}
+
+    def loud_apply_state(self, d):
+        try:
+            if 'lu_mode' in d: self._lu_btn.setChecked(bool(d['lu_mode']))   # _on_lu_toggled 반영
+        except Exception: pass
+        try:
+            if 'hero_live' in d: self._set_hero_mode(bool(d['hero_live']))
+        except Exception: pass
 
     def _build_target_ctrl(self):
         """우측 컨트롤 — LU(타겟 상대) 표시 토글. 타겟 프리셋 선택은 상단 툴바 콤보가 담당."""
