@@ -15208,7 +15208,7 @@ class MainWindow(QMainWindow):
         self._preset_cb.setToolTip('프리셋 불러오기 (현재 세 탭 설정 통째 적용)')
         self._preset_cb.currentIndexChanged.connect(self._on_preset_selected)
         _psave = QPushButton('Save'); _psave.setFixedHeight(28); _psave.setStyleSheet(ss_btn_neutral()); _psave.clicked.connect(self._on_preset_save)
-        _pdel = QPushButton('🗑'); _pdel.setFixedHeight(28); _pdel.setFixedWidth(34); _pdel.setStyleSheet(ss_btn_neutral()); _pdel.clicked.connect(self._on_preset_delete)
+        _pdel = QPushButton('Delete'); _pdel.setFixedHeight(28); _pdel.setStyleSheet(ss_btn_neutral()); _pdel.clicked.connect(self._on_preset_delete)
         _right_lay.addWidget(self._preset_cb); _right_lay.addWidget(_psave); _right_lay.addWidget(_pdel)
         self._refresh_preset_cb()
         _right_lay.addWidget(self.calib_btn)
