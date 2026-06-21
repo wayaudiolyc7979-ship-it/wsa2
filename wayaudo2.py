@@ -3756,8 +3756,11 @@ def _text_input_dialog(parent, title, label, default=''):
     le = __import__('PyQt5.QtWidgets', fromlist=['QLineEdit']).QLineEdit(default)
     le.setStyleSheet('QLineEdit{background:#fff;color:#111;border:1px solid #aaa;'
                      'border-radius:4px;padding:4px 8px;font-size:13px;}')
-    le.selectAll()
+    le.setAttribute(Qt.WA_InputMethodEnabled, True)
     lay.addWidget(le)
+    # 포커스/전체선택을 다이얼로그가 완전히 표시된 뒤(이벤트 루프 1틱)로 미룸 —
+    # macOS에서 표시 전에 포커스가 잡히면 IME가 첫 한글 조합을 못 붙들어 자모가 분리돼 보이던 버그 방지.
+    QTimer.singleShot(0, lambda: (le.setFocus(), le.selectAll()))
     btn_row = QHBoxLayout()
     cancel = QPushButton(_tx('Cancel')); ok_btn = QPushButton('OK')
     ok_btn.setDefault(True)
@@ -10417,6 +10420,19 @@ class ShortcutsDialog(QDialog):
 # ───────────────────────────────────────────
 #  TF 단축키 이벤트 필터 (G / L)
 # ───────────────────────────────────────────
+def _shortcut_should_yield():
+    """전역 단일키 단축키(G/L/S/R 등)가 가로채면 안 되는 상황:
+    모달 다이얼로그(캡처/세이브 이름 입력 등)가 떠 있거나, 텍스트 입력칸/콤보/리스트에 포커스.
+    → 입력 중인 글자(영문 l/s, 한글 조합 등)를 단축키가 삼키지 않게."""
+    from PyQt5.QtWidgets import (QApplication, QLineEdit, QAbstractSpinBox, QTextEdit,
+                                 QPlainTextEdit, QComboBox, QAbstractItemView)
+    if QApplication.activeModalWidget() is not None:
+        return True
+    fw = QApplication.focusWidget()
+    return isinstance(fw, (QLineEdit, QAbstractSpinBox, QTextEdit,
+                          QPlainTextEdit, QComboBox, QAbstractItemView))
+
+
 class _TFKeyFilter(QObject):
     """TF 패널이 화면에 보일 때(isVisible=True)만 G/L 키 처리.
     QShortcut 방식은 포커스에 의존 → 이벤트 필터로 대체."""
@@ -10427,6 +10443,8 @@ class _TFKeyFilter(QObject):
     def eventFilter(self, obj, event):
         from PyQt5.QtCore import QEvent
         if event.type() == QEvent.KeyPress and self._tf.isVisible():
+            if _shortcut_should_yield():     # 입력칸/다이얼로그에선 키를 그대로 통과
+                return False
             key = event.key()
             mods = event.modifiers()
             if mods == Qt.NoModifier:
@@ -10451,12 +10469,8 @@ class _MainKeyFilter(QObject):
             return False
         if not self._mw.isActiveWindow():
             return False
-        from PyQt5.QtWidgets import (QLineEdit, QAbstractSpinBox, QTextEdit,
-                                     QPlainTextEdit, QComboBox, QAbstractItemView)
-        fw = QApplication.focusWidget()
-        # 텍스트 입력칸·콤보·리스트(키보드 타입어헤드)에선 가로채지 않음
-        if isinstance(fw, (QLineEdit, QAbstractSpinBox, QTextEdit,
-                           QPlainTextEdit, QComboBox, QAbstractItemView)):
+        # 텍스트 입력칸·콤보·리스트·모달 다이얼로그에선 가로채지 않음(입력 글자 보호)
+        if _shortcut_should_yield():
             return False
         key = event.key()
         if key == Qt.Key_Question:          # ? = 단축키 치트시트 (Shift+/)
