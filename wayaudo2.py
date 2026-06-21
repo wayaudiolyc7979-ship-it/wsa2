@@ -14479,16 +14479,16 @@ class _GradientNumber(QWidget):
     def __init__(self, size=120):
         super().__init__()
         self._text = '—'; self._size = size
-        # 세로는 sizeHint 고정(Expanding 금지) → 카드 높이에 따라 안 늘어남
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        # 세로 Expanding → 카드가 커지면 위젯도 커져 숫자도 커짐. 폰트는 '실제 높이*0.58'(보수적)
+        # 이라 글리프가 위젯 안에 여유롭게 들어가고, 위/아래 stretch가 sub줄 공간을 항상 확보.
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMinimumHeight(56)
-    def _fs_hint(self):
-        return max(32, min(int(max(self.width(), 1) * 0.24), 108))   # sizeHint용(폭 기반+상한)
     def _fs_paint(self):
-        # 실제 칠할 폰트: 위젯 '실제 높이'에 맞춰 축소(짧은 카드=작게) + 폭/상한 한계
-        return max(24, min(int(self.height() * 0.72), int(self.width() * 0.24), 112))
+        # 위젯 실제 높이에 비례(짧은 카드=작게, 큰 카드=크게) + 폭/상한. 0.56 은 글리프가 위젯
+        # 안에 충분히 들어가는 보수값(세로 잘림 방지).
+        return max(24, min(int(self.height() * 0.56), int(self.width() * 0.26), 160))
     def sizeHint(self):
-        return QSize(220, int(self._fs_hint() * 1.0))   # 위젯을 타이트하게 → sub줄 여유 확보
+        return QSize(220, 140)
     def setText(self, t):
         if t != self._text: self._text = t; self.update()
     def text(self): return self._text
@@ -14603,8 +14603,8 @@ class StereoLoudnessPage(QWidget):
         row1=QHBoxLayout(); row1.setSpacing(12)
         # 스코프/레이더를 자주 보므로 비중을 키움(기존 1:1:2 → 5:5:6) + 행 높이 확대
         row1.addWidget(self._vs_card,5); row1.addWidget(self._radar_card,5); row1.addWidget(self._hero_card,6)
-        rw1=QWidget(); rw1.setLayout(row1); rw1.setMinimumHeight(280); rw1.setMaximumHeight(450)
-        root.addWidget(rw1,0)
+        rw1=QWidget(); rw1.setLayout(row1); rw1.setMinimumHeight(280); rw1.setMaximumHeight(560)
+        root.addWidget(rw1,3)   # 창 커지면 스코프/레이더도 커지게(최대 560까지 우선 확장)
 
         # ── Row 2: 메트릭 카드 6개 ──
         specs=[('M  MOMENTARY','LUFS','_lbl_M',203,158,
@@ -14637,8 +14637,8 @@ class StereoLoudnessPage(QWidget):
         hist_card,_=self._card(self._hist, pad=8)
         row3=QHBoxLayout(); row3.setSpacing(12)
         row3.addWidget(hist_card,2); row3.addWidget(self._build_compliance_card(),1)
-        rw3=QWidget(); rw3.setLayout(row3)
-        root.addWidget(rw3,1)
+        rw3=QWidget(); rw3.setLayout(row3); rw3.setMinimumHeight(150)   # history 최소 보장
+        root.addWidget(rw3,2)
 
         self._disp_timer=QTimer(self)
         self._disp_timer.timeout.connect(self._refresh_display)
@@ -14727,9 +14727,10 @@ class StereoLoudnessPage(QWidget):
         self._lbl_I = _GradientNumber(120)
         self._lbl_hero_sub = QLabel('—'); self._lbl_hero_sub.setAlignment(Qt.AlignHCenter)
         self._lbl_hero_sub.setStyleSheet(f'font-size:{FS_LG}px;color:{T("text_dim")};background:transparent;')
-        # _lbl_I 는 stretch 없이(고정 높이) — 위/아래 addStretch 가 빈 공간 흡수 → sub줄 항상 보장
-        vl.addWidget(self._lbl_hero_title); vl.addWidget(self._lbl_I); vl.addWidget(self._lbl_hero_sub)
-        vl.addStretch()
+        # _lbl_I stretch3 → 카드 따라 크게. 하단은 고정여백(addSpacing)으로 sub줄 공간을 항상 보장
+        # (하단 stretch 면 Expanding 숫자가 다 먹어 sub가 카드 끝에 붙어 잘림).
+        vl.addWidget(self._lbl_hero_title); vl.addWidget(self._lbl_I, 3); vl.addWidget(self._lbl_hero_sub)
+        vl.addSpacing(16)
         return w
 
     def _seg_btn_ss(self, left):
