@@ -261,6 +261,24 @@ def _loud_state_roundtrip():
 check('Loudness 상태 직렬화 라운드트립', _loud_state_roundtrip)
 
 
+def _tf_state_roundtrip():
+    """TransferFunctionWindow get_state/apply_state 라운드트립 (콤보 인덱스 위주)."""
+    try:
+        tf = w.TransferFunctionWindow(None, settings={}, embedded=True)
+    except Exception as e:
+        return f'SKIP (TF 창 offscreen 인스턴스화 불가: {type(e).__name__})'
+    tf.eng_cb.setCurrentIndex(0)      # Single
+    tf.avg_cb.setCurrentIndex(4)      # Stable
+    tf.sm_cb.setCurrentIndex(2)
+    st = tf.get_state()
+    assert st['engine'] == 0 and st['response'] == 4 and st['smooth'] == 2, st
+    tf.eng_cb.setCurrentIndex(1); tf.avg_cb.setCurrentIndex(2); tf.sm_cb.setCurrentIndex(5)
+    tf.apply_state(st)
+    assert tf.eng_cb.currentIndex() == 0 and tf.avg_cb.currentIndex() == 4 and tf.sm_cb.currentIndex() == 2
+    return 'TF state roundtrip OK'
+check('TF 상태 직렬화 라운드트립', _tf_state_roundtrip)
+
+
 # ─────────────────────────────────────────────────────────────
 ok = sum(1 for r in _results if r[0])
 print(f'\n=== {ok}/{len(_results)} PASS' + ('' if ok == len(_results) else '  ⚠️ 실패 있음') +

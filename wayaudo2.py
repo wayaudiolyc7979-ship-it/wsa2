@@ -10982,6 +10982,85 @@ class TransferFunctionWindow(QWidget):
     def _strip_star(txt):
         return txt[2:] if txt.startswith('★ ') else txt
 
+    # ── 상태 직렬화 (get_state / apply_state) ─────────────────────────────
+    def _select_combo_by_name(self, cb, name):
+        """장치 콤보에서 표시텍스트(★ 제거)가 name 과 같은 항목 선택. 성공 True."""
+        if not name: return False
+        for i in range(cb.count()):
+            if self._strip_star(cb.itemText(i)) == name:
+                cb.setCurrentIndex(i); return True
+        return False
+
+    def _active_gen(self):
+        for key, btn in (('pink', self.sig_pink_btn), ('white', self.sig_white_btn),
+                         ('sine', self.sig_sine_btn), ('sweep', self.sig_sweep_btn),
+                         ('file', self.sig_file_btn)):
+            if btn.isChecked(): return key
+        return 'none'
+
+    def get_state(self):
+        return {
+            'engine': self.eng_cb.currentIndex(), 'fft': self.fft_cb.currentIndex(),
+            'response': self.avg_cb.currentIndex(), 'smooth': self.sm_cb.currentIndex(),
+            'ir': self.ir_cb.currentIndex(), 'phase': self.phase_cb.currentIndex(),
+            'units': self.unit_cb.currentIndex(),
+            'gen': self._active_gen(), 'sine_freq': float(self._sine_freq),
+            'sweep': [float(self._sweep_f_lo), float(self._sweep_f_hi),
+                      float(self._sweep_dur), bool(self._sweep_asc)],
+            'level': float(self.sig_lvl_sp.value()),
+            'ref_dev': self._strip_star(self.ref_cb.currentText()), 'ref_ch': self.ref_ch_cb.currentData() or 0,
+            'meas_dev': self._strip_star(self.meas_cb.currentText()), 'meas_ch': self.meas_ch_cb.currentData() or 0,
+            'out_dev': self._strip_star(self.sig_out_cb.currentText()), 'out_ch': self.sig_out_ch_cb.currentData() or 0,
+            'out_ch2': self.sig_out_ch2_cb.currentData(),
+            'slots': list(self._tf_slot_plot), 'panel': bool(self.rp.isVisible()),
+        }
+
+    def apply_state(self, d):
+        def _idx(key, cb):
+            try:
+                if key in d: cb.setCurrentIndex(int(d[key]))
+            except Exception: pass
+        _idx('engine', self.eng_cb); _idx('fft', self.fft_cb); _idx('response', self.avg_cb)
+        _idx('smooth', self.sm_cb); _idx('ir', self.ir_cb); _idx('phase', self.phase_cb); _idx('units', self.unit_cb)
+        try:
+            g = d.get('gen', 'none')
+            btnmap = {'pink': self.sig_pink_btn, 'white': self.sig_white_btn, 'sine': self.sig_sine_btn,
+                      'sweep': self.sig_sweep_btn, 'file': self.sig_file_btn}
+            if g in btnmap: btnmap[g].setChecked(True)
+        except Exception: pass
+        try:
+            if 'sine_freq' in d: self._sine_freq = float(d['sine_freq'])
+            if 'sweep' in d and len(d['sweep']) == 4:
+                self._sweep_f_lo, self._sweep_f_hi, self._sweep_dur, self._sweep_asc = (
+                    float(d['sweep'][0]), float(d['sweep'][1]), float(d['sweep'][2]), bool(d['sweep'][3]))
+            if 'level' in d: self.sig_lvl_sp.setValue(float(d['level']))
+        except Exception: pass
+        # 장치/채널 — 이름 매칭되면 적용(없으면 현재 유지). 채널은 device 변경 후 데이터로 매칭.
+        for dev_key, cb, ch_key, ch_cb in (
+            ('ref_dev', self.ref_cb, 'ref_ch', self.ref_ch_cb),
+            ('meas_dev', self.meas_cb, 'meas_ch', self.meas_ch_cb),
+            ('out_dev', self.sig_out_cb, 'out_ch', self.sig_out_ch_cb)):
+            try:
+                if d.get(dev_key) and self._select_combo_by_name(cb, d[dev_key]):
+                    for i in range(ch_cb.count()):
+                        if ch_cb.itemData(i) == d.get(ch_key):
+                            ch_cb.setCurrentIndex(i); break
+            except Exception: pass
+        try:
+            if d.get('out_ch2') is not None:
+                for i in range(self.sig_out_ch2_cb.count()):
+                    if self.sig_out_ch2_cb.itemData(i) == d['out_ch2']:
+                        self.sig_out_ch2_cb.setCurrentIndex(i); break
+        except Exception: pass
+        try:
+            if 'slots' in d:
+                for i, name in enumerate(d['slots'][:len(self._tf_slot_plot)]):
+                    self._set_tf_slot(i, name) if hasattr(self, '_set_tf_slot') else None
+        except Exception: pass
+        try:
+            if 'panel' in d and bool(d['panel']) != self.rp.isVisible(): self._toggle_tf_panel()
+        except Exception: pass
+
     def _toggle_tf_panel(self):
         vis = not self.rp.isVisible()
         self.rp.setVisible(vis); self._rp_sep.setVisible(vis)
