@@ -18038,6 +18038,52 @@ class MainWindow(QMainWindow):
         self.avg_count=[1,4,8,16][idx]
         with QMutexLocker(self._mutex): self._avg_buf=deque(maxlen=self.avg_count)
 
+    # ── Spectrum 상태 직렬화 (presets / auto-remember) ─────────────────
+    def spec_get_state(self):
+        try: scale = self._scale_seg.active() or 'log'
+        except Exception: scale = 'log'
+        return {
+            'view': getattr(self, 'view_mode', 'oct12'),
+            'scale': scale,
+            'sr': self.sr_cb.currentIndex(), 'avg': self.avg_cb.currentIndex(),
+            'peak': self.peak_btn.isChecked(), 'hold': self.hold_cb.currentIndex(),
+            'db': self.db_cb.currentIndex(), 'speed': self.spd_cb.currentIndex(),
+            'spectro': self.spectro_btn.isChecked(),
+            'dev': self.dev_cb.currentText() if hasattr(self, 'dev_cb') else '',
+            'ch': self.in_ch_cb.currentData() if hasattr(self, 'in_ch_cb') else 0,
+        }
+
+    def spec_apply_state(self, d):
+        try:
+            if 'view' in d:
+                self._view_seg.set_active(
+                    {'fft':'fft','oct3':'oct3','oct12':'oct12','oct24':'oct24'}.get(d['view'], 'oct12'))
+        except Exception: pass
+        try:
+            if 'scale' in d: self._scale_seg.set_active('log' if d['scale']=='log' else 'lin')
+        except Exception: pass
+        for key, cb in (('sr', self.sr_cb), ('avg', self.avg_cb), ('hold', self.hold_cb),
+                        ('db', self.db_cb), ('speed', self.spd_cb)):
+            try:
+                if key in d: cb.setCurrentIndex(int(d[key]))
+            except Exception: pass
+        try:
+            if 'peak' in d and bool(d['peak']) != self.peak_btn.isChecked(): self.peak_btn.click()
+        except Exception: pass
+        try:
+            if 'spectro' in d and bool(d['spectro']) != self.spectro_btn.isChecked(): self.spectro_btn.click()
+        except Exception: pass
+        try:
+            if d.get('dev'):
+                for i in range(self.dev_cb.count()):
+                    if self.dev_cb.itemText(i) == d['dev']:
+                        self.dev_cb.setCurrentIndex(i); break
+                if 'ch' in d:
+                    for i in range(self.in_ch_cb.count()):
+                        if self.in_ch_cb.itemData(i) == d['ch']:
+                            self.in_ch_cb.setCurrentIndex(i); break
+        except Exception: pass
+
     def _toggle_peak(self):
         self.peak_hold=self.peak_btn.isChecked()
         self.peak_btn.setText('ON' if self.peak_hold else 'OFF')
