@@ -15209,10 +15209,11 @@ class MainWindow(QMainWindow):
         self._preset_cb.setFixedHeight(28); self._preset_cb.setMinimumWidth(120); self._preset_cb.setMaximumWidth(180)
         self._preset_cb.setToolTip('프리셋 불러오기 (현재 세 탭 설정 통째 적용)')
         self._preset_cb.currentIndexChanged.connect(self._on_preset_selected)
+        _psqss = ss_btn_neutral() + 'QPushButton{padding:0;}'   # 아이콘 전용 — 패딩 제거해 테두리 타이트하게
         _psave = QPushButton(); _psave.setIcon(_icon('save')); _psave.setToolTip('프리셋 저장')
-        _psave.setFixedHeight(28); _psave.setFixedWidth(34); _psave.setStyleSheet(ss_btn_neutral()); _psave.clicked.connect(self._on_preset_save)
+        _psave.setFixedSize(28, 28); _psave.setStyleSheet(_psqss); _psave.clicked.connect(self._on_preset_save)
         _pdel = QPushButton(); _pdel.setIcon(_icon('trash')); _pdel.setToolTip('프리셋 삭제')
-        _pdel.setFixedHeight(28); _pdel.setFixedWidth(34); _pdel.setStyleSheet(ss_btn_neutral()); _pdel.clicked.connect(self._on_preset_delete)
+        _pdel.setFixedSize(28, 28); _pdel.setStyleSheet(_psqss); _pdel.clicked.connect(self._on_preset_delete)
         _right_lay.addWidget(self._preset_cb); _right_lay.addWidget(_psave); _right_lay.addWidget(_pdel)
         self._refresh_preset_cb()
         _right_lay.addWidget(self.calib_btn)
