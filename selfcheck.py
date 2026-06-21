@@ -292,6 +292,19 @@ def _i18n_t():
 check('i18n t() 동작', _i18n_t)
 
 
+def _i18n_dict():
+    import re
+    bad = []
+    for en, ko in w._TR_KO.items():
+        if re.search(r'[가-힣]', en):
+            bad.append(('KEY 한글', en))
+        if set(re.findall(r'\{[^}]+\}', en)) != set(re.findall(r'\{[^}]+\}', ko)):
+            bad.append(('PLACEHOLDER', en))
+    assert not bad, bad[:5]
+    return f'{len(w._TR_KO)} entries OK'
+check('i18n 사전 무결성', _i18n_dict)
+
+
 # ─────────────────────────────────────────────────────────────
 ok = sum(1 for r in _results if r[0])
 print(f'\n=== {ok}/{len(_results)} PASS' + ('' if ok == len(_results) else '  ⚠️ 실패 있음') +
