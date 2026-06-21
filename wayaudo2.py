@@ -471,8 +471,28 @@ _TR_KO = {        # {english_ui_string: 쉬운_한국어}
     'Short-term loudness (3s moving average)\nShows average level over a short window.': '단기 라우드니스 (3초 이동평균)\n짧은 구간의 평균 레벨을 보여줍니다.',
     'True Peak (4× oversampled — detects inter-sample peaks)\nAbove 0 dBFS risks clipping. Broadcast/streaming typically requires ≤ −1 dBTP.': '순간 최대 피크 (4× 오버샘플 — 샘플 사이 피크까지 검출)\n0 dBFS 이상이면 클리핑 위험. 방송/스트리밍은 보통 −1 dBTP 이하 권장.',
     'Loudness Range (EBU 3342) — difference between quiet and loud sections\nHigher = wider dynamic range. Music: 5–15 LU; drama/ads: narrower.': '라우드니스 범위 (EBU 3342) — 조용한 구간과 시끄러운 구간의 차이\n클수록 다이내믹 레인지가 넓습니다. 음악 5~15 LU / 드라마·광고는 더 좁게.',
-    'Overall dynamic headroom. Higher = more dynamic; lower = heavily compressed master.': '전체 다이내믹 여유. 클수록 다이내믹이 살아있고, 작으면 강하게 압축된 마스터입니다.',
-    'Transient dynamics / limiting severity. Low values indicate heavy limiting.': '순간 다이내믹 / 리미팅 강도. 값이 작으면 과도한 리미팅 신호입니다.',
+    'Peak-to-Loudness Ratio = True Peak − Integrated\nOverall dynamic headroom. Higher = more dynamic; lower = heavily compressed master.': 'Peak-to-Loudness Ratio = True Peak − Integrated\n전체 다이내믹 여유. 클수록 다이내믹이 살아있고, 작으면 강하게 압축된 마스터입니다.',
+    'Peak-to-Short-term Ratio = True Peak − Short-term\nTransient dynamics / limiting severity. Low value = over-limiting.': 'Peak-to-Short-term Ratio = True Peak − Short-term\n순간 다이내믹 / 리미팅 강도. 값이 작으면 과도한 리미팅 신호입니다.',
+    # ── 마이크 보정 다이얼로그 ──────────────────────────────────────────────
+    'Mic Calibration': '마이크 보정',
+    '① Connect the calibrator to your mic\n② [Select] the channel to calibrate from the list\n③ Pick reference (94 or 114 dBSPL) -> [Measure Level]\n④ [Auto Offset] -> repeat for other channels -> [OK]': '① 캘리브레이터를 마이크에 연결하세요\n② 목록에서 보정할 채널을 [선택]하세요\n③ 기준값(94 또는 114 dBSPL) 선택 → [레벨 측정]\n④ [오프셋 자동계산] → 다른 채널 반복 → [확인]',
+    'Calibrator reference:': '기준값:',
+    '94 dBSPL  (standard)': '94 dBSPL  (표준)',
+    '114 dBSPL  (high-level)': '114 dBSPL  (고레벨)',
+    'Measure Level  (3s)': '레벨 측정  (3초)',
+    'Manual (dBFS):': '수동 입력 (dBFS):',
+    'Auto Calculate Offset': '오프셋 자동 계산',
+    'Applied offset (dB):': '적용 오프셋 (dB):',
+    'Reset': '초기화',
+    'Select': '선택',
+    '● Selected': '● 선택됨',
+    'Measuring... (3s)': '측정 중... (3초)',
+    'Channels  ·  {dev}': '채널  ·  {dev}',
+    'Ch {n} reset': 'Ch {n} 초기화',
+    'Ch {n} Level': 'Ch {n} 레벨',
+    'Current Mic Level': '현재 마이크 레벨',
+    'Ch {n} selected — measure or enter offset': 'Ch {n} 선택됨 — 레벨을 측정하거나 오프셋을 입력하세요',
+    'Ch {n}  offset {off:+.1f} dB  ->  {meas:.1f} + {off:.1f} = {ref:.0f} dBSPL ✓': 'Ch {n}  오프셋 {off:+.1f} dB  ->  {meas:.1f} + {off:.1f} = {ref:.0f} dBSPL ✓',
     'AVG — Integrated (cumulative average). Broadcast/streaming delivery reference': 'AVG — 누적 평균(Integrated). 방송/스트리밍 납품 기준값',
     'LIVE — Real-time (Short-term 3s). For monitoring during work': 'LIVE — 실시간(단기 3초). 작업 중 모니터링용',
     'LUFS ↔ LU (show relative value vs target)': 'LUFS ↔ LU (목표값 기준 상대값으로 표시)',
@@ -3754,7 +3774,7 @@ class CalibDialog(QDialog):
     def __init__(self, device_name, n_channels, offsets, active_ch,
                  current_spl_func, set_channel_func, parent=None):
         super().__init__(parent)
-        self.setWindowTitle('Mic Calibration'); _apply_dark_titlebar(self)
+        self.setWindowTitle(t('Mic Calibration')); _apply_dark_titlebar(self)
         self.setMinimumWidth(440)
         self.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
         self._get_spl = current_spl_func
@@ -3769,10 +3789,10 @@ class CalibDialog(QDialog):
 
         # ── 순서 안내
         steps = QLabel(
-            '① Connect the calibrator to your mic\n'
-            '② [Select] the channel to calibrate from the list\n'
-            '③ Pick reference (94 or 114 dBSPL) -> [Measure Level]\n'
-            '④ [Auto Offset] -> repeat for other channels -> [OK]'
+            t('① Connect the calibrator to your mic\n'
+              '② [Select] the channel to calibrate from the list\n'
+              '③ Pick reference (94 or 114 dBSPL) -> [Measure Level]\n'
+              '④ [Auto Offset] -> repeat for other channels -> [OK]')
         )
         steps.setStyleSheet(f'color:{T("text_dim")};font-size:11px;'
                             f'background:{T("panel")};border-radius:8px;padding:10px;')
@@ -3780,7 +3800,7 @@ class CalibDialog(QDialog):
 
         # ── 채널 목록 테이블 (B안): 채널 / 현재 오프셋 / 선택
         if self._n_ch > 1:
-            ch_hdr = QLabel(f'Channels  ·  {device_name}')
+            ch_hdr = QLabel(t('Channels  ·  {dev}').format(dev=device_name))
             ch_hdr.setStyleSheet(f'color:{T("text_dim")};font-size:10px;padding-left:2px;')
             layout.addWidget(ch_hdr)
 
@@ -3793,7 +3813,7 @@ class CalibDialog(QDialog):
                 off_l = QLabel('—')
                 off_l.setStyleSheet(f'color:{T("text_dim")};font-size:12px;font-weight:bold;')
                 off_l.setAlignment(Qt.AlignCenter); off_l.setFixedWidth(96)
-                sel = QPushButton('Select')
+                sel = QPushButton(t('Select'))
                 sel.setFixedWidth(72); sel.setCursor(Qt.PointingHandCursor)
                 sel.clicked.connect(lambda _=False, c=ch: self._select_channel(c))
                 row.addWidget(name_l); row.addStretch(); row.addWidget(off_l); row.addWidget(sel)
@@ -3812,9 +3832,9 @@ class CalibDialog(QDialog):
         # RoundComboBox → QComboBox: modal exec() 안에서 Popup 서브윈도우가
         # macOS에서 즉시 닫혀버리는 버그를 피하기 위해 기본 QComboBox 사용
         ref_row = QHBoxLayout(); ref_row.addStretch()
-        ref_row.addWidget(QLabel('Calibrator reference:'))
+        ref_row.addWidget(QLabel(t('Calibrator reference:')))
         self.ref_cb = QComboBox()
-        self.ref_cb.addItems(['94 dBSPL  (standard)', '114 dBSPL  (high-level)'])
+        self.ref_cb.addItems([t('94 dBSPL  (standard)'), t('114 dBSPL  (high-level)')])
         self.ref_cb.setMinimumWidth(200)
         self.ref_cb.setStyleSheet(f"""
             QComboBox {{
@@ -3843,7 +3863,7 @@ class CalibDialog(QDialog):
         self.meas_display.setAlignment(Qt.AlignCenter)
         mb.addWidget(self.meas_display)
 
-        self.meas_btn = QPushButton('Measure Level  (3s)'); self.meas_btn.setIcon(_icon('mic', 14, color=T('accent')))
+        self.meas_btn = QPushButton(t('Measure Level  (3s)')); self.meas_btn.setIcon(_icon('mic', 14, color=T('accent')))
         self.meas_btn.setStyleSheet(f'background:rgba(78,125,240,25);color:{T("accent")};'
                                      f'border:1px solid {T("accent")};padding:6px;border-radius:8px;font-size:12px;')
         self.meas_btn.clicked.connect(self._start_measure)
@@ -3851,7 +3871,7 @@ class CalibDialog(QDialog):
 
         # 직접 입력 (스피너 버튼 없음, 가운데 정렬)
         manual_row = QHBoxLayout(); manual_row.addStretch()
-        manual_row.addWidget(QLabel('Manual (dBFS):'))
+        manual_row.addWidget(QLabel(t('Manual (dBFS):')))
         self.meas_spin = QDoubleSpinBox()
         self.meas_spin.setRange(-120, 0); self.meas_spin.setDecimals(1)
         self.meas_spin.setSingleStep(0.1); self.meas_spin.setValue(-26.0)
@@ -3861,7 +3881,7 @@ class CalibDialog(QDialog):
         layout.addWidget(meas_box)
 
         # ── 오프셋 자동 계산
-        calc_btn = QPushButton('Auto Calculate Offset')
+        calc_btn = QPushButton(t('Auto Calculate Offset'))
         calc_btn.setStyleSheet(f'background:rgba(48,209,88,20);color:{T("green")};'
                                 f'border:1px solid rgba(48,209,88,100);padding:7px;'
                                 f'border-radius:8px;font-size:13px;font-weight:bold;')
@@ -3873,7 +3893,7 @@ class CalibDialog(QDialog):
 
         # ── 최종 오프셋 (가운데 정렬, 스피너 버튼 없음)
         off_row = QHBoxLayout(); off_row.addStretch()
-        off_row.addWidget(QLabel('Applied offset (dB):'))
+        off_row.addWidget(QLabel(t('Applied offset (dB):')))
         self.offset_spin = QDoubleSpinBox()
         self.offset_spin.setRange(-30, 200)
         self.offset_spin.setDecimals(1); self.offset_spin.setSingleStep(0.5)
@@ -3889,10 +3909,10 @@ class CalibDialog(QDialog):
             QDoubleSpinBox::down-button {{ width:0; border:none; }}
         """)
         off_row.addWidget(self.offset_spin)
-        rst = QPushButton('Reset')
+        rst = QPushButton(t('Reset'))
         rst.setStyleSheet(f'background:{T("panel")};color:{T("text_dim")};'
                           f'border:1px solid {T("border")};padding:4px 12px;border-radius:8px;')
-        rst.clicked.connect(lambda: (self.offset_spin.setValue(0), self.result_lbl.setText(f'Ch {self._cur_ch+1} reset')))
+        rst.clicked.connect(lambda: (self.offset_spin.setValue(0), self.result_lbl.setText(t('Ch {n} reset').format(n=self._cur_ch+1))))
         off_row.addWidget(rst); off_row.addStretch()
         layout.addLayout(off_row)
 
@@ -3911,7 +3931,7 @@ class CalibDialog(QDialog):
 
     # ── 채널 테이블 ──────────────────────────
     def _meas_title(self):
-        return f'Ch {self._cur_ch+1} Level' if self._n_ch > 1 else 'Current Mic Level'
+        return t('Ch {n} Level').format(n=self._cur_ch+1) if self._n_ch > 1 else t('Current Mic Level')
 
     def _select_channel(self, ch):
         """채널 행 [선택] → 부모 입력 채널 전환 후 그 채널을 측정 대상으로."""
@@ -3928,7 +3948,7 @@ class CalibDialog(QDialog):
         self.meas_display.setText('— dBFS')
         self.meas_display.setStyleSheet(f'color:{T("accent")};font-size:26px;font-weight:bold;')
         self._meas_box.setTitle(self._meas_title())
-        self.result_lbl.setText(f'Ch {ch+1} selected — measure or enter offset')
+        self.result_lbl.setText(t('Ch {n} selected — measure or enter offset').format(n=ch+1))
         self._refresh_rows()
 
     def _on_offset_edited(self, val):
@@ -3946,18 +3966,18 @@ class CalibDialog(QDialog):
                 w['off'].setText('—')
                 w['off'].setStyleSheet(f'color:{T("text_dim")};font-size:12px;font-weight:bold;')
             if is_cur:
-                w['btn'].setText('● Selected')
+                w['btn'].setText(t('● Selected'))
                 w['btn'].setStyleSheet(f'background:rgba(78,125,240,35);color:{T("accent")};'
                                        f'border:1px solid {T("accent")};border-radius:7px;padding:3px;font-size:11px;')
             else:
-                w['btn'].setText('Select')
+                w['btn'].setText(t('Select'))
                 w['btn'].setStyleSheet(f'background:{T("bg2")};color:{T("text_dim")};'
                                        f'border:1px solid {T("border")};border-radius:7px;padding:3px;font-size:11px;')
 
     def _start_measure(self):
         if self._measuring: return
         self._measuring = True; self._meas_samples = []; self._meas_count = 0
-        self.meas_btn.setText('Measuring... (3s)')
+        self.meas_btn.setText(t('Measuring... (3s)'))
         self.meas_btn.setStyleSheet(f'background:rgba(255,204,0,25);color:{T("yellow")};'
                                      f'border:1px solid rgba(255,204,0,100);padding:6px;border-radius:5px;font-size:12px;')
         self._meas_timer.start(100)   # 100ms 간격으로 30회 = 3초
@@ -3973,7 +3993,7 @@ class CalibDialog(QDialog):
             self.meas_spin.setValue(round(avg, 1))
             self.meas_display.setText(f'{avg:.1f} dBFS  ✓')
             self.meas_display.setStyleSheet(f'color:{T("green")};font-size:26px;font-weight:bold;')
-            self.meas_btn.setText('Measure Level  (3s)'); self.meas_btn.setIcon(_icon('mic', 14, color=T('accent')))
+            self.meas_btn.setText(t('Measure Level  (3s)')); self.meas_btn.setIcon(_icon('mic', 14, color=T('accent')))
             self.meas_btn.setStyleSheet(f'background:rgba(78,125,240,25);color:{T("accent")};'
                                          f'border:1px solid {T("accent")};padding:6px;border-radius:5px;font-size:12px;')
             self._auto_calc()
@@ -3983,7 +4003,7 @@ class CalibDialog(QDialog):
         meas    = self.meas_spin.value()
         offset  = ref_val - meas
         self.offset_spin.setValue(round(offset, 1))   # → _on_offset_edited 가 _offsets 기록
-        self.result_lbl.setText(f'Ch {self._cur_ch+1}  offset {offset:+.1f} dB  ->  {meas:.1f} + {offset:.1f} = {ref_val:.0f} dBSPL ✓')
+        self.result_lbl.setText(t('Ch {n}  offset {off:+.1f} dB  ->  {meas:.1f} + {off:.1f} = {ref:.0f} dBSPL ✓').format(n=self._cur_ch+1, off=offset, meas=meas, ref=ref_val))
 
     def get_all_offsets(self):
         """{ch:int -> offset:float} — 이번 세션에서 설정/변경된 모든 채널."""
@@ -14816,9 +14836,9 @@ class StereoLoudnessPage(QWidget):
                ('LRA','LU','_lbl_LRA',270,160,
                 t('Loudness Range (EBU 3342) — difference between quiet and loud sections\nHigher = wider dynamic range. Music: 5–15 LU; drama/ads: narrower.')),
                ('PLR  pk/loud','LU','_lbl_PLR',326,162,
-                t('Overall dynamic headroom. Higher = more dynamic; lower = heavily compressed master.')),
+                t('Peak-to-Loudness Ratio = True Peak − Integrated\nOverall dynamic headroom. Higher = more dynamic; lower = heavily compressed master.')),
                ('PSR  pk/short','LU','_lbl_PSR',320,162,
-                t('Transient dynamics / limiting severity. Low values indicate heavy limiting.'))]
+                t('Peak-to-Short-term Ratio = True Peak − Short-term\nTransient dynamics / limiting severity. Low value = over-limiting.'))]
         row2=QHBoxLayout(); row2.setSpacing(10)
         for title,unit,attr,hue,light,tip in specs:
             row2.addWidget(self._metric_card(title,unit,attr,hue,light,tip),1)
