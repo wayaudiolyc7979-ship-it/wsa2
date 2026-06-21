@@ -354,6 +354,28 @@ _SETTINGS_PATH = os.environ.get('WSA2_SETTINGS_PATH') or os.path.join(_APP_SUPPO
 _CAPTURES_PATH = os.environ.get('WSA2_CAPTURES_PATH') or os.path.join(_APP_SUPPORT, 'captures.json')
 _CAPTURES_LOCK = threading.Lock()   # captures.json 동시 읽기-수정-쓰기 보호 (백그라운드 저장용)
 
+# ── i18n: 영어 원문을 키로 쓰는 경량 번역 ──────────────────────────
+_TR_KO = {}        # {english_ui_string: 쉬운_한국어}  (Task 2에서 채움)
+_LANG = 'en'       # 'en' | 'ko' — 모듈 로드 끝에서 확정
+
+def _resolve_lang(settings):
+    v = settings.get('lang') if isinstance(settings, dict) else None
+    if v in ('en', 'ko'):
+        return v
+    try:
+        from PyQt5.QtCore import QLocale
+        return 'ko' if QLocale.system().name().startswith('ko') else 'en'
+    except Exception:
+        return 'en'
+
+def _set_lang(v):
+    global _LANG
+    _LANG = v if v in ('en', 'ko') else 'en'
+
+def t(s):
+    """영어 원문 s 를 현재 언어로. en=그대로, ko=_TR_KO 조회(없으면 원문 폴백)."""
+    return _TR_KO.get(s, s) if _LANG == 'ko' else s
+
 def _load_settings():
     try:
         with open(_SETTINGS_PATH, 'r', encoding='utf-8') as f:
@@ -365,6 +387,12 @@ def _save_settings(data):
     os.makedirs(os.path.dirname(_SETTINGS_PATH), exist_ok=True)
     with open(_SETTINGS_PATH, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+
+# 모듈 로드 시점에 _LANG 확정
+try:
+    _set_lang(_resolve_lang(_load_settings()))
+except Exception:
+    pass
 
 def _load_captures_file():
     try:

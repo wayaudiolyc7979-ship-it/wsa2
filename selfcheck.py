@@ -279,6 +279,19 @@ def _tf_state_roundtrip():
 check('TF 상태 직렬화 라운드트립', _tf_state_roundtrip)
 
 
+def _i18n_t():
+    """t(): en=원문, ko=_TR_KO 조회(없으면 원문 폴백)."""
+    w._set_lang('en')
+    assert w.t('Save Preset') == 'Save Preset'
+    w._TR_KO['Save Preset'] = '설정 저장'      # 임시 주입
+    w._set_lang('ko')
+    assert w.t('Save Preset') == '설정 저장'
+    assert w.t('No Such Key') == 'No Such Key'  # 누락 폴백
+    w._TR_KO.pop('Save Preset', None); w._set_lang('en')   # 원복
+    return 'en passthrough / ko lookup / fallback OK'
+check('i18n t() 동작', _i18n_t)
+
+
 # ─────────────────────────────────────────────────────────────
 ok = sum(1 for r in _results if r[0])
 print(f'\n=== {ok}/{len(_results)} PASS' + ('' if ok == len(_results) else '  ⚠️ 실패 있음') +
