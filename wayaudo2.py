@@ -3754,7 +3754,11 @@ def _text_input_dialog(parent, title, label, default=''):
     반환: (text, ok)
     """
     dlg = QDialog(parent)
-    dlg.setWindowTitle(title); _apply_dark_titlebar(dlg)
+    dlg.setWindowTitle(title)
+    # 네이티브 타이틀바 사용(프레임리스 미적용) — macOS에서 Qt.FramelessWindowHint 창은
+    # IME 첫 한글 조합 세션을 못 띄워 첫 글자 자모가 분리됨. 본문은 다크 스타일 유지.
+    dlg.setStyleSheet('QDialog{background:%s;} QLabel{color:%s;background:transparent;}'
+                      % (T('panel'), T('text')))
     dlg.setMinimumWidth(300)
     lay = QVBoxLayout(dlg); lay.setSpacing(10); lay.setContentsMargins(16, 16, 16, 12)
     lay.addWidget(QLabel(label))
