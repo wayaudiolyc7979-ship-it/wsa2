@@ -128,7 +128,10 @@
 
 4. **[조사·🟢낮음] Single TF 엔진 −1.8dB / 코히0.82 (루프백)** — Adaptive=완벽인데 Single만 전대역 균일 −1.8dB·코히 0.82. 위상 평탄(0°)이라 **고정 시간오프셋 아님** → 랜덤 디코릴레이션/비원자 ref·meas 짝짓기 의심(Single `_render_inner` 경로 vs MTW 원자버퍼 `:12078`). |H|≈γ 서명. 확정 진단=`_on_frame`에 ref/meas 상호상관 lag `_diag` 1줄. **Single은 제거/Lite 강등 후보라 블로커 아님.**
 
-**🔵 조사완료·버그아님:**
-- **두 입력 소스(외장 Scarlett vs 내장 MacBook 마이크) 스펙트럼 모양 차이** — primary(`_process_audio:17939`)/extra(`_process_extra_source:18112`) DSP 바이트 동일(window/ENBW/smoothing/avg/`_calc_oct`) 확인. **차이 = 순수 물리적 마이크**(내장=macOS DSP 색채·HF 롤오프 / 외장=raw). 수정 불필요. 측정 신뢰도는 보통 **외장 측정마이크가 더 정확**(내장은 가공됨).
+**🟢 [조사·HW재확인예정] 외장 마이크 하이/로우 floor (2026-06-22 사용자 증상 정정)**
+- **정정된 증상**: "두 마이크가 측정이 다르다"가 아니라 — **스펙트럼 하이/로우 끝쪽에서 외장(Scarlett)은 어떤 레벨 아래로 곡선이 더 안 내려가고 floor에 깔리는데, 내장(MacBook)은 그 아래로 계속 내려가 표시됨.**
+- **코드 검증(2026-06-22)**: primary(`_process_audio:17973`)/extra(`_process_extra_source:18146`) DSP 바이트 동일 — `power_spectrum_db`(1e-20=−200dB에서만 floor)·EMA pow smoothing·avg_buf 평균·calib 더하기 전부 동일. 스펙트럼 곡선엔 게이트/floor 없음. 디스플레이 클램프(`db_min`)도 두 곡선 공통. **→ 앱이 외장만 막는 코드 floor는 없음(곡선 계산 대칭 확인).**
+- **추정(미확정·HW검증대기)**: 외장이 멈추는 floor가 `db_min`보다 위 = 그 인터페이스+측정마이크의 **실제 broadband 노이즈 플로어(프리앰프 히스+저레벨 광대역음)**. 내장이 더 내려가는 건 소형 MEMS의 HF 롤오프+LF 하이패스/DSP 가공. 즉 floor에서 멈추는 외장이 더 정직, 내장이 가공.
+- **HW 확인법(사용자 다음에 직접 테스트하기로)**: ①외장 입력 게인↓ 시 floor 같이 내려가면 = 프리앰프 노이즈 증거. ②같은 음원 미드대역 비교 시 일치(이미 0.4dB), 차이는 끝쪽만. ③필요시 평균화↑로 floor 부드럽게(실노이즈라 한계). **사용자 결정: 수정 전 HW로 직접 재현·확인 후 판단.**
 
-**⚠️ 현재 작업트리 상태(미커밋):** `wayaudo2.py`에 #2(크래시 수정+결과 팝업) **+ #1(Farina THD 위상정렬 수정)** 적용됨. #3은 미적용. 되돌리려면 `git checkout -- wayaudo2.py`.
+**⚠️ 현재 작업트리 상태:** #1(Farina THD)·#2(크래시)·IR freeze 수정 = **커밋됨(`774079b`, 미푸시)**. #3(Extra 소스 캘리브 오적용)은 미적용. SMAART PDF·`_make_smaart_pdf.py`는 미커밋(별개).
