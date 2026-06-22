@@ -3170,7 +3170,14 @@ class OctaveCanvas(QWidget):
 
     # ── 멀티-소스 라인 오버레이 (추가 장치/채널 카드) ──
     def set_channel_oct(self, cid, color, values):
-        self._ch_oct[cid] = {'color': color, 'values': np.asarray(values, dtype=np.float64),
+        vals = np.asarray(values, dtype=np.float64)
+        # primary 막대(update_data)와 동일한 캔버스 ballistic(alpha IIR)을 추가 소스에도 적용.
+        # 안 하면 primary만 캔버스 평활이 한 번 더 들어가 같은 마이크라도 추가 카드가
+        # 어택에서 먼저 튀어오름(응답 속도 불일치).
+        prev = self._ch_oct.get(cid, {}).get('values')
+        if prev is not None and len(prev) == len(vals):
+            vals = prev + (vals - prev) * self.alpha
+        self._ch_oct[cid] = {'color': color, 'values': vals,
                              'visible': self._ch_visible.get(cid, True)}
         self.update()
     def set_channel_visible(self, cid, vis):
@@ -11359,6 +11366,13 @@ class TransferFunctionWindow(QWidget):
             'out_dev': self._strip_star(self.sig_out_cb.currentText()), 'out_ch': self.sig_out_ch_cb.currentData() or 0,
             'out_ch2': self.sig_out_ch2_cb.currentData(),
             'slots': list(self._tf_slot_plot), 'panel': bool(self.rp.isVisible()),
+            'extra_pairs': [{
+                'meas_device': self._strip_star(p['meas_cb'].currentText()) if p.get('meas_cb') else '',
+                'meas_ch': (p['meas_ch_cb'].currentData()
+                            if (p.get('meas_ch_cb') and p['meas_ch_cb'].currentData() is not None) else 0),
+                'delay_ms': float(p.get('delay_ms', 0.0)),
+                'name': p.get('name', ''), 'num': p.get('num', 2),
+            } for p in self._extra_pairs],
         }
 
     def apply_state(self, d):
@@ -11397,6 +11411,10 @@ class TransferFunctionWindow(QWidget):
                 for i in range(self.sig_out_ch2_cb.count()):
                     if self.sig_out_ch2_cb.itemData(i) == d['out_ch2']:
                         self.sig_out_ch2_cb.setCurrentIndex(i); break
+        except Exception: pass
+        try:
+            if 'extra_pairs' in d and isinstance(d['extra_pairs'], list):
+                self._apply_extra_pairs(d['extra_pairs'])
         except Exception: pass
         try:
             if 'slots' in d:
@@ -11444,6 +11462,28 @@ class TransferFunctionWindow(QWidget):
         self._settings['tf_primary_name'] = getattr(self, '_tf_primary_name', '')
         _save_settings(self._settings)
 
+    def _populate_extra_pair(self, pair, entry):
+        """추가 카드(pair) 하나에 저장된 장치/채널/딜레이/이름/번호를 채움."""
+        mcb = pair['meas_cb']; mch = pair['meas_ch_cb']
+        dev_name = entry.get('meas_device', '')
+        for i in range(mcb.count()):
+            if self._strip_star(mcb.itemText(i)) == dev_name:
+                mcb.setCurrentIndex(i); break
+        saved_ch = entry.get('meas_ch', 0)
+        for i in range(mch.count()):
+            if mch.itemData(i) == saved_ch:
+                mch.setCurrentIndex(i); break
+        dly = float(entry.get('delay_ms', 0.0))
+        pair['delay_ms'] = dly
+        pair['card'].set_delay(dly)
+        nm = entry.get('name', '')
+        pair['name'] = nm
+        pair['card'].set_name(nm)
+        saved_num = entry.get('num')
+        if saved_num:
+            pair['num'] = saved_num
+            pair['card'].set_number(saved_num)
+
     def _restore_tf_extra_pairs(self):
         """시작 시 저장된 추가 카드들을 재생성·복원 (1회). _load_devices 이후 호출."""
         saved = self._settings.get('tf_extra_pairs', [])
@@ -11452,28 +11492,25 @@ class TransferFunctionWindow(QWidget):
         try:
             for entry in saved:
                 self._tf_add_pair()                 # 카드+pair 생성 (현재 장치 목록 복사)
-                pair = self._extra_pairs[-1]
-                mcb = pair['meas_cb']; mch = pair['meas_ch_cb']
-                dev_name = entry.get('meas_device', '')
-                for i in range(mcb.count()):
-                    if self._strip_star(mcb.itemText(i)) == dev_name:
-                        mcb.setCurrentIndex(i); break
-                saved_ch = entry.get('meas_ch', 0)
-                for i in range(mch.count()):
-                    if mch.itemData(i) == saved_ch:
-                        mch.setCurrentIndex(i); break
-                dly = float(entry.get('delay_ms', 0.0))
-                pair['delay_ms'] = dly
-                pair['card'].set_delay(dly)
-                nm = entry.get('name', '')
-                pair['name'] = nm
-                pair['card'].set_name(nm)
-                saved_num = entry.get('num')
-                if saved_num:
-                    pair['num'] = saved_num
-                    pair['card'].set_number(saved_num)
+                self._populate_extra_pair(self._extra_pairs[-1], entry)
         finally:
             self._restoring_devices = False
+
+    def _apply_extra_pairs(self, entries):
+        """프리셋/세션 적용: 추가 카드 개수+설정을 entries 에 맞춰 재구성."""
+        was_running = self._running
+        self._restoring_devices = True
+        try:
+            while self._extra_pairs:                 # 기존 카드 전부 제거
+                self._tf_remove_pair(len(self._extra_pairs) - 1)
+            for entry in (entries or []):            # entries 만큼 재생성
+                self._tf_add_pair()
+                self._populate_extra_pair(self._extra_pairs[-1], entry)
+        finally:
+            self._restoring_devices = False
+        self._save_tf_extra_pairs()                  # 세션 자동기억도 갱신
+        if was_running:                              # 실행 중이었으면 한 번만 재시작
+            self._stop(); self._start()
 
     # ── 시작/정지 ────────────────────────────
     def _toggle(self):
@@ -11649,6 +11686,7 @@ class TransferFunctionWindow(QWidget):
         self._extra_pair_acc.append(None)
         # 기본 Stop 상태 — 사용자가 Start 눌러야 분석 시작
         self._save_tf_extra_pairs()   # 복원 중에는 가드로 no-op
+        _diag('tf_add_pair', count=len(self._extra_pairs))
 
     def _on_tf_renamed(self, card, txt):
         """카드 이름 변경 — card=None 이면 primary, 아니면 해당 extra pair."""
@@ -11745,7 +11783,8 @@ class TransferFunctionWindow(QWidget):
         for cvs in (self.mag_cvs, self.phase_cvs, self.ir_cvs):
             cvs.set_front_curve(None)
         self._save_tf_extra_pairs()
-        if self._running:
+        _diag('tf_remove_pair', count=len(self._extra_pairs))
+        if self._running and not getattr(self, '_restoring_devices', False):
             self._stop(); self._start()
 
     def _stop_extra_pair_threads(self, idx):
@@ -18064,6 +18103,7 @@ class MainWindow(QMainWindow):
                 _spl = round(float(data[4]), 1) if data is not None else None
                 _diag('hb', view=self.view_mode, run=self._spec_running(),
                       spl=_spl, extra=len(getattr(self, '_spec_extra', [])),
+                      tf_cards=len(getattr(getattr(self, 'tf_win', None), '_extra_pairs', [])),
                       show=(getattr(self, 'show_mode_win', None) is not None))
             except Exception:
                 _alog.exception('[DIAG] heartbeat')
@@ -18508,7 +18548,13 @@ class MainWindow(QMainWindow):
 
     def _avg_changed(self,idx):
         self.avg_count=[1,4,8,16][idx]
-        with QMutexLocker(self._mutex): self._avg_buf=deque(maxlen=self.avg_count)
+        with QMutexLocker(self._mutex):
+            self._avg_buf=deque(maxlen=self.avg_count)
+            # 추가 소스 카드들도 같은 평균 깊이로 재생성 — 안 하면 카드별 deque maxlen이
+            # 생성 시점 값에 고정돼 같은 마이크라도 응답 속도가 달라짐(카드3이 더 빨리/늦게 반응)
+            for st in self._ch_state.values():
+                if st.get('avg_buf') is not None:
+                    st['avg_buf']=deque(maxlen=self.avg_count)
 
     # ── Spectrum 상태 직렬화 (presets / auto-remember) ─────────────────
     def spec_get_state(self):
@@ -18523,6 +18569,10 @@ class MainWindow(QMainWindow):
             'spectro': self.spectro_btn.isChecked(),
             'dev': self.dev_cb.currentText() if hasattr(self, 'dev_cb') else '',
             'ch': self.in_ch_cb.currentData() if hasattr(self, 'in_ch_cb') else 0,
+            'sources': [{'dev_name': s.get('dev_name', ''), 'ch': s.get('ch', 0),
+                         'visible': s.get('visible', True), 'name': s.get('name', ''),
+                         'num': s.get('num', 2)}
+                        for s in getattr(self, '_spec_extra', [])],
         }
 
     def spec_apply_state(self, d):
@@ -18555,6 +18605,42 @@ class MainWindow(QMainWindow):
                         if self.in_ch_cb.itemData(i) == d['ch']:
                             self.in_ch_cb.setCurrentIndex(i); break
         except Exception: pass
+        try:
+            if 'sources' in d and isinstance(d['sources'], list):
+                self._apply_spec_sources(d['sources'])
+        except Exception as e: _alog.warning(f'apply spec sources 실패: {e}')
+
+    def _apply_spec_sources(self, entries):
+        """프리셋/세션 적용: 스펙트럼 추가 소스 카드를 entries 에 맞춰 재구성."""
+        if self._spl_source_id != 0:
+            self._set_spl_source(0)          # SPL 소스가 추가카드면 primary 로 복귀
+        self._restoring_spec = True
+        try:
+            for src in list(self._spec_extra):   # 기존 소스 정리
+                self._close_spec_sub(src)
+                self._clear_extra_curve(src['id'])
+            self._spec_extra = []
+            self._spec_front_id = 0
+            self.fft_cvs._front_id = 0; self.oct_cvs._front_id = 0
+            for entry in (entries or []):        # entries 만큼 재생성 (_restore_spec_sources 와 동일 형식)
+                cid = self._spec_next_id; self._spec_next_id += 1
+                num = entry.get('num') or self._spec_smallest_unused_num()
+                color = _MC_COLORS[(num - 2) % len(_MC_COLORS)]
+                dev_idx = None
+                for i in range(self.dev_cb.count()):
+                    if self.dev_cb.itemText(i) == entry.get('dev_name', ''):
+                        dev_idx = self.dev_cb.itemData(i); break
+                self._spec_extra.append({
+                    'id': cid, 'num': num, 'dev_idx': dev_idx, 'dev_name': entry.get('dev_name', ''),
+                    'ch': entry.get('ch', 0), 'sr': self.sample_rate, 'color': color,
+                    'visible': entry.get('visible', True), 'name': entry.get('name', ''),
+                    'sub': None, 'card': None, 'state': None})
+        finally:
+            self._restoring_spec = False
+        self._rebuild_ch_cards()
+        if self._spec_running():
+            for src in self._spec_extra: self._open_spec_sub(src)
+        self._save_spec_sources()
 
     # ── 앱 전체 상태 직렬화 + 세션 자동기억 ───────────────────────────────
     def _loud_get_full(self):
@@ -18602,7 +18688,9 @@ class MainWindow(QMainWindow):
         name = self._preset_cb.currentText()
         st = self._settings.get('presets', {}).get(name)
         if isinstance(st, dict):
-            self._apply_app_state(st); _diag('preset_load', name=name)
+            self._apply_app_state(st)
+            _diag('preset_load', name=name, tf_cards=len(getattr(self.tf_win, '_extra_pairs', [])),
+                  spec_src=len(getattr(self, '_spec_extra', [])))
 
     def _on_preset_save(self):
         name, ok = _text_input_dialog(self, _tx('Save Preset'), _tx('Name:'))
@@ -18620,7 +18708,8 @@ class MainWindow(QMainWindow):
             self._preset_cb.blockSignals(True)
             self._preset_cb.setCurrentIndex(idx)
             self._preset_cb.blockSignals(False)
-        _diag('preset_save', name=name)
+        _diag('preset_save', name=name, tf_cards=len(getattr(self.tf_win, '_extra_pairs', [])),
+              spec_src=len(getattr(self, '_spec_extra', [])))
 
     def _on_preset_delete(self):
         name = self._preset_cb.currentText()

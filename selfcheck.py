@@ -279,6 +279,34 @@ def _tf_state_roundtrip():
 check('TF 상태 직렬화 라운드트립', _tf_state_roundtrip)
 
 
+def _tf_preset_card_count():
+    """프리셋 get_state/apply_state 가 추가 Meas 카드 개수까지 반영하는지."""
+    try:
+        tf = w.TransferFunctionWindow(None, settings={}, embedded=True)
+    except Exception as e:
+        return f'SKIP (TF 창 offscreen 인스턴스화 불가: {type(e).__name__})'
+    # 카드 2개 열고 저장
+    tf._tf_add_pair(); tf._tf_add_pair()
+    assert len(tf._extra_pairs) == 2, len(tf._extra_pairs)
+    st2 = tf.get_state()
+    assert isinstance(st2.get('extra_pairs'), list) and len(st2['extra_pairs']) == 2, st2.get('extra_pairs')
+    # 카드 1개짜리 상태로 줄였다가
+    tf._tf_remove_pair(1)
+    assert len(tf._extra_pairs) == 1
+    st1 = tf.get_state()
+    assert len(st1['extra_pairs']) == 1
+    # 1개 상태 적용 → 1개, 2개 상태 적용 → 2개 (개수 반영 확인)
+    tf.apply_state(st1)
+    assert len(tf._extra_pairs) == 1, f'apply st1 후 {len(tf._extra_pairs)}'
+    tf.apply_state(st2)
+    assert len(tf._extra_pairs) == 2, f'apply st2 후 {len(tf._extra_pairs)}'
+    # 0개로도 줄어드는지
+    tf.apply_state({'extra_pairs': []})
+    assert len(tf._extra_pairs) == 0, f'apply [] 후 {len(tf._extra_pairs)}'
+    return 'TF preset card-count roundtrip OK (2→1→2→0)'
+check('TF 프리셋 카드개수 반영', _tf_preset_card_count)
+
+
 def _i18n_t():
     """t(): en=원문, ko=_TR_KO 조회(없으면 원문 폴백)."""
     w._set_lang('en')
