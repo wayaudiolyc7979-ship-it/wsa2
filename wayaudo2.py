@@ -432,7 +432,7 @@ _TR_KO = {        # {english_ui_string: 쉬운_한국어}
     'Second output channel (Off = single channel)': '두 번째 출력 채널 (Off = 단일 채널)',
     'Single = fixed FFT  ·  Adaptive = multi-rate (high-res low end, adaptive resolution per frequency)': 'Single = 고정 FFT  ·  Adaptive = 멀티레이트 (저음역 고해상도, 주파수별 적응 해상도)',
     'Response speed — Fast (quick, sensitive) … Stable (slow, steady).\nHigher values average longer, producing a smoother curve.': '응답 속도 — Fast(빠름·민감) … Stable(느림·안정).\n값이 클수록 평균을 길게 잡아 곡선이 부드러워집니다.',
-    'Capture current TF snapshot (Mag + Phase + IR)   ·   Quick capture: Space': '현재 TF 스냅샷 캡처 (Mag + Phase + IR)   ·   빠른 캡처: Space',
+    'Capture current TF snapshot (Mag + Phase + IR)   ·   Shortcut: Space': '현재 TF 스냅샷 캡처 (Mag + Phase + IR)   ·   단축키: Space',
     'Delta compare — show difference vs reference capture (set with R)': 'Delta 비교 — 기준(R로 지정한 캡처) 대비 차이 표시',
     'Stable capture — auto-capture after average converges + coherence stabilizes': '안정화 캡처 — 평균 수렴 + 코히런스가 안정된 후 자동 캡처',
     'Delay display units — ms / distance (m) / both (speed of sound 343 m/s, adjustable in Delay Finder advanced settings)': '딜레이 표시 단위 — ms / 거리(m) / 둘 다 (음속 343 m/s, 딜레이 파인더 고급설정에서 변경)',
@@ -2680,6 +2680,15 @@ class FFTCanvas(QWidget):
         })
         self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
 
+    def add_capture_data(self, label, color, f, db, group=''):
+        """추가 소스 곡선을 캡쳐 (멀티 소스 일괄 캡쳐용)."""
+        if f is None or db is None: return
+        self._captures.append({
+            'f': np.asarray(f, dtype=np.float64).copy(), 'db': np.asarray(db, dtype=np.float64).copy(),
+            'color': color, 'label': label, 'group': group
+        })
+        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
+
     def recapture(self, idx):
         """기존 캡쳐 idx 의 곡선만 현재 라이브값으로 덮어쓰기 (색/이름/그룹/가시성 유지)."""
         if self._ds_f is None or self._ds_avg is None: return False
@@ -3117,6 +3126,15 @@ class OctaveCanvas(QWidget):
         self._captures.append({
             'values': self.smooth[self.mode].copy(),
             'mode': self.mode, 'color': color, 'label': label, 'group': group
+        })
+        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
+
+    def add_capture_data(self, label, color, values, mode=None, group=''):
+        """추가 소스 옥타브 곡선을 캡쳐 (멀티 소스 일괄 캡쳐용)."""
+        if values is None: return
+        self._captures.append({
+            'values': np.asarray(values, dtype=np.float64).copy(),
+            'mode': mode or self.mode, 'color': color, 'label': label, 'group': group
         })
         self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
 
@@ -11010,7 +11028,7 @@ class TransferFunctionWindow(QWidget):
         self.find_btn.clicked.connect(self._find_all_delays); tl.addWidget(self.find_btn); tl.addSpacing(10)
 
         self.tf_cap_btn = QPushButton('Capture'); self.tf_cap_btn.setFixedWidth(68); self.tf_cap_btn.setFixedHeight(30)
-        self.tf_cap_btn.setToolTip(_tx('Capture current TF snapshot (Mag + Phase + IR)   ·   Quick capture: Space'))
+        self.tf_cap_btn.setToolTip(_tx('Capture current TF snapshot (Mag + Phase + IR)   ·   Shortcut: Space'))
         self.tf_cap_btn.clicked.connect(lambda: self._do_tf_capture(prompt=True)); tl.addWidget(self.tf_cap_btn)
         # 토글 버튼 전용 스타일 — ON 시 확실히 채워져 보이게 (버튼별 직접 지정 → 전역 스타일에 안 묻힘)
         _toggle_ss = _popout_toggle_ss()
@@ -12820,12 +12838,12 @@ class TransferFunctionWindow(QWidget):
         prompt=True 면 이름 입력 다이얼로그를 띄우고, False 면 자동 이름으로 즉시 캡쳐.
         """
         if self.mag_cvs.freqs is None:
-            return
+            return False
         n = len(self._tf_captures)
         default = f'Capture {n + 1}'
         if prompt:
             base, ok = _text_input_dialog(self, _tx('Capture'), _tx('Name:'), default)
-            if not ok: return
+            if not ok: return False
             base = (base or '').strip() or default
         else:
             base = default
@@ -12834,8 +12852,9 @@ class TransferFunctionWindow(QWidget):
         if (getattr(self, 'tf_stable_btn', None) and self.tf_stable_btn.isChecked()
                 and self._running and not getattr(self, '_stabilizing', False)):
             self._begin_stable_capture(base)
-            return
+            return True
         self._capture_snapshot(base)
+        return True
 
     def _capture_snapshot(self, base):
         """실제 캡쳐 수행 (primary + 표시중 extra 카드)."""
@@ -12855,9 +12874,12 @@ class TransferFunctionWindow(QWidget):
 
         # 표시 중인 extra 카드 각각 (Mag/Phase 만, IR 은 빈 캡쳐)
         for i, pair in enumerate(getattr(self, '_extra_pairs', [])):
-            if not pair.get('display', False): continue
+            _disp = pair.get('display', False)
             ex_m = self.mag_cvs._tf_extra.get(i)
-            if not ex_m or ex_m.get('f') is None: continue
+            _hasdata = bool(ex_m and ex_m.get('f') is not None)
+            _diag('tf_cap_card', i=i, display=_disp, hasdata=_hasdata)
+            if not _disp: continue
+            if not _hasdata: continue
             ex_p = self.phase_cvs._tf_extra_phase.get(i)
             card_no = i + 2  # _MeasCard(idx+2, ...) 와 동일한 번호
             ex_label = f'{base} · Card{card_no}'
@@ -18764,8 +18786,8 @@ class MainWindow(QMainWindow):
         if idx == 2:
             return  # Stereo Loudness 탭에서는 스페이스바 무시
         if idx == 1:
-            self.tf_win._do_tf_capture(prompt=False)  # 스페이스바 = 빠른 캡쳐 (자동 이름)
-            self._flash_toast()
+            if self.tf_win._do_tf_capture(prompt=True):  # 스페이스바 = 이름 입력 후 캡쳐 (스펙트럼과 동일)
+                self._flash_toast()
         else:
             self._do_spec_capture()
 
@@ -18778,11 +18800,34 @@ class MainWindow(QMainWindow):
         color = _auto_capture_color(n)
         group = self._current_spec_group
         m = self.view_mode
-        if m == 'fft':
-            self.fft_cvs.add_capture(label, color, group)
-        else:
-            self.oct_cvs.add_capture(label, color, group)
-        _alog.info(f'스펙트럼 캡처 추가  label="{label}"  mode={m}  total={n+1}')
+        # primary — 표시 중일 때만 (TF 캡쳐와 동일 정책)
+        added = 0
+        if self.fft_cvs._primary_visible:
+            if m == 'fft':
+                self.fft_cvs.add_capture(label, color, group)
+            else:
+                self.oct_cvs.add_capture(label, color, group)
+            added += 1
+        # 표시 중인 추가 소스 카드 각각 — TF 멀티카드 캡쳐와 동일하게 소스별로 1개씩
+        for src in self._spec_extra:
+            cid = src['id']
+            if not src.get('visible', True): continue
+            card_no = src.get('num', 2)
+            ex_label = f'{label} · Card{card_no}'
+            ex_color = src.get('color') or _auto_capture_color(n + added)
+            if m == 'fft':
+                ch = self.fft_cvs._ch_curves.get(cid)
+                if ch and ch.get('ds_f') is not None:
+                    self.fft_cvs.add_capture_data(ex_label, ex_color, ch['ds_f'], ch['ds_avg'], group)
+                    added += 1
+            else:
+                ch = self.oct_cvs._ch_oct.get(cid)
+                if ch and ch.get('values') is not None:
+                    self.oct_cvs.add_capture_data(ex_label, ex_color, ch['values'], self.view_mode, group)
+                    added += 1
+        if added == 0: return
+        _alog.info(f'스펙트럼 캡처 추가  label="{label}"  mode={m}  +{added}  total={n+added}')
+        _diag('spec_capture', mode=m, added=added)
         self._refresh_spec_capture_bar()
         self._save_spec_captures()
         self._flash_toast()

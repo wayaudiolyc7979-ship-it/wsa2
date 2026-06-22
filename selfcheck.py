@@ -70,6 +70,26 @@ def _octave():
 check('OctaveCanvas RTA 막대(입체 그라디언트)', _octave)
 
 
+def _octave_multi_capture():
+    """멀티 소스 일괄 캡쳐: primary add_capture + 추가 소스 add_capture_data 가 각각 캡쳐로 쌓이는지."""
+    cv = w.OctaveCanvas(); cv.resize(900, 360); cv.set_mode('oct3')
+    n = len(w.BANDS['oct3']); x = np.linspace(0, 1, n)
+    base = (-10 - 26 * (x - 0.42) ** 2).astype(float)
+    for _ in range(30): cv.update_data('oct3', base)
+    # primary 1개 + 추가 소스 2개 캡쳐
+    cv.add_capture('P', '#00FF88')
+    cv.set_channel_oct(101, '#FF8800', base + 4)
+    cv.set_channel_oct(102, '#00AAFF', base - 5)
+    cv.add_capture_data('Card2', '#FF8800', cv._ch_oct[101]['values'], 'oct3')
+    cv.add_capture_data('Card3', '#00AAFF', cv._ch_oct[102]['values'], 'oct3')
+    assert len(cv._captures) == 3, f'캡쳐 {len(cv._captures)}개 (3 기대)'
+    labels = [c['label'] for c in cv._captures]
+    assert labels == ['P', 'Card2', 'Card3'], labels
+    cv._mx = -1
+    return _save(cv, 'octave_multi_capture.png')
+check('Octave 멀티소스 일괄 캡쳐', _octave_multi_capture)
+
+
 def _fft():
     cv = w.FFTCanvas(); cv.resize(900, 360)
     fr = np.logspace(np.log10(20), np.log10(20000), 256)
