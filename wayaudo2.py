@@ -18151,6 +18151,7 @@ class MainWindow(QMainWindow):
         pow_raw = 10 ** (db_raw / 10)
         rms = float(np.sqrt(np.mean(buf ** 2)))
         raw_dbfs = 20 * math.log10(max(rms, 1e-10))
+        src_calib = self._spl_source_calib(card_id)   # 소스 자기 캘리브(device:ch) — primary calib 아님
         with QMutexLocker(self._mutex):
             state = self._ch_state.setdefault(card_id, {
                 'pow_smooth': None, 'fft_smooth': None,
@@ -18165,7 +18166,7 @@ class MainWindow(QMainWindow):
                 np.log10(np.maximum(state['pow_smooth'], 1e-30), out=state['fft_smooth'])
                 state['fft_smooth'] *= 10.0
             state['avg_buf'].append(state['fft_smooth'].copy())
-            avg_cal = np.mean(list(state['avg_buf']), axis=0) + self.calib_offset
+            avg_cal = np.mean(list(state['avg_buf']), axis=0) + src_calib
             self._ch_pending_extra[card_id] = (freqs, avg_cal, raw_dbfs, color)
 
         # 이 소스가 SPL 미터 측정 대상이면 Z/A/C/fs_peak 계산해 push (뮤텍스 밖)

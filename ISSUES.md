@@ -124,7 +124,7 @@
 
 2. **[버그·🟡수정적용·미커밋] Farina 스윕 `_fft_lbl` 크래시** — `_on_sweep_captured`(`:12550`/`:12574`)가 **DelayFinderDialog 소속** `_fft_lbl`(`:9922`)을 잘못 참조 → 스윕 시 무조건 AttributeError 크래시 → Wiener 폴백(−27dB 엉터리). **수정: `avg_lbl`로 변경 + 완료 결과 팝업(`_BrandBox.information`, THD/SNR 표시) 추가 — 현재 작업트리에 적용됨(미커밋).** Farina DSP 테스트 8/8 정상(라벨만 문제였음). ℹ️ 부작용 규명: 기존엔 이 크래시로 `_stop_sig_gen()`에 도달 못 해 스윕이 무한루프 → "연속 스윕"처럼 보였던 것. **사용자 결정: one-shot 정밀 측정 유지**(연속 아님).
 
-3. **[버그·🔴미적용] Extra 소스 스펙트럼 캘리브 오적용** — `_process_extra_source`(`:18134`) 곡선이 `self.calib_offset`(primary 장치 캘리브) 사용. 소스 자기 `_spl_source_calib(card_id)`(`:16874`) 써야 맞음. **세로 레벨(상수 dB)만 어긋남, 모양 영향 없음.**
+3. **[버그·✅수정완료·미커밋] Extra 소스 스펙트럼 캘리브 오적용** — ✅**수정(2026-06-22)**. `_process_extra_source` 곡선이 `self.calib_offset`(primary) 쓰던 것 → `src_calib = self._spl_source_calib(card_id)`(소스 자기 device:ch 조회, mutex 밖 계산)로 교체(`:18154`/`:18169`). 같은 함수가 이미 SPL push(`:18176`)·SPL미터 calib(`:16924/17012`)에서 검증돼 쓰이던 것이라 곡선에 동일 적용=자명. **세로 레벨(상수 dB)만 어긋났던 것 해결, 모양 영향 없음.** 구문 PASS. 잔검증=추가소스에 별도 calib 줬을 때 곡선 레벨 반영(실앱 육안, HW불요지만 멀티소스 필요).
 
 4. **[조사·🟢낮음] Single TF 엔진 −1.8dB / 코히0.82 (루프백)** — Adaptive=완벽인데 Single만 전대역 균일 −1.8dB·코히 0.82. 위상 평탄(0°)이라 **고정 시간오프셋 아님** → 랜덤 디코릴레이션/비원자 ref·meas 짝짓기 의심(Single `_render_inner` 경로 vs MTW 원자버퍼 `:12078`). |H|≈γ 서명. 확정 진단=`_on_frame`에 ref/meas 상호상관 lag `_diag` 1줄. **Single은 제거/Lite 강등 후보라 블로커 아님.**
 
@@ -134,4 +134,4 @@
 - **추정(미확정·HW검증대기)**: 외장이 멈추는 floor가 `db_min`보다 위 = 그 인터페이스+측정마이크의 **실제 broadband 노이즈 플로어(프리앰프 히스+저레벨 광대역음)**. 내장이 더 내려가는 건 소형 MEMS의 HF 롤오프+LF 하이패스/DSP 가공. 즉 floor에서 멈추는 외장이 더 정직, 내장이 가공.
 - **HW 확인법(사용자 다음에 직접 테스트하기로)**: ①외장 입력 게인↓ 시 floor 같이 내려가면 = 프리앰프 노이즈 증거. ②같은 음원 미드대역 비교 시 일치(이미 0.4dB), 차이는 끝쪽만. ③필요시 평균화↑로 floor 부드럽게(실노이즈라 한계). **사용자 결정: 수정 전 HW로 직접 재현·확인 후 판단.**
 
-**⚠️ 현재 작업트리 상태:** #1(Farina THD)·#2(크래시)·IR freeze 수정 = **커밋됨(`774079b`, 미푸시)**. #3(Extra 소스 캘리브 오적용)은 미적용. SMAART PDF·`_make_smaart_pdf.py`는 미커밋(별개).
+**⚠️ 현재 작업트리 상태:** #1(Farina THD)·#2(크래시)·IR freeze = **커밋됨(`774079b`)**. #3(Extra 소스 캘리브) = **수정완료·미커밋(작업트리)**. SMAART PDF·`_make_smaart_pdf.py`는 미커밋(별개).
