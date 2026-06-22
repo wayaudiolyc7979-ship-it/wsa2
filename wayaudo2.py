@@ -7389,8 +7389,14 @@ def farina_analyze(y, x, sr, T, f1, f2, harmonics=(2, 3, 4, 5)):
     L = T / np.log(f2 / f1)
     inv = _ess_inverse(x, T, f1, f2, sr)
     g = _fft_convolve(y, inv)              # measured IR (linear peak + harmonics before it)
-    g_ref = _fft_convolve(x, inv)          # identity reference (delta at n0)
-    n0 = int(np.argmax(np.abs(g_ref)))     # linear-peak index
+    g_ref = _fft_convolve(x, inv)          # identity reference (delta at n0_ref)
+    n0_ref = int(np.argmax(np.abs(g_ref)))  # zero-delay reference peak
+    # Measured linear peak = strongest peak at/after the reference position. This absorbs
+    # the system/round-trip delay (a high-latency duplex stream can lag >100ms, far past
+    # the analysis window — pinning to n0_ref would put the real peak OUTSIDE it and make
+    # THD/SNR garbage). Harmonics sit BEFORE the linear peak, so we search forward only.
+    _s0 = max(0, n0_ref - int(0.005 * sr))
+    n0 = _s0 + int(np.argmax(np.abs(g[_s0:])))
 
     # harmonic peak positions: nth harmonic is Δt_n = L·ln(n) earlier
     dt = {n: L * np.log(n) for n in harmonics}
@@ -7399,8 +7405,12 @@ def farina_analyze(y, x, sr, T, f1, f2, harmonics=(2, 3, 4, 5)):
     pre = max(pre, int(0.002 * sr))
     tail = int(0.05 * sr)
     lo = max(0, n0 - pre); hi = min(len(g), n0 + tail)
-    lin = g[lo:hi]; lin_ref = g_ref[lo:hi]
-    nwin = len(lin)
+    lin = g[lo:hi]
+    # reference window taken around ITS OWN peak so the deconvolution bins line up
+    lo_r = max(0, n0_ref - pre); hi_r = min(len(g_ref), n0_ref + tail)
+    lin_ref = g_ref[lo_r:hi_r]
+    nwin = min(len(lin), len(lin_ref))
+    lin = lin[:nwin]; lin_ref = lin_ref[:nwin]
     H = np.fft.rfft(lin) / (np.fft.rfft(lin_ref) + 1e-30)
     freqs = np.fft.rfftfreq(nwin, 1.0 / sr)
     # restrict to swept band
@@ -9557,7 +9567,7 @@ class TFDuplexThread(QThread):
     error_signal   = pyqtSignal(str)
     disconnected_signal = pyqtSignal(str)         # 작동 중 물리적 연결 끊김 (입력 장치)
     fade_done      = pyqtSignal()                 # 페이드인 완료 시 1회 emit → _reset_avg 트리거
-    sweep_captured = pyqtSignal(object, object)   # (ref_array, meas_array) — 1-shot 캡처 완료
+    sweep_captured = pyqtSignal(object, object, int)   # (ref_array, meas_array, start_pos) — 1-shot 캡처 완료
 
     def __init__(self, in_dev, out_dev, sample_rate, fft_size, pink_buf, sig_level,
                  n_out=2, out_ch=0, ref_ch=None, meas_in_ch=0, out_ch2=None):
@@ -9576,6 +9586,7 @@ class TFDuplexThread(QThread):
         # 단일 스윕 캡처 상태 (arm_sweep_capture()로 활성화)
         self._sc_armed  = [False]   # True → 페이드인 완료 후 캡처 시작
         self._sc_pos    = [0]
+        self._sc_start_pos = [0]    # 캡처 첫 샘플의 재생버퍼 인덱스(루프 위상) — Farina de-rotate용
         self._sc_len    = 0
         self._sc_buf_ref  = None
         self._sc_buf_meas = None
@@ -9633,7 +9644,7 @@ class TFDuplexThread(QThread):
                 lvl = lv_r[0]   # 매 콜백마다 최신 레벨 읽기
                 if bc_r[0]: pos_r[0] = 0; bc_r[0] = False  # 버퍼 교체 → 포지션 리셋
                 pb = pb_r[0]; pn = len(pb)  # 매 콜백마다 최신 버퍼 읽기
-                pp = pos_r[0]; rem = frames; op = 0
+                pp = pos_r[0]; _blk_pos0 = pp; rem = frames; op = 0   # _blk_pos0=이 블록 첫 출력샘플의 버퍼 인덱스
                 while rem > 0:
                     av = pn - pp; tk = min(rem, av)
                     out_blk[op:op+tk] = pb[pp:pp+tk] * lvl; op += tk; pp = (pp+tk) % pn; rem -= tk
@@ -9672,13 +9683,17 @@ class TFDuplexThread(QThread):
                     rem_cap = self._sc_len - pos
                     if rem_cap > 0:
                         take = min(frames, rem_cap)
+                        if pos == 0:
+                            # 캡처 첫 샘플(_ref_blk[0]=out_blk[0])이 가리키는 재생버퍼 위상 기록
+                            self._sc_start_pos[0] = _blk_pos0
                         self._sc_buf_ref [pos:pos+take] = _ref_blk[:take]
                         self._sc_buf_meas[pos:pos+take] = indata[:take, self.meas_in_ch]
                         _sc_pos[0] = pos + take
                         if _sc_pos[0] >= self._sc_len:
                             _sc_armed[0] = False
                             self.sweep_captured.emit(
-                                self._sc_buf_ref.copy(), self._sc_buf_meas.copy())
+                                self._sc_buf_ref.copy(), self._sc_buf_meas.copy(),
+                                int(self._sc_start_pos[0]))
             except Exception: pass
 
         _alog.debug(f'TFDuplexThread.run() opening sd.Stream  in={self.in_dev} out={self.out_dev} sr={self.sample_rate} bs={blocksize} n_in={n_in} ref_ch={self.ref_ch}')
@@ -11747,6 +11762,7 @@ class TransferFunctionWindow(QWidget):
         self._extra_pair_threads[idx] = (None, None, None)
 
     def _start(self):
+        self._sweep_freeze = False  # 새 측정 시작 → 라이브 렌더 동결 해제
         self._stop_mon_streams()   # TF 시작 전 모니터 스트림 해제 (장치 충돌 방지)
         self._stop_input_monitor() # 분석 시작 전 입력 모니터 해제 (장치당 1스트림)
         if getattr(self, '_primary_deleted', False):
@@ -12522,19 +12538,33 @@ class TransferFunctionWindow(QWidget):
             self.ir_cvs.set_tf_extra(i, color, t_ms, h_ex, delay=pair_delay)
 
     # ── 딜레이 자동 탐지 (2단계: 2초 측정 후 계산) ──────────────────────
-    def _on_sweep_captured(self, ref_arr, meas_arr):
-        """단일 스윕 캡처 완료 → Farina ESS 분석(상승) 또는 Wiener(하강) → 캔버스 → 자동 Stop."""
+    def _on_sweep_captured(self, ref_arr, meas_arr, start_pos=0):
+        """단일 스윕 캡처 완료 → Farina ESS 분석(상승) 또는 Wiener(하강) → 캔버스 → 자동 Stop.
+
+        Farina 역필터는 **해석적으로 생성된 깨끗한 ESS**가 x여야 한다(`_ess_inverse`가
+        index 기준으로 envelope를 재계산하므로). 캡처된 ref는 ①루프 임의위상으로 회전돼
+        있거나 ②외부 ref면 녹음지연만큼 어긋나 → 역필터 불일치 → THD 폭발(실HW 325%).
+        해결: x=재생성 clean ESS, meas는 알려진 캡처 위상(start_pos)으로 de-rotate해
+        clean이 sample0에서 f1로 시작하도록 정렬(왕복지연은 Farina n0가 흡수)."""
         self._pm_targ = None; self._pm_done = True   # 라이브 모션 스무딩 비활성(스윕 결과 직접 표시)
+        self._sweep_freeze = True                     # 이후 라이브 렌더가 스윕 결과를 덮지 않도록 동결
+        with QMutexLocker(self._mutex):               # stale 버퍼 비움(다음 렌더 틱 재렌더 방지)
+            self._last_ref_fft = None; self._last_meas_fft = None
+            self._last_ref_buf = None; self._last_meas_buf = None
         n = len(ref_arr)
         sr = self.sample_rate
         f1 = float(self._sweep_f_lo); f2 = float(self._sweep_f_hi)
         T = n / sr
+        result_msg = None
         # 상승 스윕 + 유효 대역이면 Farina ESS(선형 TF 무왜곡 + THD/고조파 분리)
         use_farina = bool(self._sweep_asc) and (0 < f1 < f2)
         if use_farina:
             try:
-                res = farina_analyze(meas_arr.astype(np.float64), ref_arr.astype(np.float64),
-                                     sr, T, f1, f2)
+                # x = 재생된 것과 동일한 해석적 clean ESS(상승=_gen_log_sweep 원본)
+                x_clean = _gen_log_sweep(n, sr, f1, f2).astype(np.float64)
+                # meas를 캡처 위상만큼 되돌려 clean(sample0=f1)에 정렬
+                meas_aligned = np.roll(meas_arr.astype(np.float64), int(start_pos))
+                res = farina_analyze(meas_aligned, x_clean, sr, T, f1, f2)
                 freqs = res["freqs"].astype(np.float32)
                 H = res["H"].astype(np.complex64)
                 if self.delay_ms != 0.0:
@@ -12547,8 +12577,9 @@ class TransferFunctionWindow(QWidget):
                 self.mag_cvs.set_data(f_out, mag_out, coh_out, ph_wrap)
                 self.ir_cvs.set_data(res["t_ms"].astype(np.float32), res["ir"].astype(np.float32))
                 self.ir_cvs._delay_ms = self.delay_ms
-                self._fft_lbl.setText(f'Sweep (Farina): {T*1000:.0f} ms  ·  THD {res["thd"]:.2f}%  ·  SNR {res["snr_db"]:.0f} dB')
-                self.avg_lbl.setText('Done ✓')
+                self.avg_lbl.setText(f'Farina ✓  THD {res["thd"]:.2f}%  ·  SNR {res["snr_db"]:.0f} dB')
+                result_msg = (f'Farina ESS sweep complete\n\nLength: {T*1000:.0f} ms'
+                              f'\nTHD: {res["thd"]:.2f} %\nSNR: {res["snr_db"]:.0f} dB')
                 _diag('sweep_farina', n=n, thd=round(res["thd"], 3), snr=round(res["snr_db"], 1),
                       harm={k: round(v[0], 1) for k, v in res["harmonics"].items()})
             except Exception as e:
@@ -12571,14 +12602,16 @@ class TransferFunctionWindow(QWidget):
             h_full = np.fft.fftshift(np.fft.irfft(H, n=n)).astype(np.float32)
             t_ms = (np.arange(n, dtype=np.float32) - n // 2) / sr * 1000.0
             self.ir_cvs.set_data(t_ms, h_full)
-            self._fft_lbl.setText(f'Sweep 1-shot: {n} smp / {T*1000:.0f} ms')
-            self.avg_lbl.setText('Done ✓')
+            self.avg_lbl.setText(f'Sweep ✓  {T*1000:.0f} ms')
+            result_msg = f'Sweep (Wiener) complete\n\nLength: {T*1000:.0f} ms'
 
         # 자동 Stop
         self._stop_sig_gen()
         self.sig_on_btn.setChecked(False)
         self.sig_on_btn.setText('Play'); _apply_txn(self.sig_on_btn, False)
         _alog.debug(f'_on_sweep_captured: n={n} farina={use_farina}')
+        if result_msg:
+            _BrandBox.information(self, _tx('Sweep Complete'), result_msg)
 
     def _find_delay(self):
         DelayFinderDialog(self, self).exec_()
@@ -13154,6 +13187,10 @@ class TransferFunctionWindow(QWidget):
     # ── primary 곡선 모션 스무딩 (10fps 누적 → 30fps 보간 페인트) ──────────
     def _pm_push_target(self, f, mag, coh, pw, pu, gm, t_ms, h):
         """새 목표 곡선 도착(10fps). 이전 목표→prev로 옮기고 보간 시작."""
+        # 스윕 결과 표시 중이면 라이브 갱신 차단(stale 버퍼 재렌더가 farina IR을 덮는 것 방지).
+        # 다음 Start(_start_sig_gen)에서 해제.
+        if getattr(self, '_sweep_freeze', False):
+            return
         self._pm_prev = self._pm_targ
         self._pm_targ = {'f': f, 'mag': mag, 'coh': coh, 'pw': pw, 'pu': pu,
                          'gm': gm, 't_ms': t_ms, 'h': h}
@@ -13699,6 +13736,7 @@ class TransferFunctionWindow(QWidget):
 
     def _start_sig_gen(self):
         _alog.debug(f'_start_sig_gen() called  sig_stream={self._sig_stream}  duplex={self._duplex_thread}')
+        self._sweep_freeze = False    # 새 측정 시작 → 라이브 렌더 동결 해제(이전 스윕 결과 표시 종료)
         self._stop_input_monitor()   # 출력 스트림 재구성 전 입력 모니터 해제 (장치 충돌 방지)
         if self.sig_file_btn.isChecked() and self._audio_file_buf is not None:
             self._pink_buf = self._audio_file_buf   # 파일 버퍼 사용 (순환 재생)

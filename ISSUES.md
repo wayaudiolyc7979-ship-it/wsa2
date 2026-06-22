@@ -112,3 +112,23 @@
 ## 📥 INBOX (분류 대기 — 막 적기)
 
 (여기에 떠오르는 거 한 줄씩. Claude가 위 카테고리로 올림.)
+
+### 🗓️ 2026-06-22 Scarlett 2i2 HW 검증 세션 — 발견 모음 (하나씩 처리 예정)
+
+**✅ 검증 통과 (HW 실측):**
+- TF **Adaptive(MTW) 엔진** = 검증 끝. 엔진 런타임 전환 OK, 라이브 곡선·딜레이파인더 정상. **전기 루프백에서 Adaptive 평탄편차 0.005dB·코히런스 1.0000·위상0°**(CSV 정량). 신뢰대역(100Hz–8k)에서 Single과 0.2–0.4dB 일치. (검증 CSV: `~/Desktop/tf_captures_2026062*.csv`)
+
+**🐛 발견 버그 (우선순위 순):**
+
+1. **[버그·✅✅HW 실측 검증완료·미커밋] Farina 스윕 THD/SNR 깨짐 (THD 325% / SNR −28dB)** — ✅✅**헤드리스 재현+수정+Scarlett 2i2 실측 검증완료(2026-06-22)**. **진짜 근본원인 2개(둘 다 수정):** ⓐ duplex가 스윕을 루프 재생하고 캡처가 임의 위상에서 시작 → 캡처 ref가 ESS의 회전본이라 `_ess_inverse`(index 기준 envelope 재계산)와 불일치. ⓑ **(진짜 주범)** `latency='high'` duplex라 **입력(meas)이 출력(ref)보다 I/O 왕복지연 132~218ms(매번 가변) 늦는데**, `farina_analyze`가 선형피크 창을 g_ref(zero-delay) 위치 **50ms tail**에 고정 → 실제 측정피크가 창 밖으로 나가 lin_peak이 노이즈만 잡아 THD 폭발. (진단 로그로 `start_pos`는 처음부터 정확(`ref_align_cos=1.0`), `peak_off=6316~10418`로 창밖임을 실측 확인.) **수정 2곳:** ①duplex `cb`가 캡처 첫샘플 재생버퍼 위상 `start_pos` 기록→`sweep_captured(ref,meas,start_pos)`(signal 3인자), `_on_sweep_captured`가 x=재생성 clean ESS + `meas=np.roll(meas, start_pos)`로 위상정렬. ②`farina_analyze`가 선형피크 n0를 **측정 g의 실제 argmax(reference 위치 이후 최강점)**로 잡아 I/O 지연 흡수, reference 창은 자기 피크 기준(`wayaudo2.py:7390~`). **검증:** 헤드리스 sim(I/O지연 40~10451샘플 전부 THD 1.5~2.1% 정상, 기존 test_farina 8/8 PASS) + **Scarlett 2i2 전기루프백 4회 연속 THD 0.19~0.21%·SNR 39.6~40.0dB 안정**(이전 318~1914%/−39dB). 미커밋.
+
+2. **[버그·🟡수정적용·미커밋] Farina 스윕 `_fft_lbl` 크래시** — `_on_sweep_captured`(`:12550`/`:12574`)가 **DelayFinderDialog 소속** `_fft_lbl`(`:9922`)을 잘못 참조 → 스윕 시 무조건 AttributeError 크래시 → Wiener 폴백(−27dB 엉터리). **수정: `avg_lbl`로 변경 + 완료 결과 팝업(`_BrandBox.information`, THD/SNR 표시) 추가 — 현재 작업트리에 적용됨(미커밋).** Farina DSP 테스트 8/8 정상(라벨만 문제였음). ℹ️ 부작용 규명: 기존엔 이 크래시로 `_stop_sig_gen()`에 도달 못 해 스윕이 무한루프 → "연속 스윕"처럼 보였던 것. **사용자 결정: one-shot 정밀 측정 유지**(연속 아님).
+
+3. **[버그·🔴미적용] Extra 소스 스펙트럼 캘리브 오적용** — `_process_extra_source`(`:18134`) 곡선이 `self.calib_offset`(primary 장치 캘리브) 사용. 소스 자기 `_spl_source_calib(card_id)`(`:16874`) 써야 맞음. **세로 레벨(상수 dB)만 어긋남, 모양 영향 없음.**
+
+4. **[조사·🟢낮음] Single TF 엔진 −1.8dB / 코히0.82 (루프백)** — Adaptive=완벽인데 Single만 전대역 균일 −1.8dB·코히 0.82. 위상 평탄(0°)이라 **고정 시간오프셋 아님** → 랜덤 디코릴레이션/비원자 ref·meas 짝짓기 의심(Single `_render_inner` 경로 vs MTW 원자버퍼 `:12078`). |H|≈γ 서명. 확정 진단=`_on_frame`에 ref/meas 상호상관 lag `_diag` 1줄. **Single은 제거/Lite 강등 후보라 블로커 아님.**
+
+**🔵 조사완료·버그아님:**
+- **두 입력 소스(외장 Scarlett vs 내장 MacBook 마이크) 스펙트럼 모양 차이** — primary(`_process_audio:17939`)/extra(`_process_extra_source:18112`) DSP 바이트 동일(window/ENBW/smoothing/avg/`_calc_oct`) 확인. **차이 = 순수 물리적 마이크**(내장=macOS DSP 색채·HF 롤오프 / 외장=raw). 수정 불필요. 측정 신뢰도는 보통 **외장 측정마이크가 더 정확**(내장은 가공됨).
+
+**⚠️ 현재 작업트리 상태(미커밋):** `wayaudo2.py`에 #2(크래시 수정+결과 팝업) **+ #1(Farina THD 위상정렬 수정)** 적용됨. #3은 미적용. 되돌리려면 `git checkout -- wayaudo2.py`.
