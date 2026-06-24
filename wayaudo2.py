@@ -3848,6 +3848,43 @@ class SpectrogramCanvas(QWidget):
         p.end()
 
 # ───────────────────────────────────────────
+#  레벨미터 구간(zone) — green/yellow/red 위치 기반 (M4/Smaart 하드웨어 미터식)
+#  여기 두 숫자만 바꾸면 모든 레벨미터(TF R/M, Spectrum 카드, 메인 SPL)에 반영  [찾기: METER_ZONES]
+#    값↑ = 그 색 구간이 더 위(0dBFS) 쪽으로 좁아짐
+# ───────────────────────────────────────────
+METER_DB_MIN    = -60.0   # 모든 레벨미터 바닥(dBFS) — 통일(카드/메인/TF가 같은 양으로 채워짐)
+METER_YELLOW_DB = -18.0   # 이 위로 노랑 구간 시작
+METER_RED_DB    = -6.0    # 이 위로 빨강 구간 시작(클립 근접)
+# 레벨미터 반응 속도 — 스펙트럼 Speed와 무관(독립). 미터=항상 실시간, 그래프=Speed 따로.
+METER_ATTACK    = 0.7     # (스펙트럼 메인/카드) 올라올 때 계수·즉각  — ~60fps 고정 프로듀서용
+METER_RELEASE   = 0.30    # (스펙트럼 메인/카드) 내려갈 때 계수·실시간 ~150ms. 값↑=더 빨리
+# TF 바(_HorizBarVU)는 업데이트율이 가변(M바 빠름/R바 10Hz)이라 시간기반 탄도(초 단위 시정수)로
+# 통일 — 업데이트율과 무관하게 일정한 실시간 반응.  값↑=더 천천히
+METER_TAU_ATTACK  = 0.015  # 올라올 때 시정수(초)·거의 즉각
+METER_TAU_RELEASE = 0.05   # 내려갈 때 시정수(초)·실시간(~0.15s 정착)
+METER_PEAK_DECAY  = 30.0   # peak tick 감쇠(dB/초) — 채움에 붙어 매끄럽게 따라내림(스펙트럼 카드 느낌)
+
+def _draw_zone_meter_h(p, W, H, db, db_min, db_max=0.0):
+    """수평 레벨바를 채움 폭 안에서 위치별 green/yellow/red 구간으로 칠한다(M4/Smaart 사다리).
+    채움 폭만큼 둥근 사각형으로 clip → 구간별 단색 사각형을 그 위에 그림(라이브 그라디언트 아님)."""
+    rng = db_max - db_min
+    if rng <= 0: return
+    def _x(v): return W * max(0.0, min(1.0, (v - db_min) / rng))
+    bar_w = _x(db)
+    if bar_w <= 1.5: return
+    rr = H / 2.0
+    p.save()
+    clip = QPainterPath(); clip.addRoundedRect(QRectF(0, 0, bar_w, H), rr, rr)
+    p.setClipPath(clip); p.setPen(Qt.NoPen)
+    gx = min(bar_w, _x(METER_YELLOW_DB))
+    yx = min(bar_w, _x(METER_RED_DB))
+    p.setBrush(QColor(T('green'))); p.drawRect(QRectF(0, 0, gx, H))
+    if bar_w > gx: p.setBrush(QColor(T('yellow'))); p.drawRect(QRectF(gx, 0, yx - gx, H))
+    if bar_w > yx: p.setBrush(QColor(T('red')));    p.drawRect(QRectF(yx, 0, bar_w - yx, H))
+    p.restore()
+
+
+# ───────────────────────────────────────────
 #  VU 미터
 # ───────────────────────────────────────────
 class VUMeter(QWidget):
@@ -3875,7 +3912,7 @@ class VUMeter(QWidget):
     def paintEvent(self,ev):
         p=QPainter(self); W,H=self.width(),self.height()
         p.fillRect(0,0,W,H,QColor(T('bg2')))
-        DB_MIN, DB_RANGE = -60, 60
+        DB_MIN = METER_DB_MIN; DB_RANGE = -METER_DB_MIN   # 모든 미터와 동일 스케일
 
         # Title: Input / Meter (two lines)
         p.setFont(_qfont(CF_TINY, True)); p.setPen(QColor(T('text_dim')))
@@ -3889,7 +3926,10 @@ class VUMeter(QWidget):
         lv=max(0.0,min(1.0,(self.raw_spl-DB_MIN)/DB_RANGE)); fh=int(lv*bh)
         if fh>0:
             base=by+bh
-            gh=min(fh,int(bh*.6)); yh=min(max(0,fh-int(bh*.6)),int(bh*.2)); rh=max(0,fh-int(bh*.8))
+            # 구간 경계를 dBFS 기준(METER_*)으로 — 수평 미터와 동일한 분포
+            y_b=int(max(0.0,min(1.0,(METER_YELLOW_DB-DB_MIN)/DB_RANGE))*bh)
+            r_b=int(max(0.0,min(1.0,(METER_RED_DB-DB_MIN)/DB_RANGE))*bh)
+            gh=min(fh,y_b); yh=min(max(0,fh-y_b),r_b-y_b); rh=max(0,fh-r_b)
             if gh: p.fillRect(bx+1,base-gh,bw-2,gh,QColor(T('green')))
             if yh: p.fillRect(bx+1,base-gh-yh,bw-2,yh,QColor(T('yellow')))
             if rh: p.fillRect(bx+1,base-fh,bw-2,rh,QColor(T('red')))
@@ -3899,7 +3939,7 @@ class VUMeter(QWidget):
         # Values below bar
         y0=by+bh+6
         p.setFont(_qfont(CF_AXIS, True))
-        c=T('red') if self.raw_spl>-6 else T('yellow') if self.raw_spl>-18 else T('accent')
+        c=T('red') if self.raw_spl>METER_RED_DB else T('yellow') if self.raw_spl>METER_YELLOW_DB else T('accent')
         p.setPen(QColor(c)); p.drawText(0,y0,W,16,Qt.AlignHCenter,f'{self.cal_spl:.1f}')
         p.setFont(_qfont(CF_ANNO)); p.setPen(QColor(T('text_dim')))
         p.drawText(0,y0+16,W,12,Qt.AlignHCenter,'dB')
@@ -5892,16 +5932,13 @@ class _MiniMeterBar(QWidget):
         bg = QColor(T('bg')); d = -20 if _theme == 'light' else 14
         track = QColor(max(0, min(bg.red()+d, 255)), max(0, min(bg.green()+d, 255)), max(0, min(bg.blue()+d+2, 255)))
         p.setPen(Qt.NoPen); p.setBrush(track); p.drawRoundedRect(QRectF(0, 0, W, H), rr, rr)
-        DB_MIN = -84.0; DB_MAX = 0.0   # 바닥 -84dBFS (Smaart 채널 미터 채움량에 맞춤)
-        ratio = max(0.0, min(1.0, (self._level - DB_MIN) / (DB_MAX - DB_MIN)))
-        bar_w = W * ratio
-        if bar_w > 1.5:
-            col = QColor(T('red')) if self._level > -3 else QColor(T('yellow')) if self._level > -9 else QColor(T('green'))
-            p.setBrush(col); p.drawRoundedRect(QRectF(0, 0, bar_w, H), rr, rr)
+        DB_MIN = METER_DB_MIN; DB_MAX = 0.0   # 모든 미터와 동일 스케일(통일)
+        # 위치 기반 green/yellow/red 구간 채움 (M4/Smaart 사다리)
+        _draw_zone_meter_h(p, W, H, self._level, DB_MIN, DB_MAX)
         # peak tick
         if self._peak > DB_MIN:
             px = W * max(0.0, min(1.0, (self._peak - DB_MIN) / (DB_MAX - DB_MIN)))
-            p.setPen(QPen(QColor(T('text_dim')), 1)); p.drawLine(int(px), 1, int(px), int(H - 1))
+            p.setPen(QPen(QColor(T('text')), 1)); p.drawLine(int(px), 1, int(px), int(H - 1))
         p.end()
 
 
@@ -8788,33 +8825,37 @@ class _HorizBarVU(QWidget):
     """Smaart 스타일 수평 레벨 바."""
     def __init__(self):
         super().__init__(); self.setFixedHeight(8)
-        self._db = -80.0; self._pk = -80.0; self._pk_hold = 0
+        self._db = -80.0; self._pk = -80.0; self._pk_hold = 0; self._last_t = 0.0
 
     def set_rms(self, db):
-        self._db = db; self._pk_hold += 1
-        if db > self._pk or self._pk_hold > 40:
-            self._pk = db; self._pk_hold = 0
+        # 시간 기반 탄도(빠른 어택/실시간 릴리즈) — 업데이트율 무관하게 일정한 실시간 반응
+        now = time.monotonic()
+        dt = (now - self._last_t) if self._last_t else 0.0
+        self._last_t = now
+        tau = METER_TAU_ATTACK if db > self._db else METER_TAU_RELEASE
+        a = (1.0 - math.exp(-dt / tau)) if dt > 0 else 1.0
+        self._db += (db - self._db) * a
+        # peak: 새 최대는 즉시, 아니면 시간기반 감쇠로 채움(_db)까지 매끄럽게 따라내림
+        if db > self._pk: self._pk = db
+        elif dt > 0: self._pk = max(self._pk - METER_PEAK_DECAY * dt, self._db)
         self.update()
 
     def reset(self):
-        self._db = -80.0; self._pk = -80.0; self._pk_hold = 0; self.update()
+        self._db = -80.0; self._pk = -80.0; self._pk_hold = 0; self._last_t = 0.0; self.update()
 
     def paintEvent(self, ev):
         # _MiniMeterBar(Spectrum 카드)와 동일한 모던 룩: 둥근 트랙 + 둥근 채움 + peak tick.
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
         W = self.width(); H = self.height(); rr = H / 2.0
-        DB_MIN = -60.0; DB_MAX = 0.0; rng = DB_MAX - DB_MIN
+        DB_MIN = METER_DB_MIN; DB_MAX = 0.0; rng = DB_MAX - DB_MIN
         bg = QColor(T('bg')); d = -20 if _theme == 'light' else 14   # 라이트 near-white → 어둡게
         track = QColor(max(0, min(bg.red()+d, 255)), max(0, min(bg.green()+d, 255)), max(0, min(bg.blue()+d+2, 255)))
         p.setPen(Qt.NoPen); p.setBrush(track); p.drawRoundedRect(QRectF(0, 0, W, H), rr, rr)
-        ratio = max(0.0, min(1.0, (self._db - DB_MIN) / rng))
-        bar_w = W * ratio
-        if bar_w > 1.5:
-            col = QColor(T('red')) if self._db > -3 else QColor(T('yellow')) if self._db > -9 else QColor(T('green'))
-            p.setBrush(col); p.drawRoundedRect(QRectF(0, 0, bar_w, H), rr, rr)
+        # 위치 기반 green/yellow/red 구간 채움 (M4/Smaart 사다리)
+        _draw_zone_meter_h(p, W, H, self._db, DB_MIN, DB_MAX)
         if self._pk > DB_MIN:
             px = W * max(0.0, min(1.0, (self._pk - DB_MIN) / rng))
-            p.setPen(QPen(QColor(T('text_dim')), 1)); p.drawLine(int(px), 1, int(px), int(H - 1))
+            p.setPen(QPen(QColor(T('text')), 1)); p.drawLine(int(px), 1, int(px), int(H - 1))
         p.end()
 
 
@@ -9018,7 +9059,7 @@ class _MeasCard(QFrame):
 
     def set_meas(self, db):
         self._m_bar.set_rms(db)
-        c = T('red') if db > -6 else T('yellow') if db > -18 else self._color
+        c = T('red') if db > METER_RED_DB else T('yellow') if db > METER_YELLOW_DB else self._color
         self._db_lbl.setStyleSheet(f'color:{c};background:transparent;font-size:{FS_XS}px;font-weight:bold;')
         self._db_lbl.setText(f'{db:.0f}')
 
@@ -13544,7 +13585,7 @@ class TransferFunctionWindow(QWidget):
         if hasattr(self, '_ref_vu_bar'):
             self._ref_vu_bar.set_rms(db)
         if hasattr(self, '_ref_db_lbl'):
-            c = T('red') if db > -6 else T('yellow') if db > -18 else T('text_dim')
+            c = T('red') if db > METER_RED_DB else T('yellow') if db > METER_YELLOW_DB else T('text_dim')
             self._ref_db_lbl.setStyleSheet(f'color:{c};font-size:9px;')
             self._ref_db_lbl.setText(f'{db:.0f}')
 
@@ -17108,7 +17149,7 @@ class MainWindow(QMainWindow):
         rms = float(np.sqrt(np.mean(buf ** 2)))
         raw_dbfs = 20 * math.log10(max(rms, 1e-10))
         with QMutexLocker(self._mutex):
-            va = 0.7 if raw_dbfs > self._raw_spl_smooth else (0.03 + self.speed_idx * 0.04)
+            va = METER_ATTACK if raw_dbfs > self._raw_spl_smooth else METER_RELEASE
             self._raw_spl_smooth += (raw_dbfs - self._raw_spl_smooth) * va
 
     def _calib_stop_measure(self):
@@ -18242,7 +18283,8 @@ class MainWindow(QMainWindow):
             fs_peak=20*math.log10(max(float(np.max(np.abs(buf))),1e-10))  # 풀스케일 디지털 피크(dBFS)
 
             # SPL 스무딩 (raw 기준)
-            va=0.7 if raw_dbfs>self._raw_spl_smooth else (0.03+self.speed_idx*0.04)
+            # 레벨미터 탄도 = Speed와 독립(항상 실시간). 그래프 곡선 스무딩과 별개.
+            va=METER_ATTACK if raw_dbfs>self._raw_spl_smooth else METER_RELEASE
             self._raw_spl_smooth+=(raw_dbfs-self._raw_spl_smooth)*va
             if raw_dbfs>self._raw_peak_smooth: self._raw_peak_smooth=raw_dbfs
             else: self._raw_peak_smooth-=0.25

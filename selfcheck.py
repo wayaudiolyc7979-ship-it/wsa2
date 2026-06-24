@@ -100,6 +100,25 @@ def _fft():
 check('FFTCanvas (FFT 곡선)', _fft)
 
 
+def _level_meters():
+    """레벨미터 구간(green/yellow/red 위치 사다리) — TF R/M(_HorizBarVU)+Spectrum 카드(_MiniMeterBar)
+    공통 _draw_zone_meter_h. 좌=_HorizBarVU(-60..0), 우=_MiniMeterBar(-84..0)."""
+    from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
+    assert w.METER_YELLOW_DB < w.METER_RED_DB < 0, 'zone 경계 순서 이상'
+    vals = [-50, -30, -18, -9, -3, -1]   # 조용→클립근접
+    cont = QWidget(); cont.resize(640, 18 * len(vals) + 16)
+    root = QVBoxLayout(cont); root.setContentsMargins(6, 6, 6, 6); root.setSpacing(5)
+    for v in vals:
+        row = QWidget(); rl = QHBoxLayout(row); rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(8)
+        b1 = w._HorizBarVU(); b1.setFixedSize(300, 12); b1.set_rms(v)
+        b2 = w._MiniMeterBar(); b2.setFixedSize(300, 12); b2.set_level(v)
+        rl.addWidget(b1); rl.addWidget(b2)
+        root.addWidget(row)
+    cont.show()
+    return _save(cont, 'level_meter_zones.png')
+check('레벨미터 구간(green/yellow/red 사다리)', _level_meters)
+
+
 def _tf_ir():
     cv = w.TFIRCanvas(); cv.resize(900, 280)
     return _save(cv, 'tf_ir.png')          # 빈 상태(엠프티) 렌더 — 축/그리드 확인
