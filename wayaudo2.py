@@ -16724,8 +16724,11 @@ class MainWindow(QMainWindow):
             )
             # TF 툴바 콤보는 부모(tb) 상속만으론 drawComplexControl이 Fusion 기본 프레임
             # (두꺼운 테두리+화살표+진한 배경)을 그려 Spectrum과 달라 보임 → _cb_ss 직접 적용해 통일.
-            # ref_cb/ref_ch_cb = 공유 Reference 'In' 콤보 — 빠져있어 라이트모드에서 검게 남던 문제 수정
-            for _cbn in ('fft_cb', 'avg_cb', 'sm_cb', 'ir_cb', 'phase_cb', 'ref_cb', 'ref_ch_cb'):
+            # 우측 패널 콤보(Reference In·Signal Gen Out)는 팝아웃 별도 창에선 전역 QComboBox
+            # 스타일을 못 받아 Fusion 기본(화살표·검정)으로 떨어짐 → _cb_ss 직접 적용해 임베드와 통일
+            for _cbn in ('fft_cb', 'avg_cb', 'sm_cb', 'ir_cb', 'phase_cb',
+                         'ref_cb', 'ref_ch_cb',
+                         'sig_out_cb', 'sig_out_ch_cb', 'sig_out_ch2_cb'):
                 _cbw = getattr(self.tf_win, _cbn, None)
                 if _cbw is not None: _cbw.setStyleSheet(_cb_ss)
             # Δ·stable 토글 버튼 — 테마 적응(라이트에서 다크박스 방지)
@@ -16959,9 +16962,10 @@ class MainWindow(QMainWindow):
         global _theme
         _theme='light' if _theme=='dark' else 'dark'
         self._apply_theme()
-        # 열려있는 팝아웃 창들의 네이티브 타이틀바 + 브랜드 헤더도 새 테마색으로 재적용
+        # 열려있는 팝아웃 창들: 컨트롤 스타일시트 + 네이티브 타이틀바 + 브랜드 헤더 재적용
         for _w in (self._tf_popout, self._spec_popout, self._st_popout):
             if _w is not None:
+                _w.setStyleSheet(self.styleSheet())   # 메인과 동일 컨트롤 스타일 갱신
                 _apply_native_titlebar_dark(_w)
                 _bh = getattr(_w, '_brand_hdr', None)   # Spectrum/Stereo 헤더 (TF는 restyle_theme가 처리)
                 if _bh is not None:
@@ -17281,7 +17285,7 @@ class MainWindow(QMainWindow):
         if tf is None or self._tf_popout is not None or self._split_on:
             return
         win = _TFPopoutWindow(self)
-        win.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
+        win.setStyleSheet(self.styleSheet())   # 메인 창과 동일한 컨트롤 스타일(버튼/콤보/스핀박스) 통째 적용 → 임베드와 동일 디자인
         lay = QVBoxLayout(win); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
         # 헤더 — 임베드 모드에서 숨겨둔 _hdr을 창에 표시
         tf._hdr.setParent(None); lay.addWidget(tf._hdr); tf._hdr.show()
@@ -17391,7 +17395,7 @@ class MainWindow(QMainWindow):
         if page is None or self._spec_popout is not None or self._split_on:
             return
         win = _SpectrumPopoutWindow(self)
-        win.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
+        win.setStyleSheet(self.styleSheet())   # 메인 창과 동일한 컨트롤 스타일(버튼/콤보/스핀박스) 통째 적용 → 임베드와 동일 디자인
         lay = QVBoxLayout(win); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
         _hdr = _make_brand_header('Spectrum'); win._brand_hdr = _hdr   # 로고+이름(가운데)+접기토글
         lay.addWidget(_hdr)
@@ -17484,7 +17488,7 @@ class MainWindow(QMainWindow):
         if page is None or self._st_popout is not None or self._split_on:
             return
         win = _StereoPopoutWindow(self)
-        win.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
+        win.setStyleSheet(self.styleSheet())   # 메인 창과 동일한 컨트롤 스타일(버튼/콤보/스핀박스) 통째 적용 → 임베드와 동일 디자인
         lay = QVBoxLayout(win); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
         _hdr = _make_brand_header('Stereo Loudness'); win._brand_hdr = _hdr   # 로고+이름+접기토글
         lay.addWidget(_hdr)
