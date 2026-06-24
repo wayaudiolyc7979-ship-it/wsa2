@@ -19627,6 +19627,8 @@ if __name__=='__main__':
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
     app.setApplicationName('SPECTRA')
+    app.setApplicationDisplayName('SPECTRA')   # macOS 앱메뉴(About/Hide/Quit)·작업표시줄 표기
+    app.setOrganizationName('WAYAUDIO')
     # 앱 전체 글꼴 — 가족만 교체(크기는 위젯별 stylesheet/기본 유지) → 레이아웃 영향 최소
     _appf = app.font(); _appf.setFamily(FONT_FAMILY); app.setFont(_appf)
 
