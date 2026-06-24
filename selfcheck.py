@@ -138,6 +138,62 @@ def _spl_alarm():
 check('SPL 알람 신호등 3상태(OK/AMBER/OVER)', _spl_alarm)
 
 
+def _spectrogram():
+    """SpectrogramCanvas — 합성 스펙트럼 120프레임(피크가 200Hz→5kHz 이동) 누적 렌더.
+    스펙트럼 3대 뷰 중 유일하게 selfcheck 무커버였음. 색맵·로그주파수축·시간누적 확인."""
+    cv = w.SpectrogramCanvas(); cv.resize(900, 360); cv.show()   # show 먼저 → 링버퍼 폭=페인트 폭
+    freqs = np.linspace(20, 24000, 1024).astype(np.float32)
+    lf = np.log10(freqs)
+    base = (-90 + 18 * np.exp(-((lf - np.log10(800)) ** 2) / 0.3)).astype(np.float32)
+    for i in range(120):
+        fc = 200 * (5000 / 200) ** (i / 119)          # 피크 주파수 로그 이동
+        peak = 45 * np.exp(-((lf - np.log10(fc)) ** 2) / 0.012)
+        cv.set_data(freqs, (base + peak).astype(np.float32))
+    return _save(cv, 'spectrogram.png')
+check('SpectrogramCanvas (색맵+이동피크 누적)', _spectrogram)
+
+
+def _tf_phase():
+    """TFPhaseCanvas 3모드 — 1ms 순수딜레이 위상. Wrapped/Unwrapped/Group Delay 각 렌더 +
+    모드별 축범위(±150/±540/-2~30ms). 지금까지 Mag만 간접 커버됐고 Phase는 무커버였음."""
+    from PyQt5.QtWidgets import QWidget, QVBoxLayout
+    f = np.logspace(np.log10(20), np.log10(20000), 600).astype(np.float32)
+    delay_s = 0.001
+    pu = (-2 * np.pi * f * delay_s * 180 / np.pi).astype(np.float32)   # unwrapped deg(선형)
+    pw = (((pu + 180) % 360) - 180).astype(np.float32)                  # wrapped [-180,180]
+    gm = np.full(len(f), delay_s * 1000, np.float32)                    # group delay = 1ms 일정
+    cont = QWidget(); cont.resize(900, 540)
+    col = QVBoxLayout(cont); col.setContentsMargins(6, 6, 6, 6); col.setSpacing(6)
+    for mode in range(3):           # 0 Wrapped / 1 Unwrapped / 2 Group Delay
+        cv = w.TFPhaseCanvas(); cv.setFixedHeight(168)
+        cv.set_mode(mode); cv.set_data(f, pw, pu, gm)
+        col.addWidget(cv)
+    cont.show()
+    return _save(cont, 'tf_phase_modes.png')
+check('TFPhaseCanvas 3모드(Wrapped/Unwrapped/GroupDelay)', _tf_phase)
+
+
+def _vectorscope():
+    """VectorscopeCanvas 3패턴 — 모노(L=R→대각)/와이드(무상관→구름)/역상(L=-R→반대대각).
+    전체 StereoLoudnessPage 안에서만 돌던 걸 통제신호로 단독 검증 + 상관도(_corr) 부호 단정."""
+    from PyQt5.QtWidgets import QWidget, QHBoxLayout
+    n = 4096; t = np.linspace(0, 1, n).astype(np.float32)
+    mono = np.sin(2 * np.pi * 200 * t).astype(np.float32)
+    na = (np.random.RandomState(1).randn(n) * 0.3).astype(np.float32)
+    nb = (np.random.RandomState(2).randn(n) * 0.3).astype(np.float32)
+    cases = [('mono', mono, mono), ('wide', na, nb), ('antiphase', mono, -mono)]
+    cont = QWidget(); cont.resize(660, 240)
+    row = QHBoxLayout(cont); row.setContentsMargins(8, 8, 8, 8); row.setSpacing(8)
+    corrs = []
+    for _name, L, R in cases:
+        cv = w.VectorscopeCanvas(); cv.setFixedSize(200, 200)
+        cv.push_chunk(L, R); corrs.append(round(cv._corr, 2)); row.addWidget(cv)
+    cont.show()
+    assert corrs[0] > 0.9 and corrs[2] < -0.9, f'상관도 부호 이상: {corrs}'
+    return _save(cont, 'vectorscope.png') + f'  corr(mono/wide/anti)={corrs}'
+check('VectorscopeCanvas 3패턴(모노/와이드/역상)', _vectorscope)
+
+
 def _tf_ir():
     cv = w.TFIRCanvas(); cv.resize(900, 280)
     return _save(cv, 'tf_ir.png')          # 빈 상태(엠프티) 렌더 — 축/그리드 확인
