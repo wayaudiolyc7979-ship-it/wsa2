@@ -15603,7 +15603,7 @@ class MainWindow(QMainWindow):
         self._render_t=QTimer(self); self._render_t.timeout.connect(self._render_frame); self._render_t.start(33)
 
         # ── 세션 자동기억: preset 관련 컨트롤 시그널 → _mark_session_dirty 배선
-        for _cb in (self.sr_cb, self.avg_cb, self.hold_cb, self.db_cb, self.spd_cb,
+        for _cb in (self.sr_cb, self.hold_cb, self.db_cb, self.spd_cb,
                     self._st_target_cb, self._st_l_cb, self._st_r_cb):
             try: _cb.currentIndexChanged.connect(self._mark_session_dirty)
             except Exception: pass
@@ -15827,13 +15827,7 @@ class MainWindow(QMainWindow):
         self.sr_cb.currentIndexChanged.connect(self._sr_changed)
         sl0.addWidget(self.sr_cb)
         sl0.addSpacing(12)
-        sl0.addWidget(self._lbl('Avg'))
-        self.avg_cb=RoundComboBox(); self.avg_cb._align_center=True; self.avg_cb.addItems(['None','4x','8x','16x'])
-        self.avg_cb.setCurrentIndex(3); self.avg_cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
-        self.avg_cb.setMinimumWidth(54); self.avg_cb.setFixedHeight(30)
-        self.avg_cb.currentIndexChanged.connect(self._avg_changed)
-        sl0.addWidget(self.avg_cb)
-        sl0.addSpacing(12)
+        # (Avg 컨트롤 제거됨 — 새 ballistic의 느린 하강이 평균 안정화를 대체. 응답 조절은 Response로 일원화)
         sl0.addWidget(self._lbl('Peak'))
         self.peak_btn=_CheckBtn('ON'); self.peak_btn.setChecked(True)
         self.peak_btn.setFixedWidth(50); self.peak_btn.setFixedHeight(30)
@@ -16568,7 +16562,7 @@ class MainWindow(QMainWindow):
         self._st_r_cb.setStyleSheet(_cb_ss)
         self._st_target_cb.setStyleSheet(_cb_ss)
         # Spectrum 툴바 콤보도 전역 cascade 대신 _cb_ss 직접 적용 → 3탭 콤보 100% 동일 보장
-        for _spc in ('sr_cb', 'avg_cb', 'hold_cb', 'db_cb', 'spd_cb'):
+        for _spc in ('sr_cb', 'hold_cb', 'db_cb', 'spd_cb'):
             _w = getattr(self, _spc, None)
             if _w is not None: _w.setStyleSheet(_cb_ss)
         # sub_stack의 bare-property cascade가 tf_win.tb 자식 버튼/콤보박스에
@@ -18588,16 +18582,6 @@ class MainWindow(QMainWindow):
         self.oct_cvs.set_speed(alpha,decay)
         self.fft_cvs._speed_idx=idx
 
-    def _avg_changed(self,idx):
-        self.avg_count=[1,4,8,16][idx]
-        with QMutexLocker(self._mutex):
-            self._avg_buf=deque(maxlen=self.avg_count)
-            # 추가 소스 카드들도 같은 평균 깊이로 재생성 — 안 하면 카드별 deque maxlen이
-            # 생성 시점 값에 고정돼 같은 마이크라도 응답 속도가 달라짐(카드3이 더 빨리/늦게 반응)
-            for st in self._ch_state.values():
-                if st.get('avg_buf') is not None:
-                    st['avg_buf']=deque(maxlen=self.avg_count)
-
     # ── Spectrum 상태 직렬화 (presets / auto-remember) ─────────────────
     def spec_get_state(self):
         try: scale = self._scale_seg.active() or 'log'
@@ -18605,7 +18589,7 @@ class MainWindow(QMainWindow):
         return {
             'view': getattr(self, 'view_mode', 'oct12'),
             'scale': scale,
-            'sr': self.sr_cb.currentIndex(), 'avg': self.avg_cb.currentIndex(),
+            'sr': self.sr_cb.currentIndex(),
             'peak': self.peak_btn.isChecked(), 'hold': self.hold_cb.currentIndex(),
             'db': self.db_cb.currentIndex(), 'speed': self.spd_cb.currentIndex(),
             'spectro': self.spectro_btn.isChecked(),
@@ -18626,7 +18610,7 @@ class MainWindow(QMainWindow):
         try:
             if 'scale' in d: self._set_scale(d['scale'] == 'log')
         except Exception: pass
-        for key, cb in (('sr', self.sr_cb), ('avg', self.avg_cb), ('hold', self.hold_cb),
+        for key, cb in (('sr', self.sr_cb), ('hold', self.hold_cb),
                         ('db', self.db_cb), ('speed', self.spd_cb)):
             try:
                 if key in d: cb.setCurrentIndex(int(d[key]))
