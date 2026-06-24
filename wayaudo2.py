@@ -1091,6 +1091,70 @@ def _apply_dark_titlebar(win, resizable=False, aux=None):
         _add_resize_grip(win)
 
 
+def _apply_native_titlebar_dark(win):
+    """macOS: 팝아웃 top-level 창의 네이티브 타이틀바를 메인 창과 동일하게 —
+    (1) FullSizeContentView+투명 → 본문 상단 브랜드 헤더가 타이틀바 행에 렌더되고
+    (2) 네이티브 제목 텍스트 숨김 (브랜드 헤더로 대체)
+    (3) 테마색 appearance(다크=DarkAqua). winId() 유효해야 하므로 show() 이후 호출."""
+    if sys.platform != 'darwin':
+        return
+    try:
+        import ctypes
+        objc = ctypes.cdll.LoadLibrary('/usr/lib/libobjc.A.dylib')
+        objc.sel_registerName.restype = ctypes.c_void_p
+        objc.sel_registerName.argtypes = [ctypes.c_char_p]
+        objc.objc_getClass.restype = ctypes.c_void_p
+        objc.objc_getClass.argtypes = [ctypes.c_char_p]
+        def sel(n): return objc.sel_registerName(n.encode())
+        def msg(restype, obj, sel_name, *args):
+            f = objc.objc_msgSend
+            f.restype = restype
+            f.argtypes = [ctypes.c_void_p, ctypes.c_void_p] + [type(a) for a in args]
+            return f(obj, sel(sel_name), *args)
+        ns_view = ctypes.c_void_p(int(win.winId()))
+        ns_window = msg(ctypes.c_void_p, ns_view, 'window')
+        if not ns_window:
+            return
+        # (1) NSFullSizeContentViewWindowMask(1<<15) — 콘텐츠를 타이틀바 영역까지 확장
+        style = msg(ctypes.c_ulong, ns_window, 'styleMask')
+        msg(None, ns_window, 'setStyleMask:', ctypes.c_ulong(style | (1 << 15)))
+        # (1) 타이틀바 투명 → 뒤의 브랜드 헤더(bg2)가 비쳐 다크 바가 됨
+        msg(None, ns_window, 'setTitlebarAppearsTransparent:', ctypes.c_bool(True))
+        # (2) 네이티브 제목 텍스트 숨김 (NSWindowTitleHidden=1)
+        msg(None, ns_window, 'setTitleVisibility:', ctypes.c_long(1))
+        name = b'NSAppearanceNameDarkAqua' if _theme == 'dark' else b'NSAppearanceNameAqua'
+        ns_str = msg(ctypes.c_void_p, objc.objc_getClass(b'NSString'),
+                     'stringWithUTF8String:', ctypes.c_char_p(name))
+        appearance = msg(ctypes.c_void_p, objc.objc_getClass(b'NSAppearance'),
+                         'appearanceNamed:', ctypes.c_void_p(ns_str))
+        if appearance:
+            msg(None, ns_window, 'setAppearance:', ctypes.c_void_p(appearance))
+        new_style = msg(ctypes.c_ulong, ns_window, 'styleMask')
+        _diag('popout_titlebar', win=type(win).__name__,
+              style_before=int(style), style_after=int(new_style),
+              fullsize=bool(int(new_style) & (1 << 15)))
+    except Exception as e:
+        try: _diag('popout_titlebar_fail', err=str(e))
+        except Exception: pass
+        try: _alog.debug(f'native titlebar dark 실패: {e}')
+        except Exception: pass
+
+
+def _make_brand_header(subtitle):
+    """팝아웃 본문 상단 브랜드 헤더 — 그라디언트 마크 + SPECTRA 워드마크 + 탭 이름, 가운데 정렬.
+    (TF self._hdr와 동일 스타일/높이 40) 닫으면 창과 함께 사라짐."""
+    bar = QWidget(); bar.setFixedHeight(40); bar.setObjectName('popoutBrandHdr')
+    bar.setStyleSheet(f'#popoutBrandHdr{{background:{T("bg2")};}}')
+    hl = QHBoxLayout(bar); hl.setContentsMargins(16, 0, 16, 0); hl.setSpacing(9)
+    mark = QLabel(); mark.setPixmap(_spectra_mark(20)); mark.setStyleSheet('background:transparent;')
+    logo = QLabel(); logo.setTextFormat(Qt.RichText); logo.setStyleSheet('background:transparent;')
+    logo.setText(f'<span style="font-size:14px;font-weight:700;color:{T("accent")};'
+                 f'letter-spacing:3px;">SPECTRA</span>'
+                 f'&nbsp;&nbsp;<span style="font-size:11px;color:{T("text_dim")};">{subtitle}</span>')
+    hl.addStretch(1); hl.addWidget(mark); hl.addWidget(logo); hl.addStretch(1)
+    return bar
+
+
 def _set_float_above_fullscreen(win):
     """macOS: 부모 없는 독립 창을 (1) 메인창이 풀스크린이어도 그 위에 뜨고
     (2) 모든 Space에 표시 + 메인창 최소화에도 살아남게 한다 (Smaart SPL 미터 방식).
@@ -10674,14 +10738,15 @@ class TransferFunctionWindow(QWidget):
         # 헤더 — self._hdr로 저장해야 embedded 모드에서 GC로 인한 C++ 객체 삭제 방지
         self._hdr = QWidget(); self._hdr.setFixedHeight(40)
         self._hdr.setStyleSheet(f'background:{T("bg2")};')
-        hl = QHBoxLayout(self._hdr); hl.setContentsMargins(16,0,16,0)
+        hl = QHBoxLayout(self._hdr); hl.setContentsMargins(16,0,16,0); hl.setSpacing(9)
+        _mark = QLabel(); _mark.setPixmap(_spectra_mark(20)); _mark.setStyleSheet('background:transparent;')
         logo = QLabel()
-        logo.setTextFormat(Qt.RichText)
+        logo.setTextFormat(Qt.RichText); logo.setStyleSheet('background:transparent;')
         logo.setText(f'<span style="font-size:14px;font-weight:700;color:{T("accent")};'
                      f'letter-spacing:3px;">SPECTRA</span>'
                      f'&nbsp;&nbsp;<span style="font-size:11px;color:{T("text_dim")};">'
                      f'Transfer Function</span>')
-        hl.addWidget(logo); hl.addStretch()
+        hl.addStretch(1); hl.addWidget(_mark); hl.addWidget(logo); hl.addStretch(1)
         self.status_lbl = QLabel('● Standby')
         self.status_lbl.setStyleSheet(ss_text(FS_BODY))
         hl.addWidget(self.status_lbl)
@@ -16565,6 +16630,19 @@ class MainWindow(QMainWindow):
         for _spc in ('sr_cb', 'hold_cb', 'db_cb', 'spd_cb'):
             _w = getattr(self, _spc, None)
             if _w is not None: _w.setStyleSheet(_cb_ss)
+        # Spectrum·Stereo 툴바 버튼도 TF처럼 그라디언트 펜 스타일 — 팝아웃 시 창 bare-bg
+        # cascade가 버튼을 평평한 검정으로 덮는 문제 해결(세그먼트 컨트롤은 자체 페인트라 무관).
+        _tb_btn_ss = (
+            f'QPushButton{{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
+            f'stop:0 {btn_bg0},stop:1 {btn_bg1});color:{text};border:1px solid {btn_bd};'
+            f'border-radius:7px;padding:3px 9px;font-size:11px;}}'
+            f'QPushButton:hover{{border:1px solid rgba({ar},{ag},{ab},160);color:{accent};}}')
+        # (:checked 규칙은 생략 — Peak/+Spectro 같은 _CheckBtn이 자체 페인트로 선택표시)
+        for _wn in ('_spec_tb_wrap', '_st_tb_wrap'):
+            _wrap = getattr(self, _wn, None)
+            _content = _wrap.widget() if _wrap is not None else None
+            if _content is not None:
+                _content.setStyleSheet(_tb_btn_ss)
         # sub_stack의 bare-property cascade가 tf_win.tb 자식 버튼/콤보박스에
         # border:none을 덮어쓰는 문제 → tb에 typed selector로 명시 스타일 재부여
         if hasattr(self, 'tf_win') and self.tf_win is not None:
@@ -16820,6 +16898,10 @@ class MainWindow(QMainWindow):
         global _theme
         _theme='light' if _theme=='dark' else 'dark'
         self._apply_theme()
+        # 열려있는 팝아웃 창들의 네이티브 타이틀바도 새 테마색으로 재적용
+        for _w in (self._tf_popout, self._spec_popout, self._st_popout):
+            if _w is not None:
+                _apply_native_titlebar_dark(_w)
 
     def _on_lang_toggle(self):
         global _LANG
@@ -17177,6 +17259,7 @@ class MainWindow(QMainWindow):
                 win.move(geo.center().x() - win.width() // 2,
                          geo.center().y() - win.height() // 2)
         win.show(); win.raise_(); win.activateWindow()
+        QTimer.singleShot(0, lambda w=win: _apply_native_titlebar_dark(w))  # Qt 창설정 후 적용
 
     def _dock_tf(self, via_close=False):
         """별도 창의 TF를 메인 탭으로 되돌린다(팝아웃의 역순)."""
@@ -17240,6 +17323,7 @@ class MainWindow(QMainWindow):
         win = _SpectrumPopoutWindow(self)
         win.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
         lay = QVBoxLayout(win); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
+        lay.addWidget(_make_brand_header('Spectrum'))   # 상단 브랜드 헤더(로고+이름, 가운데)
         # 툴바 — sub_stack page0(_sp0)에서 떼어 창으로
         self._sp0_lay.removeWidget(self._spec_tb_wrap)
         self._spec_tb_wrap.setParent(None)
@@ -17272,6 +17356,7 @@ class MainWindow(QMainWindow):
                 win.move(geo.center().x() - win.width() // 2,
                          geo.center().y() - win.height() // 2)
         win.show(); win.raise_(); win.activateWindow()
+        QTimer.singleShot(0, lambda w=win: _apply_native_titlebar_dark(w))  # Qt 창설정 후 적용
 
     def _dock_spec(self, via_close=False):
         win = self._spec_popout
@@ -17329,6 +17414,7 @@ class MainWindow(QMainWindow):
         win = _StereoPopoutWindow(self)
         win.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
         lay = QVBoxLayout(win); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
+        lay.addWidget(_make_brand_header('Stereo Loudness'))   # 상단 브랜드 헤더(로고+이름, 가운데)
         # 툴바 — sub_stack page2(_sp2)에서 떼어 창으로
         self._sp2_lay.removeWidget(self._st_tb_wrap)
         self._st_tb_wrap.setParent(None)
@@ -17361,6 +17447,7 @@ class MainWindow(QMainWindow):
                 win.move(geo.center().x() - win.width() // 2,
                          geo.center().y() - win.height() // 2)
         win.show(); win.raise_(); win.activateWindow()
+        QTimer.singleShot(0, lambda w=win: _apply_native_titlebar_dark(w))  # Qt 창설정 후 적용
 
     def _dock_st(self, via_close=False):
         win = self._st_popout
