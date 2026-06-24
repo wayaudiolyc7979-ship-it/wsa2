@@ -4729,7 +4729,12 @@ class _SplAlarmDisplay(QWidget):
         if v is not None and v >= self._limit:
             if self._over_since is None:
                 self._over_since = time.time()
+                _diag('spl_alarm', state='OVER', metric=self._label,
+                      val=round(v, 1), limit=round(self._limit, 1))
         else:
+            if self._over_since is not None:
+                _diag('spl_alarm', state='CLEAR', metric=self._label,
+                      val=(None if v is None else round(v, 1)), limit=round(self._limit, 1))
             self._over_since = None
         self.update()
 
@@ -11485,6 +11490,9 @@ class TransferFunctionWindow(QWidget):
         if not (analysis or playing):
             return
         _alog.info(f'TF 오디오 재구성  analysis={analysis} playing={playing}')
+        _diag('tf_reconfig', analysis=analysis, playing=playing,
+              ref=self.ref_cb.currentData(), ref_ch=self.ref_ch_cb.currentData(),
+              meas=self.meas_cb.currentData(), meas_ch=self.meas_ch_cb.currentData())
         # 하드 정지 — Fix A 덕분에 스트림이 확실히 닫혀 장치가 해제됨
         self._stop_analysis()
         self._stop_sig_gen()
@@ -12626,6 +12634,10 @@ class TransferFunctionWindow(QWidget):
                            self._rta_sub.device_idx not in self._engine.active_devices())
             stale = (time.monotonic() - self._rta_last_chunk > 1.2)   # 1.2초+ 청크 끊김 = 죽은 구독
             if device_changed or channel_changed or stream_gone or stale:
+                _diag('rta_resub', dev_chg=device_changed, ch_chg=channel_changed,
+                      stream_gone=stream_gone, stale=stale,
+                      old_dev=self._rta_sub.device_idx, new_dev=cur_dev,
+                      old_ch=self._rta_ch, new_ch=cur_ch)
                 self._rta_unsubscribe()
         if self._rta_sub is None:
             self._rta_subscribe()
@@ -13088,6 +13100,8 @@ class TransferFunctionWindow(QWidget):
                                       'group': group, 'source': f'card{i}'})
             added += 1
 
+        _diag('tf_capture_done', base=base, added=added,
+              cards=len(getattr(self, '_extra_pairs', [])), total=len(self._tf_captures))
         if added == 0:
             return
         _alog.info(f'TF 캡처 추가  base="{base}"  +{added}  total={len(self._tf_captures)}')
@@ -13495,6 +13509,10 @@ class TransferFunctionWindow(QWidget):
         if res is None:
             return
         f_m, H_m, coh_m = res
+        if not getattr(self, '_mtw_live_logged', False):
+            self._mtw_live_logged = True
+            _diag('mtw_live', stages=self._mtw.n_stages, n_fft=self._mtw.n_fft,
+                  pts=len(f_m), coh_med=round(float(np.median(coh_m)), 3))
         f_m = f_m.astype(np.float32)
         # 로그그리드 H/coh → 선형 freqs 그리드 보간 (Single과 동일한 입력 형태로 변환)
         H_raw = (np.interp(freqs, f_m, H_m.real)
@@ -13508,6 +13526,7 @@ class TransferFunctionWindow(QWidget):
         """라이브 엔진 전환: 0=Single FFT(기본), 1=MTW. fft_size 조정 후 분석 재시작."""
         mtw = (idx == 1)
         self._tf_engine_mtw = mtw
+        self._mtw_live_logged = False   # 엔진 전환마다 첫 라이브결과 마커 1회 재기록
         if mtw:
             if self._mtw is None or self._mtw.sr != self.sample_rate:
                 self._mtw = MTWEngine(self.sample_rate, n_fft=4096, n_stages=5)

@@ -119,6 +119,25 @@ def _level_meters():
 check('레벨미터 구간(green/yellow/red 사다리)', _level_meters)
 
 
+def _spl_alarm():
+    """SPL 알람 신호등(_SplAlarmDisplay) 3상태 — limit=100, amber=3.
+    OK(95)=초록 / AMBER(98)=노랑 / OVER(103)=빨강+▲over. set_value 임계 전환 로직도 함께 탐."""
+    from PyQt5.QtWidgets import QWidget, QHBoxLayout
+    cont = QWidget(); cont.resize(660, 240)
+    row = QHBoxLayout(cont); row.setContentsMargins(8, 8, 8, 8); row.setSpacing(8)
+    for v in (95.0, 98.0, 103.0):
+        d = w._SplAlarmDisplay(); d.configure('LAeq', 'dBA', 100.0, 3.0); d.set_value(v)
+        row.addWidget(d)
+    cont.show()
+    # 임계 진입/해제 엣지 로직 검증(_diag spl_alarm 트리거 지점)
+    d2 = w._SplAlarmDisplay(); d2.configure('LAeq', 'dBA', 100.0, 3.0)
+    d2.set_value(90.0); assert d2._over_since is None, '90→OK인데 over_since 설정됨'
+    d2.set_value(105.0); assert d2._over_since is not None, '105→OVER인데 over_since 미설정'
+    d2.set_value(90.0); assert d2._over_since is None, 'OVER→해제인데 over_since 안 비워짐'
+    return _save(cont, 'spl_alarm.png')
+check('SPL 알람 신호등 3상태(OK/AMBER/OVER)', _spl_alarm)
+
+
 def _tf_ir():
     cv = w.TFIRCanvas(); cv.resize(900, 280)
     return _save(cv, 'tf_ir.png')          # 빈 상태(엠프티) 렌더 — 축/그리드 확인
