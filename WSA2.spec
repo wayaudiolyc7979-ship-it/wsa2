@@ -89,7 +89,7 @@ app = BUNDLE(
         'LSMinimumSystemVersion': '12.0',
         'CFBundleShortVersionString': '1.6.1',
         'CFBundleVersion': '1.6.1',
-        'CFBundleName': 'WSA2',
+        'CFBundleName': 'SPECTRA',
         'CFBundleDisplayName': 'SPECTRA',
         'CFBundleExecutable': 'WSA2',
         'NSRequiresAquaSystemAppearance': False,
