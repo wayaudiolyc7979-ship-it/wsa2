@@ -319,12 +319,31 @@ class LicenseDialog(QDialog):
 MAX_DB = 0
 CAPTURE_COLORS = ['#69f0ae','#ffff00','#ff80ab','#ea80fc',
                   '#ff6e6e','#80d8ff','#ffd740','#ccff90']
+# ══════════════════════════════════════════════════════════════════════════
+#  ⚙️  스펙트럼 응답(ballistic) 튜닝  —  여기 숫자만 바꾸면 됨   [찾기: SPEC_TUNING]
+# --------------------------------------------------------------------------
+#  SPEC_ATTACK   : 막대가 "올라오는" 부드러움.
+#                  값 ↓ = 더 부드럽게(상승을 여러 프레임에 나눔)
+#                  값 ↑ = 더 빠릿/즉각(너무 높으면 "팍팍" 톱니처럼 튐)
+#                  0.28=부드러움(현재) · 0.5=빠름 · 0.7=즉각
+#  SPEC_FALL_MS  : Response 단계별 "내려오는 시간"(−12dB, 밀리초). 값 ↑ = 더 천천히.
+#                  예) 'Normal' 을 900 → 1200 으로 올리면 Normal이 더 차분해짐.
+# ══════════════════════════════════════════════════════════════════════════
+SPEC_ATTACK  = 0.28
+SPEC_FALL_MS = {'Slowest': 2500, 'Slow': 1500, 'Normal': 900, 'Fast': 600, 'Fastest': 400}
+# ══════════════════════════════════════════════════════════════════════════
+
+def _fall_ms_to_s(ms):
+    """−12dB 하강시간(ms) → 릴리즈 평활계수 s (30fps 파워도메인). SPEC_FALL_MS에서 자동 계산."""
+    return 0.063 ** (33.0 / ms)        # s = 1-r,  r = 1 - 0.063**(33/ms)
+
+# (label, 릴리즈s[자동계산], col2/col3=레거시) — 순서 = 느림→빠름
 SPEED_LEVELS = [
-    ("Slowest", 0.950, 0.030, 0.05),
-    ("Slow",    0.900, 0.060, 0.10),
-    ("Normal",  0.800, 0.120, 0.20),
-    ("Fast",    0.650, 0.200, 0.35),
-    ("Fastest", 0.450, 0.300, 0.55),
+    (_n, _fall_ms_to_s(SPEC_FALL_MS[_n]), _c2, _c3)
+    for _n, _c2, _c3 in [
+        ('Slowest', 0.030, 0.05), ('Slow', 0.060, 0.10), ('Normal', 0.120, 0.20),
+        ('Fast', 0.200, 0.35), ('Fastest', 0.300, 0.55),
+    ]
 ]
 THIRD_OCT = [
     20,25,31.5,40,50,63,80,100,125,160,200,250,
@@ -3026,6 +3045,7 @@ class OctaveCanvas(QWidget):
         self.peaks ={k:np.full(len(v),-96.0) for k,v in BANDS.items()}
         self.db_min=-96; self.db_max=MAX_DB
         self.peak_hold=True; self.alpha=1.0-SPEED_LEVELS[2][1]; self.decay=0.08
+        self.attack=SPEC_ATTACK   # 상승(어택) 계수 — self.alpha(하강/릴리즈)보다 빠름
         self.peak_hold_frames=30           # 기본 1초 홀드 (30fps)
         self.peak_decay_rate_pk=20.0/30.0  # 20 dB/s 고정 낙하
         self._peak_age ={k:np.zeros(len(v),dtype=np.int32) for k,v in BANDS.items()}
@@ -3192,9 +3212,8 @@ class OctaveCanvas(QWidget):
         # primary 막대(update_data)와 동일한 캔버스 ballistic(alpha IIR)을 추가 소스에도 적용.
         # 안 하면 primary만 캔버스 평활이 한 번 더 들어가 같은 마이크라도 추가 카드가
         # 어택에서 먼저 튀어오름(응답 속도 불일치).
-        prev = self._ch_oct.get(cid, {}).get('values')
-        if prev is not None and len(prev) == len(vals):
-            vals = prev + (vals - prev) * self.alpha
+        # ballistic은 소스단(_process_extra_source)에서 적용 — 여기선 그대로 표시
+        # (primary 막대와 동일 위치/계수라 응답 일치)
         self._ch_oct[cid] = {'color': color, 'values': vals,
                              'visible': self._ch_visible.get(cid, True)}
         self.update()
@@ -3216,7 +3235,9 @@ class OctaveCanvas(QWidget):
         if mode!=self.mode: return
         sm=self.smooth[mode]; pk=self.peaks[mode]
         vals=np.array(values,dtype=np.float64)
-        sm+=(vals-sm)*self.alpha
+        # ballistic(빠른 상승·느린 하강)은 소스단(_process_audio/_process_extra_source)에서
+        # 단일 적용 → 캔버스는 그대로 표시(이중 평활 제거로 하강이 자연스러움)
+        sm[:]=vals
         if self.peak_hold:
             age=self._peak_age[mode]
             mask=sm>pk; pk[mask]=sm[mask]; age[mask]=0; age[~mask]+=1
@@ -18047,15 +18068,14 @@ class MainWindow(QMainWindow):
                 self._aw_table=np.array([a_weight_db(f) for f in freqs])
                 self._cw_table=np.array([c_weight_db(f) for f in freqs])
             else:
-                # 파워 도메인 IIR 스무딩 → dB 변환 (저역 과도현상 팽창 방지)
-                self._pow_smooth*=s; self._pow_smooth+=pow_raw*(1-s)
+                # 빠른 상승·느린 하강 단일 엔벌로프(파워도메인): 상승 빈=SPEC_ATTACK(빠름),
+                # 하강 빈=(1-s) Response 설정 속도. 이동평균·이중평활 없이 한 단계 → 하강 자연스럽게.
+                _w=np.where(pow_raw>self._pow_smooth, SPEC_ATTACK, 1.0-s)
+                self._pow_smooth+=(pow_raw-self._pow_smooth)*_w
                 np.log10(np.maximum(self._pow_smooth,1e-30),out=self._fft_smooth)
                 self._fft_smooth*=10.0
-            self._avg_buf.append(self._fft_smooth.copy())
-            avg_raw=np.mean(list(self._avg_buf),axis=0)
-
             # ★ 캘리브 오프셋은 그래프용 avg에만 더함 (입력 신호 불변)
-            avg_cal = avg_raw + self.calib_offset
+            avg_cal = self._fft_smooth + self.calib_offset
 
             # ★ SPL: raw dBFS로 VU 바 높이 계산, cal 값은 숫자 표시에만
             rms=float(np.sqrt(np.mean(buf**2)))
@@ -18223,12 +18243,12 @@ class MainWindow(QMainWindow):
                 state['pow_smooth'] = pow_raw.copy()
                 state['fft_smooth'] = db_raw.copy()
             else:
-                state['pow_smooth'] *= s
-                state['pow_smooth'] += pow_raw * (1 - s)
+                # primary(_process_audio)와 동일한 단일 비대칭 엔벌로프 — 응답 일치
+                _w = np.where(pow_raw > state['pow_smooth'], SPEC_ATTACK, 1.0 - s)
+                state['pow_smooth'] += (pow_raw - state['pow_smooth']) * _w
                 np.log10(np.maximum(state['pow_smooth'], 1e-30), out=state['fft_smooth'])
                 state['fft_smooth'] *= 10.0
-            state['avg_buf'].append(state['fft_smooth'].copy())
-            avg_cal = np.mean(list(state['avg_buf']), axis=0) + src_calib
+            avg_cal = state['fft_smooth'] + src_calib
             self._ch_pending_extra[card_id] = (freqs, avg_cal, raw_dbfs, color)
 
         # 이 소스가 SPL 미터 측정 대상이면 Z/A/C/fs_peak 계산해 push (뮤텍스 밖)
