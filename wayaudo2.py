@@ -1140,19 +1140,73 @@ def _apply_native_titlebar_dark(win):
         except Exception: pass
 
 
+def _brand_logo_html(subtitle):
+    """브랜드 헤더 워드마크 RichText — SPECTRA(accent) + 부제(text_dim). 테마색 반영."""
+    return (f'<span style="font-size:14px;font-weight:700;color:{T("accent")};'
+            f'letter-spacing:3px;">SPECTRA</span>'
+            f'&nbsp;&nbsp;<span style="font-size:11px;color:{T("text_dim")};">{subtitle}</span>')
+
+
+class _CollapseBtn(QPushButton):
+    """툴바(메뉴) 접기 토글 — 셰브론 직접 페인트. 펼침=▴(접기), 접힘=▾(펼치기)."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCheckable(True); self.setFixedSize(30, 24)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip('Hide / show toolbar')
+        self.setStyleSheet('QPushButton{background:transparent;border:none;}')
+    def paintEvent(self, e):
+        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
+        c = QColor(T('accent'))
+        if self.underMouse(): c = c.lighter(120)
+        p.setPen(QPen(c, 2.0, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        cx, cy, s = self.width()/2, self.height()/2, 5
+        if self.isChecked():   # 접힌 상태 → ▾ (클릭하면 펼침)
+            p.drawLine(int(cx-s), int(cy-2), int(cx), int(cy+3))
+            p.drawLine(int(cx), int(cy+3), int(cx+s), int(cy-2))
+        else:                  # 펼친 상태 → ▴ (클릭하면 접힘)
+            p.drawLine(int(cx-s), int(cy+2), int(cx), int(cy-3))
+            p.drawLine(int(cx), int(cy-3), int(cx+s), int(cy+2))
+        p.end()
+
+
+class _BrandHeaderBar(QWidget):
+    """팝아웃 상단 브랜드 헤더 — 더블클릭 시 창 최대화↔복원 토글(메인 창 헤더와 동일 UX)."""
+    def mouseDoubleClickEvent(self, e):
+        w = self.window()
+        if w is not None:
+            w.showNormal() if w.isMaximized() else w.showMaximized()
+        super().mouseDoubleClickEvent(e)
+
+
 def _make_brand_header(subtitle):
-    """팝아웃 본문 상단 브랜드 헤더 — 그라디언트 마크 + SPECTRA 워드마크 + 탭 이름, 가운데 정렬.
-    (TF self._hdr와 동일 스타일/높이 40) 닫으면 창과 함께 사라짐."""
-    bar = QWidget(); bar.setFixedHeight(40); bar.setObjectName('popoutBrandHdr')
+    """팝아웃 본문 상단 브랜드 헤더 — 그라디언트 마크 + SPECTRA 워드마크 + 탭 이름(가운데),
+    우측에 툴바 접기 토글(_toggle_btn). 더블클릭=최대화/복원. (TF self._hdr와 동일 높이 40)."""
+    bar = _BrandHeaderBar(); bar.setFixedHeight(40); bar.setObjectName('popoutBrandHdr')
     bar.setStyleSheet(f'#popoutBrandHdr{{background:{T("bg2")};}}')
+    bar._subtitle = subtitle
     hl = QHBoxLayout(bar); hl.setContentsMargins(16, 0, 16, 0); hl.setSpacing(9)
     mark = QLabel(); mark.setPixmap(_spectra_mark(20)); mark.setStyleSheet('background:transparent;')
     logo = QLabel(); logo.setTextFormat(Qt.RichText); logo.setStyleSheet('background:transparent;')
-    logo.setText(f'<span style="font-size:14px;font-weight:700;color:{T("accent")};'
-                 f'letter-spacing:3px;">SPECTRA</span>'
-                 f'&nbsp;&nbsp;<span style="font-size:11px;color:{T("text_dim")};">{subtitle}</span>')
+    logo.setText(_brand_logo_html(subtitle)); bar._logo = logo
+    # 라벨은 마우스 투명 → 헤더가 더블클릭을 받아 최대화 토글 (토글 버튼은 그대로 동작)
+    for _lb in (mark, logo):
+        _lb.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+    toggle = _CollapseBtn(); bar._toggle_btn = toggle
+    hl.addSpacing(30)          # 우측 토글 버튼 폭만큼 좌측 보정 → 로고 진짜 가운데
     hl.addStretch(1); hl.addWidget(mark); hl.addWidget(logo); hl.addStretch(1)
+    hl.addWidget(toggle)
     return bar
+
+
+def _restyle_brand_header(bar):
+    """테마 토글 시 브랜드 헤더 배경/워드마크 색 갱신 (팝아웃 타이틀바가 라이트에서 검게 남는 문제 방지)."""
+    try:
+        bar.setStyleSheet(f'#popoutBrandHdr{{background:{T("bg2")};}}')
+        if hasattr(bar, '_logo'):
+            bar._logo.setText(_brand_logo_html(getattr(bar, '_subtitle', '')))
+    except Exception:
+        pass
 
 
 def _set_float_above_fullscreen(win):
@@ -10736,17 +10790,18 @@ class TransferFunctionWindow(QWidget):
         root = QVBoxLayout(self); root.setSpacing(0); root.setContentsMargins(0,0,0,0)
 
         # 헤더 — self._hdr로 저장해야 embedded 모드에서 GC로 인한 C++ 객체 삭제 방지
-        self._hdr = QWidget(); self._hdr.setFixedHeight(40)
-        self._hdr.setStyleSheet(f'background:{T("bg2")};')
+        self._hdr = _BrandHeaderBar(); self._hdr.setFixedHeight(40); self._hdr.setObjectName('tfBrandHdr')
+        self._hdr.setStyleSheet(f'#tfBrandHdr{{background:{T("bg2")};}}')
         hl = QHBoxLayout(self._hdr); hl.setContentsMargins(16,0,16,0); hl.setSpacing(9)
         _mark = QLabel(); _mark.setPixmap(_spectra_mark(20)); _mark.setStyleSheet('background:transparent;')
-        logo = QLabel()
-        logo.setTextFormat(Qt.RichText); logo.setStyleSheet('background:transparent;')
-        logo.setText(f'<span style="font-size:14px;font-weight:700;color:{T("accent")};'
-                     f'letter-spacing:3px;">SPECTRA</span>'
-                     f'&nbsp;&nbsp;<span style="font-size:11px;color:{T("text_dim")};">'
-                     f'Transfer Function</span>')
-        hl.addStretch(1); hl.addWidget(_mark); hl.addWidget(logo); hl.addStretch(1)
+        self._hdr_logo = QLabel()
+        self._hdr_logo.setTextFormat(Qt.RichText); self._hdr_logo.setStyleSheet('background:transparent;')
+        self._hdr_logo.setText(_brand_logo_html('Transfer Function'))
+        # 라벨 마우스 투명 → 헤더 더블클릭으로 창 최대화/복원 (메인 헤더와 동일)
+        for _lb in (_mark, self._hdr_logo):
+            _lb.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        hl.addSpacing(30)   # 우측 토글 버튼 폭 보정(팝아웃 시 추가) → 로고 가운데
+        hl.addStretch(1); hl.addWidget(_mark); hl.addWidget(self._hdr_logo); hl.addStretch(1)
         self.status_lbl = QLabel('● Standby')
         self.status_lbl.setStyleSheet(ss_text(FS_BODY))
         hl.addWidget(self.status_lbl)
@@ -11822,6 +11877,11 @@ class TransferFunctionWindow(QWidget):
 
     def restyle_theme(self):
         """테마 토글(다크↔라이트) 시 측정 카드들의 인라인-구운 색을 재적용."""
+        # 브랜드 헤더(팝아웃 타이틀바) 배경/워드마크 — 라이트에서 검게 남던 문제 수정
+        if hasattr(self, '_hdr'):
+            self._hdr.setStyleSheet(f'#tfBrandHdr{{background:{T("bg2")};}}')
+        if hasattr(self, '_hdr_logo'):
+            self._hdr_logo.setText(_brand_logo_html('Transfer Function'))
         # TF 툴바 토글 버튼(델타/스테이블/팝아웃) 테마 재적용
         for _btn in (getattr(self, 'delta_btn', None),
                      getattr(self, 'tf_stable_btn', None),
@@ -16664,7 +16724,8 @@ class MainWindow(QMainWindow):
             )
             # TF 툴바 콤보는 부모(tb) 상속만으론 drawComplexControl이 Fusion 기본 프레임
             # (두꺼운 테두리+화살표+진한 배경)을 그려 Spectrum과 달라 보임 → _cb_ss 직접 적용해 통일.
-            for _cbn in ('fft_cb', 'avg_cb', 'sm_cb', 'ir_cb', 'phase_cb'):
+            # ref_cb/ref_ch_cb = 공유 Reference 'In' 콤보 — 빠져있어 라이트모드에서 검게 남던 문제 수정
+            for _cbn in ('fft_cb', 'avg_cb', 'sm_cb', 'ir_cb', 'phase_cb', 'ref_cb', 'ref_ch_cb'):
                 _cbw = getattr(self.tf_win, _cbn, None)
                 if _cbw is not None: _cbw.setStyleSheet(_cb_ss)
             # Δ·stable 토글 버튼 — 테마 적응(라이트에서 다크박스 방지)
@@ -16898,10 +16959,13 @@ class MainWindow(QMainWindow):
         global _theme
         _theme='light' if _theme=='dark' else 'dark'
         self._apply_theme()
-        # 열려있는 팝아웃 창들의 네이티브 타이틀바도 새 테마색으로 재적용
+        # 열려있는 팝아웃 창들의 네이티브 타이틀바 + 브랜드 헤더도 새 테마색으로 재적용
         for _w in (self._tf_popout, self._spec_popout, self._st_popout):
             if _w is not None:
                 _apply_native_titlebar_dark(_w)
+                _bh = getattr(_w, '_brand_hdr', None)   # Spectrum/Stereo 헤더 (TF는 restyle_theme가 처리)
+                if _bh is not None:
+                    _restyle_brand_header(_bh)
 
     def _on_lang_toggle(self):
         global _LANG
@@ -17228,6 +17292,12 @@ class MainWindow(QMainWindow):
         self._sp1_lay.removeWidget(self._tf_tb_wrap)
         self._tf_tb_wrap.setParent(None)
         lay.addWidget(self._tf_tb_wrap)
+        # 툴바 접기 토글 — tf._hdr 우측에 1회 생성(재팝아웃 중복 방지), _tf_tb_wrap 토글
+        if not hasattr(tf, '_hdr_toggle'):
+            tf._hdr_toggle = _CollapseBtn()
+            tf._hdr.layout().addWidget(tf._hdr_toggle)
+            tf._hdr_toggle.toggled.connect(lambda hide: self._tf_tb_wrap.setVisible(not hide))
+        tf._hdr_toggle.setChecked(False); self._tf_tb_wrap.setVisible(True)
         # 본체 — main_stack index1에서 떼고 그 자리에 플레이스홀더
         was_tf_tab = (self.main_stack.currentIndex() == 1)
         self.main_stack.removeWidget(tf)
@@ -17279,8 +17349,8 @@ class MainWindow(QMainWindow):
         # 헤더 — 다시 숨김(임베드 원상태)
         tf.status_lbl.show()
         tf._hdr.setParent(None); tf._hdr.hide()
-        # 툴바 — 다시 sub_stack page1로
-        self._tf_tb_wrap.setParent(None)
+        # 툴바 — 다시 sub_stack page1로 (접혀있었으면 다시 표시)
+        self._tf_tb_wrap.setParent(None); self._tf_tb_wrap.setVisible(True)
         self._sp1_lay.addWidget(self._tf_tb_wrap)
         # 본체 — 플레이스홀더 제거 후 index1 복원
         if self._tf_placeholder is not None:
@@ -17323,11 +17393,13 @@ class MainWindow(QMainWindow):
         win = _SpectrumPopoutWindow(self)
         win.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
         lay = QVBoxLayout(win); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
-        lay.addWidget(_make_brand_header('Spectrum'))   # 상단 브랜드 헤더(로고+이름, 가운데)
+        _hdr = _make_brand_header('Spectrum'); win._brand_hdr = _hdr   # 로고+이름(가운데)+접기토글
+        lay.addWidget(_hdr)
         # 툴바 — sub_stack page0(_sp0)에서 떼어 창으로
         self._sp0_lay.removeWidget(self._spec_tb_wrap)
         self._spec_tb_wrap.setParent(None)
         lay.addWidget(self._spec_tb_wrap)
+        _hdr._toggle_btn.toggled.connect(lambda hide: self._spec_tb_wrap.setVisible(not hide))
         # 본체 — main_stack index0에서 떼고 그 자리에 플레이스홀더
         was_tab = (self.main_stack.currentIndex() == 0)
         self.main_stack.removeWidget(page)
@@ -17371,8 +17443,8 @@ class MainWindow(QMainWindow):
         self._spec_popout = None
         win._docking = True
         page = self._spec_page0
-        # 툴바 — 다시 sub_stack page0로
-        self._spec_tb_wrap.setParent(None)
+        # 툴바 — 다시 sub_stack page0로 (접혀있었으면 다시 표시)
+        self._spec_tb_wrap.setParent(None); self._spec_tb_wrap.setVisible(True)
         self._sp0_lay.addWidget(self._spec_tb_wrap)
         # 본체 — 플레이스홀더 제거 후 index0 복원
         if self._spec_placeholder is not None:
@@ -17414,11 +17486,13 @@ class MainWindow(QMainWindow):
         win = _StereoPopoutWindow(self)
         win.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
         lay = QVBoxLayout(win); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
-        lay.addWidget(_make_brand_header('Stereo Loudness'))   # 상단 브랜드 헤더(로고+이름, 가운데)
+        _hdr = _make_brand_header('Stereo Loudness'); win._brand_hdr = _hdr   # 로고+이름+접기토글
+        lay.addWidget(_hdr)
         # 툴바 — sub_stack page2(_sp2)에서 떼어 창으로
         self._sp2_lay.removeWidget(self._st_tb_wrap)
         self._st_tb_wrap.setParent(None)
         lay.addWidget(self._st_tb_wrap)
+        _hdr._toggle_btn.toggled.connect(lambda hide: self._st_tb_wrap.setVisible(not hide))
         # 본체 — main_stack index2에서 떼고 그 자리에 플레이스홀더
         was_tab = (self.main_stack.currentIndex() == 2)
         self.main_stack.removeWidget(page)
@@ -17462,7 +17536,7 @@ class MainWindow(QMainWindow):
         self._st_popout = None
         win._docking = True
         page = self.stereo_page
-        self._st_tb_wrap.setParent(None)
+        self._st_tb_wrap.setParent(None); self._st_tb_wrap.setVisible(True)
         self._sp2_lay.addWidget(self._st_tb_wrap)
         if self._st_placeholder is not None:
             self.main_stack.removeWidget(self._st_placeholder)
