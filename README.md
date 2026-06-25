@@ -7,7 +7,7 @@
 **정밀 음향 측정을, 가장 세련되게.**
 Spectrum Analyzer · by **WAYAUDIO**
 
-![version](https://img.shields.io/badge/version-1.5-4E7DF0)
+![version](https://img.shields.io/badge/version-1.7-4E7DF0)
 ![platform](https://img.shields.io/badge/platform-macOS%20·%20Windows-9B5DE5)
 ![license](https://img.shields.io/badge/license-Proprietary-8E8E93)
 
@@ -35,10 +35,12 @@ SPECTRA는 소리를 **눈으로 보는** 음향 측정 도구입니다. 실시�
 | **Transfer Function** | 스피커·룸 측정 — 매그니튜드 · 위상 · 코히어런스 · 임펄스 응답, 자동 딜레이, 다지점 비교 |
 | **Stereo Loudness** | 방송·음원 라우드니스 — 벡터스코프 · 라우드니스 레이더 · M/S/I · True Peak · LRA |
 
-- 🌗 다크 / 라이트 테마
+- ⚡ 적응형 TF 엔진 (멀티레이트 라이브) + 정밀 스윕 측정 (Farina ESS · THD/SNR)
+- 💾 이름 프리셋 — 세 탭 설정을 저장하고 한 번에 불러오기 (+ 마지막 세션 자동 복원)
+- 🌐 한국어 / 영어 전환 · 🌗 다크 / 라이트 테마
 - 🎚️ 마이크 캘리브레이션 (94 / 114 dBSPL 기준기)
-- 📊 자유 배치 SPL 미터
-- 🔊 신호 발생기 내장 (Pink · White · Sweep · File)
+- 📊 자유 배치 SPL 미터 · 🚦 SPL 임계 알람 창
+- 🔊 신호 발생기 내장 (Pink · White · Sine · Sweep · File)
 - 📸 캡쳐 & 비교 (Δ)
 
 ## 📦 설치 (사용자)

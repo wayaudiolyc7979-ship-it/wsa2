@@ -306,7 +306,6 @@
       <span class="cz" style="left:60%;top:5.5%">6</span>
       <span class="cz" style="left:70%;top:5.5%">7</span>
       <span class="cz" style="left:80%;top:5.5%">8</span>
-      <span class="cz" style="left:90%;top:5.5%">9</span>
     </div>
     <figcaption>▲ <b>Spectrum 탭</b> — 위 툴바의 번호별 설명은 아래 표를 보세요. (번호 위치는 실제 화면에 맞춰 조정됩니다)</figcaption>
   </figure>
@@ -319,10 +318,9 @@
     <tr><td>3</td><td class="lbl">+Spectro</td><td>스펙트로그램 추가. 시간에 따른 변화를 <b>색 히트맵</b>으로 아래로 흘려보여요.</td></tr>
     <tr><td>4</td><td class="lbl">Log / Lin</td><td>가로축 눈금. <b>Log</b>=사람 귀처럼 저음을 넓게(추천), <b>Lin</b>=고르게.</td></tr>
     <tr><td>5</td><td class="lbl">SR</td><td>샘플레이트(44.1 / 48 / 88.2 / 96 kHz). 보통 장치에 맞춰 그대로.</td></tr>
-    <tr><td>6</td><td class="lbl">Avg</td><td>평균(None / 4x / 8x / 16x). 곡선이 떨리면 올려서 <b>부드럽게</b>, 정밀히 보려면 낮게.</td></tr>
-    <tr><td>7</td><td class="lbl">Peak (ON / Reset)</td><td>피크 홀드. 지나간 <b>최고값을 선으로</b> 남겨요. <b>Reset</b>으로 지움. 옆 <b>Hold</b>로 유지 시간(Fast~1s) 설정.</td></tr>
-    <tr><td>8</td><td class="lbl">Range / Speed / Color</td><td><b>Range</b>=세로축 dB 폭(72/96/120dB), <b>Speed</b>=곡선 반응 속도, <b>Color</b>=곡선 색 변경.</td></tr>
-    <tr><td>9</td><td class="lbl">Capture · ↗ · 패널 토글</td><td><b>Capture</b>=현재 곡선 박제(<kbd>Space</kbd>, 12번), <b>↗</b>=Spectrum을 별도 창으로, 맨 끝 아이콘=우측 패널 접기/펴기.</td></tr>
+    <tr><td>6</td><td class="lbl">Peak (ON / Reset)</td><td>피크 홀드. 지나간 <b>최고값을 선으로</b> 남겨요. <b>Reset</b>으로 지움. 옆 <b>Hold</b>로 유지 시간(Fast~1s) 설정.</td></tr>
+    <tr><td>7</td><td class="lbl">Range / Speed / Color</td><td><b>Range</b>=세로축 dB 폭(72/96/120dB), <b>Speed</b>=곡선 반응 속도(Fast~Stable — 소리에 빠르게 올라오고 천천히 내려옴), <b>Color</b>=곡선 색 변경.</td></tr>
+    <tr><td>8</td><td class="lbl">Capture · ↗ · 패널 토글</td><td><b>Capture</b>=현재 곡선 박제(<kbd>Space</kbd>), <b>↗</b>=Spectrum을 별도 창으로, 맨 끝 아이콘=우측 패널 접기/펴기.</td></tr>
   </table>
 
   <h3>화면 읽는 법</h3>
@@ -431,7 +429,7 @@
     <tr><th>#</th><th>영역</th><th>무엇</th></tr>
     <tr><td>1</td><td class="lbl">벡터스코프</td><td>좌우 채널의 위상/이미지 관계. 모서리 <span class="pill">↗</span>로 별도 창 가능.</td></tr>
     <tr><td>2</td><td class="lbl">라우드니스 레이더</td><td>시간에 따른 음량을 원형으로. 모서리 <span class="pill">↗</span>로 별도 창 가능.</td></tr>
-    <tr><td>3</td><td class="lbl">PROGRAM (히어로)</td><td>거대 그라디언트 숫자 = <b>통합 음량(Integrated)</b>. <b>AVG/LIVE</b> 토글로 누적평균↔실시간(단기) 전환. 아래에 목표·편차(LU) 표시.</td></tr>
+    <tr><td>3</td><td class="lbl">PROGRAM (히어로)</td><td>거대 그라디언트 숫자를 <b>좌 AVG · 우 LIVE 2분할</b>로 동시 표시 — 왼쪽=통합 음량(Integrated, 납품 기준), 오른쪽=실시간 단기(Short-term). 각 아래에 목표 대비 편차(LU).</td></tr>
     <tr><td>4</td><td class="lbl">지표 칩 6개</td><td>M / S / TP / LRA / PLR / PSR (아래 표 참고).</td></tr>
     <tr><td>5</td><td class="lbl">히스토리 + 컴플라이언스</td><td>왼쪽=음량 시간 그래프(목표선 포함), 오른쪽=<b>PASS / CHECK</b> 합격 뱃지.</td></tr>
   </table>
@@ -446,13 +444,15 @@
 
   <h3>가운데 — 라우드니스 레이더</h3>
   <p>시간에 따른 음량을 원형(레이더)으로 그려요. 방송 규격 맞출 때 핵심.</p>
+  <div class="tip"><b>타겟 중심 눈금</b> — 바깥쪽 레벨 미터는 설정한 <b>Target</b>을 기준으로 눈금이 맞춰져요. 타겟 값이 항상 <b>맨 위(12시)</b> 가운데에 오고, 눈금·채움·피크홀드가 타겟을 따라 움직입니다(예: 타겟 −16이면 −16이 한가운데). 목표 근처에서 얼마나 벗어나는지 한눈에 보여요.</div>
   <div class="tip"><b>LUFS가 뭐예요?</b> — 사람이 실제로 느끼는 <b>"체감 음량"</b> 단위예요. 단순 피크가 아니라 "전체적으로 얼마나 크게 들리나". 방송/스트리밍은 이 값으로 규격을 정합니다(예: 방송 −23 LUFS, 유튜브 −14 등).</div>
 
   <h3>오른쪽 — PROGRAM (히어로 숫자)</h3>
-  <p>가장 크게 보이는 그라디언트 숫자가 <b>통합 음량(Integrated)</b> = 처음부터 지금까지 전체 평균이에요. <b>규격과 비교하는 가장 중요한 값</b>입니다.</p>
+  <p>거대 그라디언트 숫자를 <b>좌우 2분할</b>로 나눠 <b>AVG</b>와 <b>LIVE</b>를 <b>동시에</b> 보여줘요(토글 없이 한눈에).</p>
   <ul>
-    <li><b>AVG / LIVE</b> — <b>AVG</b>=누적 통합값(납품 기준), <b>LIVE</b>=실시간 단기값(작업 중 모니터).</li>
-    <li><b>Target</b> — 목표 음량 설정(상단). 숫자 아래에 목표 대비 <b>편차(±LU)</b>가 떠요.</li>
+    <li><b>AVG (왼쪽)</b> — 누적 <b>통합 음량(Integrated)</b> = 처음부터 지금까지 전체 평균. <b>규격과 비교하는 가장 중요한 값</b>(납품 기준).</li>
+    <li><b>LIVE (오른쪽)</b> — 실시간 <b>단기 음량(Short-term, 3초)</b> = 작업 중 모니터링용.</li>
+    <li><b>Target</b> — 목표 음량 설정(상단). 각 숫자 아래에 목표 대비 <b>편차(±LU)</b>가 떠요. <b>COMPLIANCE</b>는 AVG(통합) 기준으로 판정.</li>
     <li><b>LU 토글</b> — 절대값(LUFS) ↔ 목표 기준 상대값(LU) 전환.</li>
   </ul>
 
