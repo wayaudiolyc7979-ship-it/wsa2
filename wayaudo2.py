@@ -14599,6 +14599,11 @@ def _brand_color(frac, lightness=160, alpha=255):
     c = QColor.fromHsl(h, s, nl); c.setAlpha(alpha)
     return c
 
+def _rgba_css(hexcol, alpha):
+    """'#RRGGBB' → 'rgba(r,g,b,a)' CSS 문자열 (틴트 배경/보더용)."""
+    c = QColor(hexcol)
+    return f'rgba({c.red()},{c.green()},{c.blue()},{alpha})'
+
 def _metric_col(hue, light=160):
     """라우드니스 메트릭 값 색 (HSL). 라이트 테마: 흰 바 대비 위해 명도 낮춤."""
     if _theme == 'light':
@@ -15348,23 +15353,41 @@ class StereoLoudnessPage(QWidget):
         return f
 
     def _build_compliance_card(self):
-        dark=(_theme!='light')
         f=QFrame(); f.setObjectName('stCard')
         f.setStyleSheet(self._card_bg_ss('stCard', 14))
         getattr(self, '_card_frames', self.__dict__.setdefault('_card_frames', [])).append((f, 'stCard', 14))
-        v=QVBoxLayout(f); v.setContentsMargins(16,12,16,14); v.setSpacing(8)
+        self._comp_card=f
+        v=QVBoxLayout(f); v.setContentsMargins(18,13,18,16); v.setSpacing(11)
         title=QLabel('COMPLIANCE'); title.setAlignment(Qt.AlignHCenter)
         title.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};letter-spacing:1px;background:transparent;')
-        # 전부 가운데 정렬: 신호 원 → 상태 문구 → 상세(타겟/편차·TP·LRA)
-        self._comp_circle=QLabel('—'); self._comp_circle.setFixedSize(52,52); self._comp_circle.setAlignment(Qt.AlignCenter)
-        self._comp_circle.setStyleSheet(f'background:{T("bg3")};border-radius:26px;color:{T("text_dim")};font-size:26px;font-weight:bold;')
-        self._lbl_comp=QLabel('—'); self._lbl_comp.setAlignment(Qt.AlignHCenter)
-        self._lbl_comp.setStyleSheet(f'font-size:{FS_LG}px;font-weight:bold;color:{T("text_dim")};background:transparent;')
-        self._comp_detail=QLabel('—'); self._comp_detail.setAlignment(Qt.AlignHCenter)
-        self._comp_detail.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};background:transparent;')
+        v.addWidget(title)
+        v.addStretch()
+
+        # ── 상태 원형 배지 — 틴트 채움 + 컬러 링 + 글리프(거대 사각 배너 대체) ──
+        self._comp_circle=QLabel('—'); self._comp_circle.setFixedSize(68,68)
+        self._comp_circle.setAlignment(Qt.AlignCenter)
         cc=QHBoxLayout(); cc.addStretch(); cc.addWidget(self._comp_circle); cc.addStretch()
-        v.addWidget(title); v.addStretch(); v.addLayout(cc); v.addWidget(self._lbl_comp); v.addWidget(self._comp_detail); v.addStretch()
+        v.addLayout(cc)
+
+        # ── 상태 문구 + 설명 한 줄(정성 — 수치 아님) ──────────────────
+        self._lbl_comp=QLabel('—'); self._lbl_comp.setAlignment(Qt.AlignHCenter)
+        v.addWidget(self._lbl_comp)
+        self._lbl_comp_sub=QLabel('—'); self._lbl_comp_sub.setAlignment(Qt.AlignHCenter)
+        self._lbl_comp_sub.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};background:transparent;')
+        v.addWidget(self._lbl_comp_sub)
+        v.addStretch()
+        self._style_comp_banner(T('text_dim'), '—')
         return f
+
+    def _style_comp_banner(self, col, glyph='—'):
+        """상태 원형 배지(틴트 채움+컬러 링+글리프) + 상태 문구 색을 상태색(col)으로 통일."""
+        self._comp_circle.setText(glyph)
+        self._comp_circle.setStyleSheet(
+            f'background:{_rgba_css(col,30)};border:2px solid {_rgba_css(col,160)};'
+            f'border-radius:34px;color:{col};font-size:30px;font-weight:bold;')
+        self._lbl_comp.setStyleSheet(
+            f'font-size:{FS_LG+1}px;font-weight:bold;color:{col};'
+            f'letter-spacing:1.5px;background:transparent;')
 
     def _metric_lbl_col(self):
         return '#E2E4E9' if _theme != 'light' else T('text_dim')
@@ -15510,9 +15533,10 @@ class StereoLoudnessPage(QWidget):
                 _c.setStyleSheet(f'font-size:{FS_SM}px;color:{_col};'
                                  f'letter-spacing:2px;font-weight:bold;background:transparent;')
         if hasattr(self, '_comp_circle'):
-            self._comp_circle.setStyleSheet(f'background:{T("bg3")};border-radius:26px;color:{T("text_dim")};font-size:26px;font-weight:bold;')
-        if hasattr(self, '_lbl_comp'):
-            self._lbl_comp.setStyleSheet(f'font-size:{FS_BODY}px;font-weight:bold;color:{T("text_dim")};background:transparent;')
+            self._style_comp_banner(T('text_dim'), self._comp_circle.text())
+        if hasattr(self, '_lbl_comp_sub'):
+            self._lbl_comp_sub.setStyleSheet(f'font-size:{FS_SM}px;color:{_lc};background:transparent;')
+        self._refresh_display(force=True)
         if hasattr(self, '_hero_avg_btn'): self._hero_avg_btn.setStyleSheet(self._seg_btn_ss(left=True))
         if hasattr(self, '_hero_live_btn'): self._hero_live_btn.setStyleSheet(self._seg_btn_ss(left=False))
         if hasattr(self, '_lu_btn'):
@@ -15671,30 +15695,26 @@ class StereoLoudnessPage(QWidget):
             return '—' if v<=-100 else f'{tag}   ·   {v-self._target:+.1f} LU'
         self._lbl_I.setText(fmt(m.I));    self._sub_avg.setText(_sub(m.I, 'LUFS'))
         self._lbl_live.setText(fmt(m.S)); self._sub_live.setText(_sub(m.S, 'S'))
-        # 컴플라이언스 카드 — 송출 기준값 = Integrated(I)
+        # 컴플라이언스 카드 — 송출 기준값 = Integrated(I). 상태만 표시(수치 X)
         hv = m.I
         if hv>-100:
             dev=hv-self._target
-            tp_ok = (m.peak_hold<=-1.0) or (m.peak_hold<=-100)
-            ok = (abs(dev)<=1.0) and tp_ok
-            if ok:
-                self._comp_circle.setText('✓'); circ=T('green')
-                self._lbl_comp.setText('PASS'); cc=T('green')
+            tp_over = (m.peak_hold>-100) and (m.peak_hold>-1.0)
+            tp_ok = (not tp_over)
+            if abs(dev)<=1.0 and tp_ok:
+                status='PASS'; col=T('green'); glyph='✓'; sub=_tx('Meets target & true-peak')
             else:
-                self._comp_circle.setText('✗')
-                circ=(T('yellow') if abs(dev)<=3.0 and tp_ok else T('red')); cc=circ
-                why='loudness' if abs(dev)>1.0 else 'true-peak'
-                self._lbl_comp.setText(f'CHECK {why}')
-            self._comp_circle.setStyleSheet(f'background:{circ};border-radius:26px;color:#000;font-size:26px;font-weight:bold;')
-            self._lbl_comp.setStyleSheet(f'font-size:{FS_LG}px;font-weight:bold;color:{cc};background:transparent;')
-            tp_txt = f'{m.peak_hold:.1f} dBTP' if m.peak_hold>-100 else '— dBTP'
-            self._comp_detail.setText(
-                f'Target {self._target:+.0f}   ·   Δ {dev:+.1f} LU\n'
-                f'True Peak  {tp_txt}\nLRA  {m.LRA:.1f} LU')
+                col=(T('yellow') if abs(dev)<=3.0 and tp_ok else T('red')); glyph='✕'
+                if abs(dev)>1.0:
+                    status='CHECK LOUDNESS'
+                    sub=_tx('Loud — pull down') if dev>0 else _tx('Quiet — push up')
+                else:
+                    status='CHECK TRUE-PEAK'; sub=_tx('True peak over −1 dBTP')
+            self._lbl_comp.setText(status); self._lbl_comp_sub.setText(sub)
+            self._style_comp_banner(col, glyph)
         else:
-            self._lbl_comp.setText('—'); self._comp_circle.setText('—')
-            self._comp_detail.setText('—')
-            self._comp_circle.setStyleSheet(f'background:{T("bg3")};border-radius:26px;color:{T("text_dim")};font-size:26px;font-weight:bold;')
+            self._lbl_comp.setText('STANDBY'); self._style_comp_banner(T('text_dim'), '—')
+            self._lbl_comp_sub.setText(_tx('Waiting for signal'))
 
 
 class _TFPopoutWindow(QWidget):

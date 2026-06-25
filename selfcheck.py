@@ -380,8 +380,34 @@ def _loudness_page():
     assert hasattr(pg, '_lbl_I') and hasattr(pg, '_lbl_live'), '히어로 2분할 핸들 누락'
     assert pg._lbl_I.text() not in ('—', ''), f'AVG 미표시 {pg._lbl_I.text()!r}'
     assert pg._lbl_live.text() not in ('—', ''), f'LIVE 미표시 {pg._lbl_live.text()!r}'
-    return _save(pg, 'loudness_page.png') + f'  AVG={pg._lbl_I.text()} LIVE={pg._lbl_live.text()}'
+    # COMPLIANCE 카드 — 상태 배너만(값표/거대 원 폐기)
+    assert hasattr(pg, '_comp_circle') and hasattr(pg, '_lbl_comp_sub'), 'COMPLIANCE 재설계 핸들 누락'
+    assert pg._lbl_comp.text() in ('PASS','CHECK LOUDNESS','CHECK TRUE-PEAK'), f'상태문구 {pg._lbl_comp.text()!r}'
+    assert pg._lbl_comp_sub.text() not in ('—',''), f'상태설명 미표시 {pg._lbl_comp_sub.text()!r}'
+    return _save(pg, 'loudness_page.png') + f'  AVG={pg._lbl_I.text()} LIVE={pg._lbl_live.text()} COMP={pg._lbl_comp.text()}'
 check('StereoLoudnessPage (브랜드+PLR/PSR)', _loudness_page)
+
+
+def _compliance_card():
+    """COMPLIANCE 재설계 — PASS/실패 두 상태를 단독 렌더(배너 틴트+값표)."""
+    pg = w.StereoLoudnessPage(); pg.resize(360, 300)
+    pg._meter = w.LoudnessMeter(48000)
+    # 실패 상태(타겟 대비 크게 벗어남) 강제
+    class _M:
+        I=-5.2; M=-6.0; S=-6.0; LRA=8.4; peak_hold=0.5; PLR=5.0; PSR=4.0
+    pg._meter=_M(); pg._target=-23.0; pg._running=True
+    pg._refresh_display(force=True)
+    pg._comp_card.setFixedSize(300, 300); _app.processEvents()
+    out = _save(pg._comp_card, 'compliance_fail.png') + f'  状態={pg._lbl_comp.text()}'
+    assert pg._lbl_comp.text().startswith('CHECK'), f'실패상태 아님 {pg._lbl_comp.text()!r}'
+    # PASS 상태
+    class _MP:
+        I=-23.3; M=-23.0; S=-23.0; LRA=6.0; peak_hold=-2.0; PLR=5.0; PSR=4.0
+    pg._meter=_MP(); pg._refresh_display(force=True); pg._comp_card.setFixedSize(300, 300); _app.processEvents()
+    out += '  ' + _save(pg._comp_card, 'compliance_pass.png') + f'  状態={pg._lbl_comp.text()}'
+    assert pg._lbl_comp.text()=='PASS', f'PASS 아님 {pg._lbl_comp.text()!r}'
+    return out
+check('COMPLIANCE 카드 재설계(PASS/CHECK)', _compliance_card)
 
 
 def _loud_state_roundtrip():
