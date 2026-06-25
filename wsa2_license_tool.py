@@ -7,11 +7,29 @@ import ed25519_min as _ed
 # ── 레거시 HMAC SECRET (v1.0 발급 키 검증용) ──────────────────────
 _SECRET = b'W4y4ud10_WSA2_Lic_\xde\xad\xbe\xef\x01\x23\x45\x67'
 # ── Ed25519 마스터 개인키 (신규 키 서명용) ──
-_PRIV = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'license_ed25519_private.key')
+def _key_candidates():
+    """마스터 개인키를 찾을 위치들 (순서대로).
+    .app으로 빌드되면 __file__이 번들 내부라 거기엔 키가 없으므로(절대 번들에 안 넣음)
+    외부 표준 위치를 순서대로 탐색한다."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    cands = []
+    env = os.environ.get('WSA2_LIC_KEY')
+    if env:
+        cands.append(env)                                                              # 0) 환경변수 강제 지정
+    cands += [
+        os.path.join(here, 'license_ed25519_private.key'),                             # 1) 스크립트 옆(레포 직접 실행)
+        os.path.expanduser('~/Library/Application Support/WAYAUDIO/license_ed25519_private.key'),  # 2) 표준 앱 위치(.app 권장)
+        os.path.expanduser('~/WSA2/license_ed25519_private.key'),                       # 3) 레포 폴백
+    ]
+    return cands
+
 def _load_seed():
-    if not os.path.exists(_PRIV):
-        raise FileNotFoundError(f'개인키 없음: {_PRIV} (마스터 키 파일을 이 경로에 두세요)')
-    return bytes.fromhex(open(_PRIV).read().strip())
+    for p in _key_candidates():
+        if p and os.path.exists(p):
+            return bytes.fromhex(open(p).read().strip())
+    raise FileNotFoundError(
+        '마스터 개인키(license_ed25519_private.key)를 찾지 못했습니다.\n다음 중 한 곳에 두세요:\n  '
+        + '\n  '.join(_key_candidates()))
 
 if platform.system() == 'Windows':
     _RECORDS_DIR = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'WAYAUDIO')
