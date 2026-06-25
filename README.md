@@ -77,16 +77,35 @@ bash build_intel.sh
 | 릴리스 노트 | [`RELEASE_NOTES.md`](RELEASE_NOTES.md) |
 | 제품 소개 | [`LANDING.html`](LANDING.html) |
 
-## 📂 주요 파일
+## 📂 레포 구조
 
 ```
-wayaudo2.py            메인 소스 (단일 파일)
-WSA2.spec / build_*.sh PyInstaller 빌드 (Silicon / Intel)
-WSA2_Windows.spec      Windows 빌드 (+ version_info.txt · icon.ico)
-make_dmg.sh            브랜드 DMG 생성
-sign_app.sh / notarize_dmg.sh   서명 · 노타라이즈
-bump_version.sh        버전 일괄 변경
-splash.png · icon.icns · app_icon_1024.png   브랜드 자산
+─ 앱 코드
+  wayaudo2.py              메인 소스 (단일 파일 ~19,800줄)
+  ed25519_min.py           순수 파이썬 Ed25519 (라이선스 검증)
+  selfcheck.py             헤드리스 위젯 렌더 회귀 하네스
+
+─ 빌드 / 배포 (루트 고정 — spec·스크립트가 경로로 참조)
+  WSA2.spec / build_silicon.sh        macOS Apple Silicon
+  WSA2_Intel.spec / build_intel.sh    macOS Intel
+  WSA2_Windows.spec / build_windows.bat · version_info.txt · icon.ico   Windows
+  make_dmg.sh · dmg_background.png     브랜드 DMG
+  sign_app.sh · notarize_dmg.sh · entitlements.plist   서명·노타라이즈
+  bump_version.sh                      버전 일괄 변경
+  splash.png · icon.icns · app_icon_1024.png   브랜드 자산
+
+─ 라이선스 도구
+  generate_license.py · wsa2_license_tool.py · LicenseTool.spec
+  (license_ed25519_private.key = .gitignore, 절대 커밋 금지)
+
+─ 문서 (루트)
+  README · CLAUDE · ISSUES · 남은작업 · 2.0_MODULE_PLAN · LICENSING · SIGNING (.md)
+  MANUAL.html · LANDING.html · RELEASE_NOTES.md/.html   제품 문서
+
+─ 폴더
+  docs/            beta_dev_log · img/(스크린샷) · concepts/(디자인 실험본)
+  tests/           테스트
+  backups/ build/ dist/   (.gitignore — 생성물)
 ```
 
 ---
