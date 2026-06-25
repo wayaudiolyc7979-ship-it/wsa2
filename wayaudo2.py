@@ -14991,9 +14991,14 @@ class LoudnessRadarCanvas(QWidget):
         # ── 외부 원형 레벨 미터 ────────────────────────────────────
         # 7:30(하-좌, 225°) → 시계방향 300° → 4:30(하-우, 285°Qt)
         # 하단 60° 공간은 통계 텍스트 갭
-        M_LO = -52.0; M_HI = 2.0
-        M_START_Q = 225.0   # Qt 각도: 7:30 위치 (-52 LUFS 끝)
+        # 외부 미터를 타겟 중심으로 재배치 — 타겟 LUFS가 12시(상단 중앙)에 오도록.
+        M_START_Q = 225.0   # Qt 각도: 7:30 위치 (스케일 시작, 조용한 끝)
         M_SPAN_Q  = 300.0   # 시계방향 300°
+        M_SPAN_LU = 54.0    # 보이는 총 범위(LU) — 기존과 동일한 눈금 밀도
+        # 상단 중앙(Qt 90°)의 프랙션 = (225-90)/300 = 0.45 → 이 지점 값이 target이 되도록
+        _f_top = (M_START_Q - 90.0) / M_SPAN_Q
+        M_LO = self.target - _f_top * M_SPAN_LU
+        M_HI = M_LO + M_SPAN_LU
         N_TICKS   = 72      # 틱 개수 (72 × 4.17° = 300°)
         tick_deg  = M_SPAN_Q / N_TICKS
         tick_fill = tick_deg * 0.73
@@ -15051,7 +15056,14 @@ class LoudnessRadarCanvas(QWidget):
 
         # ── 미터 눈금 레이블 ──────────────────────────────────────────
         def _m_ang(v): return M_START_Q - (v - M_LO) / (M_HI - M_LO) * M_SPAN_Q
-        lbl_vals = [-52, -46, -40, -34, -28, -22, -16, -10, -4, 2]
+        # 타겟 중심으로 6 LU 간격 라벨 동적 생성 (타겟이 상단 중앙에 깔끔히 표시)
+        _c = round(self.target)
+        lbl_vals = []
+        v = _c
+        while v >= M_LO: lbl_vals.append(v); v -= 6
+        v = _c + 6
+        while v <= M_HI: lbl_vals.append(v); v += 6
+        lbl_vals.sort()
         p.setFont(_qfont(CF_ANNO, True))
         fm = p.fontMetrics()
         for lv in lbl_vals:
@@ -15338,38 +15350,46 @@ class StereoLoudnessPage(QWidget):
         return '#E2E4E9' if _theme != 'light' else T('text_dim')
 
     def _build_hero_panel(self):
-        """시안C 히어로 — PROGRAM LOUDNESS 거대 그라디언트 숫자 + 타겟/편차."""
+        """시안C 히어로 — PROGRAM LOUDNESS. AVG(Integrated) | LIVE(Short-term) 양쪽 동시 표기."""
         w = QWidget(); w.setStyleSheet('background:transparent;')
-        vl = QVBoxLayout(w); vl.setContentsMargins(16, 8, 16, 16); vl.setSpacing(4)   # 하단 마진↑(sub줄 잘림 방지)
-        # AVG(누적 평균=Integrated) ↔ LIVE(실시간 Short-term) 토글 — 카드 우상단
-        self._hero_live = False
-        seg = QWidget(); seg.setStyleSheet('background:transparent;')
-        sl = QHBoxLayout(seg); sl.setContentsMargins(0,0,0,0); sl.setSpacing(0)
-        self._hero_avg_btn  = QPushButton('AVG')
-        self._hero_live_btn = QPushButton('LIVE')
-        for b in (self._hero_avg_btn, self._hero_live_btn):
-            b.setCheckable(True); b.setFixedSize(52, 22); b.setCursor(Qt.PointingHandCursor)
-        self._hero_avg_btn.setChecked(True)
-        self._hero_avg_btn.setToolTip(_tx('AVG — Integrated (cumulative average). Broadcast/streaming delivery reference'))
-        self._hero_live_btn.setToolTip(_tx('LIVE — Real-time (Short-term 3s). For monitoring during work'))
-        self._hero_avg_btn.setStyleSheet(self._seg_btn_ss(left=True))
-        self._hero_live_btn.setStyleSheet(self._seg_btn_ss(left=False))
-        self._hero_avg_btn.clicked.connect(lambda: self._set_hero_mode(False))
-        self._hero_live_btn.clicked.connect(lambda: self._set_hero_mode(True))
-        sl.addStretch(); sl.addWidget(self._hero_avg_btn); sl.addWidget(self._hero_live_btn)
-        vl.addWidget(seg)            # 우상단 고정
-        vl.addStretch()             # 아래 본문(제목·숫자)은 카드 중앙 정렬
+        vl = QVBoxLayout(w); vl.setContentsMargins(16, 10, 16, 16); vl.setSpacing(4)
+        self._hero_live = False   # 구버전 상태 호환(더 이상 토글 안 함 — 양쪽 동시 표시)
 
         self._lbl_hero_title = QLabel('PROGRAM LOUDNESS'); self._lbl_hero_title.setAlignment(Qt.AlignHCenter)
         self._lbl_hero_title.setStyleSheet(f'font-size:{FS_BODY}px;color:{self._metric_lbl_col()};'
                           f'letter-spacing:2px;background:transparent;')
-        self._lbl_I = _GradientNumber(120)
-        self._lbl_hero_sub = QLabel('—'); self._lbl_hero_sub.setAlignment(Qt.AlignHCenter)
-        self._lbl_hero_sub.setStyleSheet(f'font-size:{FS_LG}px;color:{T("text_dim")};background:transparent;')
-        # _lbl_I stretch3 → 카드 따라 크게. 하단은 고정여백(addSpacing)으로 sub줄 공간을 항상 보장
-        # (하단 stretch 면 Expanding 숫자가 다 먹어 sub가 카드 끝에 붙어 잘림).
-        vl.addWidget(self._lbl_hero_title); vl.addWidget(self._lbl_I, 3); vl.addWidget(self._lbl_hero_sub)
-        vl.addSpacing(16)
+        vl.addWidget(self._lbl_hero_title)
+        vl.addStretch()
+
+        # ── AVG(Integrated) | LIVE(Short-term) 2분할 ──────────────────
+        row = QWidget(); row.setStyleSheet('background:transparent;')
+        rl = QHBoxLayout(row); rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(0)
+
+        def _half(cap, tip):
+            col = QWidget(); col.setStyleSheet('background:transparent;')
+            cv = QVBoxLayout(col); cv.setContentsMargins(0, 0, 0, 0); cv.setSpacing(2)
+            cap_lbl = QLabel(cap); cap_lbl.setAlignment(Qt.AlignHCenter); cap_lbl.setToolTip(tip)
+            cap_lbl.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};'
+                                  f'letter-spacing:2px;font-weight:bold;background:transparent;')
+            num = _GradientNumber(120)
+            sub = QLabel('—'); sub.setAlignment(Qt.AlignHCenter)
+            sub.setStyleSheet(f'font-size:{FS_LG}px;color:{T("text_dim")};background:transparent;')
+            cv.addWidget(cap_lbl); cv.addWidget(num, 3); cv.addWidget(sub)
+            return col, cap_lbl, num, sub
+
+        avg_col, self._cap_avg, self._lbl_I, self._sub_avg = _half(
+            'AVG', _tx('AVG — Integrated (cumulative average). Broadcast/streaming delivery reference'))
+        live_col, self._cap_live, self._lbl_live, self._sub_live = _half(
+            'LIVE', _tx('LIVE — Real-time (Short-term 3s). For monitoring during work'))
+
+        div = QFrame(); div.setFrameShape(QFrame.VLine); div.setFixedWidth(1)
+        div.setStyleSheet(f'color:{T("border")};background:transparent;')
+
+        rl.addWidget(avg_col, 1); rl.addWidget(div); rl.addWidget(live_col, 1)
+        vl.addWidget(row, 3)
+        vl.addSpacing(12)
+        # 하위호환: restyle/구코드가 참조하는 sub 핸들 → AVG sub로 매핑
+        self._lbl_hero_sub = self._sub_avg
         return w
 
     def _seg_btn_ss(self, left):
@@ -15382,9 +15402,8 @@ class StereoLoudnessPage(QWidget):
                 f"border:1px solid {T('accent')};}}")
 
     def _set_hero_mode(self, live):
+        # 양쪽(AVG|LIVE) 동시 표기로 바뀌어 토글은 무의미 — 상태 호환만 유지.
         self._hero_live = bool(live)
-        self._hero_avg_btn.setChecked(not live)
-        self._hero_live_btn.setChecked(live)
         self._refresh_display(force=True)
 
     def loud_get_state(self):
@@ -15454,8 +15473,13 @@ class StereoLoudnessPage(QWidget):
         if hasattr(self, '_lbl_hero_title'):
             self._lbl_hero_title.setStyleSheet(f'font-size:{FS_BODY}px;color:{_lc};'
                               f'letter-spacing:2px;background:transparent;')
-        if hasattr(self, '_lbl_hero_sub'):
-            self._lbl_hero_sub.setStyleSheet(f'font-size:{FS_LG}px;color:{T("text_dim")};background:transparent;')
+        for _s in (getattr(self, '_sub_avg', None), getattr(self, '_sub_live', None)):
+            if _s is not None:
+                _s.setStyleSheet(f'font-size:{FS_LG}px;color:{T("text_dim")};background:transparent;')
+        for _c in (getattr(self, '_cap_avg', None), getattr(self, '_cap_live', None)):
+            if _c is not None:
+                _c.setStyleSheet(f'font-size:{FS_SM}px;color:{_lc};'
+                                 f'letter-spacing:2px;font-weight:bold;background:transparent;')
         if hasattr(self, '_comp_circle'):
             self._comp_circle.setStyleSheet(f'background:{T("bg3")};border-radius:36px;color:{T("text_dim")};font-size:34px;font-weight:bold;')
         if hasattr(self, '_lbl_comp'):
@@ -15613,15 +15637,15 @@ class StereoLoudnessPage(QWidget):
                T('yellow') if m.M<-16 else T('red'))
             self._lbl_M.setStyleSheet(
                 f'font-size:{FS_METRIC}px;font-weight:bold;color:{c};background:transparent;')
-        # 히어로 숫자/제목 + 컴플라이언스 카드 — 평균(Integrated) ↔ 실시간(Short-term) 모드
-        live = getattr(self, '_hero_live', False)
-        hv = m.S if live else m.I    # 히어로가 보여줄 값
-        self._lbl_hero_title.setText('SHORT-TERM  (Live)' if live else 'PROGRAM LOUDNESS')
-        self._lbl_I.setText(fmt(hv))
+        # 히어로 — AVG(Integrated) | LIVE(Short-term) 동시 표기
+        def _sub(v, tag):
+            return '—' if v<=-100 else f'{tag}   ·   {v-self._target:+.1f} LU'
+        self._lbl_I.setText(fmt(m.I));    self._sub_avg.setText(_sub(m.I, 'LUFS'))
+        self._lbl_live.setText(fmt(m.S)); self._sub_live.setText(_sub(m.S, 'S'))
+        # 컴플라이언스 카드 — 송출 기준값 = Integrated(I)
+        hv = m.I
         if hv>-100:
             dev=hv-self._target
-            mode_lbl='S' if live else 'LUFS'
-            self._lbl_hero_sub.setText(f'{mode_lbl}   ·   Target {self._target:+.0f}   ·   {dev:+.1f} LU')
             tp_ok = (m.peak_hold<=-1.0) or (m.peak_hold<=-100)
             ok = (abs(dev)<=1.0) and tp_ok
             if ok:

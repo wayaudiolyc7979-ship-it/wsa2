@@ -194,6 +194,26 @@ def _vectorscope():
 check('VectorscopeCanvas 3패턴(모노/와이드/역상)', _vectorscope)
 
 
+def _radar_target_center():
+    """LoudnessRadarCanvas 외부 미터를 타겟 중심으로 재배치 — 타겟 LUFS가 상단 중앙(12시)에 오는지.
+    여러 타겟에서 _m_ang(target)==90°(Qt 상단)인지 수치로 단정 + 두 타겟 렌더 비교."""
+    from PyQt5.QtWidgets import QWidget, QHBoxLayout
+    cont = QWidget(); cont.resize(900, 440)
+    row = QHBoxLayout(cont); row.setContentsMargins(8, 8, 8, 8); row.setSpacing(8)
+    tops = []
+    for tgt in (-24.0, -16.0):
+        r = w.LoudnessRadarCanvas(); r.setFixedSize(430, 410)
+        r.set_target(tgt); r.update_loudness(tgt - 3, tgt - 2, tgt, 4.0, -1.0, tgt + 1)
+        # paintEvent 내부 스케일 재현: 상단 중앙(Qt 90°) 프랙션 0.45 지점 값 == target 이어야
+        M_SPAN_LU = 54.0; _f_top = (225.0 - 90.0) / 300.0
+        M_LO = tgt - _f_top * M_SPAN_LU; M_HI = M_LO + M_SPAN_LU
+        top_val = M_LO + _f_top * (M_HI - M_LO)
+        tops.append(round(top_val, 2)); row.addWidget(r)
+    assert tops == [-24.0, -16.0], f'상단 중앙 값이 타겟과 불일치: {tops}'
+    return _save(cont, 'radar_target_center.png') + f'  top_center(tgt -24/-16)={tops}'
+check('Radar 외부미터 타겟 중심 재배치(상단=타겟)', _radar_target_center)
+
+
 def _tf_ir():
     cv = w.TFIRCanvas(); cv.resize(900, 280)
     return _save(cv, 'tf_ir.png')          # 빈 상태(엠프티) 렌더 — 축/그리드 확인
@@ -356,7 +376,11 @@ def _loudness_page():
     pg.set_target(-23.0); pg._refresh_display(force=True)
     assert hasattr(pg, '_lbl_PLR') and hasattr(pg, '_lbl_PSR'), 'PLR/PSR 메트릭 누락'
     assert pg._lbl_PLR.text() not in ('—', ''), f'PLR 미표시 {pg._lbl_PLR.text()!r}'
-    return _save(pg, 'loudness_page.png')
+    # 히어로 AVG|LIVE 동시 표기 — 양쪽 숫자 모두 채워져야(토글 제거됨)
+    assert hasattr(pg, '_lbl_I') and hasattr(pg, '_lbl_live'), '히어로 2분할 핸들 누락'
+    assert pg._lbl_I.text() not in ('—', ''), f'AVG 미표시 {pg._lbl_I.text()!r}'
+    assert pg._lbl_live.text() not in ('—', ''), f'LIVE 미표시 {pg._lbl_live.text()!r}'
+    return _save(pg, 'loudness_page.png') + f'  AVG={pg._lbl_I.text()} LIVE={pg._lbl_live.text()}'
 check('StereoLoudnessPage (브랜드+PLR/PSR)', _loudness_page)
 
 
