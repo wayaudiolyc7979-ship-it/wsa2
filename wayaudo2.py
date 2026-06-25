@@ -15137,9 +15137,9 @@ class _GradientNumber(QWidget):
     """SPECTRA 브랜드 그라디언트로 그리는 초대형 숫자 (Program Loudness 히어로).
     ★폰트 크기를 '폭'으로만 결정(높이 무관)+상한 → 카드가 아무리 커져도 위젯 높이는 sizeHint
     로 고정되어 늘어나지 않음. 따라서 위/아래 stretch가 빈 공간을 흡수해 sub줄을 절대 안 밀어냄."""
-    def __init__(self, size=120):
+    def __init__(self, size=120, scale=1.0):
         super().__init__()
-        self._text = '—'; self._size = size
+        self._text = '—'; self._size = size; self._scale = scale
         # 세로 Expanding → 카드가 커지면 위젯도 커져 숫자도 커짐. 폰트는 '실제 높이*0.58'(보수적)
         # 이라 글리프가 위젯 안에 여유롭게 들어가고, 위/아래 stretch가 sub줄 공간을 항상 확보.
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -15147,7 +15147,7 @@ class _GradientNumber(QWidget):
     def _fs_paint(self):
         # 위젯 실제 높이에 비례(짧은 카드=작게, 큰 카드=크게) + 폭/상한. 0.56 은 글리프가 위젯
         # 안에 충분히 들어가는 보수값(세로 잘림 방지).
-        return max(24, min(int(self.height() * 0.56), int(self.width() * 0.26), 160))
+        return max(18, int(min(int(self.height() * 0.56), int(self.width() * 0.26), 160) * self._scale))
     def sizeHint(self):
         return QSize(220, 140)
     def setText(self, t):
@@ -15203,7 +15203,14 @@ class LoudnessHistoryCanvas(QWidget):
         ty = y(self._target)
         p.setPen(QPen(QColor(T('green')), 1, Qt.DashLine)); p.drawLine(0, int(ty), W, int(ty))
         vals = list(self._vals)
-        if len(vals) < 2: return
+        if len(vals) < 2:
+            # 빈 상태 — 측정 전 휑함 방지 안내 (타겟 점선은 위에 이미 그려짐)
+            p.setPen(QColor(T('text_dim'))); p.setFont(QFont('Helvetica Neue', FS_BODY))
+            # 타겟 점선과 안 겹치게 상단 1/3 위치에 안내
+            p.drawText(QRectF(0, H*0.18, W, H*0.30), Qt.AlignCenter,
+                       'Start measuring to plot loudness over 60s' if _LANG != 'ko'
+                       else '측정을 시작하면 최근 60초 라우드니스가 그려집니다')
+            return
         # short-term 값은 블록 단위로 갱신돼 그대로 이으면 계단처럼 보인다.
         # 표시용으로만 가벼운 이동평균을 거쳐 단차를 완화한 뒤 곡선으로 그린다.
         n = len(vals)
@@ -15345,15 +15352,19 @@ class StereoLoudnessPage(QWidget):
         f=QFrame(); f.setObjectName('stCard')
         f.setStyleSheet(self._card_bg_ss('stCard', 14))
         getattr(self, '_card_frames', self.__dict__.setdefault('_card_frames', [])).append((f, 'stCard', 14))
-        v=QVBoxLayout(f); v.setContentsMargins(14,12,14,12); v.setSpacing(6)
+        v=QVBoxLayout(f); v.setContentsMargins(16,12,16,14); v.setSpacing(10)
         title=QLabel('COMPLIANCE'); title.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};letter-spacing:1px;background:transparent;')
-        self._comp_circle=QLabel('—'); self._comp_circle.setFixedSize(72,72); self._comp_circle.setAlignment(Qt.AlignCenter)
-        self._comp_circle.setStyleSheet(f'background:{T("bg3") if dark else T("bg3")};border-radius:36px;color:{T("text_dim")};font-size:34px;font-weight:bold;')
-        self._lbl_comp=QLabel('—'); self._lbl_comp.setAlignment(Qt.AlignHCenter)
-        self._lbl_comp.setStyleSheet(f'font-size:{FS_BODY}px;font-weight:bold;color:{T("text_dim")};background:transparent;')
-        v.addWidget(title); v.addStretch()
-        cc=QHBoxLayout(); cc.addStretch(); cc.addWidget(self._comp_circle); cc.addStretch(); v.addLayout(cc)
-        v.addWidget(self._lbl_comp); v.addStretch()
+        # 상태 줄: 작은 신호 원 + 상태 문구(좌→우)
+        self._comp_circle=QLabel('—'); self._comp_circle.setFixedSize(52,52); self._comp_circle.setAlignment(Qt.AlignCenter)
+        self._comp_circle.setStyleSheet(f'background:{T("bg3")};border-radius:26px;color:{T("text_dim")};font-size:26px;font-weight:bold;')
+        self._lbl_comp=QLabel('—'); self._lbl_comp.setAlignment(Qt.AlignLeft|Qt.AlignVCenter)
+        self._lbl_comp.setStyleSheet(f'font-size:{FS_LG}px;font-weight:bold;color:{T("text_dim")};background:transparent;')
+        srow=QHBoxLayout(); srow.setSpacing(14); srow.setContentsMargins(0,0,0,0)
+        srow.addWidget(self._comp_circle); srow.addWidget(self._lbl_comp,1)
+        # 상세 줄: 타겟/편차 · True Peak · LRA (없을 땐 dash)
+        self._comp_detail=QLabel('—'); self._comp_detail.setWordWrap(True)
+        self._comp_detail.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};background:transparent;')
+        v.addWidget(title); v.addStretch(); v.addLayout(srow); v.addWidget(self._comp_detail); v.addStretch()
         return f
 
     def _metric_lbl_col(self):
@@ -15375,27 +15386,32 @@ class StereoLoudnessPage(QWidget):
         row = QWidget(); row.setStyleSheet('background:transparent;')
         rl = QHBoxLayout(row); rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(0)
 
-        def _half(cap, tip):
+        def _half(cap, tip, scale, primary):
             col = QWidget(); col.setStyleSheet('background:transparent;')
             cv = QVBoxLayout(col); cv.setContentsMargins(0, 0, 0, 0); cv.setSpacing(2)
+            # 위계: AVG(주)=액센트 캡션, LIVE(부)=흐린 캡션
+            cap_col = T('accent') if primary else T('text_dim')
             cap_lbl = QLabel(cap); cap_lbl.setAlignment(Qt.AlignHCenter); cap_lbl.setToolTip(tip)
-            cap_lbl.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};'
+            cap_lbl.setStyleSheet(f'font-size:{FS_SM}px;color:{cap_col};'
                                   f'letter-spacing:2px;font-weight:bold;background:transparent;')
-            num = _GradientNumber(120)
+            num = _GradientNumber(120, scale=scale)
             sub = QLabel('—'); sub.setAlignment(Qt.AlignHCenter)
             sub.setStyleSheet(f'font-size:{FS_LG}px;color:{T("text_dim")};background:transparent;')
             cv.addWidget(cap_lbl); cv.addWidget(num, 3); cv.addWidget(sub)
             return col, cap_lbl, num, sub
 
+        # AVG=주(크게), LIVE=부(작게) — '쌍둥이'처럼 안 보이게 위계 부여
         avg_col, self._cap_avg, self._lbl_I, self._sub_avg = _half(
-            'AVG', _tx('AVG — Integrated (cumulative average). Broadcast/streaming delivery reference'))
+            'AVG', _tx('AVG — Integrated (cumulative average). Broadcast/streaming delivery reference'),
+            scale=1.0, primary=True)
         live_col, self._cap_live, self._lbl_live, self._sub_live = _half(
-            'LIVE', _tx('LIVE — Real-time (Short-term 3s). For monitoring during work'))
+            'LIVE', _tx('LIVE — Real-time (Short-term 3s). For monitoring during work'),
+            scale=0.72, primary=False)
 
         div = QFrame(); div.setFrameShape(QFrame.VLine); div.setFixedWidth(1)
         div.setStyleSheet(f'color:{T("border")};background:transparent;')
 
-        rl.addWidget(avg_col, 1); rl.addWidget(div); rl.addWidget(live_col, 1)
+        rl.addWidget(avg_col, 11); rl.addWidget(div); rl.addWidget(live_col, 9)
         vl.addWidget(row, 3)
         vl.addSpacing(12)
         # 하위호환: restyle/구코드가 참조하는 sub 핸들 → AVG sub로 매핑
@@ -15429,12 +15445,14 @@ class StereoLoudnessPage(QWidget):
         except Exception: pass
 
     def _build_target_ctrl(self):
-        """우측 컨트롤 — LU(타겟 상대) 표시 토글. 타겟 프리셋 선택은 상단 툴바 콤보가 담당."""
-        w = QWidget(); w.setStyleSheet('background:transparent;')
-        vl = QVBoxLayout(w); vl.setContentsMargins(0, 0, 0, 0); vl.setSpacing(3)
-        tl = QLabel('Units')
+        """우측 컨트롤 — LU(타겟 상대) 표시 토글. 지표 카드들과 같은 카드 배경으로 묶어 '외톨이' 방지."""
+        w = QFrame(); w.setObjectName('stMc'); w.setFixedWidth(64)
+        w.setStyleSheet(self._card_bg_ss('stMc', 12))
+        getattr(self, '_card_frames', self.__dict__.setdefault('_card_frames', [])).append((w, 'stMc', 12))
+        vl = QVBoxLayout(w); vl.setContentsMargins(6, 8, 6, 8); vl.setSpacing(4)
+        tl = QLabel('UNITS')
         tl.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};'
-                         f'letter-spacing:1px;background:transparent;')
+                         f'letter-spacing:0.5px;background:transparent;')
         tl.setAlignment(Qt.AlignHCenter)
         self._lu_btn = QPushButton('LU'); self._lu_btn.setCheckable(True); self._lu_btn.setFixedSize(54, 24)
         self._lu_btn.setToolTip(_tx('LUFS ↔ LU (show relative value vs target)'))
@@ -15486,12 +15504,14 @@ class StereoLoudnessPage(QWidget):
         for _s in (getattr(self, '_sub_avg', None), getattr(self, '_sub_live', None)):
             if _s is not None:
                 _s.setStyleSheet(f'font-size:{FS_LG}px;color:{T("text_dim")};background:transparent;')
-        for _c in (getattr(self, '_cap_avg', None), getattr(self, '_cap_live', None)):
+        # 캡션 위계 유지: AVG(주)=액센트, LIVE(부)=흐림
+        for _c, _col in ((getattr(self, '_cap_avg', None), T('accent')),
+                         (getattr(self, '_cap_live', None), T('text_dim'))):
             if _c is not None:
-                _c.setStyleSheet(f'font-size:{FS_SM}px;color:{_lc};'
+                _c.setStyleSheet(f'font-size:{FS_SM}px;color:{_col};'
                                  f'letter-spacing:2px;font-weight:bold;background:transparent;')
         if hasattr(self, '_comp_circle'):
-            self._comp_circle.setStyleSheet(f'background:{T("bg3")};border-radius:36px;color:{T("text_dim")};font-size:34px;font-weight:bold;')
+            self._comp_circle.setStyleSheet(f'background:{T("bg3")};border-radius:26px;color:{T("text_dim")};font-size:26px;font-weight:bold;')
         if hasattr(self, '_lbl_comp'):
             self._lbl_comp.setStyleSheet(f'font-size:{FS_BODY}px;font-weight:bold;color:{T("text_dim")};background:transparent;')
         if hasattr(self, '_hero_avg_btn'): self._hero_avg_btn.setStyleSheet(self._seg_btn_ss(left=True))
@@ -15660,18 +15680,22 @@ class StereoLoudnessPage(QWidget):
             ok = (abs(dev)<=1.0) and tp_ok
             if ok:
                 self._comp_circle.setText('✓'); circ=T('green')
-                self._lbl_comp.setText(f'PASS · TP {m.peak_hold:.1f} / LRA {m.LRA:.1f}'); cc=T('green')
+                self._lbl_comp.setText('PASS'); cc=T('green')
             else:
                 self._comp_circle.setText('✗')
                 circ=(T('yellow') if abs(dev)<=3.0 and tp_ok else T('red')); cc=circ
                 why='loudness' if abs(dev)>1.0 else 'true-peak'
                 self._lbl_comp.setText(f'CHECK {why}')
-            self._comp_circle.setStyleSheet(f'background:{circ};border-radius:36px;color:#000;font-size:34px;font-weight:bold;')
-            self._lbl_comp.setStyleSheet(f'font-size:{FS_BODY}px;font-weight:bold;color:{cc};background:transparent;')
+            self._comp_circle.setStyleSheet(f'background:{circ};border-radius:26px;color:#000;font-size:26px;font-weight:bold;')
+            self._lbl_comp.setStyleSheet(f'font-size:{FS_LG}px;font-weight:bold;color:{cc};background:transparent;')
+            tp_txt = f'{m.peak_hold:.1f} dBTP' if m.peak_hold>-100 else '— dBTP'
+            self._comp_detail.setText(
+                f'Target {self._target:+.0f}   ·   Δ {dev:+.1f} LU\n'
+                f'True Peak  {tp_txt}\nLRA  {m.LRA:.1f} LU')
         else:
-            self._lbl_hero_sub.setText('—'); self._lbl_comp.setText('—')
-            self._comp_circle.setText('—')
-            self._comp_circle.setStyleSheet(f'background:{T("bg3")};border-radius:36px;color:{T("text_dim")};font-size:34px;font-weight:bold;')
+            self._lbl_comp.setText('—'); self._comp_circle.setText('—')
+            self._comp_detail.setText('—')
+            self._comp_circle.setStyleSheet(f'background:{T("bg3")};border-radius:26px;color:{T("text_dim")};font-size:26px;font-weight:bold;')
 
 
 class _TFPopoutWindow(QWidget):

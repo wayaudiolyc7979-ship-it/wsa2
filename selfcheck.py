@@ -399,6 +399,13 @@ def _loud_state_roundtrip():
 check('Loudness 상태 직렬화 라운드트립', _loud_state_roundtrip)
 
 
+def _loud_history_empty():
+    """LoudnessHistoryCanvas 빈 상태 — 측정 전 휑함 방지 안내가 타겟선과 안 겹치게 상단 표시."""
+    h = w.LoudnessHistoryCanvas(); h.resize(800, 150); h.set_target(-23.0)
+    return _save(h, 'history_empty.png')   # 데이터 0 → 안내 문구 경로
+check('Loudness History 빈 상태 안내', _loud_history_empty)
+
+
 def _tf_state_roundtrip():
     """TransferFunctionWindow get_state/apply_state 라운드트립 (콤보 인덱스 위주)."""
     try:
