@@ -27,7 +27,7 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz, a.scripts, [],
     exclude_binaries=True,
-    name='WSA2 License Tool',
+    name='SPECTRA License Tool',
     debug=False, strip=False, upx=True,
     console=False, argv_emulation=False,
     target_arch='arm64',
@@ -38,19 +38,19 @@ exe = EXE(
 coll = COLLECT(
     exe, a.binaries, a.zipfiles, a.datas,
     strip=False, upx=True,
-    name='WSA2 License Tool',
+    name='SPECTRA License Tool',
 )
 
 app = BUNDLE(
     coll,
-    name='WSA2 License Tool.app',
+    name='SPECTRA License Tool.app',
     icon='icon.icns',
-    bundle_identifier='com.wayaudio.wsa2.licensetool',
+    bundle_identifier='com.wayaudio.spectra.licensetool',
     info_plist={
         'CFBundleShortVersionString': '1.0',
         'CFBundleVersion': '1.0.0',
-        'CFBundleName': 'WSA2 License Tool',
-        'CFBundleDisplayName': 'WSA2 라이선스 키 생성기',
+        'CFBundleName': 'SPECTRA License Tool',
+        'CFBundleDisplayName': 'SPECTRA 라이선스 키 생성기',
         'NSHighResolutionCapable': True,
         'LSMinimumSystemVersion': '12.0',
         'NSRequiresAquaSystemAppearance': False,
