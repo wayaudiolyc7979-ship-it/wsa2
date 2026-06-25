@@ -4719,6 +4719,7 @@ class _SplAlarmDisplay(QWidget):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._label = 'LAeq'; self._unit = 'dBA'; self._value = None
         self._limit = 100.0; self._amber = 3.0; self._over_since = None; self._blink_n = 0
+        self._alarm_state = 'OK'   # 3상태 전이 로그용 (OK/AMBER/OVER)
 
     def configure(self, label, unit, limit, amber):
         self._label = label; self._unit = unit
@@ -4726,16 +4727,23 @@ class _SplAlarmDisplay(QWidget):
 
     def set_value(self, v):
         self._value = v; self._blink_n += 1
-        if v is not None and v >= self._limit:
-            if self._over_since is None:
-                self._over_since = time.time()
-                _diag('spl_alarm', state='OVER', metric=self._label,
-                      val=round(v, 1), limit=round(self._limit, 1))
+        # 3상태 판정 (OK/AMBER/OVER) — 진입 전이 시 1회만 로그
+        if v is None:
+            st = 'OK'
+        elif v >= self._limit:
+            st = 'OVER'
+        elif v >= self._limit - self._amber:
+            st = 'AMBER'
         else:
-            if self._over_since is not None:
-                _diag('spl_alarm', state='CLEAR', metric=self._label,
-                      val=(None if v is None else round(v, 1)), limit=round(self._limit, 1))
-            self._over_since = None
+            st = 'OK'
+        if st != self._alarm_state:
+            if st == 'OVER':
+                self._over_since = time.time()
+            elif self._alarm_state == 'OVER':
+                self._over_since = None          # OVER 이탈 → 깜빡임 해제
+            self._alarm_state = st
+            _diag('spl_alarm', state=st, metric=self._label,
+                  val=(None if v is None else round(v, 1)), limit=round(self._limit, 1))
         self.update()
 
     def _state(self):
@@ -11538,6 +11546,8 @@ class TransferFunctionWindow(QWidget):
         self._save_tf_devices()
         if sig_was_playing:
             self._start_sig_gen()
+        _diag('sig_out_ch', ch1=self.sig_out_ch_cb.currentData(),
+              ch2=self.sig_out_ch2_cb.currentData(), restarted=bool(sig_was_playing))
 
     @staticmethod
     def _strip_star(txt):
