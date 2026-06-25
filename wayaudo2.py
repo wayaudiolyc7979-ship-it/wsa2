@@ -15352,19 +15352,18 @@ class StereoLoudnessPage(QWidget):
         f=QFrame(); f.setObjectName('stCard')
         f.setStyleSheet(self._card_bg_ss('stCard', 14))
         getattr(self, '_card_frames', self.__dict__.setdefault('_card_frames', [])).append((f, 'stCard', 14))
-        v=QVBoxLayout(f); v.setContentsMargins(16,12,16,14); v.setSpacing(10)
-        title=QLabel('COMPLIANCE'); title.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};letter-spacing:1px;background:transparent;')
-        # 상태 줄: 작은 신호 원 + 상태 문구(좌→우)
+        v=QVBoxLayout(f); v.setContentsMargins(16,12,16,14); v.setSpacing(8)
+        title=QLabel('COMPLIANCE'); title.setAlignment(Qt.AlignHCenter)
+        title.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};letter-spacing:1px;background:transparent;')
+        # 전부 가운데 정렬: 신호 원 → 상태 문구 → 상세(타겟/편차·TP·LRA)
         self._comp_circle=QLabel('—'); self._comp_circle.setFixedSize(52,52); self._comp_circle.setAlignment(Qt.AlignCenter)
         self._comp_circle.setStyleSheet(f'background:{T("bg3")};border-radius:26px;color:{T("text_dim")};font-size:26px;font-weight:bold;')
-        self._lbl_comp=QLabel('—'); self._lbl_comp.setAlignment(Qt.AlignLeft|Qt.AlignVCenter)
+        self._lbl_comp=QLabel('—'); self._lbl_comp.setAlignment(Qt.AlignHCenter)
         self._lbl_comp.setStyleSheet(f'font-size:{FS_LG}px;font-weight:bold;color:{T("text_dim")};background:transparent;')
-        srow=QHBoxLayout(); srow.setSpacing(14); srow.setContentsMargins(0,0,0,0)
-        srow.addWidget(self._comp_circle); srow.addWidget(self._lbl_comp,1)
-        # 상세 줄: 타겟/편차 · True Peak · LRA (없을 땐 dash)
-        self._comp_detail=QLabel('—'); self._comp_detail.setWordWrap(True)
+        self._comp_detail=QLabel('—'); self._comp_detail.setAlignment(Qt.AlignHCenter)
         self._comp_detail.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};background:transparent;')
-        v.addWidget(title); v.addStretch(); v.addLayout(srow); v.addWidget(self._comp_detail); v.addStretch()
+        cc=QHBoxLayout(); cc.addStretch(); cc.addWidget(self._comp_circle); cc.addStretch()
+        v.addWidget(title); v.addStretch(); v.addLayout(cc); v.addWidget(self._lbl_comp); v.addWidget(self._comp_detail); v.addStretch()
         return f
 
     def _metric_lbl_col(self):
@@ -15400,18 +15399,18 @@ class StereoLoudnessPage(QWidget):
             cv.addWidget(cap_lbl); cv.addWidget(num, 3); cv.addWidget(sub)
             return col, cap_lbl, num, sub
 
-        # AVG=주(크게), LIVE=부(작게) — '쌍둥이'처럼 안 보이게 위계 부여
+        # AVG·LIVE 동일 크기(좌우 대칭) — 구분은 캡션 색으로만(AVG 액센트 / LIVE 흐림)
         avg_col, self._cap_avg, self._lbl_I, self._sub_avg = _half(
             'AVG', _tx('AVG — Integrated (cumulative average). Broadcast/streaming delivery reference'),
             scale=1.0, primary=True)
         live_col, self._cap_live, self._lbl_live, self._sub_live = _half(
             'LIVE', _tx('LIVE — Real-time (Short-term 3s). For monitoring during work'),
-            scale=0.72, primary=False)
+            scale=1.0, primary=False)
 
         div = QFrame(); div.setFrameShape(QFrame.VLine); div.setFixedWidth(1)
         div.setStyleSheet(f'color:{T("border")};background:transparent;')
 
-        rl.addWidget(avg_col, 11); rl.addWidget(div); rl.addWidget(live_col, 9)
+        rl.addWidget(avg_col, 1); rl.addWidget(div); rl.addWidget(live_col, 1)
         vl.addWidget(row, 3)
         vl.addSpacing(12)
         # 하위호환: restyle/구코드가 참조하는 sub 핸들 → AVG sub로 매핑
