@@ -12,7 +12,7 @@ if [ "$ARCH" = "arm64" ]; then
 fi
 
 # 여기부터 x86_64 모드 (Rosetta)
-VENV="/tmp/wsa2_intel_venv"
+VENV="/tmp/spectra_intel_venv"
 PY="arch -x86_64 $VENV/bin/python"
 if [ ! -d "$VENV" ]; then
     echo "x86_64 전용 venv 생성: $VENV"
