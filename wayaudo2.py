@@ -5929,10 +5929,11 @@ class _MiniMeterBar(QWidget):
         self._peak  = -100.0
         self.setFixedHeight(8)
 
-    def set_level(self, db):
+    def set_level(self, db, peak_db=None):
         self._level = db
-        if db > self._peak: self._peak = db
-        else: self._peak = max(self._peak - 0.8, db)
+        pk = peak_db if peak_db is not None else db   # 실제 peak(있으면) — 바=RMS·tick=true peak
+        if pk > self._peak: self._peak = pk
+        else: self._peak = max(self._peak - 0.8, self._level)
         self.update()
 
     def reset(self):
@@ -6122,8 +6123,8 @@ class ChannelCard(QFrame):
         self.setStyleSheet(f'#channelCard{{background:{T("panel")};'
                            f'border:2px solid {self._color};border-radius:{RADIUS_SM}px;padding:1px;}}')
 
-    def update_level(self, db):
-        self._meter.set_level(db); self._db_lbl.setText(f'{db:.1f}')
+    def update_level(self, db, peak_db=None):
+        self._meter.set_level(db, peak_db); self._db_lbl.setText(f'{db:.1f}')
 
     def reset(self):
         self._meter.reset(); self._db_lbl.setText(' — ')
@@ -6309,8 +6310,8 @@ class _SpecCard(QFrame):
                 if self._ch_cb.itemData(i) == cur: self._ch_cb.setCurrentIndex(i); break
         self._ch_cb.blockSignals(False)
 
-    def update_level(self, db):
-        self._meter.set_level(db); self._db_lbl.setText(f'{db:.0f}')
+    def update_level(self, db, peak_db=None):
+        self._meter.set_level(db, peak_db); self._db_lbl.setText(f'{db:.0f}')
 
     def reset(self):
         self._meter.reset(); self._db_lbl.setText('—')
@@ -7730,9 +7731,10 @@ class TFPhaseCanvas(QWidget):
             self.ph_min, self.ph_max = self._abs_ph; self._abs_ph = None
         self._cache=None; self._cap_pix=None; self.update()
 
-    def set_tf_extra_phase(self, ch_idx, color, f, ph_wrap, ph_unwr, grp_ms):
+    def set_tf_extra_phase(self, ch_idx, color, f, ph_wrap, ph_unwr, grp_ms, mag=None):
         self._tf_extra_phase[ch_idx] = {'color': color, 'f': f,
-                                         'ph_wrap': ph_wrap, 'ph_unwr': ph_unwr, 'grp_ms': grp_ms}
+                                         'ph_wrap': ph_wrap, 'ph_unwr': ph_unwr, 'grp_ms': grp_ms,
+                                         'mag': mag}   # 커서 리드아웃 dB 표시용(1번 카드와 동일)
         self.update()
 
     def clear_tf_extra_phase(self, ch_idx):
@@ -8189,7 +8191,7 @@ class TFPhaseCanvas(QWidget):
             _ex = self._tf_extra_phase[_fk]
             _cf = _ex.get('f')
             data = [_ex.get('ph_wrap'), _ex.get('ph_unwr'), _ex.get('grp_ms')][self.phase_mode]
-            _cmag = None
+            _cmag = _ex.get('mag')
         else:
             _cf = self.freqs
             data = None if self.freqs is None else [self.ph_wrap,self.ph_unwr,self.grp_ms][self.phase_mode]
@@ -8198,7 +8200,7 @@ class TFPhaseCanvas(QWidget):
                 _ex = next(iter(self._tf_extra_phase.values()))
                 _cf = _ex.get('f')
                 data = [_ex.get('ph_wrap'), _ex.get('ph_unwr'), _ex.get('grp_ms')][self.phase_mode]
-                _cmag = None
+                _cmag = _ex.get('mag')
         if pl<=self._mx<=W-pr and _cf is not None:
             if data is not None:
                 is_grp=(self.phase_mode==2)
@@ -8301,8 +8303,9 @@ class TFMagCanvas(QWidget):
             self.db_min, self.db_max = self._abs_db; self._abs_db = None
         self._cache=None; self._cap_pix=None; self.update()
 
-    def set_tf_extra(self, ch_idx, color, f, mag):
-        self._tf_extra[ch_idx] = {'color': color, 'f': f, 'mag': mag}
+    def set_tf_extra(self, ch_idx, color, f, mag, phase=None, coh=None):
+        self._tf_extra[ch_idx] = {'color': color, 'f': f, 'mag': mag,
+                                  'phase': phase, 'coh': coh}   # 커서 리드아웃 °/% 표시용(1번 카드와 동일)
         self.update()
 
     def clear_tf_extra(self, ch_idx):
@@ -8700,12 +8703,12 @@ class TFMagCanvas(QWidget):
         _fk = self._front_extra
         if isinstance(_fk, int) and _fk != -1 and _fk in self._tf_extra:
             _ex = self._tf_extra[_fk]
-            _cf = _ex.get('f'); _cm = _ex.get('mag'); _cp = None; _cc = None
+            _cf = _ex.get('f'); _cm = _ex.get('mag'); _cp = _ex.get('phase'); _cc = _ex.get('coh')
         else:
             _cf = self.freqs; _cm = self.mag; _cp = self.phase; _cc = self.coh
             if (_cf is None or _cm is None) and self._tf_extra:
                 _ex = next(iter(self._tf_extra.values()))
-                _cf = _ex.get('f'); _cm = _ex.get('mag'); _cp = None; _cc = None
+                _cf = _ex.get('f'); _cm = _ex.get('mag'); _cp = _ex.get('phase'); _cc = _ex.get('coh')
         if pl<=self._mx<=W-pr and _cf is not None and _cm is not None:
             cx=self._mx
             freq=x_to_freq(cx,pl,uw,ny)
@@ -8840,7 +8843,7 @@ class _HorizBarVU(QWidget):
         super().__init__(); self.setFixedHeight(8)
         self._db = -80.0; self._pk = -80.0; self._pk_hold = 0; self._last_t = 0.0
 
-    def set_rms(self, db):
+    def set_rms(self, db, peak_db=None):
         # 시간 기반 탄도(빠른 어택/실시간 릴리즈) — 업데이트율 무관하게 일정한 실시간 반응
         now = time.monotonic()
         dt = (now - self._last_t) if self._last_t else 0.0
@@ -8848,8 +8851,9 @@ class _HorizBarVU(QWidget):
         tau = METER_TAU_ATTACK if db > self._db else METER_TAU_RELEASE
         a = (1.0 - math.exp(-dt / tau)) if dt > 0 else 1.0
         self._db += (db - self._db) * a
-        # peak: 새 최대는 즉시, 아니면 시간기반 감쇠로 채움(_db)까지 매끄럽게 따라내림
-        if db > self._pk: self._pk = db
+        # peak tick: 실제 peak(있으면) 즉시 올리고, 시간기반 감쇠로 채움(_db)까지 매끄럽게 따라내림
+        pk = peak_db if peak_db is not None else db
+        if pk > self._pk: self._pk = pk
         elif dt > 0: self._pk = max(self._pk - METER_PEAK_DECAY * dt, self._db)
         self.update()
 
@@ -8866,9 +8870,7 @@ class _HorizBarVU(QWidget):
         p.setPen(Qt.NoPen); p.setBrush(track); p.drawRoundedRect(QRectF(0, 0, W, H), rr, rr)
         # 위치 기반 green/yellow/red 구간 채움 (M4/Smaart 사다리)
         _draw_zone_meter_h(p, W, H, self._db, DB_MIN, DB_MAX)
-        if self._pk > DB_MIN:
-            px = W * max(0.0, min(1.0, (self._pk - DB_MIN) / rng))
-            p.setPen(QPen(QColor(T('text')), 1)); p.drawLine(int(px), 1, int(px), int(H - 1))
+        # peak tick(흰색 바) 제거 — TF 카드 미터는 RMS 채움만 (사용자 요청 2026-06-26)
         p.end()
 
 
@@ -9070,8 +9072,8 @@ class _MeasCard(QFrame):
             self._delay_spin.blockSignals(False)
             self._update_m_lbl()
 
-    def set_meas(self, db):
-        self._m_bar.set_rms(db)
+    def set_meas(self, db, peak_db=None):
+        self._m_bar.set_rms(db, peak_db)
         c = T('red') if db > METER_RED_DB else T('yellow') if db > METER_YELLOW_DB else self._color
         self._db_lbl.setStyleSheet(f'color:{c};background:transparent;font-size:{FS_XS}px;font-weight:bold;')
         self._db_lbl.setText(f'{db:.0f}')
@@ -9175,10 +9177,12 @@ class _VUProxy:
 
     clicked = _FakeSig()
 
-    def set_rms(self, db):
+    def set_rms(self, db, peak_db=None):
         self._db = db; self._pk_hold += 1
         if db > self._pk or self._pk_hold > 40: self._pk = db; self._pk_hold = 0
-        if self._card_fn: self._card_fn(db)
+        if self._card_fn:
+            try: self._card_fn(db, peak_db)
+            except TypeError: self._card_fn(db)   # peak 미지원 콜백 하위호환
 
     def update(self): pass
 
@@ -10757,6 +10761,7 @@ class TransferFunctionWindow(QWidget):
 
     def __init__(self, parent=None, settings=None, embedded=False):
         self.embedded = embedded
+        self._mw = parent   # 생성 시점 MainWindow 안정 참조(팝아웃 reparent 후에도 불변) — 프리 모니터 활성탭 판정용
         if embedded:
             super().__init__(parent)
         else:
@@ -11537,17 +11542,27 @@ class TransferFunctionWindow(QWidget):
             self._start_sig_gen()
 
     def _sig_out_ch_changed(self, _=None):
-        """출력 채널 콤보 변경: 저장 + 재생 중이면 스트림 재시작(새 채널 반영)."""
+        """출력 채널 콤보 변경: 저장 + 재생 중이면 반영.
+        같은 장치 standalone 스트림이 살아있으면 → 재시작 없이 가변 참조만 갱신(무끊김).
+        그 외(듀플렉스/정지)는 기존 stop→start 경로."""
         if getattr(self, '_restoring_devices', False):
             self._save_tf_devices(); return
+        new_ch1 = self.sig_out_ch_cb.currentData() or 0
+        new_ch2 = self.sig_out_ch2_cb.currentData()   # None = Off
+        # 무끊김 경로: standalone 출력 스트림이 살아있을 때 (디바이스 전체 채널로 열려있어 어느 채널이든 안전)
+        if self._sig_stream is not None and getattr(self, '_sig_out_ch_ref', None) is not None:
+            self._sig_out_ch_ref[0] = new_ch1
+            self._sig_out_ch_ref[1] = new_ch2
+            self._save_tf_devices()
+            _diag('sig_out_ch', ch1=new_ch1, ch2=new_ch2, restarted=False, seamless=True)
+            return
         sig_was_playing = getattr(self, 'sig_on_btn', None) and self.sig_on_btn.isChecked()
         if sig_was_playing:
             self._stop_sig_gen()
         self._save_tf_devices()
         if sig_was_playing:
             self._start_sig_gen()
-        _diag('sig_out_ch', ch1=self.sig_out_ch_cb.currentData(),
-              ch2=self.sig_out_ch2_cb.currentData(), restarted=bool(sig_was_playing))
+        _diag('sig_out_ch', ch1=new_ch1, ch2=new_ch2, restarted=bool(sig_was_playing), seamless=False)
 
     @staticmethod
     def _strip_star(txt):
@@ -11799,7 +11814,7 @@ class TransferFunctionWindow(QWidget):
         if hasattr(self, '_level_cards') and self._level_cards:
             self._level_cards[0].reset()
 
-    # ── 입력 레벨 모니터 (분석 미실행 시에도 레벨미터 표시) ─────────────
+    # ── 입력 레벨 모니터 (분석 중인 카드 있을 때만 meter 표시) ─────────────
     def _stop_input_monitor(self):
         for th in list(getattr(self, '_monitor_threads', {}).values()):
             try: th.chunk_ready.disconnect(); th.error_signal.disconnect()
@@ -11809,10 +11824,8 @@ class TransferFunctionWindow(QWidget):
         self._monitor_threads = {}; self._monitor_chmap = {}
 
     def _refresh_input_monitor(self):
-        """[비활성화] 별도 모니터 입력 스트림은 같은 장치의 출력/분석 스트림과 CoreAudio 충돌
-        (스트림 닫힘 3초 지연 → 카드 Start 랙, 레벨 오독)을 일으켜 사용하지 않음.
-        '분석 중인 카드가 1개라도 있으면' 정지·가시 카드는 meter-only 로 레벨 표시됨.
-        전부 정지 상태의 모니터링은 공유 오디오 엔진(장치당 1스트림) 도입 후 가능."""
+        """[비활성화] 별도 모니터 입력 스트림은 같은 장치의 출력/분석 스트림과 CoreAudio 충돌을
+        일으켜 사용하지 않음. 카드 레벨미터는 그 카드를 Start(분석) 했을 때만 표시 — 제너레이터와 무관."""
         self._stop_input_monitor()
 
     def _on_monitor_chunk(self, device_idx, chunk_dict):
@@ -12061,8 +12074,7 @@ class TransferFunctionWindow(QWidget):
                                for _i, _rc, _mc in extras]
                     for _i, _, _ in extras: self._extra_pair_threads[_i] = (None, None, None)
                     mc_th = _EngineMultiSource(self._engine, dev, self.sample_rate, self.fft_size, list(all_chs),
-                                                    force_latency=('high' if (self._sig_stream is not None
-                                                                   and dev == self.sig_out_cb.currentData()) else None))
+                                                    force_latency=('high' if dev == self.sig_out_cb.currentData() else None))
                     mc_th.chunk_ready.connect(lambda d, _dv=dev: self._on_mc_chunk(_dv, d), Qt.QueuedConnection)
                     mc_th.error_signal.connect(self._on_err, Qt.QueuedConnection)
                     mc_th.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection)
@@ -12199,8 +12211,7 @@ class TransferFunctionWindow(QWidget):
                         continue  # 다음 장치 처리
                 if routing or has_primary_ref_only:
                     mc_th = _EngineMultiSource(self._engine, dev, self.sample_rate, self.fft_size, list(all_chs),
-                                                    force_latency=('high' if (self._sig_stream is not None
-                                                                   and dev == self.sig_out_cb.currentData()) else None))
+                                                    force_latency=('high' if dev == self.sig_out_cb.currentData() else None))
                     mc_th.chunk_ready.connect(lambda d, _dv=dev: self._on_mc_chunk(_dv, d), Qt.QueuedConnection)
                     mc_th.error_signal.connect(self._on_err, Qt.QueuedConnection)
                     mc_th.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection)
@@ -12244,6 +12255,20 @@ class TransferFunctionWindow(QWidget):
                 m_th.error_signal.connect(self._on_err, Qt.QueuedConnection)
                 m_th.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection)
                 m_th.start(); self._extra_pair_threads[i] = (None, None, m_th)
+
+            # [DIAG] 멀티카드 분석 경로 셋업 요약 (HW검증: 카드2 미분석 추적)
+            try:
+                _pairs_dbg = [{'i': _i, 'disp': _p.get('display', False),
+                               'mdev': _p['meas_cb'].currentData(), 'mch': _p['meas_ch_cb'].currentData()}
+                              for _i, _p in enumerate(self._extra_pairs)]
+                _mc_dbg = {_d: [(_r.get('pair_idx') if _r.get('pair_idx') is not None
+                                 else f"refonly{_r.get('_ref_only_pair')}") for _r in _rt]
+                           for _d, (_, _rt) in self._mc_threads.items()}
+                _diag('tf_card_setup', ref=ref_idx, rch=ref_ch,
+                      pairs=_pairs_dbg, mc=_mc_dbg,
+                      extra_th=[_t != (None, None, None) for _t in self._extra_pair_threads])
+            except Exception as _e:
+                _alog.debug(f'tf_card_setup diag err: {_e}')
 
         self._running = True
         _r = QColor(T('red')); _rr,_rg,_rb = _r.red(),_r.green(),_r.blue()
@@ -12369,8 +12394,10 @@ class TransferFunctionWindow(QWidget):
         # Primary 카드 레벨 직접 업데이트 — 체크박스(가시) ON 이면 표시 (Start/Stop 무관)
         if (hasattr(self, '_level_cards') and self._level_cards and self._level_cards[0].is_graph_visible()):
             pc = self._level_cards[0]
+            pk_m = float(np.max(np.abs(meas_buf))) if len(meas_buf) else 0.0
             if rms_r > 1e-9: pc.set_ref(20 * _math.log10(rms_r))
-            if rms_m > 1e-9: pc.set_meas(20 * _math.log10(rms_m))
+            if rms_m > 1e-9: pc.set_meas(20 * _math.log10(rms_m),
+                                         20 * _math.log10(pk_m) if pk_m > 1e-9 else -120.0)
 
     def _update_extra_card(self, pair_idx, ref_buf, meas_buf):
         """Extra 쌍 카드에 RMS 레벨 업데이트 (Qt 메인스레드에서 호출)."""
@@ -12379,8 +12406,10 @@ class TransferFunctionWindow(QWidget):
         if card is None or not card.is_graph_visible(): return   # 체크박스 OFF → 레벨 표시 안 함
         rms_r = float(np.sqrt(np.mean(ref_buf ** 2)))
         rms_m = float(np.sqrt(np.mean(meas_buf ** 2)))
+        pk_m  = float(np.max(np.abs(meas_buf))) if len(meas_buf) else 0.0
         if rms_r > 1e-9: card.set_ref(20 * _math.log10(rms_r))
-        if rms_m > 1e-9: card.set_meas(20 * _math.log10(rms_m))
+        if rms_m > 1e-9: card.set_meas(20 * _math.log10(rms_m),
+                                       20 * _math.log10(pk_m) if pk_m > 1e-9 else -120.0)
 
     def _on_extra_frame(self, pair_idx, ref_buf, meas_buf):
         """TFSyncThread (same-device extra pair): ref+meas 원자 처리 → pair 누적."""
@@ -12404,6 +12433,14 @@ class TransferFunctionWindow(QWidget):
             if isinstance(pair_idx, int):
                 if pair_idx >= len(self._extra_pairs): continue
                 if not self._extra_pairs[pair_idx].get('display', False): continue
+                # [DIAG] throttled: 카드 meas chunk 도달 추적 (HW검증: 카드2 미분석)
+                self._dbg_mc_n = getattr(self, '_dbg_mc_n', 0) + 1
+                if self._dbg_mc_n % 90 == 0:
+                    _mch = r.get('meas_ch'); _rch = r.get('ref_ch')
+                    _diag('tf_mc_route', pair=pair_idx, mch=_mch, rch=_rch,
+                          keys=sorted(chunk_dict.keys()),
+                          meas_in=(_mch in chunk_dict),
+                          ref_in=(_rch in chunk_dict if _rch is not None else 'extdev'))
 
             # ref_only: diff-device pair의 ref 채널을 MC에서 버퍼링
             ref_only_idx = r.get('_ref_only_pair')
@@ -12509,6 +12546,15 @@ class TransferFunctionWindow(QWidget):
         """입력 장치(인터페이스) USB 끊김 감지 — 분석 + 제너레이터(출력) 모두 정지.
         출력 스트림을 닫지 않으면 핑크노이즈가 macOS 기본(내장) 출력으로 새므로 함께 정지."""
         if getattr(self, '_tf_disc_handling', False): return
+        # 가짜 disconnect 방지: HAL 장치 개수가 안 줄었으면(장치 그대로) 스트림 churn(채널변경/재구성)
+        # 오판 → 무시. 실제 제거는 개수 감소로 통과 + CoreAudio 리스너(개수 기반)가 백업.
+        try:
+            _mw = getattr(self, '_mw', None)
+            _cur = _mw._ca_watcher.device_count(); _base = getattr(_mw, '_ca_dev_count', None)
+            if _cur is not None and _base is not None and _cur >= _base:
+                _alog.info(f'TF disconnect 신호 무시 — 장치 개수 유지({_cur}≥{_base}), 가짜 끊김(스트림 churn)')
+                return
+        except Exception: pass
         self._tf_disc_handling = True
         _alog.info(f'TF 장치 연결 끊김 감지 → 정지 + 자동 새로고침  msg={msg}')
         self._stop_analysis()   # 분석 스트림 정지 (UI/카드/버튼 리셋 포함)
@@ -12702,8 +12748,12 @@ class TransferFunctionWindow(QWidget):
         if self._running:
             # R 바는 공유 레퍼런스라 항상 / primary M 바는 primary 체크박스 ON 일 때만
             _pvis = (not self._level_cards) or self._level_cards[0].is_graph_visible()
-            if rr > 0: self._vu_ref.set_rms(20 * math.log10(max(rr, 1e-9)))
-            if mr > 0 and _pvis: self._vu_meas.set_rms(20 * math.log10(max(mr, 1e-9)))
+            if rr > 0:
+                _rpk = float(np.max(np.abs(ref_b))) if (ref_b is not None and len(ref_b)) else rr
+                self._vu_ref.set_rms(20 * math.log10(max(rr, 1e-9)), 20 * math.log10(max(_rpk, 1e-9)))
+            if mr > 0 and _pvis:
+                _mpk = float(np.max(np.abs(meas_b))) if (meas_b is not None and len(meas_b)) else mr
+                self._vu_meas.set_rms(20 * math.log10(max(mr, 1e-9)), 20 * math.log10(max(_mpk, 1e-9)))
 
         # 분석(카드 Start) 없이 제너레이터만 재생 중이어도 R(레퍼런스) 바 표시
         # — 출력=루프백 레퍼런스 신호(_int_ref_buf)의 레벨로 갱신 (입력 스트림 불필요 → 충돌 없음).
@@ -12743,6 +12793,7 @@ class TransferFunctionWindow(QWidget):
         # ── MTW 라이브 엔진 경로 (primary 전용, v1.7) — 시간영역 버퍼를 멀티레이트 분석 ──
         if self._tf_engine_mtw and self._mtw is not None:
             self._render_mtw(ref_b, meas_b, rr, mr, freqs, t_ms, _primary_show)
+            self._render_extra_pairs(freqs, t_ms)   # extra 카드는 엔진 무관 — 함께 렌더
             return
 
         # ── Primary 누적·렌더 (Ref/Meas 데이터 충분할 때만; 없으면 extra 카드만 렌더) ──
@@ -12776,8 +12827,23 @@ class TransferFunctionWindow(QWidget):
             if _ns:
                 self.avg_lbl.setText(f'Avg: {min(max(_ns), self._avg_target)} / {self._avg_target}')
 
-        # 추가 Ref+Meas 쌍 H(f) 계산 및 캔버스 업데이트 (primary 유무와 무관)
+        # 추가 Ref+Meas 쌍 렌더 (primary 유무·엔진 무관) — MTW/레거시 공통
+        self._render_extra_pairs(freqs, t_ms)
+
+    def _render_extra_pairs(self, freqs, t_ms):
+        """추가 Ref+Meas 쌍(extra 카드) H(f) 계산 + 캔버스 갱신.
+        extra 카드는 MTW 엔진과 무관하게 자체 FFT 크로스스펙트럼(_extra_pair_acc)으로
+        누적되므로, MTW/Single 어느 엔진이든 이 루프가 실행돼야 그려진다.
+        (이전 버그: _render_inner 가 MTW 분기에서 _render_mtw 후 즉시 return →
+         이 루프 미실행 → 카드2 분석/곡선 안 뜸. 양쪽 경로에서 호출하도록 분리.)"""
+        self._dbg_rend_n = getattr(self, '_dbg_rend_n', 0) + 1
+        _rend_log = (self._dbg_rend_n % 30 == 0)
         for i, acc in enumerate(self._extra_pair_acc):
+            if _rend_log:
+                _p = self._extra_pairs[i] if i < len(self._extra_pairs) else None
+                _diag('tf_card_render', i=i, accn=(acc['n'] if acc else None),
+                      disp=(_p.get('display') if _p else None),
+                      gvis=(_p['card'].is_graph_visible() if _p and _p.get('card') else None))
             if acc is None or acc['n'] < 3: continue
             pair = self._extra_pairs[i] if i < len(self._extra_pairs) else None
             if pair and not pair.get('display', True):
@@ -12786,6 +12852,9 @@ class TransferFunctionWindow(QWidget):
                 continue  # 그래프 표시 OFF — 분석은 계속, 곡선만 숨김
             color = _MC_COLORS[i % len(_MC_COLORS)]
             H_ex_raw = acc['cross'] / np.maximum(acc['auto_x'], 1e-30)
+            # 코히런스 γ² (primary와 동일 정의) — 커서 리드아웃 %용
+            gamma2_ex = np.clip(np.abs(acc['cross']) ** 2 /
+                                np.maximum(acc['auto_x'] * acc['auto_y'], 1e-30), 0.0, 1.0)
             # 카드별 독립 딜레이 적용
             pair_delay = 0.0
             if i < len(self._extra_pairs):
@@ -12795,8 +12864,10 @@ class TransferFunctionWindow(QWidget):
             else:
                 H_ex_disp = H_ex_raw
             f_ex, mag_ex, ph_wrap_ex, ph_unwr_ex, grp_ms_ex = _tf_smooth(freqs, H_ex_disp, self.smooth_bpo)
-            self.mag_cvs.set_tf_extra(i, color, f_ex, mag_ex)
-            self.phase_cvs.set_tf_extra_phase(i, color, f_ex, ph_wrap_ex, ph_unwr_ex, grp_ms_ex)
+            coh_ex = np.interp(f_ex, freqs, gamma2_ex).astype(np.float32)   # f_ex 그리드로 코히런스 보간
+            # 교차 데이터 같이 전달 → 커서 리드아웃이 1번 카드와 동일(dB+°+%)
+            self.mag_cvs.set_tf_extra(i, color, f_ex, mag_ex, phase=ph_wrap_ex, coh=coh_ex)
+            self.phase_cvs.set_tf_extra_phase(i, color, f_ex, ph_wrap_ex, ph_unwr_ex, grp_ms_ex, mag=mag_ex)
             # 카드별 IR: 딜레이 보정 없이 raw H → 임펄스가 실제 도착(=딜레이) 위치에 표시.
             # 딜레이 값은 카드색 마커로 그려지고, front 카드면 뷰가 그 위치로 센터링된다.
             # (mag/phase 는 위 H_ex_disp 로 위상 보정 유지 — IR 만 물리 위치)
@@ -13609,10 +13680,10 @@ class TransferFunctionWindow(QWidget):
             self._extra_pair_acc[idx] = None
         # 스트림은 그대로 유지 — _on_mc_chunk/_render_inner 에서 플래그 체크
 
-    def _on_ref_vu(self, db):
+    def _on_ref_vu(self, db, peak_db=None):
         """공유 레퍼런스 VU 바 + 레벨 레이블 업데이트."""
         if hasattr(self, '_ref_vu_bar'):
-            self._ref_vu_bar.set_rms(db)
+            self._ref_vu_bar.set_rms(db, peak_db)
         if hasattr(self, '_ref_db_lbl'):
             c = T('red') if db > METER_RED_DB else T('yellow') if db > METER_YELLOW_DB else T('text_dim')
             self._ref_db_lbl.setStyleSheet(f'color:{c};font-size:9px;')
@@ -13629,20 +13700,17 @@ class TransferFunctionWindow(QWidget):
                 self._extra_pairs[pair_idx]['display'] = True
                 card = self._extra_pairs[pair_idx].get('card')
                 if card: card.set_running(True)
-        # 제너레이터가 켜져 있으면 분석 스트림 재시작
+        # 제너레이터가 켜져 있으면: 외부 Ref + duplex 모드는 standalone 으로 먼저 전환
+        # (TFDuplexThread가 M4 입력 점유 중 → _start()가 같은 장치에 MC 열면 CoreAudio 충돌)
         if self.sig_on_btn.isChecked():
-            # 외부 Ref + duplex 모드: TFDuplexThread가 M4 입력 점유 중
-            # → _start()가 같은 장치에 TFSyncThread/MC 열면 CoreAudio 충돌 → standalone 전환
             ref_idx = self.ref_cb.currentData()
             if (ref_idx is not None and
                     self._duplex_thread and self._duplex_thread.isRunning()):
                 self._start_sig_gen()   # duplex → standalone OutputStream으로 전환
-            # 입력 분석 스트림은 즉시 열지 않고 settle 지연 후 연다 (_delayed_restart).
-            # 같은 장치(M4)에서 (모니터/이전 분석) 입력 스트림 close 와 새 입력 스트림 open 이
-            # 맞물리면 CoreAudio 가 장치를 재구성하며 ① 첫 스트림이 데이터를 못 주거나
-            # (1카드 단독 분석 미표시) ② 라이브 제너레이터 출력에 글리치(띠띠띡) 가 낀다.
-            # _reconfigure_audio(제너레이터 재생 중 600ms 지연 재시작)와 동일 패턴으로 일원화.
-            self._delayed_restart()
+        # 입력 분석 스트림 (재)시작 — **제너레이터 ON/OFF 무관**. 카드 Start = 레벨미터 동작.
+        # settle 지연(_delayed_restart) 으로 입력 스트림 close↔open 맞물림(첫 스트림 데이터 못받음/
+        # 라이브 제너레이터 출력 글리치)을 회피. 제너레이터 꺼져 있으면 글리치 우려는 없지만 동일 경로로 일원화.
+        self._delayed_restart()
 
     def _on_meas_stop(self, pair_idx):
         """카드 Stop 버튼: 분석 비활성화, 해당 채널 캔버스 지우기."""
@@ -14155,7 +14223,13 @@ class TransferFunctionWindow(QWidget):
             buf_r = self._standalone_buf_r; pos_r = [0]
             out_ch  = self.sig_out_ch_cb.currentData() or 0
             out_ch2 = self.sig_out_ch2_cb.currentData()   # None = Off
-            n_ch = max(out_ch + 1, (out_ch2 + 1) if out_ch2 is not None else 0)
+            # 무끊김 채널변경: 디바이스 전체 출력채널로 스트림을 열고, 콜백은 가변 참조(_sig_out_ch_ref)로
+            # 출력 채널을 고른다 → 같은 장치 내 채널 변경 시 스트림 재오픈 없이 참조만 갱신(끊김 0).
+            try: _dev_out_n = int(sd.query_devices(out_dev)['max_output_channels'])
+            except Exception: _dev_out_n = 0
+            n_ch = max(_dev_out_n, out_ch + 1, (out_ch2 + 1) if out_ch2 is not None else 0)
+            self._sig_out_ch_ref = [out_ch, out_ch2]
+            _och_ref = self._sig_out_ch_ref
             _blk_size = 2048
             out_blk = np.zeros(_blk_size, dtype=np.float32)  # 콜백 외부에서 사전 할당
             _ir_buf = self._int_ref_buf; _ir_pos = self._int_ref_pos
@@ -14183,9 +14257,12 @@ class TransferFunctionWindow(QWidget):
                     tf = min(frames, _sg_fade_frames - fp)
                     out_blk[:tf] *= _sg_ramp[fp:fp + tf]
                     _sg_fade_pos[0] = fp + frames
-                outdata[:] = 0; outdata[:, out_ch] = out_blk[:frames]
-                if out_ch2 is not None and out_ch2 < outdata.shape[1]:
-                    outdata[:, out_ch2] = out_blk[:frames]
+                outdata[:] = 0
+                _oc = _och_ref[0]; _oc2 = _och_ref[1]   # 가변 참조 — 라이브 채널 변경 즉시 반영
+                if _oc is not None and _oc < outdata.shape[1]:
+                    outdata[:, _oc] = out_blk[:frames]
+                if _oc2 is not None and _oc2 < outdata.shape[1]:
+                    outdata[:, _oc2] = out_blk[:frames]
                 # fade-in 완료 후에만 _ir_buf 업데이트: 0→1 램프 적용 구간은 레퍼런스 오염 방지를 위해 제외
                 if _sg_fade_pos[0] >= _sg_fade_frames:
                     n2=len(_ir_buf); p2=_ir_pos[0]; end=p2+frames
@@ -14272,7 +14349,7 @@ class TransferFunctionWindow(QWidget):
         self.sig_on_btn.setText('Play'); _apply_txn(self.sig_on_btn, False); self.sig_on_btn.setChecked(False)
         self.sig_on_btn.setStyleSheet(f'background:{T("panel")};color:{T("text_dim")};'
                                        f'border:1px solid {T("border")};padding:4px;border-radius:{RADIUS_CTRL}px;font-weight:bold;')
-        self._stop_input_monitor()   # 제너레이터 정지 → 입력 모니터도 정지
+        self._stop_input_monitor()   # 제너레이터 정지 → 입력 모니터도 정지 (카드 레벨미터는 분석 시에만)
 
     def closeEvent(self, e):
         self._timer.stop(); self._stop(); self._stop_mon_streams(); self._stop_sig_gen()
@@ -18333,6 +18410,15 @@ class MainWindow(QMainWindow):
     def _on_device_disconnected(self,msg):
         dev_name=self.dev_cb.currentText()
         if not dev_name: return   # 이미 Stop된 상태에서 중복 호출 방지
+        # 가짜 disconnect 방지: HAL 장치 개수가 안 줄었으면(M4 여전히 존재) 스트림 churn(채널변경/
+        # 재구성으로 콜백 1.5s+ 멈춤)에 의한 오판 → 무시. 실제 제거는 개수 감소로 통과하고, 콜백을
+        # 무음으로 흘리는 USB는 CoreAudio 리스너(_ca_apply_device_change, 개수 기반)가 잡는다.
+        try:
+            _cur = self._ca_watcher.device_count(); _base = getattr(self, '_ca_dev_count', None)
+            if _cur is not None and _base is not None and _cur >= _base:
+                _alog.info(f'스트림 disconnect 신호 무시 — 장치 개수 유지({_cur}≥{_base}), 가짜 끊김(스트림 churn)')
+                return
+        except Exception: pass
         self._disconnected_dev_name=dev_name   # Refresh 시 이 장치만 접근성 검사
         self._stop()
         self.status_lbl.setText('● Disconnected')
@@ -18498,9 +18584,9 @@ class MainWindow(QMainWindow):
                 self._auto_fit_frame_count += 1
                 if self._auto_fit_frame_count >= self.avg_count:
                     self._auto_fit_y_to_data()
-            # primary 카드 레벨 (raw dBFS)
+            # primary 카드 레벨 (raw dBFS) — 바=RMS, tick=true peak
             if self._primary_card is not None:
-                self._primary_card.update_level(raw_spl)
+                self._primary_card.update_level(raw_spl, raw_peak)
 
 
 
