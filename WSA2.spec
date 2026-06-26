@@ -50,7 +50,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='WSA2',
+    name='SPECTRA',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -72,26 +72,26 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=['libportaudio.dylib', 'libsndfile_arm64.dylib'],
-    name='WSA2',
+    name='SPECTRA',
 )
 
 app = BUNDLE(
     coll,
-    name='WSA2.app',
+    name='SPECTRA.app',
     icon='icon.icns',
     bundle_identifier='com.wayaudio.wsa2',
     info_plist={
         'NSMicrophoneUsageDescription':
-            'WSA2 uses the microphone for real-time spectrum and impulse response analysis.',
+            'SPECTRA uses the microphone for real-time spectrum and impulse response analysis.',
         'NSAudioInputUsageDescription':
-            'WSA2 uses audio input for acoustic measurement.',
+            'SPECTRA uses audio input for acoustic measurement.',
         'NSHighResolutionCapable': True,
         'LSMinimumSystemVersion': '12.0',
         'CFBundleShortVersionString': '1.7',
         'CFBundleVersion': '1.7.0',
         'CFBundleName': 'SPECTRA',
         'CFBundleDisplayName': 'SPECTRA',
-        'CFBundleExecutable': 'WSA2',
+        'CFBundleExecutable': 'SPECTRA',
         'NSRequiresAquaSystemAppearance': False,
         'NSSupportsAutomaticGraphicsSwitching': True,
     },

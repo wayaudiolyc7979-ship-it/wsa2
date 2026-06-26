@@ -69,27 +69,27 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [],
-    exclude_binaries=True, name='WSA2',
+    exclude_binaries=True, name='SPECTRA',
     debug=False, strip=False, upx=False, console=False,
     argv_emulation=False, target_arch='x86_64',
     codesign_identity=None, entitlements_file='entitlements.plist',
 )
 coll = COLLECT(exe, a.binaries, a.zipfiles, a.datas,
-    strip=False, upx=False, name='WSA2_Intel',
+    strip=False, upx=False, name='SPECTRA_Intel',
 )
 app = BUNDLE(coll,
-    name='WSA2_Intel.app', icon='icon.icns',
+    name='SPECTRA.app', icon='icon.icns',
     bundle_identifier='com.wayaudio.wsa2',
     info_plist={
-        'NSMicrophoneUsageDescription': 'WSA2 uses the microphone for acoustic analysis.',
-        'NSAudioInputUsageDescription': 'WSA2 uses audio input for acoustic measurement.',
+        'NSMicrophoneUsageDescription': 'SPECTRA uses the microphone for acoustic analysis.',
+        'NSAudioInputUsageDescription': 'SPECTRA uses audio input for acoustic measurement.',
         'NSHighResolutionCapable': True,
         'LSMinimumSystemVersion': '10.15',
         'CFBundleShortVersionString': '1.7',
         'CFBundleVersion': '1.7.0',
         'CFBundleName': 'SPECTRA',
         'CFBundleDisplayName': 'SPECTRA',
-        'CFBundleExecutable': 'WSA2',
+        'CFBundleExecutable': 'SPECTRA',
         'NSRequiresAquaSystemAppearance': False,
     },
 )
@@ -99,19 +99,19 @@ echo "PyInstaller(x86_64) 빌드 시작..."
 $PY -m PyInstaller WSA2_Intel.spec --clean --noconfirm
 
 # 코드서명 (SPECTRA_SIGN_ID 설정 시)
-bash sign_app.sh dist/WSA2_Intel.app
+bash sign_app.sh dist/SPECTRA.app
 
 echo "브랜드 DMG 생성 중..."
-bash make_dmg.sh dist/WSA2_Intel.app "SPECTRA Installer (Intel)" dist/WSA2_Intel.dmg
+bash make_dmg.sh dist/SPECTRA.app "SPECTRA Installer (Intel)" dist/SPECTRA_Intel.dmg
 
 # 노타라이즈 + staple (자격 설정 시)
-bash notarize_dmg.sh dist/WSA2_Intel.dmg
+bash notarize_dmg.sh dist/SPECTRA_Intel.dmg
 # ── fallback (브랜드 실패 시 plain): ──
 # rm -rf /tmp/WSA2_intel_dmg && mkdir -p /tmp/WSA2_intel_dmg
-# cp -R dist/WSA2_Intel.app /tmp/WSA2_intel_dmg/; ln -sf /Applications /tmp/WSA2_intel_dmg/Applications
-# hdiutil create -volname "SPECTRA Installer (Intel)" -srcfolder /tmp/WSA2_intel_dmg -ov -format UDZO -fs HFS+ dist/WSA2_Intel.dmg
+# cp -R dist/SPECTRA.app /tmp/WSA2_intel_dmg/; ln -sf /Applications /tmp/WSA2_intel_dmg/Applications
+# hdiutil create -volname "SPECTRA Installer (Intel)" -srcfolder /tmp/WSA2_intel_dmg -ov -format UDZO -fs HFS+ dist/SPECTRA_Intel.dmg
 
 echo ""
 echo "=== Intel 빌드 완료 ==="
-echo "Intel DMG: dist/WSA2_Intel.dmg"
-echo "앱 크기: $(du -sh dist/WSA2_Intel.app | cut -f1)"
+echo "Intel DMG: dist/SPECTRA_Intel.dmg"
+echo "앱 크기: $(du -sh dist/SPECTRA.app | cut -f1)"

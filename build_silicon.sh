@@ -26,20 +26,20 @@ echo "PyInstaller 빌드 시작..."
 python3 -m PyInstaller WSA2.spec --clean --noconfirm
 
 # 코드서명 (SPECTRA_SIGN_ID 설정 시) — DMG 만들기 전에 .app 서명
-bash sign_app.sh dist/WSA2.app
+bash sign_app.sh dist/SPECTRA.app
 
 # DMG 생성 (브랜드 — SPECTRA 배경 + 아이콘 배치)
 echo "브랜드 DMG 생성 중..."
-bash make_dmg.sh dist/WSA2.app "SPECTRA Installer" dist/WSA2_AppleSilicon.dmg
+bash make_dmg.sh dist/SPECTRA.app "SPECTRA Installer" dist/SPECTRA_AppleSilicon.dmg
 
 # 노타라이즈 + staple (SPECTRA_SIGN_ID + SPECTRA_NOTARY_PROFILE 설정 시)
-bash notarize_dmg.sh dist/WSA2_AppleSilicon.dmg
+bash notarize_dmg.sh dist/SPECTRA_AppleSilicon.dmg
 # ── fallback (브랜드 실패 시 plain): ──
 # DMG_DIR=/tmp/WSA2_silicon_dmg; rm -rf "$DMG_DIR"; mkdir -p "$DMG_DIR"
-# cp -R dist/WSA2.app "$DMG_DIR"/; ln -sf /Applications "$DMG_DIR"/Applications
-# hdiutil create -volname "SPECTRA Installer" -srcfolder "$DMG_DIR" -ov -format UDZO -fs HFS+ dist/WSA2_AppleSilicon.dmg
+# cp -R dist/SPECTRA.app "$DMG_DIR"/; ln -sf /Applications "$DMG_DIR"/Applications
+# hdiutil create -volname "SPECTRA Installer" -srcfolder "$DMG_DIR" -ov -format UDZO -fs HFS+ dist/SPECTRA_AppleSilicon.dmg
 
 echo ""
 echo "=== 빌드 완료 ==="
-echo "Apple Silicon DMG: dist/WSA2_AppleSilicon.dmg"
-echo "앱 크기: $(du -sh dist/WSA2.app | cut -f1)"
+echo "Apple Silicon DMG: dist/SPECTRA_AppleSilicon.dmg"
+echo "앱 크기: $(du -sh dist/SPECTRA.app | cut -f1)"
