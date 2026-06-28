@@ -13063,13 +13063,22 @@ class TransferFunctionWindow(QWidget):
                 res = farina_analyze(meas_aligned, x_clean, sr, T, f1, f2)
                 freqs = res["freqs"].astype(np.float32)
                 H = res["H"].astype(np.complex64)
-                # 핑크(Meas/캡쳐Ref)와 절대 레벨 맞추기: Farina H는 Meas/x_clean(디지털 풀스케일) 기준이라
-                # 캡쳐 ref 대비 ~33dB 차이. ref 경로 게인(rms(ref)/rms(x_clean))으로 나눠 핑크 기준에 정렬
-                # → 핑크·스윕 곡선이 같은 레벨로 겹쳐 비교 가능. (ref 경로 평탄 가정·루프백/직결) [SWEEP_LEVEL_MATCH]
-                _x_rms = float(np.sqrt(np.mean(x_clean ** 2)))
-                _ref_rms = float(np.sqrt(np.mean(ref_arr.astype(np.float64) ** 2)))
-                if _x_rms > 1e-9 and _ref_rms > 1e-9:
-                    H = (H * (_x_rms / _ref_rms)).astype(np.complex64)
+                # 핑크(Meas/캡쳐Ref)와 절대 레벨 정확히 맞추기: 같은 캡쳐로 Wiener H(=Meas/Ref, 핑크와
+                # 동일 컨벤션·정확한 레벨)를 계산해 그 밴드 중앙값에 Farina H를 스케일. Farina의 정밀
+                # 위상/THD는 유지 + 레벨만 핑크 기준으로. (full-array RMS 근사의 ~1.8dB 잔차 제거) [SWEEP_LEVEL_MATCH]
+                _REFw = np.fft.rfft(ref_arr.astype(np.float64)); _MICw = np.fft.rfft(meas_arr.astype(np.float64))
+                _epsw = float(np.max(np.abs(_REFw)) ** 2) * 1e-6
+                _Hw = np.abs((_MICw * np.conj(_REFw)) / (np.abs(_REFw) ** 2 + _epsw))
+                _fw = np.fft.rfftfreq(n, 1.0 / sr)
+                _bandf = (freqs > max(f1, 100.0)) & (freqs < min(f2, 8000.0))
+                if np.any(_bandf):
+                    _Hw_on = np.interp(freqs[_bandf], _fw, _Hw)
+                    _far = np.abs(H[_bandf]).astype(np.float64)
+                    _vmask = (_far > 1e-9) & (_Hw_on > 1e-9)
+                    if np.any(_vmask):
+                        _scale = float(np.median(_Hw_on[_vmask] / _far[_vmask]))
+                        if 1e-6 < _scale < 1e6:
+                            H = (H * _scale).astype(np.complex64)
                 if self.delay_ms != 0.0:
                     H_disp = H * np.exp(1j * 2 * np.pi * freqs * (self.delay_ms / 1000.0)).astype(np.complex64)
                 else:
