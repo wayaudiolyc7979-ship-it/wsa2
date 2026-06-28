@@ -138,6 +138,64 @@ def _spl_alarm():
 check('SPL 알람 신호등 3상태(OK/AMBER/OVER)', _spl_alarm)
 
 
+def _spl_meter_btn():
+    """LEVEL 헤더의 SPL 미터 열기 버튼 — "dB" 텍스트 아이콘(SPL=데시벨).
+    기존 extlink(외부링크 화살표)는 기능 인지 안 됨, 레벨바는 LEVEL 섹션 아이콘과 중복 → dB(2026-06-27)."""
+    from PyQt5.QtWidgets import QWidget, QHBoxLayout
+    cont = QWidget(); cont.setStyleSheet('background:#161618;')
+    row = QHBoxLayout(cont); row.setContentsMargins(12, 12, 12, 12); row.setSpacing(16)
+    b1 = w._SplMeterBtn(); b2 = w._SplAlarmBtn()   # 미터 + 알람 나란히
+    row.addWidget(b1); row.addWidget(b2)
+    cont.resize(100, 52); cont.show()
+    return _save(cont, 'spl_meter_btn.png')
+check('SPL 미터 버튼 아이콘(dB 텍스트)', _spl_meter_btn)
+
+
+def _titlebar_btns():
+    """SPL 미터/알람 타이틀바 아이콘 — 기울인 압정(Pin, ON 액센트/OFF 회색) + 기어(설정).
+    2026-06-28 자물쇠·슬라이더 → 압정·기어로 정제. 버튼 24px 안 클리핑 없는지 육안 확인."""
+    from PyQt5.QtWidgets import QWidget, QHBoxLayout
+    cont = QWidget(); cont.setStyleSheet('background:#1C1C1E;')   # 타이틀바 배경
+    row = QHBoxLayout(cont); row.setContentsMargins(16, 14, 16, 14); row.setSpacing(18)
+    pin_on = w._PinBtn(); pin_on.setChecked(True)     # 상단고정 ON
+    pin_off = w._PinBtn(); pin_off.setChecked(False)  # OFF
+    sett = w._SettingsBtn()
+    for b in (pin_on, pin_off, sett): row.addWidget(b)
+    cont.resize(140, 52); cont.show(); _app.processEvents()
+    return _save(cont, 'titlebar_btns.png')
+check('타이틀바 아이콘(압정 ON/OFF·기어)', _titlebar_btns)
+
+
+def _spl_panel():
+    """SPL 미터 카드(_SplPanel) — 하단 존 틴트 글로우(신호등) + 카드별 Max 리셋 버튼(글리프A) + 시계 소프트화이트.
+    calib offset=100 → warn=80 / peak=90. 75=초록 / 85=노랑 / 95=빨강 틴트 확인."""
+    from PyQt5.QtWidgets import QWidget, QHBoxLayout
+    cont = QWidget(); cont.setStyleSheet('background:#1C1C1E;')   # 반전: 창=회색(bg2), 카드=검정
+    row = QHBoxLayout(cont); row.setContentsMargins(10, 10, 10, 10); row.setSpacing(10)
+    M = w.SplMeterWindow._METRICS   # 실제 색 정책(소프트 A/C/Z)으로 렌더
+    for mid, val, mx in [('dba', 75.0, 78.0),       # A=소프트블루, 초록 틴트
+                         ('dbc', 85.0, 88.0),       # C=소프트와인, 노랑 틴트
+                         ('spl_slow', 95.0, 99.0)]: # Z=흰색, 빨강 틴트
+        title, color = M[mid]
+        pn = w._SplPanel(title, color, color, metric_id=mid)
+        pn.setFixedSize(180, 150); pn.set_calib_offset(100.0); pn.set_value(val, mx)
+        row.addWidget(pn)
+    pl = w._SplPanel('dB LAeq', *([M['laeq'][1]] * 2), metric_id='laeq')   # 시간바 + N4 리셋
+    pl.setFixedSize(180, 150); pl.set_calib_offset(100.0); pl.set_value(79.6, 82.0)
+    pl.set_time_progress(0.66); row.addWidget(pl)
+    pc = w._SplPanel('Clock', *w._clock_colors(), metric_id='clock')      # 소프트화이트 시계
+    pc.setFixedSize(180, 150); pc.set_clock('05:42'); row.addWidget(pc)
+    cont.resize(1010, 180); cont.show(); _app.processEvents()
+    assert abs(pl._tint_val - 79.6) < 1e-6, 'LAeq tint_val 미설정'
+    assert pc._tint_val is None, '시계는 틴트 없어야 함'
+    # 카드별 Max 리셋 버튼: 일반 카드=있음 / clock·laeq=없음
+    assert row.itemAt(0).widget()._max_reset_btn is not None, 'dBA 카드 Max 리셋 버튼 없음'
+    assert pl._max_reset_btn is None, 'LAeq는 타이머 리셋이 대신 → Max 버튼 없어야'
+    assert pc._max_reset_btn is None, '시계는 Max 버튼 없어야'
+    return _save(cont, 'spl_panel.png')
+check('SPL 미터 카드(존틴트·카드별 Max리셋·시계)', _spl_panel)
+
+
 def _spectrogram():
     """SpectrogramCanvas — 합성 스펙트럼 120프레임(피크가 200Hz→5kHz 이동) 누적 렌더.
     스펙트럼 3대 뷰 중 유일하게 selfcheck 무커버였음. 색맵·로그주파수축·시간누적 확인."""
@@ -171,6 +229,19 @@ def _tf_phase():
     cont.show()
     return _save(cont, 'tf_phase_modes.png')
 check('TFPhaseCanvas 3모드(Wrapped/Unwrapped/GroupDelay)', _tf_phase)
+
+
+def _tf_mag():
+    """TFMagCanvas — Magnitude(파랑/그라디언트) + Coherence(주황 γ²). 2026-06-27부터
+    코히런스 정적 기준선(1.0/0.5/0.0 점선)·우측 % 라벨 제거(값은 커서 리드아웃으로).
+    곡선·γ² 라벨은 유지. 지금껏 Mag는 직접 selfcheck 무커버였음."""
+    cv = w.TFMagCanvas(); cv.resize(1000, 320)
+    f = np.logspace(np.log10(20), np.log10(20000), 400).astype(np.float32)
+    mag = (2.5*np.sin(np.log10(f)*3.0)*np.exp(-((np.log10(f)-3.0)**2)/4) - 0.5).astype(np.float32)
+    coh = np.clip(0.15 + 0.83/(1+(200.0/f)**2.2), 0.02, 0.99).astype(np.float32)
+    cv.set_data(f, mag, coh, None); cv.show()
+    return _save(cv, 'tf_mag.png')
+check('TFMagCanvas (Mag+Coherence, 코히 기준선 제거)', _tf_mag)
 
 
 def _vectorscope():
@@ -406,6 +477,9 @@ def _compliance_card():
     pg._meter=_MP(); pg._refresh_display(force=True); pg._comp_card.setFixedSize(300, 300); _app.processEvents()
     out += '  ' + _save(pg._comp_card, 'compliance_pass.png') + f'  状態={pg._lbl_comp.text()}'
     assert pg._lbl_comp.text()=='PASS', f'PASS 아님 {pg._lbl_comp.text()!r}'
+    # 원형 배지 = QPainter 안티앨리어싱 위젯(QLabel+CSS border-radius 계단현상 제거)
+    assert isinstance(pg._comp_circle, w._ComplianceBadge), '배지가 _ComplianceBadge 아님'
+    assert pg._comp_circle.glyph=='✓', f'PASS 글리프 ✓ 아님 {pg._comp_circle.glyph!r}'
     return out
 check('COMPLIANCE 카드 재설계(PASS/CHECK)', _compliance_card)
 

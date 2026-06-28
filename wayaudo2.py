@@ -1,6 +1,6 @@
 11#!/usr/bin/env python3
 # ═══════════════════════════════════════════════════
-#  SPECTRA — Spectrum Analyzer  (by WAYAUDIO)  v1.7
+#  SPECTRA — Spectrum Analyzer  (by WAYAUDIO)  v1.8
 #  ✅ FFT 버벅임 수정 (포인트 다운샘플링)
 #  ✅ 마이크 캘리브레이션 (94/114dB @ 1kHz)
 #  ✅ dBA / dBC 실시간 레벨
@@ -117,7 +117,7 @@ import math as _math
 
 # ── 앱 버전 (단일 소스) ── 버전 올릴 땐 `bash bump_version.sh 1.6` 한 줄로 전부 갱신.
 #   (이 상수 + 상단 주석 + WSA2.spec/build_intel.sh/version_info.txt 까지 스크립트가 처리)
-_APP_VERSION = '1.7'
+_APP_VERSION = '1.8'
 
 # ═══════════════════════════════════════════════════════════════════
 #  라이선스 관리
@@ -1520,7 +1520,7 @@ def _glance_set_chrome(win, show):
 
 
 class _SettingsBtn(QPushButton):
-    """타이틀바용 설정 버튼 — 누르면 SPL 설정창 오픈. 슬라이더(컨트롤) 아이콘을 직접 그림."""
+    """타이틀바용 설정 버튼 — 누르면 설정창 오픈. 톱니바퀴(기어) 아이콘을 직접 그림(2026-06-28 정제)."""
     def __init__(self):
         super().__init__()
         self.setFixedSize(26, 24); self.setCursor(Qt.PointingHandCursor)
@@ -1531,20 +1531,21 @@ class _SettingsBtn(QPushButton):
         super().paintEvent(e)   # hover 배경
         col = QColor('#9A9AA0')
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        pen = QPen(col, 1.6); pen.setCapStyle(Qt.RoundCap)
-        p.setPen(pen)
-        y1, y2 = 9, 15
-        p.drawLine(6, y1, 20, y1)
-        p.drawLine(6, y2, 20, y2)
+        p.translate(13.0, 12.0)                       # 버튼 중앙
         p.setPen(Qt.NoPen); p.setBrush(col)
-        p.drawEllipse(13, y1 - 3, 6, 6)   # 윗줄 knob (오른쪽)
-        p.drawEllipse(7,  y2 - 3, 6, 6)   # 아랫줄 knob (왼쪽)
+        for i in range(8):                            # 톱니 8개 (꽉 찬 기어)
+            p.save(); p.rotate(i * 45)
+            p.drawRoundedRect(QRectF(-1.5, -8.4, 3.0, 4.4), 1.1, 1.1)
+            p.restore()
+        p.drawEllipse(QPointF(0, 0), 5.6, 5.6)        # 기어 몸통
+        p.setBrush(QColor(T('bg2')))                  # 가운데 구멍 = 타이틀바 배경색
+        p.drawEllipse(QPointF(0, 0), 2.3, 2.3)
         p.end()
 
 
 class _PinBtn(QPushButton):
-    """타이틀바용 always-on-top 토글 — 자물쇠 아이콘.
-    ON=잠김(고리 닫힘, 브랜드 액센트 채움) / OFF=열림(고리 들림, 회색 외곽)."""
+    """타이틀바용 always-on-top 토글 — 기울인 압정(SF pin.fill) 아이콘(2026-06-28 정제).
+    ON=브랜드 액센트 채움 / OFF=회색 외곽."""
     def __init__(self):
         super().__init__()
         self.setCheckable(True)
@@ -1557,61 +1558,41 @@ class _PinBtn(QPushButton):
         on = self.isChecked()
         col = QColor(T('accent')) if on else QColor('#9A9AA0')
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        cx = 13.0
-        body = QRectF(cx - 5.3, 11.2, 10.6, 8.8)   # 자물쇠 몸통
-        lx = cx - 3.1                               # 고리 왼다리 x
-        # ── 고리(shackle): 왼다리↑ + 반원 + 오른다리↓ (열림이면 왼쪽 피벗으로 회전)
-        sh = QPainterPath()
-        sh.moveTo(lx, 11.4); sh.lineTo(lx, 7.4)
-        sh.arcTo(lx, 4.3, 6.2, 6.2, 180, -180)
-        sh.lineTo(cx + 3.1, 11.4)
-        pen = QPen(col, 1.7); pen.setCapStyle(Qt.RoundCap); pen.setJoinStyle(Qt.RoundJoin)
-        p.setPen(pen); p.setBrush(Qt.NoBrush)
-        p.save()
-        if not on:
-            p.translate(lx, 11.4); p.rotate(-26); p.translate(-lx, -11.4)  # 왼쪽 경첩으로 들림
-        p.drawPath(sh)
-        p.restore()
-        # ── 몸통
-        bpath = QPainterPath(); bpath.addRoundedRect(body, 2.3, 2.3)
+        # 기울인 압정 — 24x24 좌표를 버튼 중앙(13,12)에 38° 회전 배치
+        p.translate(13.0, 12.0); p.rotate(38); p.translate(-12.0, -12.0)
+        path = QPainterPath(); path.setFillRule(Qt.WindingFill)
+        path.addRoundedRect(QRectF(7.0, 3.2, 10.0, 4.6), 2.0, 2.0)   # 머리(캡)
+        path.addRect(QRectF(10.3, 7.4, 3.4, 2.8))                     # 목
+        path.addPolygon(QPolygonF([QPointF(8.6, 10.0), QPointF(15.4, 10.0), QPointF(12.0, 19.2)]))  # 바늘
+        path.closeSubpath()
         if on:
-            p.fillPath(bpath, col)
-            khc = QColor(T('bg2'))   # 키홀 = 타이틀바 배경색(파인 느낌)
+            p.setPen(Qt.NoPen); p.setBrush(col); p.drawPath(path)
         else:
-            p.setPen(pen); p.setBrush(Qt.NoBrush); p.drawPath(bpath)
-            khc = col
-        # ── 키홀(원 + 짧은 슬롯)
-        p.setPen(Qt.NoPen); p.setBrush(khc)
-        p.drawEllipse(QPointF(cx, 14.9), 1.35, 1.35)
-        p.drawRoundedRect(QRectF(cx - 0.7, 14.9, 1.4, 3.1), 0.6, 0.6)
-        p.end()
-
-
-class _ResetMaxBtn(QPushButton):
-    """타이틀바용 컴팩트 아이콘 — Max 리셋. 원형 리셋 화살표(↺)를 직접 그림."""
-    def __init__(self):
-        super().__init__()
-        self.setFixedSize(26, 24); self.setCursor(Qt.PointingHandCursor)
-        self.setStyleSheet('QPushButton{border:none;background:transparent;border-radius:6px;}'
-                           'QPushButton:hover{background:rgba(255,255,255,30);}')
-
-    def paintEvent(self, e):
-        super().paintEvent(e)   # hover 배경
-        p = QPainter(self)
-        _draw_reload_arrow(p, 13, 12, 6, QColor('#9A9AA0'), 1.7)
+            pen = QPen(col, 1.7); pen.setJoinStyle(Qt.RoundJoin)
+            p.setPen(pen); p.setBrush(Qt.NoBrush); p.drawPath(path)
         p.end()
 
 
 class _ReloadBtn(QPushButton):
-    """둥근 화살표 리셋 버튼 — 위젯 크기에 맞춰 직접 그림(아이콘 스케일 찌그러짐 방지)."""
+    """둥근 화살표 리셋 버튼(글리프 A) — 위젯 크기에 맞춰 직접 그림.
+    hover 시 배경칠 없이 아이콘 색만 소프트블루로 밝아짐(요청 2026-06-28)."""
     def __init__(self, color=None):
         super().__init__()
         self._col = color
+        self._hover = False
         self.setCursor(Qt.PointingHandCursor)
+        self.setStyleSheet('QPushButton{border:none;background:transparent;}')
+
+    def enterEvent(self, e):
+        self._hover = True; self.update(); super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        self._hover = False; self.update(); super().leaveEvent(e)
 
     def paintEvent(self, e):
-        super().paintEvent(e)   # hover 배경
-        col = QColor(self._col) if self._col else QColor('#C7CAD1' if _theme == 'dark' else '#46566e')
+        super().paintEvent(e)   # 투명 배경(배경칠 안 함)
+        base = QColor(self._col) if self._col else QColor('#C7CAD1' if _theme == 'dark' else '#46566e')
+        col = QColor('#9DB7E0') if self._hover else base   # hover=소프트블루, 배경칠 없음
         p = QPainter(self)
         d = float(min(self.width(), self.height()))
         _draw_reload_arrow(p, self.width() / 2.0, self.height() / 2.0,
@@ -1832,6 +1813,58 @@ def _splitter_qss():
             f'QSplitter::handle:vertical{{border-top:1px solid {sep};}}'
             f'QSplitter::handle:horizontal{{border-left:1px solid {sep};}}'
             f'QSplitter::handle:hover{{background:{T("bg3")};}}')
+
+
+# ── TF 3분석 패널 카드(영역 분리) — 떠 있는 둥근 카드 + 거터 + 패널별 컬러 제목 ──
+_TF_CARD_COL = {'ir': '#2DD4BF', 'phase': '#A78BFA', 'mag': '#4DA3FF'}   # 패널 정체성 색
+
+def _tf_card_palette():
+    """(gutter, card_bg, border) QColors — 테마 적응. 거터=스플리터 handle 색과 통일.
+    다크: 카드=순수 블랙(SPECTRA 정체성 유지) + 거터만 살짝 밝게 → '검은 카드가 옅은 틀에 박힘'."""
+    if _theme == 'light':
+        return QColor('#dcdde1'), QColor('#ffffff'), QColor(0, 0, 0, 30)
+    return QColor(T('bg2')), QColor('#000000'), QColor(255, 255, 255, 30)   # 거터=우측 패널 회색(#1C1C1E)과 통일
+
+def _tf_gutter():
+    return _tf_card_palette()[0]
+
+def _paint_tf_card(p, W, H, m=6, r=11):
+    """둥근 카드 본체(살짝 밝은 bg + 하어라인 테두리). 거터는 px.fill(_tf_gutter())로 이미 채워짐.
+    그리드/곡선은 PAD_*(>m)로 인셋돼 카드 안에 그려짐."""
+    _g, card, border = _tf_card_palette()
+    p.save(); p.setRenderHint(QPainter.Antialiasing, True)
+    p.setPen(QPen(border, 1)); p.setBrush(card)
+    p.drawRoundedRect(QRectF(m + 0.5, m + 0.5, W - 2*m - 1, H - 2*m - 1), r, r)
+    p.restore()
+
+
+from PyQt5.QtWidgets import QSplitterHandle
+
+class _GradSplitterHandle(QSplitterHandle):
+    """카드 사이 거터 handle — 거터색 + 옅은 SPECTRA 시그니처 그라디언트 1px 라인(브랜드 속삭임).
+    그라디언트는 handle 폭 바뀔 때만 재생성 캐시(매프레임 생성 금지)."""
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.fillRect(self.rect(), _tf_card_palette()[0])   # 거터색
+        if self.orientation() == Qt.Vertical:            # 세로 스플리터 → 가로 handle
+            w = self.width()
+            if getattr(self, '_grad_w', None) != w or getattr(self, '_grad', None) is None:
+                g = QLinearGradient(0.0, 0.0, float(w), 0.0)
+                n = len(_TF_SEL_GRAD_STOPS) - 1
+                for i, c in enumerate(_TF_SEL_GRAD_STOPS):
+                    q = QColor(c); q.setAlpha(60); g.setColorAt(i / n, q)
+                self._grad = g; self._grad_w = w
+            p.setRenderHint(QPainter.Antialiasing, True)
+            y = int(self.height() / 2)
+            p.setPen(QPen(QBrush(self._grad), 1.0))
+            p.drawLine(8, y, w - 8, y)
+        p.end()
+
+class _CardSplitter(QSplitter):
+    """TF 3분석 카드 스플리터 — 거터에 옅은 그라디언트 경계선(_GradSplitterHandle)."""
+    def createHandle(self):
+        return _GradSplitterHandle(self.orientation(), self)
+
 
 # ───────────────────────────────────────────
 #  Bar gradient presets
@@ -2212,9 +2245,14 @@ class MultiChannelAudioThread(QThread):
                         _alog.info(f'[DIAG] InputStream opened dev={self.device_idx} ch={n_ch} '
                                    f'req(bs={bs},lat={lat}) actual(bs={_s.blocksize},lat={_s.latency})')
                     except Exception: pass
-                    _last_cb[0] = time.monotonic()
+                    _last_cb[0] = time.monotonic(); _open_t = time.monotonic()
                     while self.running:
                         self.msleep(500)
+                        # 시작 워치독: 스트림은 열렸는데 첫 콜백이 2초 내 안 오면(AUHAL 콜백 미시작
+                        # — M4 출력+입력 동시 경합 시 간헐 발생) 죽은 스트림 → raise해 재오픈 유도.
+                        if (not _got_cb[0]) and (time.monotonic() - _open_t > 2.0):
+                            _diag('eng_cb_dead', dev=self.device_idx, bs=bs, lat=str(lat))
+                            raise RuntimeError('no first callback — dead AUHAL stream')
                         if _got_cb[0] and time.monotonic() - _last_cb[0] > 2.0:
                             self.disconnected_signal.emit('device removed')
                             return True
@@ -2340,6 +2378,7 @@ class _DeviceStream:
         th.disconnected_signal.connect(self._on_disc)
         self.thread = th
         th.start()
+        _diag('eng_stream_open', dev=self.device_idx, ch=sorted(self.union), lat=str(force_latency))
 
     def _close_thread(self):
         if self.thread is not None:
@@ -2370,6 +2409,7 @@ class _DeviceStream:
             except Exception: pass
 
     def _on_error(self, msg):
+        _diag('eng_stream_err', dev=self.device_idx, err=str(msg)[:80])   # 미터 안뜸=입력 열기 실패 추적
         for sub in list(self.subs): sub.error.emit(msg)
 
     def _on_disc(self, msg):
@@ -4335,6 +4375,7 @@ class LeqWindow(QWidget):
         self.dur_cb.currentIndexChanged.connect(self._dur_changed)
         top.addWidget(self.dur_cb)
         self.leq_start_btn = QPushButton('Start'); _apply_txn(self.leq_start_btn, False)
+        self.leq_start_btn.setFocusPolicy(Qt.NoFocus)   # macOS 파란 포커스 링 제거
         self.leq_start_btn.setStyleSheet(f'background:rgba(78,125,240,25);color:{T("accent")};border:1px solid rgba(78,125,240,100);padding:4px 10px;border-radius:8px;')
         self.leq_start_btn.clicked.connect(self._toggle_leq)
         top.addWidget(self.leq_start_btn)
@@ -4448,11 +4489,26 @@ class LeqWindow(QWidget):
 # ───────────────────────────────────────────
 #  SPL Meter — Smaart-style floating window
 # ───────────────────────────────────────────
+def _clock_colors():
+    """시계 카드 색 — 제목=소프트블루 / 숫자=소프트화이트(보조 정보, 측정값과 안 싸움).
+    라이트 테마에선 흰 패널 위 가독 위해 어두운 텍스트로 파생."""
+    if _theme == 'dark':
+        return '#9DB7E0', '#E9ECF3'
+    return T('accent'), T('text')
+
+
+def _spl_card_bg():
+    """SPL 미터 카드 배경 — 창(bg2 회색)보다 어둡게 '반전'. 다크=검정 / 라이트=회색(bg3).
+    기존(검정 창·회색 카드)에서 뒤집어 다른 탭과 통일감(회색 크롬·어두운 콘텐츠)."""
+    return QColor('#000000') if _theme == 'dark' else QColor(T('bg3'))
+
+
 class _SplPanel(QWidget):
     """Single measurement panel inside SplMeterWindow — Smaart-style centered layout."""
     _BASE_W = 200  # reference width for font scaling
 
     reset_time_requested = pyqtSignal()   # LEQ 카드(laeq/lceq)의 시간 리셋 버튼
+    reset_max_requested  = pyqtSignal()   # 카드별 Max/Peak 리셋 버튼 (전역 Reset Max 대체)
 
     def __init__(self, title, tc, vc, bg_hex='#0d0d1a', border_hex='#2a3060', parent=None, metric_id=None):
         super().__init__(parent)
@@ -4462,6 +4518,7 @@ class _SplPanel(QWidget):
         self._peak_db = -10.0   # red above this
         if metric_id == 'fs_peak':   # dBFS 절대값 — 0=풀스케일. 클립 근접 경고
             self._warn_db = -6.0; self._peak_db = -1.0
+        self._tint_val = None   # 하단 존 틴트 글로우용 현재값 (None=신호없음→틴트 없음)
         self._bg    = QColor(bg_hex)
         self._bord  = QColor(border_hex)
         self._val_fs = 46  # current font size for value label
@@ -4501,9 +4558,19 @@ class _SplPanel(QWidget):
         self._max_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:15px;background:transparent;')
         max_row.addWidget(self._dot); max_row.addWidget(self._max_lbl)
         max_row.addStretch()
+        # ── 카드별 Max/Peak 리셋 버튼 (우측, 전역 타이틀바 Reset Max 대체).
+        #    clock=리셋 개념 없음 / laeq·lceq=타이머 리셋이 대신함 → 제외.
+        self._max_reset_btn = None
+        if metric_id not in ('clock', 'laeq', 'lceq'):
+            self._max_reset_btn = _ReloadBtn()
+            self._max_reset_btn.setFixedSize(16, 16)
+            self._max_reset_btn.setToolTip(_tx('Reset Max'))
+            self._max_reset_btn.clicked.connect(lambda: self.reset_max_requested.emit())
+            max_row.addWidget(self._max_reset_btn)
         layout.addLayout(max_row)
 
-        # ── 시계/피크 카드: Max 행 숨김 (시각 또는 피크 홀드값만 크게)
+        # ── 시계/피크 카드: Max 행(점·라벨) 숨김 (시각 또는 피크 홀드값만 크게).
+        #    피크 카드는 리셋 버튼은 유지(피크 홀드 리셋용).
         if metric_id in ('clock', 'peak', 'peak_c', 'fs_peak'):
             self._dot.hide(); self._max_lbl.hide()
 
@@ -4515,8 +4582,8 @@ class _SplPanel(QWidget):
             self._timebar = _GradTimeBar()
             self._time_reset_btn = _ReloadBtn()
             self._time_reset_btn.setFixedSize(18, 18); self._time_reset_btn.setToolTip(_tx('Reset LEQ timer'))
-            self._time_reset_btn.setStyleSheet('QPushButton{border:none;background:transparent;padding:0;}'
-                                               f'QPushButton:hover{{background:{T("bg3")};border-radius:4px;}}')
+            # 배경칠 없음 — hover 시 _ReloadBtn이 아이콘 색만 바꿈(요청 2026-06-28)
+            self._time_reset_btn.setStyleSheet('QPushButton{border:none;background:transparent;padding:0;}')
             self._time_reset_btn.clicked.connect(lambda: self.reset_time_requested.emit())
             time_row.addWidget(self._timebar, 1)
             time_row.addWidget(self._time_reset_btn)
@@ -4544,14 +4611,29 @@ class _SplPanel(QWidget):
         super().resizeEvent(e)
         self._relayout()
 
+    def _zone_tint_color(self, val):
+        """하단 틴트용 신호등 색 — 안전=초록 / 주의=노랑 / 위험=빨강 (값색과 별개)."""
+        if val > self._peak_db:  return QColor('#FF453A')
+        if val > self._warn_db:  return QColor('#FF9F0A')
+        return QColor('#33FF66')
+
     def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         r = QRectF(self.rect()).adjusted(2, 2, -2, -2)   # 셀 전체 채움 (여백 없음)
-        # 테마 토큰 사용 → 다크/라이트 토글 시 update()만으로 카드 배경이 따라감
+        # 테마 토큰 사용 → 다크/라이트 토글 시 update()만으로 카드 배경이 따라감 (반전: 검정/회색)
         p.setPen(Qt.NoPen)
-        p.setBrush(QColor(T('panel')))
+        p.setBrush(_spl_card_bg())
         p.drawRoundedRect(r, 8, 8)
+        # ── 존 틴트 글로우(하단) — 값 있는 측정 카드만 (시계·dBFS 피크 제외)
+        if self.metric_id not in ('clock', 'fs_peak') and self._tint_val is not None:
+            zc = self._zone_tint_color(self._tint_val)
+            clip = QPainterPath(); clip.addRoundedRect(r, 8, 8)
+            p.save(); p.setClipPath(clip)
+            g = QLinearGradient(0, r.bottom(), 0, r.bottom() - min(r.height() * 0.55, 90))
+            g.setColorAt(0, QColor(zc.red(), zc.green(), zc.blue(), 70))
+            g.setColorAt(1, QColor(zc.red(), zc.green(), zc.blue(), 0))
+            p.fillRect(r, g); p.restore()
         pen = QPen(QColor(T('border')), 1.5)
         p.setPen(pen); p.setBrush(Qt.NoBrush)
         p.drawRoundedRect(r, 8, 8)
@@ -4562,6 +4644,9 @@ class _SplPanel(QWidget):
         """테마 토글 시 카드 내부 색 재적용 (분리선 + 카드 배경/테두리 repaint)."""
         self._sep.setStyleSheet(f'background:{T("border")};border:none;')
         self._max_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:{self._max_fs}px;background:transparent;')
+        if self.metric_id == 'clock':   # 시계 색은 테마별 → 재적용
+            self._tc, self._vc = _clock_colors(); self._base_vc = self._vc
+            self._relayout()
         self.update()
 
     def set_calib_offset(self, offset):
@@ -4596,6 +4681,8 @@ class _SplPanel(QWidget):
         self._max_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:{ms}px;background:transparent;')
 
     def set_value(self, val, max_val):
+        self._tint_val = val   # 하단 존 틴트 갱신 (paintEvent에서 신호등 글로우)
+        self.update()
         vc = self._level_color(val)
         if vc != self._vc:
             self._vc = vc
@@ -4613,6 +4700,7 @@ class _SplPanel(QWidget):
     def reset(self):
         if self.metric_id == 'clock':
             return   # 시계는 Reset Max 대상 아님 (다음 틱에 시간 그대로 유지)
+        self._tint_val = None; self.update()   # 신호없음 → 틴트 제거
         self._vc = self._base_vc
         self._val_lbl.setStyleSheet(
             f'color:{self._base_vc};font-size:{self._val_fs}px;font-weight:bold;'
@@ -5159,19 +5247,24 @@ class SplMeterWindow(QWidget):
         ('3 hr',  10800),
     ]
     # 표시 가능한 지표:  id -> (제목, 색)  ── Smaart 스타일 확장 세트
+    # 색 정책(v1.8): A가중=소프트블루 / C가중=소프트와인 / 광대역(Z)=흰색.
+    #   진한 파랑#4E7DF0·보라#9B5DE5 값조합 비선호 → 소프트로 통일. 경고/피크색은 유지.
+    _SOFT_A = '#9DB7E0'   # A가중 소프트블루
+    _SOFT_C = '#C98B96'   # C가중 소프트와인
+    _SOFT_Z = '#E6E9F0'   # 광대역(Z) 소프트화이트
     _METRICS = {
-        'dba':     ('SPL A Slow', '#4E7DF0'),   # A가중 Slow(1s)  ← 기존
-        'dbc':     ('SPL C Slow', '#9B5DE5'),   # C가중 Slow(1s)  ← 기존
-        'spl_slow':('SPL Slow',   '#30D158'),   # Z(flat) Slow
-        'dba_fast':('SPL A Fast', '#5AC8FA'),   # A가중 Fast(125ms)
-        'dbc_fast':('SPL C Fast', '#BF5AF2'),   # C가중 Fast
-        'spl_fast':('SPL Fast',   '#64D2FF'),   # Z(flat) Fast
-        'peak':    ('Peak',       '#FF9F0A'),   # Z 피크 홀드(디지털 피크→SPL)
-        'peak_c':  ('Peak C',     '#FF375F'),   # C가중 최대 홀드(근사)
-        'fs_peak': ('FS Peak',    '#FF453A'),   # 풀스케일 디지털 피크(dBFS)
-        'laeq':    ('dB LAeq',    '#4E7DF0'),
-        'lceq':    ('dB LCeq',    '#9B5DE5'),
-        'clock':   ('Clock',      '#5AC8FA'),   # 24시간 시계 (HH:MM)
+        'dba':     ('SPL A Slow', _SOFT_A),     # A가중 Slow(1s)
+        'dbc':     ('SPL C Slow', _SOFT_C),     # C가중 Slow(1s)
+        'spl_slow':('SPL Slow',   _SOFT_Z),     # Z(flat) Slow
+        'dba_fast':('SPL A Fast', _SOFT_A),     # A가중 Fast(125ms)
+        'dbc_fast':('SPL C Fast', _SOFT_C),     # C가중 Fast
+        'spl_fast':('SPL Fast',   _SOFT_Z),     # Z(flat) Fast
+        'peak':    ('Peak',       '#FF9F0A'),   # Z 피크 홀드(디지털 피크→SPL) — 경고색 유지
+        'peak_c':  ('Peak C',     '#FF375F'),   # C가중 최대 홀드(근사) — 경고색 유지
+        'fs_peak': ('FS Peak',    '#FF453A'),   # 풀스케일 디지털 피크(dBFS) — 경고색 유지
+        'laeq':    ('dB LAeq',    _SOFT_A),     # A가중 적분
+        'lceq':    ('dB LCeq',    _SOFT_C),     # C가중 적분
+        'clock':   ('Clock',      '#5AC8FA'),   # 색은 _clock_colors()가 별도 적용
     }
     _EMA_IDS  = ('dba', 'dbc', 'spl_slow', 'dba_fast', 'dbc_fast', 'spl_fast')
     _PEAK_IDS = ('peak', 'peak_c', 'fs_peak')
@@ -5215,25 +5308,22 @@ class SplMeterWindow(QWidget):
         self._leq_idx = max(0, min(len(self._PRESETS) - 1, self._leq_idx))
         self._leq_secs = self._PRESETS[self._leq_idx][1]
 
-        # ── 타이틀바(✕ 옆): 상단고정 토글 + 설정(슬라이더) + Reset Max
+        # ── 타이틀바(✕ 옆): 상단고정 토글 + 설정(슬라이더). Reset Max는 카드별 버튼으로 이동(2026-06-28).
         self._pin_btn = _PinBtn(); self._pin_btn.setChecked(self._always_top)
         self._pin_btn.setToolTip(_tx('Keep on top'))
         self._pin_btn.clicked.connect(self._toggle_on_top)
         self._set_btn = _SettingsBtn()
         self._set_btn.setToolTip(_tx('Settings'))
         self._set_btn.clicked.connect(self._open_layout_dialog)
-        self._reset_btn = _ResetMaxBtn()
-        self._reset_btn.setToolTip(_tx('Reset Max'))
-        self._reset_btn.clicked.connect(self._reset_max)
-        _apply_dark_titlebar(self, resizable=True, aux=[self._pin_btn, self._set_btn, self._reset_btn])
+        _apply_dark_titlebar(self, resizable=True, aux=[self._pin_btn, self._set_btn])
 
-        self.setStyleSheet(f'SplMeterWindow{{background:{T("bg")};}}')
+        self.setStyleSheet(f'SplMeterWindow{{background:{T("bg2")};}}')   # 반전: 창=회색(카드=검정)
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
         # 레이아웃이 콘텐츠 최소크기로 창을 강제하지 않게 → 사용자가 더 작게 드래그 가능(최소 탐색용)
         root.setSizeConstraint(QVBoxLayout.SetNoConstraint)
 
         # ── 패널 그리드 컨테이너 (행×열은 _rebuild_grid 에서 채움). 컨트롤은 설정창으로 이동.
-        panels_w = QWidget(); panels_w.setStyleSheet(f'background:{T("bg")};')
+        panels_w = QWidget(); panels_w.setStyleSheet(f'background:{T("bg2")};')   # 반전: 그리드 배경=회색
         self._panels_w = panels_w
         self._grid = QGridLayout(panels_w)
         self._grid.setContentsMargins(6, 6, 6, 6); self._grid.setSpacing(6)
@@ -5287,9 +5377,9 @@ class SplMeterWindow(QWidget):
 
     def restyle_theme(self):
         """테마 토글(다크↔라이트) 시 창/그리드 배경 + 다크타이틀바 + 패널 색 재적용."""
-        self.setStyleSheet(f'SplMeterWindow{{background:{T("bg")};}}')
+        self.setStyleSheet(f'SplMeterWindow{{background:{T("bg2")};}}')   # 반전: 창=회색(카드=검정)
         if hasattr(self, '_panels_w'):
-            self._panels_w.setStyleSheet(f'background:{T("bg")};')
+            self._panels_w.setStyleSheet(f'background:{T("bg2")};')   # 반전: 그리드 배경=회색
         bar = getattr(self, '_dark_titlebar', None)
         if bar is not None:
             bar.setStyleSheet(f'#darkTitleBar{{background:{T("bg2")};}}')
@@ -5333,12 +5423,18 @@ class SplMeterWindow(QWidget):
             if mid is None:
                 continue
             title, color = self._METRICS[mid]
-            pnl = _SplPanel(title, color, color, bg_hex='#1C1C1E', border_hex='#38383A',
+            if mid == 'clock':
+                tc, vc = _clock_colors()
+            else:
+                tc = vc = color
+            pnl = _SplPanel(title, tc, vc, bg_hex='#1C1C1E', border_hex='#38383A',
                             metric_id=mid)
             pnl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             pnl.set_calib_offset(self._calib_offset)
             if mid in ('laeq', 'lceq'):
                 pnl.reset_time_requested.connect(self._reset_time)
+            if pnl._max_reset_btn is not None:
+                pnl.reset_max_requested.connect(lambda m=mid: self._reset_card_max(m))
             self._grid.addWidget(pnl, r, c)
             self._panels.append(pnl)
         for c in range(self._cols): self._grid.setColumnStretch(c, 1)
@@ -5463,6 +5559,17 @@ class SplMeterWindow(QWidget):
             self._max_a = self._max_c = self._max_laeq = self._max_lceq = None
         for pnl in self._panels:
             pnl.reset()
+
+    def _reset_card_max(self, mid):
+        """단일 카드 Max/Peak 홀드 리셋 — 카드별 리셋 버튼(전역 Reset Max 대체)."""
+        with QMutexLocker(self._mutex):
+            self._maxv.pop(mid, None)
+            self._peak_hold.pop(mid, None)
+            if mid == 'laeq': self._max_laeq = None
+            if mid == 'lceq': self._max_lceq = None
+        for pnl in self._panels:
+            if pnl.metric_id == mid:
+                pnl.reset()
 
     def _update_timebar(self, total_len):
         """버퍼에 쌓인 시간으로 LEQ 카드(laeq/lceq)의 진행 미터 갱신 (숫자 없음)."""
@@ -6318,42 +6425,22 @@ class _SpecCard(QFrame):
 
 
 class _SidebarIcon(QWidget):
-    """Small monochrome icon for sidebar section headers. icon_type: 'level' or 'info'"""
-    def __init__(self, icon_type, color, size=15, parent=None):
+    """사이드바 섹션 헤더(LEVEL/INFO/INPUT) — 단색 액센트 세로 바(아이브로우).
+    제각각 그림 아이콘 대신 통일된 단색 바로 깔끔하게. icon_type/color/size 인자는 호환용(미사용)."""
+    def __init__(self, icon_type='', color=None, size=15, parent=None):
         super().__init__(parent)
-        self._type = icon_type
-        self._col  = QColor(color)
-        self.setFixedSize(size, size)
+        self.setFixedSize(4, 16)
 
     def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        w, h = self.width(), self.height()
-
-        if self._type == 'level':
-            # Three vertical equaliser bars
-            p.setPen(Qt.NoPen); p.setBrush(self._col)
-            bw = max(2, w // 4)
-            gap = max(1, (w - 3*bw) // 2)
-            x0  = (w - (3*bw + 2*gap)) // 2
-            heights = [int(h*0.50), int(h*0.90), int(h*0.70)]
-            for i, bh_ in enumerate(heights):
-                bx = x0 + i*(bw+gap)
-                p.drawRoundedRect(bx, h-bh_, bw, bh_, 1, 1)
-
-        elif self._type == 'info':
-            # Lucide info — 동그라미 + i (아웃라인)
-            _svg_render(p, _LUCIDE_ICONS['info'][0], self._col.name(), w)
-
-        elif self._type == 'input':
-            # Lucide audio-lines — 오디오 입력 막대 파형
-            _svg_render(p, _LUCIDE_ICONS['audio-lines'][0], self._col.name(), w)
-
+        p.setPen(Qt.NoPen); p.setBrush(QColor(T('accent')))
+        p.drawRoundedRect(QRectF(0.5, 0.5, self.width() - 1, self.height() - 1), 1.5, 1.5)
         p.end()
 
 
 class _SplMeterBtn(QPushButton):
-    """Open-in-new-window icon button — two overlapping squares, state-aware color."""
+    """Open SPL Meter — "dB" 텍스트 아이콘(SPL=데시벨). LEVEL 섹션 막대 아이콘과 중복 회피."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(28, 28)
@@ -6367,23 +6454,17 @@ class _SplMeterBtn(QPushButton):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
 
-        # State-based background
-        if self.isDown():
-            bg = QColor(T('accent'))
-        elif self.underMouse():
-            bg = QColor(T('bg3'))
-        else:
-            bg = QColor(0, 0, 0, 0)  # 완전 투명
-
+        # 조용한 유틸 버튼: 기본 투명 → hover/press 때만 옅은 배경
+        hot = self.underMouse() or self.isDown()
         p.setPen(Qt.NoPen)
-        p.setBrush(bg)
+        p.setBrush(QColor(T('bg3')) if hot else QColor(0, 0, 0, 0))
         p.drawRoundedRect(QRectF(self.rect()), 5, 5)
 
-        # Icon: Lucide external-link — INFO/INPUT 섹션 아이콘과 동일 액센트색으로 통일
-        w, h = self.width(), self.height()
-        isz = 17; off = (w - isz) / 2
-        p.translate(off, off)
-        _svg_render(p, _LUCIDE_ICONS['extlink'][0], QColor(T('accent')).name(), isz)
+        # Icon: "dB" — 기본 dim 회색 → hover/press 소프트블루(값 톤과 일치)
+        col = QColor('#9DB7E0') if hot else QColor(T('text_dim'))
+        f = QFont(); f.setPixelSize(13); f.setBold(True); p.setFont(f)
+        p.setPen(col)
+        p.drawText(self.rect(), Qt.AlignCenter, 'dB')
         p.end()
 
 
@@ -6401,27 +6482,56 @@ class _SplAlarmBtn(QPushButton):
     def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        if self.isDown():
-            bg = QColor('#1e82f0')
-        elif self.underMouse():
-            bg = QColor('#2C2C2E')
-        else:
-            bg = QColor(0, 0, 0, 0)
-        p.setPen(Qt.NoPen); p.setBrush(bg)
+        # 조용한 유틸 버튼: 기본 투명 → hover/press 때만 옅은 배경
+        hot = self.underMouse() or self.isDown()
+        p.setPen(Qt.NoPen); p.setBrush(QColor(T('bg3')) if hot else QColor(0, 0, 0, 0))
         p.drawRoundedRect(QRectF(self.rect()), 5, 5)
 
-        # 미니 신호등 — 세로 하우징 + 초록/노랑/빨강 3구
+        # 미니 신호등 — 기본 dim 회색(틀+점) → hover 소프트블루 틀 + 살짝 죽인 컬러 점(알람 의미)
         cx = self.width() / 2.0
         hw, hh = 11.0, 18.0
         hx = cx - hw / 2.0; hy = (self.height() - hh) / 2.0
-        p.setPen(QPen(QColor(T('accent')), 1.4)); p.setBrush(Qt.NoBrush)
+        housing = QColor('#9DB7E0') if hot else QColor(T('text_dim'))
+        p.setPen(QPen(housing, 1.4)); p.setBrush(Qt.NoBrush)
         p.drawRoundedRect(QRectF(hx, hy, hw, hh), 3.2, 3.2)
-        cols = (QColor('#34C759'), QColor('#FFD60A'), QColor('#FF453A'))
+        if hot:
+            cols = (QColor(52, 199, 89, 210), QColor(255, 214, 10, 210), QColor(255, 69, 58, 210))
+        else:
+            d = QColor(T('text_dim')); cols = (d, d, d)
         r = 2.1
         for i, c in enumerate(cols):
             dy = hy + hh * (0.24 + i * 0.26)
             p.setBrush(c); p.setPen(Qt.NoPen)
             p.drawEllipse(QPointF(cx, dy), r, r)
+        p.end()
+
+
+class _ComplianceBadge(QWidget):
+    """라우드니스 COMPLIANCE 상태 원형 배지 — 안티앨리어싱 원(틴트 채움 + 컬러 링 + 글리프).
+    QLabel+CSS border-radius의 테두리 계단현상을 피하려 QPainter로 직접 그림."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(68, 68)
+        self._col = QColor(T('text_dim'))
+        self.glyph = '—'
+
+    def set_state(self, col, glyph='—'):
+        self._col = QColor(col); self.glyph = glyph
+        self.update()
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        c = self._col
+        d = min(self.width(), self.height()) - 4   # 2px 링 두께 여유
+        x = (self.width() - d) / 2.0; y = (self.height() - d) / 2.0
+        rect = QRectF(x, y, d, d)
+        fill = QColor(c); fill.setAlpha(30)
+        p.setPen(Qt.NoPen); p.setBrush(fill); p.drawEllipse(rect)
+        ring = QColor(c); ring.setAlpha(160)
+        p.setBrush(Qt.NoBrush); p.setPen(QPen(ring, 2.0)); p.drawEllipse(rect)
+        f = QFont(); f.setPixelSize(30); f.setBold(True); p.setFont(f)
+        p.setPen(c); p.drawText(self.rect(), Qt.AlignCenter, self.glyph)
         p.end()
 
 
@@ -7504,10 +7614,14 @@ class MTWEngine:
             else:
                 # 목표 시정수에 ~10프레임 만에 도달(1씩 올리면 큰 avg에서 한참 동일하게 보임)
                 self._n[s] = min(self._n[s] + max(1, self.avg_target // 10), self.avg_target)
-                a = 1.0 / self._n[s]; b = 1.0 - a
-                self._sxy[s] = b * self._sxy[s] + a * sxy
-                self._sxx[s] = b * self._sxx[s] + a * sxx
-                self._syy[s] = b * self._syy[s] + a * syy
+                a = 1.0 / self._n[s]
+                # 빠른 하강(fast release): 측정 파워가 떨어지는 빈만 2배 빠르게 따라감 → 곡선 하강 속도 2배.
+                # 상승·정상 구간은 기존 평균 그대로(안정성·정확도 유지). [찾기: TF_FAST_RELEASE]
+                a_arr = np.where(syy < self._syy[s], min(2.0 * a, 1.0), a)
+                b_arr = 1.0 - a_arr
+                self._sxy[s] = b_arr * self._sxy[s] + a_arr * sxy
+                self._sxx[s] = b_arr * self._sxx[s] + a_arr * sxx
+                self._syy[s] = b_arr * self._syy[s] + a_arr * syy
 
     def _stage_bounds(self, s):
         """[lo, hi] frequency band stage s is responsible for on the output grid."""
@@ -7665,17 +7779,27 @@ def farina_analyze(y, x, sr, T, f1, f2, harmonics=(2, 3, 4, 5)):
             "g": g}
 
 
+_TF_SEL_GRAD_STOPS = ('#1FA2FF', '#4E7DF0', '#9B5DE5', '#F15BB5', '#FF9F0A', '#FF453A')  # SPECTRA 시그니처
+
 def _draw_tf_sel_border(widget, p):
-    """선택된 TF 분석창 외곽 하이라이트 — 클릭한 캔버스에 액센트 테두리(은은한 글로우+또렷 라인)."""
+    """선택된 TF 분석창 표시 — 카드 상단에 SPECTRA 시그니처 그라디언트 엣지(헤더 언더라인과 동일 브랜드 언어).
+    그라디언트는 폭 바뀔 때만 재생성해 캐시(매프레임 생성 금지 규칙 준수)."""
     if not getattr(widget, '_tf_selected', False):
         return
+    W = widget.width(); H = widget.height(); m = 6; r = 11
+    inner = QRectF(m + 0.5, m + 0.5, W - 2*m - 1, H - 2*m - 1)
+    if getattr(widget, '_sel_grad_w', None) != W or getattr(widget, '_sel_grad', None) is None:
+        g = QLinearGradient(inner.left(), 0.0, inner.right(), 0.0)
+        n = len(_TF_SEL_GRAD_STOPS) - 1
+        for i, c in enumerate(_TF_SEL_GRAD_STOPS):
+            g.setColorAt(i / n, QColor(c))
+        widget._sel_grad = g; widget._sel_grad_w = W
     p.save()
-    p.setRenderHint(QPainter.Antialiasing, True); p.setBrush(Qt.NoBrush)
-    ac = QColor(T('accent')); W = widget.width(); H = widget.height()
-    p.setPen(QPen(QColor(ac.red(), ac.green(), ac.blue(), 70), 4))
-    p.drawRect(2, 2, W - 4, H - 4)
-    p.setPen(QPen(ac, 1.6))
-    p.drawRect(2, 2, W - 4, H - 4)
+    p.setRenderHint(QPainter.Antialiasing, True)
+    path = QPainterPath(); path.addRoundedRect(inner, r, r)
+    p.setClipPath(path)
+    p.setPen(Qt.NoPen); p.setBrush(QBrush(widget._sel_grad))
+    p.drawRect(QRectF(inner.left(), inner.top(), inner.width(), 3.0))
     p.restore()
 
 
@@ -7958,9 +8082,10 @@ class TFPhaseCanvas(QWidget):
     def _build_cache(self,W,H):
         from PyQt5.QtGui import QPixmap
         dpr=self.devicePixelRatio()
-        px=QPixmap(int(W*dpr),int(H*dpr)); px.setDevicePixelRatio(dpr); px.fill(QColor(T('bg')))
+        px=QPixmap(int(W*dpr),int(H*dpr)); px.setDevicePixelRatio(dpr); px.fill(_tf_gutter())
         p=QPainter(px)
         p.setRenderHint(QPainter.Antialiasing, True); p.setRenderHint(QPainter.TextAntialiasing)
+        _paint_tf_card(p, W, H)
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
         dh=H-pt-pb; uw=W-pl-pr; ny=20000
         rng=self.ph_max-self.ph_min if self.ph_max!=self.ph_min else 1.0
@@ -7998,7 +8123,7 @@ class TFPhaseCanvas(QWidget):
             tw=p.fontMetrics().horizontalAdvance(txt)
             p.setPen(QColor(T('graph_txt'))); p.drawText(max(pl,min(int(fx-tw/2),W-pr-tw)),H-pb+16,txt)
         mode_lbl=['Phase  Wrapped','Phase  Unwrapped','Group Delay'][self.phase_mode]+'  ▾'
-        p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(T('graph_txt')))
+        p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(_TF_CARD_COL['phase']))
         p.drawText(pl+4,pt+15,mode_lbl)
         p.end(); self._cache=px
 
@@ -8240,7 +8365,7 @@ class TFPhaseCanvas(QWidget):
 # ───────────────────────────────────────────
 class TFMagCanvas(QWidget):
     PAD_L=40; PAD_R=15; PAD_T=10; PAD_B=28
-    _COH_COLOR=(255,107,53)
+    _COH_COLOR=(77,163,255)   # γ² 코히런스 = 블루 채움 밴드(#4DA3FF). 기존 주황(255,107,53)은 초록 마그니튜드와 충돌
     _COH_BAND=0.5   # γ² 트레이스가 차지하는 플롯 높이 비율 (위=1.0, 아래=0) — Smaart식 디테일
     cursor_x_changed = pyqtSignal(int)
     cursor_left      = pyqtSignal()
@@ -8253,6 +8378,7 @@ class TFMagCanvas(QWidget):
         self.freqs=None; self.mag=None; self.coh=None; self.phase=None
         self.db_min=-15.0; self.db_max=15.0
         self.coh_blank=0.5
+        self._autofit_armed=False   # 측정 시작 후 첫 유효 데이터에 1회 자동 Y맞춤(아래로 깔리는 것 방지)
         self._mx=-1; self._peer_mx=-1; self._cache=None
         self._captures=[]
         self._cap_pix=None; self._cap_pix_key=None
@@ -8438,8 +8564,18 @@ class TFMagCanvas(QWidget):
             self._front_idx=idx; self._live_on_top=False
             self._cap_pix=None; self.update()
 
+    def arm_autofit(self):
+        """다음 유효 데이터에 Y축 1회 자동맞춤(측정 시작 직후 호출). 매프레임 아님 → 점프 없음."""
+        self._autofit_armed = True
+
     def set_data(self,f,m,coh=None,phase=None):
-        self.freqs=f; self.mag=m; self.coh=coh; self.phase=phase; self.update()
+        self.freqs=f; self.mag=m; self.coh=coh; self.phase=phase
+        # 측정 시작 후 첫 유효 데이터 1회만 자동 Y맞춤 → 더블클릭 없이 바로 화면에 들어옴
+        if self._autofit_armed and m is not None and len(m) and np.any(np.isfinite(m)):
+            self._autofit_armed = False
+            self.fit_y()   # fit_y가 update() 호출
+        else:
+            self.update()
 
     def clear(self): self.freqs=self.mag=self.coh=self.phase=None; self._cache=None; self.update()
     def mouseMoveEvent(self,e):
@@ -8518,9 +8654,10 @@ class TFMagCanvas(QWidget):
     def _build_cache(self,W,H):
         from PyQt5.QtGui import QPixmap
         dpr=self.devicePixelRatio()
-        px=QPixmap(int(W*dpr),int(H*dpr)); px.setDevicePixelRatio(dpr); px.fill(QColor(T('bg')))
+        px=QPixmap(int(W*dpr),int(H*dpr)); px.setDevicePixelRatio(dpr); px.fill(_tf_gutter())
         p=QPainter(px)
         p.setRenderHint(QPainter.Antialiasing, True); p.setRenderHint(QPainter.TextAntialiasing)
+        _paint_tf_card(p, W, H)
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
         dh=H-pt-pb; uw=W-pl-pr; ny=20000
         rng=self.db_max-self.db_min if self.db_max!=self.db_min else 1.0
@@ -8546,7 +8683,7 @@ class TFMagCanvas(QWidget):
             txt=f'{int(f//1000)}k' if f>=1000 else str(int(f))
             tw=p.fontMetrics().horizontalAdvance(txt)
             p.setPen(QColor(T('graph_txt'))); p.drawText(max(pl,min(int(fx-tw/2),W-pr-tw)),H-pb+18,txt)
-        p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(T('graph_txt')))
+        p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(_TF_CARD_COL['mag']))
         p.drawText(pl+4,pt+13,'Magnitude  +  Coherence  ▾')
         p.end(); self._cache=px
 
@@ -8568,15 +8705,9 @@ class TFMagCanvas(QWidget):
             fx=freq_to_x(f,pl,uw,ny)
             if not pl<=fx<=W-pr: continue
             p.setPen(QPen(QColor(T('grid')),1)); p.drawLine(int(fx),pt,int(fx),H-pb)
-        # γ² 코히어런스 밴드 기준선 (1.0 / 0.5 / 0) — Smaart 식 전용 스케일
-        cr,cg,cb_=self._COH_COLOR
-        coh_h=dh*self._COH_BAND
-        p.setFont(_qfont(CF_AXIS))
-        for gv in (1.0, 0.5, 0.0):
-            y=int(pt+(1.0-gv)*coh_h)
-            p.setPen(QPen(QColor(cr,cg,cb_,70),0.8,Qt.DotLine)); p.drawLine(pl,y,W-pr,y)
-            p.setPen(QColor(cr,cg,cb_,170))
-            p.drawText(W-pr-26,y-7,24,14,Qt.AlignRight|Qt.AlignVCenter,f'{gv:.1f}')
+        # 코히어런스 정적 기준선(1.0/0.5/0.0 점선)·우측 % 라벨 제거(2026-06-27) —
+        # 정확한 γ² 값은 커서 리드아웃(`... 85%`)으로 읽고, 주황 곡선은 'γ²' 라벨로 식별.
+        # (1.0/0.0은 +15모서리·+0dB선과 겹쳐 중복이었음. 그리드 깔끔하게.)
 
     def _draw_live_curve(self, p, W, H):
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
@@ -8622,8 +8753,14 @@ class TFMagCanvas(QWidget):
                 ys_cs=_vis_smooth(ys_c_raw,3)   # 디테일 유지 (과도한 평탄화 방지)
                 if len(xs)>max_pts: ys_cs=ys_cs[_ids]
                 _coha = 230 if _is_focus(None) else 140   # primary 비포커스면 코히어런스도 흐리게
-                p.setPen(QPen(QColor(cr,cg,cb_,_coha),1.8)); p.setBrush(Qt.NoBrush)
-                p.drawPath(_catmull_seg(xs_d, ys_cs))
+                base_y = pt + coh_h                         # γ²=0 라인 = 채움 밴드 바닥
+                curve = _catmull_seg(xs_d, ys_cs)
+                fillp = QPainterPath(curve)                 # 곡선→바닥으로 닫아 반투명 면 채움(신뢰도 영역)
+                fillp.lineTo(float(xs_d[-1]), base_y); fillp.lineTo(float(xs_d[0]), base_y); fillp.closeSubpath()
+                p.setPen(Qt.NoPen); p.setBrush(QColor(cr,cg,cb_, int(_coha*0.28)))
+                p.drawPath(fillp)
+                p.setPen(QPen(QColor(cr,cg,cb_,_coha),1.4)); p.setBrush(Qt.NoBrush)
+                p.drawPath(curve)
                 p.setFont(_qfont(CF_ANNO, True)); p.setPen(QColor(cr,cg,cb_,200))
                 p.drawText(pl+4,int(pt+coh_h+5),'γ²')
         # 추가 채널 magnitude 곡선
@@ -8952,6 +9089,7 @@ class _MeasCard(QFrame):
         self._db_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self._start_btn = QPushButton('Start'); _apply_txn(self._start_btn, False)
         self._start_btn.setFixedHeight(20)
+        self._start_btn.setFocusPolicy(Qt.NoFocus)   # macOS 파란 포커스 링 제거(간헐적 깜빡임)
         self._start_btn.setStyleSheet(self._start_btn_ss())
         self._start_btn.clicked.connect(self._on_start_stop)
         hdr.addWidget(self._vis_chk); hdr.addWidget(dot); hdr.addWidget(num_lbl); hdr.addStretch()
@@ -9516,9 +9654,10 @@ class TFIRCanvas(QWidget):
     def _build_cache(self, W, H):
         from PyQt5.QtGui import QPixmap
         dpr=self.devicePixelRatio()
-        pix = QPixmap(int(W*dpr),int(H*dpr)); pix.setDevicePixelRatio(dpr); pix.fill(QColor(T('bg')))
+        pix = QPixmap(int(W*dpr),int(H*dpr)); pix.setDevicePixelRatio(dpr); pix.fill(_tf_gutter())
         p = QPainter(pix)
         p.setRenderHint(QPainter.Antialiasing, True); p.setRenderHint(QPainter.TextAntialiasing)
+        _paint_tf_card(p, W, H)
         pl = self.PAD_L; pr = self.PAD_R; pt = self.PAD_T; pb = self.PAD_B
         dh = H - pt - pb; uw = W - pl - pr
         t_range = max(self.t_max - self.t_min, 1.0)
@@ -9546,7 +9685,7 @@ class TFIRCanvas(QWidget):
                              Qt.SolidLine))
                 p.drawLine(pl, y, W - pr, y)
                 p.setPen(QColor(T('graph_txt'))); p.drawText(0,y-8,pl-2,16,Qt.AlignRight|Qt.AlignVCenter,f'{amp:+.1f}')
-            p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(T('graph_txt')))
+            p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(_TF_CARD_COL['ir']))
             p.drawText(pl + 4, pt + 15, 'Live IR  (Linear)  ▾')
         else:  # ── ETC (1) or Log (2) ─────────────────────────────────────
             db_range = max(self.db_max - self.db_min, 1.0)
@@ -9561,7 +9700,7 @@ class TFIRCanvas(QWidget):
                 p.drawLine(pl, y, W - pr, y)
                 p.setPen(QColor(T('graph_txt'))); p.drawText(0,y-8,pl-2,16,Qt.AlignRight|Qt.AlignVCenter,f'{db:+d}')
             lbl_text = ('Live IR  (ETC)' if self.ir_mode == 1 else 'Live IR  (Log)') + '  ▾'
-            p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(T('graph_txt')))
+            p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(_TF_CARD_COL['ir']))
             p.drawText(pl + 4, pt + 15, lbl_text)
         p.end()
         self._cache = pix
@@ -10873,9 +11012,9 @@ class TransferFunctionWindow(QWidget):
         # 바디 (캔버스 + 우측 패널)
         body = QWidget(); bl = QHBoxLayout(body); bl.setSpacing(0); bl.setContentsMargins(0,0,0,0)
 
-        self.cvs_w = cvs_w = QSplitter(Qt.Vertical)
+        self.cvs_w = cvs_w = _CardSplitter(Qt.Vertical)   # 거터에 옅은 그라디언트 경계선
         cvs_w.setHandleWidth(7)                 # 3탭 스플리터 핸들 폭 통일
-        cvs_w.setStyleSheet(_splitter_qss())    # 공통 구분선 스타일
+        # 카드형: handle(=카드 사이 거터)은 _GradSplitterHandle가 직접 그림(거터색 + 옅은 그라디언트 라인)
         self.ir_cvs = TFIRCanvas()
         self.phase_cvs = TFPhaseCanvas(); self.mag_cvs = TFMagCanvas()
         # 분석창 클릭 → 그 창 외곽 하이라이트 (이벤트필터로 감지, 기존 마우스 동작 유지)
@@ -11042,6 +11181,7 @@ class TransferFunctionWindow(QWidget):
         self.sig_out_cb.currentIndexChanged.connect(self._sig_out_device_changed)
         self.sig_out_ch2_cb.currentIndexChanged.connect(self._sig_out_ch_changed)
         self.sig_on_btn = QPushButton('Play  [G]'); _apply_txn(self.sig_on_btn, False); self.sig_on_btn.setCheckable(True)
+        self.sig_on_btn.setFocusPolicy(Qt.NoFocus)   # macOS 파란 포커스 링 제거
         self.sig_on_btn.setStyleSheet(f'background:{T("panel")};color:{T("text_dim")};'
                                        f'border:1px solid {T("border")};padding:4px;border-radius:{RADIUS_CTRL}px;font-weight:bold;')
         self.sig_on_btn.clicked.connect(self._toggle_sig_gen); sgl.addWidget(self.sig_on_btn)
@@ -11176,6 +11316,7 @@ class TransferFunctionWindow(QWidget):
         tl.addSpacing(4)
         # Start 버튼 — 제너레이터 자동 연동으로 대체됨. 숨김 처리(코드 참조용으로만 존재)
         self.start_btn = QPushButton('Start'); _apply_txn(self.start_btn, False); self.start_btn.setFixedWidth(92); self.start_btn.setFixedHeight(34)
+        self.start_btn.setFocusPolicy(Qt.NoFocus)   # macOS 파란 포커스 링 제거
         self.start_btn.setStyleSheet(
             f'background:qlineargradient(x1:0,y1:0,x2:0,y2:1,'
             f'stop:0 rgba({_gr},{_gg},{_gb},55),stop:1 rgba({_gr},{_gg},{_gb},22));'
@@ -11619,7 +11760,11 @@ class TransferFunctionWindow(QWidget):
             g = d.get('gen', 'none')
             btnmap = {'pink': self.sig_pink_btn, 'white': self.sig_white_btn, 'sine': self.sig_sine_btn,
                       'sweep': self.sig_sweep_btn, 'file': self.sig_file_btn}
-            if g in btnmap: btnmap[g].setChecked(True)
+            # 스윕은 1-shot 특수모드 → 시작 기본으로 복원 안 함(핑크로). 그 외는 저장 소스 복원.
+            if g == 'sweep' or g not in btnmap:
+                g = 'pink'
+            for _b in btnmap.values(): _b.setChecked(False)   # 상호배타 — 나머지 해제(둘 다 켜짐 버그 방지)
+            btnmap[g].setChecked(True)
         except Exception: pass
         try:
             if 'sine_freq' in d: self._sine_freq = float(d['sine_freq'])
@@ -12038,6 +12183,8 @@ class TransferFunctionWindow(QWidget):
 
     def _start(self):
         self._sweep_freeze = False  # 새 측정 시작 → 라이브 렌더 동결 해제
+        self._mtw_live_logged = False  # Start마다 'mtw_live' 1회 재기록(분석 살아남 검증 마커)
+        self.mag_cvs.arm_autofit()  # 첫 측정 데이터에 Y축 1회 자동맞춤(더블클릭 없이 바로 보임)
         self._stop_mon_streams()   # TF 시작 전 모니터 스트림 해제 (장치 충돌 방지)
         self._stop_input_monitor() # 분석 시작 전 입력 모니터 해제 (장치당 1스트림)
         if getattr(self, '_primary_deleted', False):
@@ -12810,10 +12957,12 @@ class TransferFunctionWindow(QWidget):
                 # (1프레임씩 올리면 avg=16은 16초 걸려 그 사이 모든 Avg가 동일하게 보였음)
                 self._n_avg = min(self._n_avg + max(1, self._avg_target // 10), self._avg_target)
                 α = 1.0 / self._n_avg   # 목표 도달 후 1/target 고정 = 시정수 = Avg초
-                β = 1.0 - α
-                self._cross_acc  = β * self._cross_acc  + α * S_xy
-                self._auto_acc_x = β * self._auto_acc_x + α * S_xx
-                self._auto_acc_y = β * self._auto_acc_y + α * S_yy
+                # 빠른 하강(fast release): 측정 파워 떨어지는 빈만 2배 빠르게 → 곡선 하강 2배 (Single 경로). [TF_FAST_RELEASE]
+                α_arr = np.where(S_yy < self._auto_acc_y, min(2.0 * α, 1.0), α)
+                β_arr = 1.0 - α_arr
+                self._cross_acc  = β_arr * self._cross_acc  + α_arr * S_xy
+                self._auto_acc_x = β_arr * self._auto_acc_x + α_arr * S_xx
+                self._auto_acc_y = β_arr * self._auto_acc_y + α_arr * S_yy
             self.avg_lbl.setText(f'Avg: {self._n_avg} / {self._avg_target}')
             if self._n_avg >= 3:   # 초기 3프레임 미만: EMA 수렴 전, 표시 생략
                 H_raw = self._cross_acc / np.maximum(self._auto_acc_x, 1e-30)
@@ -12885,6 +13034,7 @@ class TransferFunctionWindow(QWidget):
         clean이 sample0에서 f1로 시작하도록 정렬(왕복지연은 Farina n0가 흡수)."""
         self._pm_targ = None; self._pm_done = True   # 라이브 모션 스무딩 비활성(스윕 결과 직접 표시)
         self._sweep_freeze = True                     # 이후 라이브 렌더가 스윕 결과를 덮지 않도록 동결
+        self.mag_cvs.arm_autofit()                    # 스윕 결과도 첫 표시에 Y축 자동맞춤
         with QMutexLocker(self._mutex):               # stale 버퍼 비움(다음 렌더 틱 재렌더 방지)
             self._last_ref_fft = None; self._last_meas_fft = None
             self._last_ref_buf = None; self._last_meas_buf = None
@@ -14081,6 +14231,12 @@ class TransferFunctionWindow(QWidget):
 
     def _start_sig_gen(self):
         _alog.debug(f'_start_sig_gen() called  sig_stream={self._sig_stream}  duplex={self._duplex_thread}')
+        # [DIAG] 스윕→핑크 등 소스 전환 재생 디버그: 진입 시점 상태(이전 스윕 잔여/스트림 생존)
+        _src = ('file' if self.sig_file_btn.isChecked() else 'white' if self.sig_white_btn.isChecked()
+                else 'sine' if self.sig_sine_btn.isChecked() else 'sweep' if self.sig_sweep_btn.isChecked() else 'pink')
+        _diag('sig_start', src=_src, sweep_freeze=getattr(self, '_sweep_freeze', False),
+              duplex_alive=(self._duplex_thread is not None and self._duplex_thread.isRunning()),
+              sig_stream=(self._sig_stream is not None))
         self._sweep_freeze = False    # 새 측정 시작 → 라이브 렌더 동결 해제(이전 스윕 결과 표시 종료)
         self._stop_input_monitor()   # 출력 스트림 재구성 전 입력 모니터 해제 (장치 충돌 방지)
         if self.sig_file_btn.isChecked() and self._audio_file_buf is not None:
@@ -14553,7 +14709,7 @@ class LoudnessMeter:
         if pk_db>self._PH: self._PH=pk_db
         lk=self._kfl.process(L); rk=self._kfr.process(R)
         sq_l=lk.astype(np.float64)**2; sq_r=rk.astype(np.float64)**2
-        i=0; n=len(L)
+        i=0; n=len(L); blk_done=False
         while i<n:
             space=self._blk-self._acc_n; take=min(space,n-i)
             self._acc_l+=float(np.sum(sq_l[i:i+take]))
@@ -14568,14 +14724,19 @@ class LoudnessMeter:
                 if self._int_on and len(self._sq_hist)>=30:
                     self._lra_st.append(self._lufs(float(np.mean(self._sq_hist))))
                 self._acc_l=0.0; self._acc_r=0.0; self._acc_n=0
+                blk_done=True
         N=len(self._sq_hist)
         if N>=4: self._M=self._lufs(float(np.mean(list(self._sq_hist)[-4:])))
         if N>=5: self._S_fast=self._lufs(float(np.mean(self._fast_hist)))
         if N>=10: self._S=self._lufs(float(np.mean(list(self._sq_hist))))
         if self._M>self._maxM: self._maxM=self._M
         if self._S>self._maxS: self._maxS=self._S
-        self._compute_I()
-        self._compute_LRA()
+        # I/LRA는 누적배열(_int_sq·_lra_st)이 바뀔 때만 변함 → 새 블록이 완성됐을 때만 재계산.
+        # raw 청크마다(초당 ~94회) 호출하면 O(n)·O(n log n) 재계산이 경과시간에 비례해 커져
+        # 장시간 구동 시 GUI 스레드가 raw_ready 큐를 못 따라가 멈춤. 블록 단위(초당 10회)로 한정.
+        if blk_done:
+            self._compute_I()
+            self._compute_LRA()
 
     def _compute_I(self):
         if not self._int_sq or len(self._int_sq)<10: return
@@ -15441,8 +15602,7 @@ class StereoLoudnessPage(QWidget):
         v.addStretch()
 
         # ── 상태 원형 배지 — 틴트 채움 + 컬러 링 + 글리프(거대 사각 배너 대체) ──
-        self._comp_circle=QLabel('—'); self._comp_circle.setFixedSize(68,68)
-        self._comp_circle.setAlignment(Qt.AlignCenter)
+        self._comp_circle=_ComplianceBadge()
         cc=QHBoxLayout(); cc.addStretch(); cc.addWidget(self._comp_circle); cc.addStretch()
         v.addLayout(cc)
 
@@ -15458,10 +15618,7 @@ class StereoLoudnessPage(QWidget):
 
     def _style_comp_banner(self, col, glyph='—'):
         """상태 원형 배지(틴트 채움+컬러 링+글리프) + 상태 문구 색을 상태색(col)으로 통일."""
-        self._comp_circle.setText(glyph)
-        self._comp_circle.setStyleSheet(
-            f'background:{_rgba_css(col,30)};border:2px solid {_rgba_css(col,160)};'
-            f'border-radius:34px;color:{col};font-size:30px;font-weight:bold;')
+        self._comp_circle.set_state(col, glyph)
         self._lbl_comp.setStyleSheet(
             f'font-size:{FS_LG+1}px;font-weight:bold;color:{col};'
             f'letter-spacing:1.5px;background:transparent;')
@@ -15610,7 +15767,7 @@ class StereoLoudnessPage(QWidget):
                 _c.setStyleSheet(f'font-size:{FS_SM}px;color:{_col};'
                                  f'letter-spacing:2px;font-weight:bold;background:transparent;')
         if hasattr(self, '_comp_circle'):
-            self._style_comp_banner(T('text_dim'), self._comp_circle.text())
+            self._style_comp_banner(T('text_dim'), self._comp_circle.glyph)
         if hasattr(self, '_lbl_comp_sub'):
             self._lbl_comp_sub.setStyleSheet(f'font-size:{FS_SM}px;color:{_lc};background:transparent;')
         self._refresh_display(force=True)
@@ -16501,32 +16658,35 @@ class MainWindow(QMainWindow):
         hdr_row.addStretch(); hdr_row.addWidget(alarm_btn); hdr_row.addWidget(spl_btn)
         level_lay.addLayout(hdr_row)
 
-        refs={}; accent_color=T('accent')
+        refs={}
+        _soft_a = '#9DB7E0' if _theme != 'light' else '#5A78B0'   # A가중 = 소프트 화이트블루
+        _soft_c = '#C98B96' if _theme != 'light' else '#9A5E6A'   # C가중 = 소프트 와인
+        broad_col = T('text')                                      # 광대역 값(SPL/Peak/Dom) = 흰색(중성)
         for k,init in [('SPL','—'),('Peak Hold','—'),('Dominant','—')]:
             row=QHBoxLayout()
             kl=QLabel(k); kl.setStyleSheet(ss_text(FS_SM))
-            vl=QLabel(init); vl.setStyleSheet(f'font-size:{FS_BODY}px;font-weight:bold;color:{accent_color};')
+            vl=QLabel(init); vl.setStyleSheet(f'font-size:{FS_BODY}px;font-weight:bold;color:{broad_col};')
             vl.setAlignment(Qt.AlignRight)
             row.addWidget(kl); row.addWidget(vl); level_lay.addLayout(row); refs[k]=vl
         dba_row=QHBoxLayout()
         dba_lbl=QLabel('dBA'); dba_lbl.setStyleSheet(ss_text(FS_SM))
-        dba_val=QLabel('—'); dba_val.setStyleSheet(f'color:{T("accent")};font-size:{FS_DISP}px;font-weight:bold;')
+        dba_val=QLabel('—'); dba_val.setStyleSheet(f'color:{_soft_a};font-size:{FS_DISP}px;font-weight:bold;')
         dba_val.setAlignment(Qt.AlignRight)
         dba_row.addWidget(dba_lbl); dba_row.addWidget(dba_val); level_lay.addLayout(dba_row)
         dbc_row=QHBoxLayout()
         dbc_lbl=QLabel('dBC'); dbc_lbl.setStyleSheet(ss_text(FS_SM))
-        dbc_val=QLabel('—'); dbc_val.setStyleSheet(f'color:{T("accent3")};font-size:{FS_DISP}px;font-weight:bold;')
+        dbc_val=QLabel('—'); dbc_val.setStyleSheet(f'color:{_soft_c};font-size:{FS_DISP}px;font-weight:bold;')
         dbc_val.setAlignment(Qt.AlignRight)
         dbc_row.addWidget(dbc_lbl); dbc_row.addWidget(dbc_val); level_lay.addLayout(dbc_row)
         refs['dBA']=dba_val; refs['dBC']=dbc_val
         laeq_row=QHBoxLayout()
         laeq_lbl=QLabel('LAeq'); laeq_lbl.setStyleSheet(ss_text(FS_SM))
-        laeq_val=QLabel('—'); laeq_val.setStyleSheet(f'color:{T("accent")};font-size:{FS_VAL}px;font-weight:bold;')
+        laeq_val=QLabel('—'); laeq_val.setStyleSheet(f'color:{_soft_a};font-size:{FS_VAL}px;font-weight:bold;')
         laeq_val.setAlignment(Qt.AlignRight)
         laeq_row.addWidget(laeq_lbl); laeq_row.addWidget(laeq_val); level_lay.addLayout(laeq_row)
         lceq_row=QHBoxLayout()
         lceq_lbl=QLabel('LCeq'); lceq_lbl.setStyleSheet(ss_text(FS_SM))
-        lceq_val=QLabel('—'); lceq_val.setStyleSheet(f'color:{T("accent3")};font-size:{FS_VAL}px;font-weight:bold;')
+        lceq_val=QLabel('—'); lceq_val.setStyleSheet(f'color:{_soft_c};font-size:{FS_VAL}px;font-weight:bold;')
         lceq_val.setAlignment(Qt.AlignRight)
         lceq_row.addWidget(lceq_lbl); lceq_row.addWidget(lceq_val); level_lay.addLayout(lceq_row)
         refs['LAeq']=laeq_val; refs['LCeq']=lceq_val
@@ -16534,8 +16694,8 @@ class MainWindow(QMainWindow):
         self.i_spl=refs['SPL']; self.i_pk=refs['Peak Hold']
         self.i_dom=refs['Dominant']; self.i_dba=refs['dBA']; self.i_dbc=refs['dBC']
         self.i_laeq=refs['LAeq']; self.i_lceq=refs['LCeq']
-        self._i_dba_base=T('accent'); self._i_dbc_base=T('accent3')
-        self._i_laeq_base=T('accent'); self._i_lceq_base=T('accent3')
+        self._i_dba_base=_soft_a; self._i_dbc_base=_soft_c
+        self._i_laeq_base=_soft_a; self._i_lceq_base=_soft_c
         self._i_warn_db = -20.0; self._i_peak_db = -10.0
         layout.addWidget(level_w)
 
@@ -16554,7 +16714,7 @@ class MainWindow(QMainWindow):
                     ('Resolution','11.7 Hz'),('Calibration','0.0 dB'),('Speed','Normal')]:
             row=QHBoxLayout()
             kl=QLabel(k); kl.setStyleSheet(ss_text(FS_SM))
-            vl=QLabel(v); vl.setStyleSheet(ss_text(FS_BODY, 'accent', True))
+            vl=QLabel(v); vl.setStyleSheet(ss_text(FS_BODY, 'text', True))
             vl.setAlignment(Qt.AlignRight)
             row.addWidget(kl); row.addWidget(vl); info_lay.addLayout(row); labels[k]=vl
         self.i_sr=labels['Sample Rate']; self.i_fft=labels['FFT Size']
