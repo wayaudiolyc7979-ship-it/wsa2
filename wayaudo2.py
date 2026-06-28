@@ -13065,7 +13065,9 @@ class TransferFunctionWindow(QWidget):
                 coh_out = np.ones(len(f_out), dtype=np.float32)
                 self.phase_cvs.set_data(f_out, ph_wrap, ph_unwr, grp_ms, coh_out, mag_out)
                 self.mag_cvs.set_data(f_out, mag_out, coh_out, ph_wrap)
-                self.ir_cvs.set_data(res["t_ms"].astype(np.float32), res["ir"].astype(np.float32))
+                # 스윕 IR은 Farina가 왕복지연 제거해 0ms중심 → 핑크(raw H, 임펄스=실제도착)와 맞추려
+                # 시간축을 +delay 이동해 임펄스를 도착(=딜레이) 위치로. 마커·뷰와 정렬됨. [찾기: SWEEP_IR_ALIGN]
+                self.ir_cvs.set_data((res["t_ms"] + self.delay_ms).astype(np.float32), res["ir"].astype(np.float32))
                 self.ir_cvs._delay_ms = self.delay_ms
                 self.avg_lbl.setText(f'Farina ✓  THD {res["thd"]:.2f}%  ·  SNR {res["snr_db"]:.0f} dB')
                 result_msg = (f'Farina ESS sweep complete\n\nLength: {T*1000:.0f} ms'
@@ -13090,11 +13092,14 @@ class TransferFunctionWindow(QWidget):
             self.phase_cvs.set_data(f_out, ph_wrap, ph_unwr, grp_ms, coh_out, mag_out)
             self.mag_cvs.set_data(f_out, mag_out, coh_out, ph_wrap)
             h_full = np.fft.fftshift(np.fft.irfft(H, n=n)).astype(np.float32)
-            t_ms = (np.arange(n, dtype=np.float32) - n // 2) / sr * 1000.0
+            t_ms = (np.arange(n, dtype=np.float32) - n // 2) / sr * 1000.0 + self.delay_ms  # 핑크와 정렬: 임펄스를 +delay로
             self.ir_cvs.set_data(t_ms, h_full)
+            self.ir_cvs._delay_ms = self.delay_ms
             self.avg_lbl.setText(f'Sweep ✓  {T*1000:.0f} ms')
             result_msg = f'Sweep (Wiener) complete\n\nLength: {T*1000:.0f} ms'
 
+        # 스윕 IR도 핑크처럼 임펄스(+딜레이)를 화면 중앙으로 (IR 정렬 일관성). [SWEEP_IR_ALIGN]
+        self._center_ir_on_delay(self.delay_ms)
         # 자동 Stop
         self._stop_sig_gen()
         self.sig_on_btn.setChecked(False)
