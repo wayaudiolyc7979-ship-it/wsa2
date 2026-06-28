@@ -13041,6 +13041,12 @@ class TransferFunctionWindow(QWidget):
         with QMutexLocker(self._mutex):               # stale 버퍼 비움(다음 렌더 틱 재렌더 방지)
             self._last_ref_fft = None; self._last_meas_fft = None
             self._last_ref_buf = None; self._last_meas_buf = None
+        # 스윕(Farina/Wiener)은 왕복지연을 이미 제거 → 측정이 0ms 정렬. 카드 딜레이를 0으로 맞춰야
+        # 위상 보정 H_disp=H·exp(jωτ)이 과보정 안 되고 위상·IR이 정상(0ms 중앙) 표시됨. (사용자 지적 2026-06-28)
+        self.delay_ms = 0.0
+        try:
+            self.delay_spin.blockSignals(True); self.delay_spin.setValue(0.0); self.delay_spin.blockSignals(False)
+        except Exception: pass
         n = len(ref_arr)
         sr = self.sample_rate
         f1 = float(self._sweep_f_lo); f2 = float(self._sweep_f_hi)
@@ -13065,9 +13071,8 @@ class TransferFunctionWindow(QWidget):
                 coh_out = np.ones(len(f_out), dtype=np.float32)
                 self.phase_cvs.set_data(f_out, ph_wrap, ph_unwr, grp_ms, coh_out, mag_out)
                 self.mag_cvs.set_data(f_out, mag_out, coh_out, ph_wrap)
-                # 스윕 IR은 Farina가 왕복지연 제거해 0ms중심 → 핑크(raw H, 임펄스=실제도착)와 맞추려
-                # 시간축을 +delay 이동해 임펄스를 도착(=딜레이) 위치로. 마커·뷰와 정렬됨. [찾기: SWEEP_IR_ALIGN]
-                self.ir_cvs.set_data((res["t_ms"] + self.delay_ms).astype(np.float32), res["ir"].astype(np.float32))
+                # 스윕은 왕복지연 제거됨 → IR 0ms중심 그대로, 딜레이=0(위 설정)이라 위상·IR 정상 정렬. [SWEEP_IR_ALIGN]
+                self.ir_cvs.set_data(res["t_ms"].astype(np.float32), res["ir"].astype(np.float32))
                 self.ir_cvs._delay_ms = self.delay_ms
                 self.avg_lbl.setText(f'Farina ✓  THD {res["thd"]:.2f}%  ·  SNR {res["snr_db"]:.0f} dB')
                 result_msg = (f'Farina ESS sweep complete\n\nLength: {T*1000:.0f} ms'
@@ -13092,7 +13097,7 @@ class TransferFunctionWindow(QWidget):
             self.phase_cvs.set_data(f_out, ph_wrap, ph_unwr, grp_ms, coh_out, mag_out)
             self.mag_cvs.set_data(f_out, mag_out, coh_out, ph_wrap)
             h_full = np.fft.fftshift(np.fft.irfft(H, n=n)).astype(np.float32)
-            t_ms = (np.arange(n, dtype=np.float32) - n // 2) / sr * 1000.0 + self.delay_ms  # 핑크와 정렬: 임펄스를 +delay로
+            t_ms = (np.arange(n, dtype=np.float32) - n // 2) / sr * 1000.0   # 0ms중심(딜레이=0이라 정렬)
             self.ir_cvs.set_data(t_ms, h_full)
             self.ir_cvs._delay_ms = self.delay_ms
             self.avg_lbl.setText(f'Sweep ✓  {T*1000:.0f} ms')
