@@ -13063,6 +13063,13 @@ class TransferFunctionWindow(QWidget):
                 res = farina_analyze(meas_aligned, x_clean, sr, T, f1, f2)
                 freqs = res["freqs"].astype(np.float32)
                 H = res["H"].astype(np.complex64)
+                # 핑크(Meas/캡쳐Ref)와 절대 레벨 맞추기: Farina H는 Meas/x_clean(디지털 풀스케일) 기준이라
+                # 캡쳐 ref 대비 ~33dB 차이. ref 경로 게인(rms(ref)/rms(x_clean))으로 나눠 핑크 기준에 정렬
+                # → 핑크·스윕 곡선이 같은 레벨로 겹쳐 비교 가능. (ref 경로 평탄 가정·루프백/직결) [SWEEP_LEVEL_MATCH]
+                _x_rms = float(np.sqrt(np.mean(x_clean ** 2)))
+                _ref_rms = float(np.sqrt(np.mean(ref_arr.astype(np.float64) ** 2)))
+                if _x_rms > 1e-9 and _ref_rms > 1e-9:
+                    H = (H * (_x_rms / _ref_rms)).astype(np.complex64)
                 if self.delay_ms != 0.0:
                     H_disp = H * np.exp(1j * 2 * np.pi * freqs * (self.delay_ms / 1000.0)).astype(np.complex64)
                 else:
