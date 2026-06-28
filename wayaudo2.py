@@ -2362,7 +2362,10 @@ class _DeviceStream:
         need = self.union | set(sub.channels)
         need_lat = self._resolve_latency()
         # 채널 확장 또는 latency 상승 시 (재)오픈
-        if self.thread is None or need != self.union or need_lat != self.force_latency:
+        _reopen = (self.thread is None or need != self.union or need_lat != self.force_latency)
+        _diag('eng_add', dev=self.device_idx, n_subs=len(self.subs),
+              sub_ch=list(sub.channels), reopen=_reopen, lat=str(need_lat))
+        if _reopen:
             self._open(need, need_lat)
 
     def remove(self, sub):
@@ -18639,6 +18642,7 @@ class MainWindow(QMainWindow):
     # ── 오디오 처리
     def _process_audio(self,buf):
         if not np.isfinite(buf).all(): return
+        self._spec_chunk_n = getattr(self, '_spec_chunk_n', 0) + 1   # 스펙트럼 청크 수신 카운터(멈춤 진단)
         n=len(buf)
         db_raw=power_spectrum_db(buf)     # ★ raw dBFS — 단측 파워 스펙트럼(ENBW 보정)
         freqs=np.fft.rfftfreq(n,1.0/self.sample_rate).astype(np.float32)
@@ -18732,7 +18736,8 @@ class MainWindow(QMainWindow):
                 _diag('hb', view=self.view_mode, run=self._spec_running(),
                       spl=_spl, extra=len(getattr(self, '_spec_extra', [])),
                       tf_cards=len(getattr(getattr(self, 'tf_win', None), '_extra_pairs', [])),
-                      show=(getattr(self, 'show_mode_win', None) is not None))
+                      show=(getattr(self, 'show_mode_win', None) is not None),
+                      chunks=getattr(self, '_spec_chunk_n', 0))
             except Exception:
                 _alog.exception('[DIAG] heartbeat')
         # 추가 소스(멀티-장치) 커브 렌더링 — card_id 키, 소스별 색/주파수
