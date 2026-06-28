@@ -2082,6 +2082,12 @@ def _catmull_seg(px, py):
 # ───────────────────────────────────────────
 #  오디오 스레드
 # ───────────────────────────────────────────
+class _DeadCallbackError(Exception):
+    """스트림은 열렸는데 AUHAL 콜백이 안 시작된 '죽은 스트림' — 같은 config로 재오픈해야 함
+    (open 실패=다음 config와 구분). M4 출력+입력 경합 시 간헐 발생."""
+    pass
+
+
 class AudioThread(QThread):
     chunk_ready        = pyqtSignal(object)
     error_signal       = pyqtSignal(str)
@@ -2245,17 +2251,16 @@ class MultiChannelAudioThread(QThread):
                         _alog.info(f'[DIAG] InputStream opened dev={self.device_idx} ch={n_ch} '
                                    f'req(bs={bs},lat={lat}) actual(bs={_s.blocksize},lat={_s.latency})')
                     except Exception: pass
+                    _got_cb[0] = False   # 이 시도 기준으로 첫 콜백 판정(재시도마다 초기화)
                     _last_cb[0] = time.monotonic(); _open_t = time.monotonic()
                     while self.running:
                         self.msleep(500)
                         # 시작 워치독: 스트림은 열렸는데 첫 콜백이 2초 내 안 오면(AUHAL 콜백 미시작
-                        # — M4 출력+입력 동시 경합 시 간헐 발생) 죽은 스트림 → raise해 재오픈 유도.
-                        # ⚠️force_latency(TF 측정)일 때만 — 스펙트럼 저지연 스트림은 다음 config(고지연)로
-                        #   떨어지면 응답이 6배 느려지므로 건드리지 않음(2026-06-28 회귀 수정).
-                        if (self.force_latency is not None
-                                and (not _got_cb[0]) and (time.monotonic() - _open_t > 2.0)):
+                        # — M4 출력+입력 동시 경합 시 간헐 발생) 죽은 스트림 → _DeadCallbackError 로
+                        # 같은 config 재시도 유도(저지연 유지). 전 스트림(스펙트럼/TF/카드) 공통. [찾기: CB_WATCHDOG]
+                        if (not _got_cb[0]) and (time.monotonic() - _open_t > 2.0):
                             _diag('eng_cb_dead', dev=self.device_idx, bs=bs, lat=str(lat))
-                            raise RuntimeError('no first callback — dead AUHAL stream')
+                            raise _DeadCallbackError()
                         if _got_cb[0] and time.monotonic() - _last_cb[0] > 2.0:
                             self.disconnected_signal.emit('device removed')
                             return True
@@ -2270,11 +2275,20 @@ class MultiChannelAudioThread(QThread):
         last_err = None
         for round_n in range(2):
             for (bs, lat) in _attempts:
-                try:
-                    if _run(bs, lat): return
-                    return
-                except Exception as e:
-                    last_err = e; continue
+                # 죽은 콜백(스트림 열렸으나 첫 콜백 없음)=같은 config 재시도(최대3회) → 저지연 유지하며 복구.
+                # open 실패(예외)=다음 config로. (2026-06-28 스펙트럼/카드 간헐 무동작 수정)
+                _dead_retry = 0
+                while True:
+                    try:
+                        if _run(bs, lat): return
+                        return
+                    except _DeadCallbackError:
+                        if not self.running: return
+                        last_err = 'dead AUHAL callback'; _dead_retry += 1
+                        if _dead_retry >= 3: break   # 같은 config 3회 죽음 → 다음 config
+                        continue                      # 같은 config 재오픈
+                    except Exception as e:
+                        last_err = e; break           # open 실패 → 다음 config
             if round_n == 0:
                 for _ in range(15):
                     if not self.running: return
