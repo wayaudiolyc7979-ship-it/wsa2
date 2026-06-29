@@ -123,17 +123,23 @@ def _spl_alarm():
     """SPL 알람 신호등(_SplAlarmDisplay) 3상태 — limit=100, amber=3.
     OK(95)=초록 / AMBER(98)=노랑 / OVER(103)=빨강+▲over. set_value 임계 전환 로직도 함께 탐."""
     from PyQt5.QtWidgets import QWidget, QHBoxLayout
-    cont = QWidget(); cont.resize(660, 240)
+    cont = QWidget(); cont.resize(880, 240)
     row = QHBoxLayout(cont); row.setContentsMargins(8, 8, 8, 8); row.setSpacing(8)
     for v in (95.0, 98.0, 103.0):
         d = w._SplAlarmDisplay(); d.configure('LAeq', 'dBA', 100.0, 3.0); d.set_value(v)
         row.addWidget(d)
+    # LEQ 지표 — 카드 내부 하단 적분 진행 바 + 리셋(↻) 표시
+    dleq = w._SplAlarmDisplay(); dleq.configure('LAeq', 'dB LAeq 1min', 80.0, 3.0); dleq.set_value(66.9)
+    dleq.set_show_timebar(True); dleq.set_progress(0.45); row.addWidget(dleq)
     cont.show()
     # 임계 진입/해제 엣지 로직 검증(_diag spl_alarm 트리거 지점)
     d2 = w._SplAlarmDisplay(); d2.configure('LAeq', 'dBA', 100.0, 3.0)
     d2.set_value(90.0); assert d2._over_since is None, '90→OK인데 over_since 설정됨'
     d2.set_value(105.0); assert d2._over_since is not None, '105→OVER인데 over_since 미설정'
     d2.set_value(90.0); assert d2._over_since is None, 'OVER→해제인데 over_since 안 비워짐'
+    # 진행 바 표시/리셋 로직
+    assert dleq._show_timebar and dleq._progress == 0.45, 'LEQ 진행 바 상태 불일치'
+    dleq.set_progress(0.0); assert dleq._progress == 0.0, 'progress 리셋 실패'
     return _save(cont, 'spl_alarm.png')
 check('SPL 알람 신호등 3상태(OK/AMBER/OVER)', _spl_alarm)
 

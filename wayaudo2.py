@@ -4779,6 +4779,15 @@ class _SplMetricEngine:
         self._ema.clear(); self._peak.clear()
         self._buf_a.clear(); self._buf_c.clear(); self._last_t = None
 
+    def reset_leq(self):
+        """LEQ 적분만 리셋(Fast/Slow EMA·피크는 유지) — 미터 _reset_time과 동일."""
+        self._buf_a.clear(); self._buf_c.clear()
+
+    def leq_progress(self, mid):
+        """LEQ 적분 진행도 0..1 (쌓인 시간 / 설정 적분 길이)."""
+        buf = self._buf_a if mid == 'laeq' else self._buf_c
+        return min(1.0, (len(buf) / self._RATE) / max(1, self._leq_secs))
+
     def push(self, dbz, dba, dbc, fs_peak):
         now = time.time()
         dt = (now - self._last_t) if self._last_t else 0.02
@@ -4819,6 +4828,7 @@ class _SplAlarmDisplay(QWidget):
     """SPL 임계 신호등 — 창 크기에 맞춰 스케일되는 큰 중앙정렬(3구 신호등+거대 숫자+상태).
     빨강(초과) 시 0.4s 깜빡임."""
     GREEN  = QColor('#34C759'); YELLOW = QColor('#FFD60A'); RED = QColor('#FF453A')
+    reset_requested = pyqtSignal()   # 카드 내부 LEQ 진행 바 옆 리셋(↻) 클릭
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -4828,6 +4838,9 @@ class _SplAlarmDisplay(QWidget):
         self._label = 'LAeq'; self._unit = 'dBA'; self._value = None
         self._limit = 100.0; self._amber = 3.0; self._over_since = None; self._blink_n = 0
         self._alarm_state = 'OK'   # 3상태 전이 로그용 (OK/AMBER/OVER)
+        self._show_timebar = False; self._progress = 0.0   # LEQ 적분 진행 바(카드 내부 하단)
+        self._reset_hit = None; self._reset_hover = False
+        self.setMouseTracking(True)
 
     def configure(self, label, unit, limit, amber):
         self._label = label; self._unit = unit
@@ -4877,11 +4890,13 @@ class _SplAlarmDisplay(QWidget):
         p.setPen(QPen(QColor(color.red(), color.green(), color.blue(), 160 if not dim_blink else 230), 2.5))
         p.setBrush(Qt.NoBrush); p.drawPath(path)
         cx = W / 2
+        # LEQ 진행 바가 있으면 텍스트 영역(ch)을 상단 85%로 줄여 하단 스트립에 바+리셋을 카드 안에 넣음
+        ch = h * 0.85 if self._show_timebar else h
 
         def pf(px, bold=True):
             f = QFont(); f.setPixelSize(max(8, int(px))); f.setBold(bold); return f
 
-        R = max(7, h * 0.072); gap = R * 1.4; ly = y + h * 0.15
+        R = max(7, ch * 0.072); gap = R * 1.4; ly = y + ch * 0.15
         for i, c in enumerate((self.GREEN, self.YELLOW, self.RED)):
             on = (i == idx) and not dim_blink
             cxp = cx + (i - 1) * (2 * R + gap)
@@ -4897,23 +4912,23 @@ class _SplAlarmDisplay(QWidget):
             p.drawEllipse(QPointF(cxp, ly), R, R)
 
         vstr = '—' if self._value is None else f'{self._value:.1f}'
-        vpx = h * 0.24; fv = pf(vpx); p.setFont(fv)
+        vpx = ch * 0.24; fv = pf(vpx); p.setFont(fv)
         while p.fontMetrics().horizontalAdvance(vstr) > w * 0.86 and vpx > 12:
             vpx *= 0.92; fv = pf(vpx); p.setFont(fv)
         p.setPen(QPen(QColor(T('text')) if idx == 0 else color))
-        p.drawText(QRectF(x, y + h * 0.21, w, h * 0.30), Qt.AlignHCenter | Qt.AlignVCenter, vstr)
+        p.drawText(QRectF(x, y + ch * 0.21, w, ch * 0.30), Qt.AlignHCenter | Qt.AlignVCenter, vstr)
 
-        p.setFont(pf(h * 0.082, bold=False)); p.setPen(QPen(QColor(T('text_dim'))))
-        p.drawText(QRectF(x, y + h * 0.54, w, h * 0.10), Qt.AlignHCenter | Qt.AlignVCenter,
+        p.setFont(pf(ch * 0.082, bold=False)); p.setPen(QPen(QColor(T('text_dim'))))
+        p.drawText(QRectF(x, y + ch * 0.54, w, ch * 0.10), Qt.AlignHCenter | Qt.AlignVCenter,
                    f'/ {self._limit:.0f} {self._unit}')
 
         if self._value is not None:
-            p.setFont(pf(h * 0.082))
+            p.setFont(pf(ch * 0.082))
             if over:
                 p.setPen(QPen(self.RED)); mtxt = f'▲ +{self._value - self._limit:.1f} dB over'
             else:
                 p.setPen(QPen(color)); mtxt = f'▼ {self._limit - self._value:.1f} dB headroom'
-            p.drawText(QRectF(x, y + h * 0.66, w, h * 0.10), Qt.AlignHCenter | Qt.AlignVCenter, mtxt)
+            p.drawText(QRectF(x, y + ch * 0.66, w, ch * 0.10), Qt.AlignHCenter | Qt.AlignVCenter, mtxt)
 
         status = ('OK', 'AMBER', 'OVER')[idx]
         if over and self._over_since is not None:
@@ -4922,9 +4937,56 @@ class _SplAlarmDisplay(QWidget):
             sub = ('Safe', 'Ease off', '')[idx]
             if sub:
                 status += f'  ·  {sub}'
-        p.setFont(pf(h * 0.10)); p.setPen(QPen(color))
-        p.drawText(QRectF(x, y + h * 0.80, w, h * 0.15), Qt.AlignHCenter | Qt.AlignVCenter, status)
+        p.setFont(pf(ch * 0.10)); p.setPen(QPen(color))
+        p.drawText(QRectF(x, y + ch * 0.80, w, ch * 0.15), Qt.AlignHCenter | Qt.AlignVCenter, status)
+
+        # ── LEQ 적분 진행 바 + 리셋(↻) — 카드 내부 하단 스트립 (미터 LEQ 카드와 동일 언어)
+        self._reset_hit = None
+        if self._show_timebar:
+            strip_top = y + ch; strip_h = (y + h) - strip_top
+            bar_h = max(4.0, h * 0.018)
+            rb = max(7.0, strip_h * 0.30)            # 리셋 글리프 반경
+            pad = 12.0
+            rcx = x + w - pad - rb; rcy = strip_top + strip_h * 0.5
+            bar_x = x + pad; bar_w = (rcx - rb - 10) - bar_x; bar_y = rcy - bar_h / 2
+            if bar_w > 8:
+                rr = bar_h / 2
+                track = QPainterPath(); track.addRoundedRect(QRectF(bar_x, bar_y, bar_w, bar_h), rr, rr)
+                p.fillPath(track, QColor(T('bg3')))
+                fw = bar_w * max(0.0, min(1.0, self._progress))
+                if fw > 1:
+                    p.save(); cl = QPainterPath(); cl.addRoundedRect(QRectF(bar_x, bar_y, fw, bar_h), rr, rr)
+                    p.setClipPath(cl); p.fillRect(QRectF(bar_x, bar_y, bar_w, bar_h),
+                                                  _spectra_grad_brush(bar_x, bar_x + bar_w, 255)); p.restore()
+            rcol = QColor('#9DB7E0') if self._reset_hover else QColor(T('text_dim'))
+            _draw_reload_arrow(p, rcx, rcy, rb, rcol, max(1.3, rb * 0.22))
+            self._reset_hit = QRectF(rcx - rb - 5, rcy - rb - 5, 2 * rb + 10, 2 * rb + 10)
         p.end()
+
+    def set_progress(self, p):
+        p = max(0.0, min(1.0, float(p)))
+        if abs(p - self._progress) > 0.002:
+            self._progress = p
+            if self._show_timebar:
+                self.update()
+
+    def set_show_timebar(self, on):
+        on = bool(on)
+        if on != self._show_timebar:
+            self._show_timebar = on; self.update()
+
+    def mousePressEvent(self, e):
+        if self._reset_hit is not None and self._reset_hit.contains(QPointF(e.pos())):
+            self.reset_requested.emit(); return
+        super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        hov = self._reset_hit is not None and self._reset_hit.contains(QPointF(e.pos()))
+        if hov != self._reset_hover:
+            self._reset_hover = hov
+            self.setCursor(Qt.PointingHandCursor if hov else Qt.ArrowCursor)
+            self.update()
+        super().mouseMoveEvent(e)
 
 
 class SplAlarmConfigDialog(QDialog):
@@ -5005,7 +5067,7 @@ class SplAlarmWindow(QWidget):
         super().__init__(main, Qt.Window)   # 메인의 자식 창 → 풀스크린 SPECTRA 위에 따라 뜸
         self.setWindowTitle('SPL Alarm')
         self.setAttribute(Qt.WA_DeleteOnClose, False)
-        self.setStyleSheet(f'background:{T("bg")};')
+        self.setStyleSheet(f'background:{T("bg2")};')   # 창 배경=회색(bg2) — SPL 미터 창과 통일(카드가 떠 보이게)
         self._cfg = self._load_cfg()
         self._always_top = bool(self._cfg.get('on_top', True))
         # macOS는 showEvent에서 네이티브 setLevel로(깜빡임 없음). 그 외 OS만 Qt 플래그.
@@ -5026,6 +5088,7 @@ class SplAlarmWindow(QWidget):
 
         lay = QVBoxLayout(self); lay.setContentsMargins(10, 10, 10, 10)
         self.disp = _SplAlarmDisplay()
+        self.disp.reset_requested.connect(self._reset_leq)   # 카드 내부 LEQ 진행 바의 리셋(↻)
         lay.addWidget(self.disp)
         _apply_dark_titlebar(self, resizable=True, aux=[self._pin_btn, self._set_btn])
         self.setWindowState(Qt.WindowNoState)
@@ -5080,6 +5143,7 @@ class SplAlarmWindow(QWidget):
             unit += f' {self._leq_secs() // 60}min'
         self._eng.set_leq_secs(self._leq_secs())
         self.disp.configure(title, unit, self._cfg.get('limit', 100.0), self._cfg.get('amber', 3.0))
+        self.disp.set_show_timebar(mid in ('laeq', 'lceq'))   # LEQ 지표만 카드 내부 진행 바/리셋 표시
 
     def _open_config(self):
         leq_labels = [lbl for lbl, _ in self._LEQ_PRESETS]
@@ -5096,12 +5160,21 @@ class SplAlarmWindow(QWidget):
     def push_levels(self, dbz, dba, dbc, fs_peak):
         self._eng.push(dbz, dba, dbc, fs_peak)
 
+    def _reset_leq(self):
+        """LEQ 적분 타이머 리셋 — 진행 바·LEQ를 0부터 다시 (미터 _reset_time과 동일)."""
+        self._eng.reset_leq()
+        self.disp.set_progress(0.0)
+        _diag('spl_alarm', state='leq_reset', metric=self._cfg.get('metric', 'laeq'))
+
     def _tick(self):
-        self.disp.set_value(self._eng.value(self._cfg.get('metric', 'laeq')))
+        mid = self._cfg.get('metric', 'laeq')
+        self.disp.set_value(self._eng.value(mid))
+        if mid in ('laeq', 'lceq'):
+            self.disp.set_progress(self._eng.leq_progress(mid))
         _glance_chrome_update(self)   # 마우스 밖이면 카드만(타이틀바 숨김)
 
     def restyle_theme(self):
-        self.setStyleSheet(f'background:{T("bg")};')
+        self.setStyleSheet(f'background:{T("bg2")};')   # 창 배경=회색(bg2) — SPL 미터 창과 통일(카드가 떠 보이게)
         b = getattr(self, '_dark_titlebar', None)
         if b is not None:
             b.setStyleSheet(f'#darkTitleBar{{background:{T("bg2")};}}')

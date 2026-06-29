@@ -87,6 +87,8 @@
 
 ## 🔜 H. v1.8 수정 예정 (다음 버전 — Farina 스윕 중심)
 
+- [x] **[UI·2026-06-30 ✅구현+실앱검증] SPL 알람 창 디자인 정합** — ✅✅**실앱 검증완료(2026-06-30).** ①**창 배경 검정→회색(bg2)** — SPL 미터 창과 통일(`SplAlarmWindow` `:5008/5104`). ②**LAeq/LCeq 적분 진행 바 + 리셋(↻)** — 미터 LEQ 카드와 동일 언어로 **카드 내부 하단**에 SPECTRA 그라디언트 바 + `_draw_reload_arrow` 글리프를 `_SplAlarmDisplay.paintEvent`에서 직접 그림(텍스트 영역 ch=h*0.85로 축소해 하단 스트립 확보), 리셋 클릭=히트테스트→`reset_requested`. `_SplMetricEngine`에 `reset_leq()`/`leq_progress()` 추가. LEQ 지표일 때만 표시(`set_show_timebar`). selfcheck 알람 체크에 LEQ 변형 추가·PASS. 미커밋→커밋예정. *(처음 외부 위젯 행으로 했다가 "카드 밖이라 어색" 피드백 → 카드 내부 페인트로 재구현)*
+
 - [x] **[기능·2026-06-29 ✅구현+실앱검증] 팝아웃 창 캡쳐 패널 처리** — ✅✅**실앱 검증완료(2026-06-29, 로그+스크린샷).** ①**TF 팝아웃**: 공유 캡쳐 드로어를 TF 본체 왼쪽으로 동반(reparent) → 멀티모니터에서 TF 캡쳐를 팝아웃 창에서 직접 관리. 드로어 1개(공유)라 TF 팝아웃 소유 중엔 메인 탭전환이 안 건드리게 가드(`_drawer_owner='tf_popout'`)+메인 Spectrum 드로어 버튼 비활성, 도킹 시 메인 복귀. ②**Spectrum 팝아웃**: 드로어 안 따라감 + 툴바 좌측 `_drawer_btn` 숨김(`hide()`/도킹 시 `show()`). ③**Stereo**: 무변경(원래 드로어·아이콘 없음). 검증: 로그 `tf_popout_drawer action=popout/dock`·`popout_titlebar win=_TFPopoutWindow/_SpectrumPopoutWindow`, 에러 0건. 계측 `[DIAG] tf_popout_drawer`. 코드 `_popout_tf/_dock_tf/_popout_spec/_dock_spec`+`_tab_changed` 가드. 미커밋→커밋예정.
 - [x] **[UI·2026-06-29 ✅구현+검증] SPL 미터 LEQ 카드 이름 정리** — ✅`_METRICS` laeq/lceq 라벨 `'dB LAeq'/'dB LCeq'` → **`'LAeq'/'LCeq'`**(`:5285-6`)로 줄여 옆 카드(SPL A Slow 등)와 형식 통일. selfcheck 하드코딩 제목도 `_METRICS` 참조로 동기화. SPL 알람창 단위표기('dB LAeq 10min')는 단위 접미사라 유지. selfcheck PASS.
 
