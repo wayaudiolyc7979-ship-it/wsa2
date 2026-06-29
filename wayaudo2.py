@@ -11853,8 +11853,8 @@ class TransferFunctionWindow(QWidget):
             g = d.get('gen', 'none')
             btnmap = {'pink': self.sig_pink_btn, 'white': self.sig_white_btn, 'sine': self.sig_sine_btn,
                       'sweep': self.sig_sweep_btn, 'file': self.sig_file_btn}
-            # 스윕은 1-shot 특수모드 → 시작 기본으로 복원 안 함(핑크로). 그 외는 저장 소스 복원.
-            if g == 'sweep' or g not in btnmap:
+            # 스윕(1-shot 특수모드)·File(파일 버퍼는 영속 안 됨 → 켜져도 무동작)은 복원 안 함 → 핑크로.
+            if g in ('sweep', 'file') or g not in btnmap:
                 g = 'pink'
             for _b in btnmap.values(): _b.setChecked(False)   # 상호배타 — 나머지 해제(둘 다 켜짐 버그 방지)
             btnmap[g].setChecked(True)
@@ -19176,6 +19176,9 @@ class MainWindow(QMainWindow):
             for s in self._spec_extra]
         self._settings['spec_primary_name'] = getattr(self, '_spec_primary_name', '')
         _save_settings(self._settings)
+        # 세션(마지막 사용값)에도 반영 — 안 하면 시작 시 세션 복원이 spec_sources를 덮어써
+        # 삭제한 소스 카드가 되살아남(복원 중엔 _presets_restoring 가드로 무시됨).
+        self._mark_session_dirty()
 
     def _restore_spec_sources(self):
         self._spec_primary_name = self._settings.get('spec_primary_name', '')
