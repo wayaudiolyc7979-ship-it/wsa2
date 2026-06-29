@@ -3358,6 +3358,7 @@ class OctaveCanvas(QWidget):
             self._cap_pix=None; self.update()
 
     def _draw_live(self, p, W, H, dim=False):
+        if self._idle_hint: return   # 시작 전 빈 상태 — 바닥(floor) 막대/선 안 그림(초록 바닥선 제거)
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
         dh=H-pt-pb; uw=W-pl-pr
         db_range=self.db_max-self.db_min
@@ -3577,16 +3578,17 @@ class OctaveCanvas(QWidget):
         self._draw_grid_lines(p, W, H)
 
         # 우상단 고정 배지: 현재 평균 스펙트럼 최대 주파수 (40 Hz 이상만 탐색)
-        valid_mask=[i for i,f in enumerate(bands) if f>=40]
-        if valid_mask:
-            sub=np.array([sm[i] for i in valid_mask])
-            dom_idx=valid_mask[int(np.argmax(sub))]
-        else:
-            dom_idx=int(np.argmax(sm))
-        dom_f=float(bands[dom_idx]); dom_db=float(sm[dom_idx])
-        dom_fs=f'{dom_f/1000:.2f} kHz' if dom_f>=1000 else f'{dom_f:.0f} Hz'
         unit='dBSPL' if self.calib_offset else 'dB'
-        draw_dom_badge(p, W-pr, pt, dom_fs, dom_db, unit)
+        if not self._idle_hint:   # 시작 전 빈 상태에선 바닥값 도미넌트 배지 숨김
+            valid_mask=[i for i,f in enumerate(bands) if f>=40]
+            if valid_mask:
+                sub=np.array([sm[i] for i in valid_mask])
+                dom_idx=valid_mask[int(np.argmax(sub))]
+            else:
+                dom_idx=int(np.argmax(sm))
+            dom_f=float(bands[dom_idx]); dom_db=float(sm[dom_idx])
+            dom_fs=f'{dom_f/1000:.2f} kHz' if dom_f>=1000 else f'{dom_f:.0f} Hz'
+            draw_dom_badge(p, W-pr, pt, dom_fs, dom_db, unit)
         if self.title_text:
             p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(T('graph_txt')))
             p.drawText(pl+4, pt+13, self.title_text)

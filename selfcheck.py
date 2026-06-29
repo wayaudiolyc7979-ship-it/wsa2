@@ -62,6 +62,7 @@ def _save(widget, fname):
 # ─────────────────────────────────────────────────────────────
 def _octave():
     cv = w.OctaveCanvas(); cv.resize(900, 360); cv.set_mode('oct3')
+    cv._idle_hint = False   # 측정 중 상태(라이브 바 렌더 검증)
     n = len(w.BANDS['oct3']); x = np.linspace(0, 1, n)
     vals = (-10 - 26 * (x - 0.42) ** 2 + np.sin(x * 20) * 1.2).astype(float)
     for _ in range(60): cv.update_data('oct3', vals)
@@ -70,9 +71,21 @@ def _octave():
 check('OctaveCanvas RTA 막대(입체 그라디언트)', _octave)
 
 
+def _octave_idle():
+    """시작 전(idle) 빈 상태 — 바닥 floor 데이터가 있어도 초록 막대/도미넌트 배지 없이 'Press Start'만."""
+    cv = w.OctaveCanvas(); cv.resize(900, 360); cv.set_mode('oct24')
+    n = len(w.BANDS['oct24'])
+    for _ in range(10): cv.update_data('oct24', np.full(n, -96.0))   # 바닥 데이터 주입
+    assert cv._idle_hint, 'idle_hint 기본 True 여야 함'
+    cv._mx = -1
+    return _save(cv, 'octave_idle.png')
+check('OctaveCanvas idle 빈 상태(바닥선 없음)', _octave_idle)
+
+
 def _octave_multi_capture():
     """멀티 소스 일괄 캡쳐: primary add_capture + 추가 소스 add_capture_data 가 각각 캡쳐로 쌓이는지."""
     cv = w.OctaveCanvas(); cv.resize(900, 360); cv.set_mode('oct3')
+    cv._idle_hint = False   # 측정 중 상태(라이브 바 렌더 검증)
     n = len(w.BANDS['oct3']); x = np.linspace(0, 1, n)
     base = (-10 - 26 * (x - 0.42) ** 2).astype(float)
     for _ in range(30): cv.update_data('oct3', base)
