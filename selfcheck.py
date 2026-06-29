@@ -180,7 +180,7 @@ def _spl_panel():
         pn = w._SplPanel(title, color, color, metric_id=mid)
         pn.setFixedSize(180, 150); pn.set_calib_offset(100.0); pn.set_value(val, mx)
         row.addWidget(pn)
-    pl = w._SplPanel('dB LAeq', *([M['laeq'][1]] * 2), metric_id='laeq')   # 시간바 + N4 리셋
+    pl = w._SplPanel(M['laeq'][0], *([M['laeq'][1]] * 2), metric_id='laeq')   # 시간바 + N4 리셋
     pl.setFixedSize(180, 150); pl.set_calib_offset(100.0); pl.set_value(79.6, 82.0)
     pl.set_time_progress(0.66); row.addWidget(pl)
     pc = w._SplPanel('Clock', *w._clock_colors(), metric_id='clock')      # 소프트화이트 시계

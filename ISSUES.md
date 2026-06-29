@@ -87,7 +87,10 @@
 
 ## 🔜 H. v1.8 수정 예정 (다음 버전 — Farina 스윕 중심)
 
-- [ ] **🔬[내일 HW검증] 코히런스 블루 채움 밴드 실측** — D안(블루 반투명 채움 밴드) 적용 완료(헤드리스 렌더 OK). **내일 하드웨어로 실제 코히런스 데이터가 들어올 때** 밴드가 정확히/자연스럽게 그려지는지 확인(고코히=밴드 큼, 저코히 구간·블랭킹 마스크와의 조화, 밝기/투명도 적정). 안 맞으면 fill alpha(현 `_coha*0.28`) 또는 색 조정. *(상세: [[project_v18_tf_panel_distinction]])*
+- [x] **[기능·2026-06-29 ✅구현+실앱검증] 팝아웃 창 캡쳐 패널 처리** — ✅✅**실앱 검증완료(2026-06-29, 로그+스크린샷).** ①**TF 팝아웃**: 공유 캡쳐 드로어를 TF 본체 왼쪽으로 동반(reparent) → 멀티모니터에서 TF 캡쳐를 팝아웃 창에서 직접 관리. 드로어 1개(공유)라 TF 팝아웃 소유 중엔 메인 탭전환이 안 건드리게 가드(`_drawer_owner='tf_popout'`)+메인 Spectrum 드로어 버튼 비활성, 도킹 시 메인 복귀. ②**Spectrum 팝아웃**: 드로어 안 따라감 + 툴바 좌측 `_drawer_btn` 숨김(`hide()`/도킹 시 `show()`). ③**Stereo**: 무변경(원래 드로어·아이콘 없음). 검증: 로그 `tf_popout_drawer action=popout/dock`·`popout_titlebar win=_TFPopoutWindow/_SpectrumPopoutWindow`, 에러 0건. 계측 `[DIAG] tf_popout_drawer`. 코드 `_popout_tf/_dock_tf/_popout_spec/_dock_spec`+`_tab_changed` 가드. 미커밋→커밋예정.
+- [x] **[UI·2026-06-29 ✅구현+검증] SPL 미터 LEQ 카드 이름 정리** — ✅`_METRICS` laeq/lceq 라벨 `'dB LAeq'/'dB LCeq'` → **`'LAeq'/'LCeq'`**(`:5285-6`)로 줄여 옆 카드(SPL A Slow 등)와 형식 통일. selfcheck 하드코딩 제목도 `_METRICS` 참조로 동기화. SPL 알람창 단위표기('dB LAeq 10min')는 단위 접미사라 유지. selfcheck PASS.
+
+- [x] **🔬 코히런스 블루 채움 밴드 실측** — ✅✅**HW 실측 검증완료(2026-06-28).** D안(블루 반투명 채움 밴드, `_coha*0.28` `:8780`) 실제 코히런스 데이터로 정상 표시 확인. *(상세: [[project_v18_tf_panel_distinction]])*
 
 - [x] **[UI·2026-06-27 ✅구현완료] TF 3분석 패널 구분 (CARD 방식)** — ✅세 패널(IR/Phase/Mag+Coh)을 **떠 있는 둥근 카드**로 분리: **카드=순수 블랙(SPECTRA 정체성 유지)+거터=우측 패널 회색 `T('bg2')`=`#1C1C1E`+하어라인 테두리** 둥글게(`_paint_tf_card`, 그리드캐시 3곳 `:7990/8550/9542`), 스플리터 handle=거터색 통일. (처음 밝은카드 `#0e1116`은 "블랙 정체성 사라진다" 피드백 → V2 블랙카드로 정정.) **패널별 컬러 제목**(IR=청록`#2DD4BF`/Phase=보라`#A78BFA`/Mag=파랑`#4DA3FF`, `_TF_CARD_COL`). 라이트/다크 테마 토큰. selfcheck 29/29 PASS(_tf_phase/_tf_mag/_tf_ir 카드 반영). ⚠️처음 라벨중심 4안(spine/chip/band/ghost) 거절→"창 분리" 의도 파악→영역분리 3안(card/frame/window) 제시→**CARD 선택**. 미커밋. *(상세: [[project_v18_tf_panel_distinction]])*
 - [x] **[UI·2026-06-27 ✅구현완료] TF 코히런스 기준선 정리 (E안: 전부 제거)** — ✅Magnitude+Coherence 패널의 코히런스 **정적 기준선(1.0/0.5/0.0 점선)·우측 % 라벨 전부 제거**(`TFMagCanvas` 그리드 그리는 블록 `:8600~`). 곡선 + `γ²` 식별 라벨은 유지. 정확한 코히런스 값은 **커서 리드아웃**(`... 85%`, `:8759`)으로 읽음 → 정적 스케일은 커서 있으면 중복이라 삭제. (시안 A~E 목업 제시 → 사용자 **E(전부 제거) 선택**, "커서에 % 뜨면 되지 않냐" 확인 후 확정.) selfcheck `_tf_mag` 추가·PASS. 미커밋. *(이전 상세: [[project_v18_tf_panel_distinction]])*

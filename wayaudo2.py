@@ -5282,8 +5282,8 @@ class SplMeterWindow(QWidget):
         'peak':    ('Peak',       '#FF9F0A'),   # Z 피크 홀드(디지털 피크→SPL) — 경고색 유지
         'peak_c':  ('Peak C',     '#FF375F'),   # C가중 최대 홀드(근사) — 경고색 유지
         'fs_peak': ('FS Peak',    '#FF453A'),   # 풀스케일 디지털 피크(dBFS) — 경고색 유지
-        'laeq':    ('dB LAeq',    _SOFT_A),     # A가중 적분
-        'lceq':    ('dB LCeq',    _SOFT_C),     # C가중 적분
+        'laeq':    ('LAeq',       _SOFT_A),     # A가중 적분
+        'lceq':    ('LCeq',       _SOFT_C),     # C가중 적분
         'clock':   ('Clock',      '#5AC8FA'),   # 색은 _clock_colors()가 별도 적용
     }
     _EMA_IDS  = ('dba', 'dbc', 'spl_slow', 'dba_fast', 'dbc_fast', 'spl_fast')
@@ -16561,6 +16561,8 @@ class MainWindow(QMainWindow):
         body_w = QWidget()
         body_lay = QHBoxLayout(body_w)
         body_lay.setContentsMargins(0, 0, 0, 0); body_lay.setSpacing(0)
+        self._body_lay = body_lay   # 캡처 드로어 복귀용 참조(TF 팝아웃 후 메인으로 되돌릴 때)
+        self._drawer_owner = None   # None=메인 / 'tf_popout'=TF 팝아웃 창이 공유 드로어 소유
         self._capture_drawer = _CaptureDrawer()
         self._capture_drawer.delete_requested.connect(self._on_drawer_delete)
         self._capture_drawer.rename_requested.connect(self._on_drawer_rename)
@@ -16621,9 +16623,12 @@ class MainWindow(QMainWindow):
         self.sub_stack.setCurrentIndex(i)
         self.main_stack.setCurrentIndex(i)
         self.toolbar_wrapper.setFixedHeight(46)
-        self._capture_drawer.set_active_mode('tf' if i==1 else 'spec')
-        # Stereo 탭: 캡처 드로어 비활성화
-        if i==2: self._capture_drawer.setVisible(False)
+        if getattr(self, '_drawer_owner', None) == 'tf_popout':
+            pass   # 공유 드로어가 TF 팝아웃 창에 있음 → 메인 탭 전환이 모드/가시성 건드리지 않음
+        else:
+            self._capture_drawer.set_active_mode('tf' if i==1 else 'spec')
+            # Stereo 탭: 캡처 드로어 비활성화
+            if i==2: self._capture_drawer.setVisible(False)
         self._apply_tab_styles()
 
     def _apply_tab_styles(self):
@@ -17727,7 +17732,19 @@ class MainWindow(QMainWindow):
         self.main_stack.removeWidget(tf)
         self._tf_placeholder = self._build_tf_placeholder()
         self.main_stack.insertWidget(1, self._tf_placeholder)
-        lay.addWidget(tf, 1); tf.show()
+        # 캡처 드로어를 TF 본체 왼쪽에 동반 — 멀티모니터에서 TF 캡처를 팝아웃 창에서 바로 관리.
+        # 드로어는 앱 전체 1개(공유)라 옮기면 메인엔 없음 → 메인 탭전환 가드(_drawer_owner)로 충돌 차단.
+        _tf_body_row = QWidget()
+        _brl = QHBoxLayout(_tf_body_row); _brl.setContentsMargins(0, 0, 0, 0); _brl.setSpacing(0)
+        self._capture_drawer.setParent(None)
+        self._capture_drawer.set_active_mode('tf')
+        self._capture_drawer.setVisible(tf._drawer_btn.isChecked())
+        _brl.addWidget(self._capture_drawer, 0)
+        _brl.addWidget(tf, 1)
+        lay.addWidget(_tf_body_row, 1); tf.show()
+        self._drawer_owner = 'tf_popout'
+        self._drawer_btn.setEnabled(False)   # 메인(Spectrum) 툴바 드로어 버튼 — 드로어가 TF 팝아웃에 있는 동안 비활성
+        _diag('tf_popout_drawer', action='popout', vis=self._capture_drawer.isVisible())
         if was_tf_tab:
             self.main_stack.setCurrentWidget(self._tf_placeholder)
         self._tf_popout = win
@@ -17784,6 +17801,15 @@ class MainWindow(QMainWindow):
         try: tf._popout_btn.setChecked(False)
         except Exception: pass
         self._sync_stack_to_active_tab()   # 화면을 현재 탭에 맞춤(인덱스 꼬임 방지)
+        # 캡처 드로어 — 메인 창 좌측으로 복귀 + 현재 탭에 맞춰 모드/가시성 복원
+        self._capture_drawer.setParent(None)
+        self._body_lay.insertWidget(0, self._capture_drawer)
+        self._drawer_owner = None
+        self._drawer_btn.setEnabled(True)
+        _i = self.main_stack.currentIndex()
+        self._capture_drawer.set_active_mode('tf' if _i == 1 else 'spec')
+        if _i == 2: self._capture_drawer.setVisible(False)
+        _diag('tf_popout_drawer', action='dock', tab=_i)
         if not via_close:
             win.close()
         win.deleteLater()
@@ -17824,6 +17850,7 @@ class MainWindow(QMainWindow):
         self._spec_tb_wrap.setParent(None)
         lay.addWidget(self._spec_tb_wrap)
         _hdr._toggle_btn.toggled.connect(lambda hide: self._spec_tb_wrap.setVisible(not hide))
+        self._drawer_btn.hide()   # 캡처 드로어는 Spectrum 팝아웃을 따라가지 않음 → 툴바 좌측의 무의미한 토글 버튼 숨김
         # 본체 — main_stack index0에서 떼고 그 자리에 플레이스홀더
         was_tab = (self.main_stack.currentIndex() == 0)
         self.main_stack.removeWidget(page)
@@ -17870,6 +17897,7 @@ class MainWindow(QMainWindow):
         # 툴바 — 다시 sub_stack page0로 (접혀있었으면 다시 표시)
         self._spec_tb_wrap.setParent(None); self._spec_tb_wrap.setVisible(True)
         self._sp0_lay.addWidget(self._spec_tb_wrap)
+        self._drawer_btn.show()   # 도킹 복귀 → 드로어 토글 버튼 다시 표시
         # 본체 — 플레이스홀더 제거 후 index0 복원
         if self._spec_placeholder is not None:
             self.main_stack.removeWidget(self._spec_placeholder)
