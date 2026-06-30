@@ -181,15 +181,24 @@ else:
     _LIC_DIR = os.path.expanduser('~/Library/Application Support/WAYAUDIO')
 _LIC_PATH = os.path.join(_LIC_DIR, 'wsa2.lic')
 
+# Windows: subprocess가 콘솔 창을 깜빡이며 띄우는 것 방지(시작 시 wmic/PowerShell 등).
+#   CREATE_NO_WINDOW 는 Windows 전용 → 그 외엔 0(영향 없음).
+_SP_NO_WINDOW = getattr(_sp, 'CREATE_NO_WINDOW', 0) if _pl.system() == 'Windows' else 0
+_MACHINE_ID_CACHE = None
+
 def _get_machine_id() -> str:
-    """하드웨어 시리얼 번호 기반 12자리 머신 ID. 포맷 후에도 동일하게 유지됨."""
+    """하드웨어 시리얼 번호 기반 12자리 머신 ID. 포맷 후에도 동일하게 유지됨.
+    1회 계산 후 캐시 — 시작 시 여러 번 호출돼도 wmic/PowerShell 재실행(콘솔 깜빡임·지연) 방지."""
+    global _MACHINE_ID_CACHE
+    if _MACHINE_ID_CACHE is not None:
+        return _MACHINE_ID_CACHE
     serial = ''
     try:
         if _pl.system() == 'Windows':
-            # BIOS 시리얼 번호 (포맷해도 불변)
+            # BIOS 시리얼 번호 (포맷해도 불변). creationflags=CREATE_NO_WINDOW → 콘솔 창 안 뜸.
             out = _sp.check_output(
                 ['wmic', 'bios', 'get', 'SerialNumber', '/value'],
-                timeout=5, text=True, stderr=_sp.DEVNULL)
+                timeout=5, text=True, stderr=_sp.DEVNULL, creationflags=_SP_NO_WINDOW)
             for ln in out.splitlines():
                 if ln.upper().startswith('SERIALNUMBER='):
                     serial = ln.split('=', 1)[-1].strip(); break
@@ -198,7 +207,7 @@ def _get_machine_id() -> str:
                 out = _sp.check_output(
                     ['powershell', '-NoProfile', '-Command',
                      '(Get-CimInstance Win32_BIOS).SerialNumber'],
-                    timeout=5, text=True, stderr=_sp.DEVNULL)
+                    timeout=5, text=True, stderr=_sp.DEVNULL, creationflags=_SP_NO_WINDOW)
                 serial = out.strip()
         else:
             # macOS: system_profiler
@@ -213,7 +222,8 @@ def _get_machine_id() -> str:
     if not serial:
         serial = _pl.node()  # 최후 폴백: hostname
     raw = f'WSA2:{serial}:{_pl.machine()}'.encode()
-    return _hs.sha256(raw).hexdigest()[:12].upper()
+    _MACHINE_ID_CACHE = _hs.sha256(raw).hexdigest()[:12].upper()
+    return _MACHINE_ID_CACHE
 
 def _lic_b32decode(key: str) -> bytes:
     clean = key.upper().replace('-', '').replace(' ', '')
