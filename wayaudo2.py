@@ -937,9 +937,9 @@ PAD_CTRL, PAD_SM = '2px 8px', '1px 4px'
 # 폰트: 맥 전용 Optima/Helvetica/Helvetica Neue는 Windows에 없어 깨짐(시작화면 포함) → 플랫폼 대응.
 # 맥에선 기존 리터럴 그대로라 시각 변화 0, Windows에선 전부 Segoe UI로 통일.
 if _pl.system() == 'Windows':
-    FONT_FAMILY = 'Segoe UI'   # 브랜드(Optima 대체)
-    FONT_NUM    = 'Segoe UI'   # 숫자/값 표시(Helvetica Neue 대체)
-    FONT_SANS   = 'Segoe UI'   # 일반 산세리프(Helvetica 대체)
+    FONT_FAMILY = 'Candara'    # 브랜드/UI: Optima 근사(윈도우 기본 탑재 휴머니스트, 획 강약 有)
+    FONT_NUM    = 'Segoe UI'   # 숫자/값: Helvetica Neue 근사(깔끔한 그로테스크)
+    FONT_SANS   = 'Segoe UI'   # 일반 산세리프: Helvetica 근사
 else:
     FONT_FAMILY = 'Optima'
     FONT_NUM    = 'Helvetica Neue'
