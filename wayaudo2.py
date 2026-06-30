@@ -43,10 +43,12 @@ def _no_stderr():
     finally: os.dup2(_sv, 2); os.close(_sv)
 
 # ─── 세션 로그 (macOS: ~/Library/Logs/WSA2 / Windows: %LOCALAPPDATA%\WSA2\Logs) ───
-if _pl.system() == 'Windows':
-    _LOG_DIR = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'WSA2', 'Logs')
-else:
-    _LOG_DIR = os.path.expanduser('~/Library/Logs/WSA2')
+# WSA2_LOG_DIR 로 위치 오버라이드 가능 — Parallels 등 VM에서 공유폴더로 로그를 빼
+# 호스트(맥)에서 바로 읽을 때 유용. 미설정 시 기존 플랫폼 기본 경로 그대로(동작 변화 없음).
+_LOG_DIR = os.environ.get('WSA2_LOG_DIR') or (
+    os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'WSA2', 'Logs')
+    if _pl.system() == 'Windows'
+    else os.path.expanduser('~/Library/Logs/WSA2'))
 os.makedirs(_LOG_DIR, exist_ok=True)
 _LOG_TS   = _dt.datetime.now().strftime('%Y%m%d_%H%M%S')
 _LOG_PATH = os.path.join(_LOG_DIR, f'wsa2_{_LOG_TS}.log')
@@ -76,6 +78,48 @@ def _diag(tag, **kv):
             _alog.info('[DIAG] %s', tag)
     except Exception:
         pass
+
+# ── Windows 오디오 호스트 API 선택 (WASAPI 우선) ───────────────────────────
+# macOS는 CoreAudio 단일이라 무관 → 아래 헬퍼들은 비-Windows에선 전부 None을 돌려
+# 기존 동작을 100% 그대로 보존한다(코드 경로 변화 없음).
+# Windows에선 PortAudio가 같은 USB 인터페이스를 MME/DirectSound/WASAPI/WDM-KS/ASIO 로
+# '중복' 열거하고 기본값이 MME라, MME의 샘플레이트 경직·다채널 제한·31자 이름잘림 때문에
+# "USB 인터페이스가 안 잡힘/안 열림"이 발생한다 → 장치 목록을 WASAPI로 통일해 해결한다.
+# (ASIO는 장치당 단일 스트림만 허용 → 공유엔진 다중구독(스펙트럼+TF 동시) 구조와 충돌하므로
+#  의도적으로 제외하고 WASAPI 공유모드를 택한다.)
+def _win_preferred_hostapi():
+    """Windows에서 입력 장치를 1개 이상 노출하는 WASAPI 호스트 API의 인덱스를 반환.
+    WASAPI가 없거나 비-Windows면 None → 호출부는 필터링 없이 종전과 동일하게 동작."""
+    if _pl.system() != 'Windows':
+        return None
+    try:
+        has = sd.query_hostapis()
+        wasapi = next((i for i, h in enumerate(has)
+                       if 'wasapi' in str(h.get('name', '')).lower()), None)
+        if wasapi is None:
+            return None
+        # WASAPI로 보이는 입력 장치가 하나도 없으면 필터링하지 않음(빈 목록 방지 = 안전 폴백)
+        if any(d.get('hostapi') == wasapi and d.get('max_input_channels', 0) >= 1
+               for d in sd.query_devices()):
+            return wasapi
+    except Exception:
+        pass
+    return None
+
+def _dev_hostapi_ok(d, pref):
+    """장치 d를 목록에 포함할지 — pref(None=전체 허용)에 지정된 호스트 API에 속할 때만 True."""
+    return pref is None or d.get('hostapi') == pref
+
+def _win_extra_settings():
+    """WASAPI로 필터링 중일 때만 auto_convert ExtraSettings 반환 — 앱이 요청한 샘플레이트가
+    장치 믹스포맷과 달라도 공유모드에서 자동 변환해 스트림 오픈 실패(-9997 등)를 막는다.
+    그 외(비-Windows/WASAPI 미사용)엔 None → 스트림 오픈에 영향 없음(기존 기본값과 동일)."""
+    if _win_preferred_hostapi() is None:
+        return None
+    try:
+        return sd.WasapiSettings(auto_convert=True)
+    except Exception:
+        return None
 
 def _cleanup_logs(max_keep=20):
     try:
@@ -2122,7 +2166,8 @@ class AudioThread(QThread):
             with _no_stderr():
                 return sd.InputStream(device=self.device_idx, samplerate=self.sample_rate,
                                       channels=n_ch, blocksize=bs,
-                                      callback=cb, latency=lat, dtype='float32')
+                                      callback=cb, latency=lat, dtype='float32',
+                                      extra_settings=_win_extra_settings())
 
         def _run(bs, lat):
             """스트림 열기 시도. watchdog로 USB disconnect 감지.
@@ -2241,7 +2286,8 @@ class MultiChannelAudioThread(QThread):
             # 객체만 생성 — start()는 _run() 내 _no_stderr() 안에서 호출됨
             return sd.InputStream(device=self.device_idx, samplerate=self.sample_rate,
                                   channels=n_ch, blocksize=bs,
-                                  callback=cb, latency=lat, dtype='float32')
+                                  callback=cb, latency=lat, dtype='float32',
+                                  extra_settings=_win_extra_settings())
 
         def _run(bs, lat):
             try:
@@ -2693,7 +2739,8 @@ class TFSyncThread(QThread):
                     with _no_stderr():
                         with sd.InputStream(device=self.device_idx, samplerate=self.sample_rate,
                                             channels=n_ch, blocksize=bs,
-                                            callback=cb, latency='high', dtype='float32') as _s:
+                                            callback=cb, latency='high', dtype='float32',
+                                            extra_settings=_win_extra_settings()) as _s:
                             self._active_stream = _s
                             _last_cb[0] = time.monotonic()
                             try:
@@ -10159,7 +10206,8 @@ class TFDuplexThread(QThread):
                                samplerate=self.sample_rate,
                                channels=(n_in, self.n_out),
                                blocksize=blocksize, dtype='float32',
-                               callback=cb, latency='high') as stream:
+                               callback=cb, latency='high',
+                               extra_settings=_win_extra_settings()) as stream:
                     self._active_stream = stream
                     _alog.debug(f'TFDuplexThread sd.Stream opened OK  latency={stream.latency}')
                     _wd_last[0] = time.monotonic()
@@ -11644,7 +11692,11 @@ class TransferFunctionWindow(QWidget):
         try:
             self.ref_cb.clear(); self.meas_cb.clear(); self.sig_out_cb.clear()
             self.ref_cb.addItem(_internal_sigg_label, None)
+            _pref = _win_preferred_hostapi()   # Windows: WASAPI만(중복 호스트API 제거), 그 외 None=전체
+            if _pref is not None:
+                _diag('audio_hostapi', tab='tf', wasapi_idx=_pref)
             for i, d in enumerate(payload):
+                if not _dev_hostapi_ok(d, _pref): continue
                 tag = ''
                 if d['max_input_channels'] >= 1:
                     self.ref_cb.addItem(f'{tag}{d["name"]}', i)
@@ -11661,6 +11713,7 @@ class TransferFunctionWindow(QWidget):
                 if meas_cb_ is None: continue
                 cur_data = meas_cb_.currentData(); meas_cb_.blockSignals(True); meas_cb_.clear()
                 for i, d in enumerate(payload):
+                    if not _dev_hostapi_ok(d, _pref): continue
                     if d['max_input_channels'] >= 1:
                         meas_cb_.addItem(d['name'], i)
                 for j in range(meas_cb_.count()):
@@ -12026,7 +12079,8 @@ class TransferFunctionWindow(QWidget):
                 with _no_stderr():
                     self._mon_ref_stream = sd.InputStream(
                         device=ref_idx, channels=nch, samplerate=sr,
-                        blocksize=2048, callback=_make_cb('ref', ref_ch))
+                        blocksize=2048, callback=_make_cb('ref', ref_ch),
+                        extra_settings=_win_extra_settings())
                     self._mon_ref_stream.start()
         except Exception as e:
             _alog.warning(f'Mon ref stream failed: {e}')
@@ -12036,7 +12090,8 @@ class TransferFunctionWindow(QWidget):
                 with _no_stderr():
                     self._mon_meas_stream = sd.InputStream(
                         device=meas_idx, channels=nch, samplerate=sr,
-                        blocksize=2048, callback=_make_cb('meas', meas_ch))
+                        blocksize=2048, callback=_make_cb('meas', meas_ch),
+                        extra_settings=_win_extra_settings())
                     self._mon_meas_stream.start()
         except Exception as e:
             _alog.warning(f'Mon meas stream failed: {e}')
@@ -14557,7 +14612,8 @@ class TransferFunctionWindow(QWidget):
                         self._sig_stream = sd.OutputStream(device=out_dev, samplerate=self.sample_rate,
                                                             channels=n_ch, dtype='float32',
                                                             blocksize=_blk_size,
-                                                            latency='high', callback=cb)
+                                                            latency='high', callback=cb,
+                                                            extra_settings=_win_extra_settings())
                         self._sig_stream.start()
                     try:
                         _alog.info(f'[DIAG] OutputStream started out={out_dev} ch={n_ch} '
@@ -14718,7 +14774,8 @@ class StereoAudioThread(QThread):
                                         samplerate=self.sample_rate,
                                         channels=nc, blocksize=bs,
                                         callback=cb, latency=lat,
-                                        dtype='float32') as _s:
+                                        dtype='float32',
+                                        extra_settings=_win_extra_settings()) as _s:
                         self._active_stream=_s
                         try:
                             while self.running: self.msleep(100)
@@ -18278,7 +18335,11 @@ class MainWindow(QMainWindow):
                 'discord audio', 'obs', 'multi-output',
                 'iphone', 'ipad',
             )
+            _pref = _win_preferred_hostapi()   # Windows: WASAPI만(중복 호스트API 제거), 그 외 None=전체
+            if _pref is not None:
+                _diag('audio_hostapi', tab='spectrum', wasapi_idx=_pref, n_total=len(devs))
             for i,d in enumerate(devs):
+                if not _dev_hostapi_ok(d, _pref): continue
                 if d['max_input_channels']<1: continue
                 name=d['name']
                 name_l = name.lower()
@@ -18473,9 +18534,12 @@ class MainWindow(QMainWindow):
         # 브랜드 엠프티 스테이트 숨김 (분석 시작)
         self.fft_cvs._idle_hint = False; self.oct_cvs._idle_hint = False
         # USB 재연결 후 macOS가 device index를 재할당할 수 있으므로 이름으로 재조회
+        # (Windows: 같은 이름이 여러 호스트API로 중복 존재 → WASAPI 항목으로 한정해 MME 중복을 피함)
         dev_name = self.dev_cb.currentText()
+        _pref = _win_preferred_hostapi()
         try:
             for i, d in enumerate(sd.query_devices()):
+                if not _dev_hostapi_ok(d, _pref): continue
                 if d['name'] == dev_name and d['max_input_channels'] >= 1:
                     idx = i; break
         except Exception: pass
