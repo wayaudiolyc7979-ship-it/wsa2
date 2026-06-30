@@ -13155,6 +13155,9 @@ class TransferFunctionWindow(QWidget):
                 if hasattr(self, '_ref_db_lbl'): self._ref_db_lbl.setText('—')
 
         if not self._running: return
+        # 숨겨진 탭(다른 탭 보는 중)은 무거운 분석/IR/MTW 렌더를 건너뛴다 → 보이는 탭에 GUI 양보.
+        # 3탭 동시 Start 시 경합 해소. 팝아웃·분할(동시보기)은 isVisible()=True라 계속 렌더. 측정 적분은 별도 경로라 유지.
+        if not self.isVisible(): return
         if self._gen_freeze: return  # 제너레이터 OFF 후 동결 — 화면 유지, 누적 중단
         # 스윕 캡처 진행 중 → EMA 대신 진행률 표시만 (primary duplex 전용)
         if self._duplex_thread and self._duplex_thread._sc_armed[0]:
@@ -16223,6 +16226,7 @@ class StereoLoudnessPage(QWidget):
         m=self._meter
         if m is None: return
         if not self._running and not force: return
+        if not force and not self.isVisible(): return  # 숨겨진 탭: 디스플레이 갱신 생략(보이는 탭 양보)
         def fmt(v):
             if v<=-100: return '—'
             return f'{v-self._target:+.1f}' if self._lu_mode else f'{v:.1f}'
