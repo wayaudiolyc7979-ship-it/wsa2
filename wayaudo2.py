@@ -1149,6 +1149,9 @@ def _apply_native_titlebar_dark(win):
     (1) FullSizeContentView+투명 → 본문 상단 브랜드 헤더가 타이틀바 행에 렌더되고
     (2) 네이티브 제목 텍스트 숨김 (브랜드 헤더로 대체)
     (3) 테마색 appearance(다크=DarkAqua). winId() 유효해야 하므로 show() 이후 호출."""
+    if _pl.system() == 'Windows':
+        _apply_windows_titlebar_dark(win)   # 윈도우는 네이티브 타이틀바를 다크로
+        return
     if sys.platform != 'darwin':
         return
     try:
@@ -1188,6 +1191,27 @@ def _apply_native_titlebar_dark(win):
               fullsize=bool(int(new_style) & (1 << 15)))
     except Exception as e:
         try: _diag('popout_titlebar_fail', err=str(e))
+        except Exception: pass
+
+
+def _apply_windows_titlebar_dark(win):
+    """Windows: 네이티브 타이틀바를 앱 테마에 맞춰 다크/라이트로(DWM immersive dark mode).
+    맥의 통합 타이틀바처럼 본문과 완전히 합쳐지진 않지만, 어두운 앱 위에 흰 타이틀바가
+    뜨는 충돌을 없앤다. 비-Windows에선 no-op. winId() 유효해야 하므로 show() 이후 호출."""
+    if _pl.system() != 'Windows':
+        return
+    try:
+        import ctypes
+        hwnd = int(win.winId())
+        val = ctypes.c_int(1 if _theme == 'dark' else 0)
+        dwm = ctypes.windll.dwmapi
+        # DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Win10 20H1+/Win11). 구버전 빌드는 19.
+        res = dwm.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(val), ctypes.sizeof(val))
+        if res != 0:
+            dwm.DwmSetWindowAttribute(hwnd, 19, ctypes.byref(val), ctypes.sizeof(val))
+        _diag('win_titlebar_dark', dark=(_theme == 'dark'), res=int(res))
+    except Exception as e:
+        try: _diag('win_titlebar_dark_fail', err=str(e))
         except Exception: pass
         try: _alog.debug(f'native titlebar dark 실패: {e}')
         except Exception: pass
@@ -16354,6 +16378,9 @@ class MainWindow(QMainWindow):
     def _setup_macos_titlebar(self):
         """ctypes로 NSFullSizeContentViewWindowMask + titlebarAppearsTransparent 적용.
         콘텐츠 뷰를 네이티브 타이틀바 영역까지 확장하여 hdr 위젯이 타이틀바 행에 렌더된다."""
+        if _pl.system() == 'Windows':
+            _apply_windows_titlebar_dark(self)   # 윈도우: 네이티브 타이틀바 다크(흰 바 충돌 제거)
+            return
         try:
             import ctypes, ctypes.util
             objc = ctypes.cdll.LoadLibrary('/usr/lib/libobjc.A.dylib')
@@ -17569,6 +17596,7 @@ class MainWindow(QMainWindow):
         global _theme
         _theme='light' if _theme=='dark' else 'dark'
         self._apply_theme()
+        _apply_windows_titlebar_dark(self)   # 윈도우: 메인 타이틀바도 새 테마로(맥은 no-op)
         # 열려있는 팝아웃 창들: 컨트롤 스타일시트 + 네이티브 타이틀바 + 브랜드 헤더 재적용
         for _w in (self._tf_popout, self._spec_popout, self._st_popout):
             if _w is not None:
