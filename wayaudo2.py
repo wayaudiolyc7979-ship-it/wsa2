@@ -934,7 +934,16 @@ PAD_CTRL, PAD_SM = '2px 8px', '1px 4px'
 
 # 앱 전체 글꼴 — 한 곳에서 교체 (캔버스 텍스트 + 위젯 공통). 후보: 'Avenir Next'(지오메트릭·세련),
 # 'Helvetica Neue'(클래식), '.AppleSystemUIFont'(SF Pro 시스템), 'Arial'(구 기본)
-FONT_FAMILY = 'Segoe UI' if _pl.system() == 'Windows' else 'Optima'   # Optima는 맥 전용 → Windows는 Segoe UI
+# 폰트: 맥 전용 Optima/Helvetica/Helvetica Neue는 Windows에 없어 깨짐(시작화면 포함) → 플랫폼 대응.
+# 맥에선 기존 리터럴 그대로라 시각 변화 0, Windows에선 전부 Segoe UI로 통일.
+if _pl.system() == 'Windows':
+    FONT_FAMILY = 'Segoe UI'   # 브랜드(Optima 대체)
+    FONT_NUM    = 'Segoe UI'   # 숫자/값 표시(Helvetica Neue 대체)
+    FONT_SANS   = 'Segoe UI'   # 일반 산세리프(Helvetica 대체)
+else:
+    FONT_FAMILY = 'Optima'
+    FONT_NUM    = 'Helvetica Neue'
+    FONT_SANS   = 'Helvetica'
 
 def _qfont(pt, bold=False):
     f = QFont(FONT_FAMILY, pt); f.setBold(bold); return f
@@ -1728,7 +1737,7 @@ def _make_splash_pixmap(w=520, h=300):
     mw = mark.width() / mark.devicePixelRatio()
     p.drawPixmap(int((w - mw) / 2), 70, mark)
     # 워드마크 SPECTRA
-    fw = QFont('Optima', 30); fw.setBold(True); fw.setLetterSpacing(QFont.AbsoluteSpacing, 11)
+    fw = QFont(FONT_FAMILY, 30); fw.setBold(True); fw.setLetterSpacing(QFont.AbsoluteSpacing, 11)
     p.setFont(fw); p.setPen(QColor('#F1F4F9'))
     p.drawText(0, 150, w, 48, Qt.AlignHCenter | Qt.AlignVCenter, 'SPECTRA')
     # 시그니처 그라디언트 라인
@@ -1736,11 +1745,11 @@ def _make_splash_pixmap(w=520, h=300):
     p.setPen(Qt.NoPen); p.setBrush(_spectra_grad_brush(lx, lx + lw))
     p.drawRoundedRect(QRectF(lx, ly, lw, 3.0), 1.5, 1.5)
     # 서브타이틀
-    fs = QFont('Helvetica', 9); fs.setLetterSpacing(QFont.AbsoluteSpacing, 4)
+    fs = QFont(FONT_SANS, 9); fs.setLetterSpacing(QFont.AbsoluteSpacing, 4)
     p.setFont(fs); p.setPen(QColor('#828A98'))
     p.drawText(0, 214, w, 20, Qt.AlignHCenter, 'AUDIO MEASUREMENT')
     # 하단: 버전 · by WAYAUDIO
-    fv = QFont('Helvetica', 9); p.setFont(fv); p.setPen(QColor('#5C6373'))
+    fv = QFont(FONT_SANS, 9); p.setFont(fv); p.setPen(QColor('#5C6373'))
     p.drawText(0, h - 36, w, 18, Qt.AlignHCenter, f'v{_APP_VERSION}    ·    by WAYAUDIO')
     p.end()
     return pm
@@ -2518,6 +2527,12 @@ class AudioEngine(QObject):
 
     def _remove_stream(self, device_idx):
         self._streams.pop(device_idx, None)
+
+    def current_sr(self, device_idx):
+        """이미 열려 있는 장치 스트림의 SR(없으면 None). 같은 장치를 여러 탭이 구독할 때
+        SR을 합의시켜 'one SR per device' 충돌을 피하는 데 사용(먼저 연 쪽 SR을 따른다)."""
+        st = self._streams.get(device_idx)
+        return st.sample_rate if st is not None else None
 
     def active_devices(self):
         return list(self._streams.keys())
@@ -5315,12 +5330,12 @@ class ShowModeWindow(QWidget):
         p.fillRect(0, 0, W, 3, _spectra_grad_brush(0, W))          # 상단 브랜드 그라디언트 라인
         m = int(min(W, H) * 0.045)
         # ── 상단: 브랜드 + 시계 ──
-        bf = QFont('Optima', 1); bf.setPixelSize(max(16, int(H * 0.032))); bf.setBold(True)
+        bf = QFont(FONT_FAMILY, 1); bf.setPixelSize(max(16, int(H * 0.032))); bf.setBold(True)
         bf.setLetterSpacing(QFont.AbsoluteSpacing, 3)
         p.setFont(bf); p.setPen(QColor('#C9CDD7'))
         p.drawText(m, int(m * 0.6), W, int(H * 0.06), Qt.AlignLeft | Qt.AlignVCenter, 'SPECTRA')
         clk = time.strftime('%H:%M')
-        cf = QFont('Helvetica'); cf.setPixelSize(max(14, int(H * 0.028)))
+        cf = QFont(FONT_SANS); cf.setPixelSize(max(14, int(H * 0.028)))
         p.setFont(cf); p.setPen(QColor('#6A7180'))
         p.drawText(0, int(m * 0.6), W - m, int(H * 0.06), Qt.AlignRight | Qt.AlignVCenter, clk)
         # ── 본문 영역 ──
@@ -5330,14 +5345,14 @@ class ShowModeWindow(QWidget):
         # 왼쪽: 거대한 SPL 숫자
         num = f'{self._spl:.1f}' if self._spl > -100 else '—'
         avail_w = left_w - int(m * 1.5)
-        nf = QFont('Helvetica Neue'); nf.setBold(True)
+        nf = QFont(FONT_NUM); nf.setBold(True)
         size = int((bot - top) * 0.62); nf.setPixelSize(size); p.setFont(nf)
         tw = p.fontMetrics().horizontalAdvance(num)
         if tw > avail_w and tw > 0:                       # 3자리(100+)면 폭에 맞춰 축소
             size = max(10, int(size * avail_w / tw)); nf.setPixelSize(size); p.setFont(nf)
         p.setPen(col)
         p.drawText(m, top, left_w - m, int((bot - top) * 0.74), Qt.AlignVCenter | Qt.AlignHCenter, num)
-        uf = QFont('Helvetica'); uf.setPixelSize(max(14, int(H * 0.040)))
+        uf = QFont(FONT_SANS); uf.setPixelSize(max(14, int(H * 0.040)))
         uf.setLetterSpacing(QFont.AbsoluteSpacing, 2)
         p.setFont(uf); p.setPen(QColor('#8B93A2'))
         p.drawText(m, int(bot - (bot - top) * 0.22), left_w - m, int((bot - top) * 0.20),
@@ -5365,9 +5380,9 @@ class ShowModeWindow(QWidget):
                  ('HEADROOM', f'{self._limit - self._spl:+.0f} dB')]
         cy = int(H * 0.86); ch_h = int(H * 0.09)
         cw = (W - 2 * m) // len(chips); gap = int(W * 0.012)
-        lf = QFont('Helvetica'); lf.setPixelSize(max(11, int(H * 0.020)))
+        lf = QFont(FONT_SANS); lf.setPixelSize(max(11, int(H * 0.020)))
         lf.setLetterSpacing(QFont.AbsoluteSpacing, 2)
-        vf = QFont('Helvetica Neue'); vf.setBold(True); vf.setPixelSize(max(18, int(H * 0.042)))
+        vf = QFont(FONT_NUM); vf.setBold(True); vf.setPixelSize(max(18, int(H * 0.042)))
         for i, (lab, val) in enumerate(chips):
             x = m + i * cw
             p.setBrush(QColor('#101218')); p.setPen(QPen(QColor(255, 255, 255, 16), 1))
@@ -12331,9 +12346,42 @@ class TransferFunctionWindow(QWidget):
             th.stop()
         self._extra_pair_threads[idx] = (None, None, None)
 
+    def _resolve_shared_sr(self):
+        """TF가 구독할 장치의 SR을 결정 — 공유 엔진이 이미 연 장치면 그 SR을 따르고(합의),
+        아니면 장치 네이티브 SR로 맞춘다. Spectrum이 장치를 44100으로 먼저 열었는데 TF가
+        48000으로 구독하려다 'one SR per device' 오류가 나던 것을 방지(특히 Windows:
+        WASAPI 네이티브 44100). MTW는 SR 변경 시 자동 재생성되고 fft_size는 SR 무관이라 안전."""
+        devs = []
+        for cb in (getattr(self, 'meas_cb', None), getattr(self, 'ref_cb', None)):
+            d = cb.currentData() if cb is not None else None
+            if isinstance(d, int) and d >= 0: devs.append(d)
+        for pair in getattr(self, '_extra_pairs', []):
+            mcb = pair.get('meas_cb')
+            d = mcb.currentData() if mcb is not None else None
+            if isinstance(d, int) and d >= 0: devs.append(d)
+        # 1) 이미 열린 장치의 SR이 있으면 그걸 따른다(먼저 연 탭과 합의)
+        for d in devs:
+            sr = self._engine.current_sr(d)
+            if sr:
+                if sr != self.sample_rate:
+                    _diag('tf_sr_adopt', dev=d, sr=sr, was=self.sample_rate)
+                    self.sample_rate = sr
+                return
+        # 2) 아니면 첫 후보 장치의 네이티브 SR로 맞춤
+        _OK = (44100, 48000, 88200, 96000)
+        for d in devs:
+            try:    ns = int(sd.query_devices(d)['default_samplerate'])
+            except Exception: continue
+            sr = ns if ns in _OK else (48000 if ns >= 48000 else 44100)
+            if sr != self.sample_rate:
+                _diag('tf_sr_native', dev=d, sr=sr, was=self.sample_rate)
+                self.sample_rate = sr
+            return
+
     def _start(self):
         self._sweep_freeze = False  # 새 측정 시작 → 라이브 렌더 동결 해제
         self._mtw_live_logged = False  # Start마다 'mtw_live' 1회 재기록(분석 살아남 검증 마커)
+        self._resolve_shared_sr()  # 공유 장치 SR 합의(엔진 'one SR per device' 충돌 방지)
         self.mag_cvs.arm_autofit()  # 첫 측정 데이터에 Y축 1회 자동맞춤(더블클릭 없이 바로 보임)
         self._stop_mon_streams()   # TF 시작 전 모니터 스트림 해제 (장치 충돌 방지)
         self._stop_input_monitor() # 분석 시작 전 입력 모니터 해제 (장치당 1스트림)
@@ -12895,8 +12943,10 @@ class TransferFunctionWindow(QWidget):
         ch = self.meas_ch_cb.currentData() or 0
         if dev is None:
             return
+        # 이미 열린 장치면 그 SR을 따른다(Spectrum 등과 'one SR per device' 충돌 방지)
+        _sr = self._engine.current_sr(dev) or self.sample_rate
         try:
-            self._rta_sub = self._engine.subscribe(dev, [ch], self.sample_rate)
+            self._rta_sub = self._engine.subscribe(dev, [ch], _sr)
             self._rta_ch = ch
             self._rta_avg_buf.clear()
             self._rta_last_chunk = time.monotonic()   # 구독 직후 grace(아직 청크 전이라 watchdog 오판 방지)
@@ -15580,11 +15630,11 @@ class _GradientNumber(QWidget):
         if self._text in ('—', ''):
             # 빈 상태(미실행): 작고 가는 대시(회색 막대처럼 안 보이게)
             fs = max(18, int(self._fs_paint() * 0.34))
-            f = QFont('Helvetica Neue', fs); f.setWeight(QFont.Normal); p.setFont(f)
+            f = QFont(FONT_NUM, fs); f.setWeight(QFont.Normal); p.setFont(f)
             p.setPen(QColor(T('text_dim')))
         else:
             fs = self._fs_paint()
-            f = QFont('Helvetica Neue', fs); f.setWeight(QFont.Black); p.setFont(f)
+            f = QFont(FONT_NUM, fs); f.setWeight(QFont.Black); p.setFont(f)
             p.setPen(QPen(QBrush(_spectra_grad_obj(r.left() + r.width() * 0.14,
                                                     r.left() + r.width() * 0.86)), 1))
         p.drawText(r, Qt.AlignCenter, self._text)
@@ -15618,7 +15668,7 @@ class LoudnessHistoryCanvas(QWidget):
             t = max(0.0, min(1.0, (v - self._LO) / (self._HI - self._LO)))
             return H - pad - (H - 2 * pad) * t
         # label
-        p.setPen(QColor(T('text_dim'))); p.setFont(QFont('Helvetica Neue', FS_SM))
+        p.setPen(QColor(T('text_dim'))); p.setFont(QFont(FONT_NUM, FS_SM))
         p.drawText(10, 16, 'LOUDNESS HISTORY  (short-term)')
         # target dashed line
         ty = y(self._target)
@@ -15626,7 +15676,7 @@ class LoudnessHistoryCanvas(QWidget):
         vals = list(self._vals)
         if len(vals) < 2:
             # 빈 상태 — 측정 전 휑함 방지 안내 (타겟 점선은 위에 이미 그려짐)
-            p.setPen(QColor(T('text_dim'))); p.setFont(QFont('Helvetica Neue', FS_BODY))
+            p.setPen(QColor(T('text_dim'))); p.setFont(QFont(FONT_NUM, FS_BODY))
             # 타겟 점선과 안 겹치게 상단 1/3 위치에 안내
             p.drawText(QRectF(0, H*0.18, W, H*0.30), Qt.AlignCenter,
                        'Start measuring to plot loudness over 60s' if _LANG != 'ko'
