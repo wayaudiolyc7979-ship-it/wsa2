@@ -11108,6 +11108,11 @@ class TransferFunctionWindow(QWidget):
         self._last_ref_rms = 0.0; self._last_meas_rms = 0.0
         # v1.7 라이브 엔진: Single FFT(기본) ↔ MTW. MTW는 시간영역 버퍼를 보관.
         self._tf_engine_mtw = False; self._mtw = None
+        # MTW 무거운 멀티레이트 FFT를 GUI 스레드 밖(단일 워커)에서 계산 → Spectrum과 병렬.
+        # 워커가 _mtw를 전담 사용, GUI는 결과(_dsp_out)만 그림. 드문 reset/engine변경은 _dsp_sync로 직렬화.
+        self._dsp_exec = None       # ThreadPoolExecutor(max_workers=1) — MTW 렌더 시 지연생성
+        self._dsp_future = None     # 진행 중 계산 future
+        self._dsp_out = None        # 워커가 적재한 최신 (f_m, H_m, coh_m)
         self._last_ref_buf = None; self._last_meas_buf = None
         self._mtw_H_lin = None      # MTW 최신 선형그리드 H (영속) — 딜레이 파인더용
         self._rta_sub = None        # RTA 전용 엔진 구독(제너레이터/Start 없이 마이크 스펙트럼)
@@ -12673,6 +12678,13 @@ class TransferFunctionWindow(QWidget):
                 th.stop()
         self._ref_thread = self._meas_thread = None
         self._running = False
+        # MTW DSP 워커 정리 — in-flight 계산 대기 후 종료(다음 Start 시 지연 재생성)
+        if self._dsp_exec is not None:
+            self._dsp_sync()
+            try: self._dsp_exec.shutdown(wait=False)
+            except Exception: pass
+            self._dsp_exec = None; self._dsp_future = None; self._dsp_out = None
+            _diag('tf_dsp_worker', state='stop')
         # VU proxy 리셋 — set_rms 경유해야 _card_fn이 UI에 전달됨
         self._vu_ref.set_rms(-80.0); self._vu_ref._pk = -80.0
         self._vu_meas.set_rms(-80.0); self._vu_meas._pk = -80.0
@@ -13894,6 +13906,8 @@ class TransferFunctionWindow(QWidget):
         self._mtw_H_lin = None
         self._pm_prev = None; self._pm_targ = None; self._pm_done = True   # 모션 스무딩 버퍼 비움
         if self._mtw is not None:
+            self._dsp_sync()        # 워커가 _mtw 쓰는 중일 수 있음 → 끝나길 대기 후 리셋(레이스 방지)
+            self._dsp_out = None
             self._mtw.reset()
 
     def _render_primary_H(self, H_raw, gamma2, freqs, t_ms, primary_show):
@@ -13981,14 +13995,36 @@ class TransferFunctionWindow(QWidget):
         freqs 그리드로 보간 → 공통 렌더 테일(_render_primary_H)로 Single과 완전 동일 거동."""
         if ref_b is None or meas_b is None or rr < 1e-6 or mr < 1e-6:
             return
-        if self._mtw.sr != self.sample_rate:                 # SR 변경 추종
-            self._mtw = MTWEngine(self.sample_rate, n_fft=self._mtw.n_fft, n_stages=self._mtw.n_stages)
-        if len(ref_b) < self._mtw.master_len:                # 마스터 버퍼 아직 미충전
-            self.avg_lbl.setText('Adaptive…'); return
-        self._mtw.push(ref_b, meas_b)
-        res = self._mtw.result()
-        if res is None:
-            return
+        # 워커 지연 생성 (MTW 렌더 시작 시 1회) — 무거운 멀티레이트 FFT를 GUI 밖에서.
+        # hasattr 게이트: 실제 TF 창만 워커, 테스트 Stub 등은 동기 폴백.
+        _use_worker = hasattr(self, '_dsp_exec')
+        if _use_worker and self._dsp_exec is None:
+            try:
+                from concurrent.futures import ThreadPoolExecutor
+                self._dsp_exec = ThreadPoolExecutor(max_workers=1, thread_name_prefix='tf-dsp')
+                _diag('tf_dsp_worker', state='start')
+            except Exception as e:
+                _diag('tf_dsp_worker', state='fail', err=str(e)); self._dsp_exec = None
+        if _use_worker and self._dsp_exec is not None:
+            # 비동기: 워커 유휴면 최신 버퍼로 새 계산 제출(논블로킹), 화면엔 직전 결과 표시.
+            # → 무거운 MTW FFT가 GUI 스레드 밖에서 돌아 Spectrum FFT와 병렬(numpy GIL 해제).
+            fut = self._dsp_future
+            if fut is None or fut.done():
+                self._dsp_future = self._dsp_exec.submit(
+                    self._mtw_compute_task, ref_b, meas_b, self.sample_rate)
+            res = self._dsp_out
+            if res is None:
+                self.avg_lbl.setText('Adaptive…'); return
+        else:
+            # 동기 폴백(워커 불가) — 기존 동작 그대로
+            if self._mtw.sr != self.sample_rate:                 # SR 변경 추종
+                self._mtw = MTWEngine(self.sample_rate, n_fft=self._mtw.n_fft, n_stages=self._mtw.n_stages)
+            if len(ref_b) < self._mtw.master_len:                # 마스터 버퍼 아직 미충전
+                self.avg_lbl.setText('Adaptive…'); return
+            self._mtw.push(ref_b, meas_b)
+            res = self._mtw.result()
+            if res is None:
+                return
         f_m, H_m, coh_m = res
         if not getattr(self, '_mtw_live_logged', False):
             self._mtw_live_logged = True
@@ -14003,9 +14039,39 @@ class TransferFunctionWindow(QWidget):
         self.avg_lbl.setText('Adaptive')
         self._render_primary_H(H_raw, gamma2, freqs, t_ms, primary_show)
 
+    def _mtw_compute_task(self, ref_b, meas_b, sr):
+        """워커 스레드 — MTW 멀티레이트 FFT(무거움)만 수행. ⚠️위젯 절대 접근 금지(numpy만).
+        _mtw는 이 워커가 전담 사용하고, 드문 reset/engine 변경은 GUI가 _dsp_sync로 직렬화한다."""
+        try:
+            m = self._mtw
+            if m is None:
+                return
+            if m.sr != sr:                      # SR 변경 추종(워커 안에서 재생성)
+                m = MTWEngine(sr, n_fft=m.n_fft, n_stages=m.n_stages); self._mtw = m
+            if len(ref_b) < m.master_len:        # 마스터 버퍼 미충전
+                return
+            m.push(ref_b, meas_b)
+            r = m.result()
+            if r is not None:
+                self._dsp_out = r                # 참조 대입은 GIL-원자적 → GUI가 안전하게 읽음
+        except Exception as e:
+            try: _diag('tf_dsp_err', err=str(e))
+            except Exception: pass
+
+    def _dsp_sync(self):
+        """진행 중 워커 계산이 끝나길 잠깐 대기 — 드문 reset/engine 변경/정지에서 _mtw를
+        직접 만지기 전에 호출해 동시접근(레이스)을 막는다. per-frame 아님 → 비용 무시."""
+        fut = getattr(self, '_dsp_future', None)
+        if fut is not None:
+            try: fut.result(timeout=1.0)
+            except Exception: pass
+            self._dsp_future = None
+
     def _engine_changed(self, idx):
         """라이브 엔진 전환: 0=Single FFT(기본), 1=MTW. fft_size 조정 후 분석 재시작."""
         mtw = (idx == 1)
+        self._dsp_sync()                # 워커가 _mtw 쓰는 중이면 끝나길 대기(아래서 _mtw 재구성/None)
+        self._dsp_out = None
         self._tf_engine_mtw = mtw
         self._mtw_live_logged = False   # 엔진 전환마다 첫 라이브결과 마커 1회 재기록
         if mtw:
