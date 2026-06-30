@@ -81,7 +81,7 @@
 
 - [ ] **[빌드 직전] `RELEASE_NOTES.html` v1.8 섹션 동기화** — 브랜드용 HTML이 v1.8 섹션 자체가 없음(라우드니스 멈춤·COMPLIANCE 배지 등 미반영). 앱 내 릴리스노트는 `RELEASE_NOTES.md` 직접 렌더라 영향 없음. 빌드 때 md→html 한 번에 정리(사용자: "빌드 때 한번에").
 
-- [~] 🪟 **[버그·Windows] USB 인터페이스 안 잡힘/안 열림 — ✅코드수정 완료, Windows 실측만 대기** — 2026-06-30. 근본=PortAudio **호스트 API 미지정** → Windows 기본 MME로 USB 중복열거·SR경직. **수정(macOS 무영향):** WASAPI 우선 필터 + `WasapiSettings(auto_convert=True)`. 헤드리스 단위테스트+selfcheck 32/32 PASS. Windows 로그 `[DIAG] audio_hostapi`. 상세=`남은작업.md` INBOX / 메모리 [[project_bug_windows_usb_hostapi]]. ⚠️맥엔 윈도우 PC 없어 실측 보류.
+- [x] 🪟✅✅ **[버그·Windows] USB 인터페이스 안 잡힘/안 열림 — 수정+Parallels 실측 검증완료(2026-06-30, Scarlett 2i2)** — 근본=PortAudio **호스트 API 미지정** → Windows 기본 MME로 USB 4벌 중복열거·SR경직. **수정(macOS 무영향):** WASAPI 우선 필터 + `WasapiSettings(auto_convert=True)`. 빌드 SPECTRA.exe를 Parallels Win11서 실행→로그 `audio_hostapi wasapi_idx=2`·`eng_add dev=12(WASAPI)`·연속 chunks로 정상 입증. 커밋 `991e6ea` push. 상세=[[project_bug_windows_usb_hostapi]].
 - [ ] **윈도우 빌드 검증** — v태그 push→GitHub Actions(windows-latest) 산출물이 **SPECTRA.exe**·아이콘·속성(1.5.0.0/WAYAUDIO)인지. *(상세: project_verify_iphone_session)*
 - [ ] **코드서명 + 노타라이즈** (⏸️"나중에" 보류) — Developer ID 인증서·노타리 프로필. 배포 전 처리. *(상세: project_v1_5_verify_checklist C)*
 - [ ] **소스코드 보호/난독화** — Nuitka(전면 컴파일) 또는 PyArmor 택1. `_LIC_SECRET` 노출방지 중요. 빌드 3종+Actions 교체 필요. *(상세: project_todo_code_protection)*
