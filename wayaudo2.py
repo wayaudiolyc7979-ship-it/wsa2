@@ -8407,7 +8407,7 @@ class TFPhaseCanvas(QWidget):
         delta_no_ref = self._delta and not refmode  # 델타 모드인데 기준 없음 → 전부 숨김
         if delta_no_ref:
             return
-        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setRenderHint(QPainter.Antialiasing, False)   # [TF_LIVE_CURVE_PERF] 라이브 위상 곡선 AA off (뒤에서 복원)
         # E 포커스: 포커스된 하나만 밝게, 나머지 라이브 곡선은 흐리게(alpha 140)
         _capf = _focused_capture_visible(self)
         _fk2 = self._front_extra
@@ -8472,6 +8472,7 @@ class TFPhaseCanvas(QWidget):
                     p.setPen(QPen(QColor('#33FF66'),3.4)); p.setBrush(Qt.NoBrush); p.drawPath(path)
             elif fk in self._tf_extra_phase:
                 self._draw_extra_phase_curve(p, W, H, self._tf_extra_phase[fk], width=3.4)
+        p.setRenderHint(QPainter.Antialiasing, True)   # 라이브 곡선 후 AA 복원 [TF_LIVE_CURVE_PERF]
 
     def _draw_extra_phase_curve(self, p, W, H, ex, width=1.8, dim=False):
         f_arr = ex.get('f'); data_arr = [ex.get('ph_wrap'), ex.get('ph_unwr'), ex.get('grp_ms')][self.phase_mode]
@@ -8508,7 +8509,7 @@ class TFPhaseCanvas(QWidget):
             else:
                 seg_x.append(float(xs[i])); seg_y.append(float(ys[i]))
         _flush2()
-        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setRenderHint(QPainter.Antialiasing, False)   # [TF_LIVE_CURVE_PERF]
         _qc=QColor(ex['color'])
         if dim: _qc.setAlpha(140)
         p.setPen(QPen(_qc,width)); p.setBrush(Qt.NoBrush); p.drawPath(path)
@@ -8656,7 +8657,7 @@ class TFMagCanvas(QWidget):
         _mp=max(int(uw),200)
         if len(xs)>_mp:
             ids=np.linspace(0,len(xs)-1,_mp,dtype=int); xs=xs[ids]; ys=ys[ids]
-        p.setRenderHint(QPainter.Antialiasing,True)
+        p.setRenderHint(QPainter.Antialiasing,False)   # [TF_LIVE_CURVE_PERF] 라이브 강조 곡선도 AA off
         p.setPen(QPen(QColor(color),width)); p.setBrush(Qt.NoBrush)
         p.drawPath(_catmull_seg(xs, ys))
 
@@ -8990,7 +8991,10 @@ class TFMagCanvas(QWidget):
                 xs_d=xs[_ids]; ys_ms=ys_ms[_ids]
             else:
                 xs_d=xs
-            p.setRenderHint(QPainter.Antialiasing,True)
+            # [TF_LIVE_CURVE_PERF] 라이브 곡선은 AA off — 1/48 등 미세 스무딩 시 곡선이 뾰족해져
+            # AA 래스터 비용이 폭증(측정 52→22ms/프레임)해 오디오 콜백을 굶겨 핑크 끊김·전체 버벅임.
+            # 포인트 수·스플라인은 그대로 유지(1/48 디테일 보존). float 좌표라 계단현상 미미. 뒤에서 AA 복원.
+            p.setRenderHint(QPainter.Antialiasing,False)
             p.setPen(QPen(_col(T('green'), None),2.5)); p.setBrush(Qt.NoBrush)
             p.drawPath(_catmull_seg(xs_d, ys_ms))
             if self.coh is not None and len(self.coh)==len(f_arr):
@@ -9026,7 +9030,7 @@ class TFMagCanvas(QWidget):
                     ex_xs_d=ex_xs[_ei]; ex_ys_s=ex_ys_s[_ei]
                 else:
                     ex_xs_d=ex_xs
-                p.setRenderHint(QPainter.Antialiasing,True)
+                p.setRenderHint(QPainter.Antialiasing,False)   # [TF_LIVE_CURVE_PERF]
                 p.setPen(QPen(_col(ex['color'], _exk),2.0)); p.setBrush(Qt.NoBrush)
                 p.drawPath(_catmull_seg(ex_xs_d, ex_ys_s))
         # front(포커스) 라이브 곡선 맨 앞 굵게 재드로우 — 캡쳐 포커스 시엔 생략
@@ -9041,6 +9045,7 @@ class TFMagCanvas(QWidget):
                 if exf is not None and exm is not None:
                     if refmode: exm=exm-np.interp(exf,self._ref_f,self._ref_mag)
                     self._draw_mag_line(p,W,H, exf, exm, ex.get('color'), 3.4)
+        p.setRenderHint(QPainter.Antialiasing, True)   # 라이브 곡선 후 AA 복원(격자/라벨/커서 선명) [TF_LIVE_CURVE_PERF]
 
     def paintEvent(self,ev):
         W=self.width(); H=self.height()
