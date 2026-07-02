@@ -7896,6 +7896,52 @@ def _fft_convolve(a, b):
     return np.fft.irfft(A * B, nfft)[:n]
 
 
+_FARINA_ANALYSIS_S = 0.25   # fixed linear-IR analysis window (seconds) → grid & IR length independent of sweep length
+_FARINA_PRE_S      = 0.05   # fixed pre-peak guard (seconds) → same window offset at any sweep length (capped by 0.5·dt2)
+_FARINA_TAIL_S     = 0.05   # fixed post-peak tail (seconds) → same reflections/decay captured at any sweep length
+
+
+def _band_taper(freqs, f1, f2, oct_frac=1.0):
+    """Raised-cosine band-edge taper (1 in-band, cosine rolloff to 0 over `oct_frac`
+    octave OUTSIDE each band edge). Replaces a hard band cut to suppress Gibbs ringing in
+    the IR. The swept band [f1,f2] itself stays flat (=1); only out-of-band edges roll off."""
+    r = 2.0 ** oct_frac
+    tap = np.ones_like(freqs, dtype=np.float64)
+    lo_a, lo_b = f1 / r, f1
+    hi_a, hi_b = f2, f2 * r
+    tap[freqs < lo_a] = 0.0
+    m = (freqs >= lo_a) & (freqs < lo_b)
+    if lo_b > lo_a:
+        tap[m] = 0.5 * (1.0 - np.cos(np.pi * (freqs[m] - lo_a) / (lo_b - lo_a)))
+    tap[freqs > hi_b] = 0.0
+    m = (freqs > hi_a) & (freqs <= hi_b)
+    if hi_b > hi_a:
+        tap[m] = 0.5 * (1.0 + np.cos(np.pi * (freqs[m] - hi_a) / (hi_b - hi_a)))
+    return tap
+
+
+def _wiener_match_scale(far, hw_on, rel_floor_db=-30.0):
+    """Scale that aligns the sweep's Farina magnitude to the Wiener (Meas/Ref) level.
+
+    Median of hw/far taken ONLY over bins where BOTH are reliable — within `rel_floor_db`
+    of their band peak. The windowed Farina |H| (`far`) and the full-array Wiener |H|
+    (`hw_on`) have different processing gain, so at frequencies the measurement can't resolve
+    (HF noise floor) `far` collapses while `hw_on` doesn't; including those bins makes hw/far
+    blow up and skews the median. A shorter (1 s) sweep collapses at a lower frequency than a
+    long (2 s) one, so the skew was duration-dependent → a spurious 1 s-vs-2 s level offset.
+    """
+    far = np.asarray(far, dtype=np.float64); hw = np.asarray(hw_on, dtype=np.float64)
+    if far.size == 0:
+        return 1.0
+    ff = 10.0 ** (rel_floor_db / 20.0)
+    v = (far > far.max() * ff) & (hw > hw.max() * ff) & (far > 1e-12) & (hw > 1e-12)
+    if not np.any(v):
+        v = (far > 1e-9) & (hw > 1e-9)          # fallback: nothing passed the floor gate
+        if not np.any(v):
+            return 1.0
+    return float(np.median(hw[v] / far[v]))
+
+
 def farina_analyze(y, x, sr, T, f1, f2, harmonics=(2, 3, 4, 5)):
     """Deconvolve an ESS measurement into linear transfer function + harmonic IRs.
 
@@ -7920,21 +7966,31 @@ def farina_analyze(y, x, sr, T, f1, f2, harmonics=(2, 3, 4, 5)):
 
     # harmonic peak positions: nth harmonic is Δt_n = L·ln(n) earlier
     dt = {n: L * np.log(n) for n in harmonics}
-    # linear window: from just after the 2nd-harmonic position up to a tail past n0
-    pre = int(0.5 * dt[2] * sr)            # keep clear of harmonic energy
+    # Fixed REAL window around the linear peak — SAME pre AND tail (in seconds) for every sweep
+    # length, so 1s and 2s capture the identical impulse incl. its post-impulse tail
+    # (reflections/decay). Then zero-pad to nwin for a T-independent frequency grid + IR length.
+    # The pre-peak guard is a fixed duration, only shortened if a very short/narrow sweep would
+    # let it reach the 2nd-harmonic arrival (0.5·dt2). (Earlier `pre` scaled with T, pushing the
+    # peak late in a fixed buffer and clipping the tail for long sweeps → LF divergence.) [SWEEP_FIXED_RES]
+    nwin = int(round(_FARINA_ANALYSIS_S * sr))
+    pre = min(int(_FARINA_PRE_S * sr), int(0.5 * dt[2] * sr))
     pre = max(pre, int(0.002 * sr))
-    tail = int(0.05 * sr)
+    tail = int(_FARINA_TAIL_S * sr)
     lo = max(0, n0 - pre); hi = min(len(g), n0 + tail)
     lin = g[lo:hi]
     # reference window taken around ITS OWN peak so the deconvolution bins line up
     lo_r = max(0, n0_ref - pre); hi_r = min(len(g_ref), n0_ref + tail)
     lin_ref = g_ref[lo_r:hi_r]
-    nwin = min(len(lin), len(lin_ref))
-    lin = lin[:nwin]; lin_ref = lin_ref[:nwin]
+    la = min(len(lin), len(lin_ref)); lin = lin[:la]; lin_ref = lin_ref[:la]
+    def _fit(a):
+        if len(a) >= nwin: return a[:nwin]
+        b = np.zeros(nwin, dtype=a.dtype); b[:len(a)] = a; return b
+    lin = _fit(lin); lin_ref = _fit(lin_ref)
     H = np.fft.rfft(lin) / (np.fft.rfft(lin_ref) + 1e-30)
     freqs = np.fft.rfftfreq(nwin, 1.0 / sr)
-    # restrict to swept band
-    H[(freqs < f1) | (freqs > f2)] = 0.0
+    # Restrict to the swept band with a raised-cosine taper (not a hard cut) — the step
+    # discontinuity of a hard band cut causes Gibbs ringing in the reconstructed IR. [SWEEP_BAND_TAPER]
+    H = H * _band_taper(freqs, f1, f2)
 
     # 0-centered linear IR for the IR canvas
     ir = np.fft.fftshift(np.fft.irfft(H, n=nwin)).astype(np.float32)
@@ -13289,10 +13345,15 @@ class TransferFunctionWindow(QWidget):
             self._last_ref_buf = None; self._last_meas_buf = None
         # 스윕(Farina/Wiener)은 왕복지연을 이미 제거 → 측정이 0ms 정렬. 카드 딜레이를 0으로 맞춰야
         # 위상 보정 H_disp=H·exp(jωτ)이 과보정 안 되고 위상·IR이 정상(0ms 중앙) 표시됨. (사용자 지적 2026-06-28)
+        # 숨은 툴바 스핀 + 보이는 primary 카드 스핀 둘 다 0으로 동기화. (예전엔 툴바 스핀만 리셋해
+        # 카드가 옛 딜레이를 stale 표시 → 이후 재탐색이 같은 값→setValue no-op으로 delay_ms=0에 갇힘). [SWEEP_DELAY_SYNC]
         self.delay_ms = 0.0
-        try:
-            self.delay_spin.blockSignals(True); self.delay_spin.setValue(0.0); self.delay_spin.blockSignals(False)
-        except Exception: pass
+        for _sp in (getattr(self, 'delay_spin', None),
+                    (self._level_cards[0]._delay_spin if self._level_cards else None)):
+            try:
+                if _sp is not None:
+                    _sp.blockSignals(True); _sp.setValue(0.0); _sp.blockSignals(False)
+            except Exception: pass
         n = len(ref_arr)
         sr = self.sample_rate
         f1 = float(self._sweep_f_lo); f2 = float(self._sweep_f_hi)
@@ -13317,14 +13378,22 @@ class TransferFunctionWindow(QWidget):
                 _Hw = np.abs((_MICw * np.conj(_REFw)) / (np.abs(_REFw) ** 2 + _epsw))
                 _fw = np.fft.rfftfreq(n, 1.0 / sr)
                 _bandf = (freqs > max(f1, 100.0)) & (freqs < min(f2, 8000.0))
+                _dbg_scale = 1.0; _dbg_farmed = float('nan')
                 if np.any(_bandf):
                     _Hw_on = np.interp(freqs[_bandf], _fw, _Hw)
                     _far = np.abs(H[_bandf]).astype(np.float64)
-                    _vmask = (_far > 1e-9) & (_Hw_on > 1e-9)
-                    if np.any(_vmask):
-                        _scale = float(np.median(_Hw_on[_vmask] / _far[_vmask]))
-                        if 1e-6 < _scale < 1e6:
-                            H = (H * _scale).astype(np.complex64)
+                    _dbg_farmed = 20.0 * np.log10(np.median(_far[_far > 1e-12]) + 1e-30) if np.any(_far > 1e-12) else float('nan')
+                    # Robust level-match: ignore crashed/noise-floor bins so the scale (hence the
+                    # absolute level) is the SAME for any sweep length. [SWEEP_LEVEL_MATCH]
+                    _scale = _wiener_match_scale(_far, _Hw_on)
+                    if 1e-6 < _scale < 1e6:
+                        H = (H * _scale).astype(np.complex64); _dbg_scale = _scale
+                # [SWEEP_LEVEL_DIAG] 1s vs 2s 레벨 차이 추적: 스윕길이(n)별 farina원본·Wiener스케일·최종 대역레벨
+                _mid = (freqs > 300) & (freqs < 2000)
+                _dbg_final = 20.0 * np.log10(np.median(np.abs(H[_mid])) + 1e-30) if np.any(_mid) else float('nan')
+                _diag('sweep_level', n=n, f1=round(f1), f2=round(f2),
+                      far_med_db=round(_dbg_farmed, 2), scale_db=round(20*np.log10(_dbg_scale), 2),
+                      final_300_2k_db=round(_dbg_final, 2), band_pts=int(_bandf.sum()))
                 if self.delay_ms != 0.0:
                     H_disp = H * np.exp(1j * 2 * np.pi * freqs * (self.delay_ms / 1000.0)).astype(np.complex64)
                 else:
@@ -13411,7 +13480,10 @@ class TransferFunctionWindow(QWidget):
         """백그라운드 계산 완료 후 메인 스레드에서 UI 업데이트."""
         self.find_btn.setEnabled(True); self.find_btn.setText('Find')
         if 0 <= d_ms <= 500:
-            self.delay_spin.setValue(d_ms)   # _on_delay_changed 경유 (self.delay_ms 갱신)
+            if float(self.delay_spin.value()) == float(d_ms):
+                self._on_delay_changed(d_ms)   # setValue no-op(같은 값)이어도 적용 보장 [DELAY_FORCE_APPLY]
+            else:
+                self.delay_spin.setValue(d_ms)   # _on_delay_changed 경유 (self.delay_ms 갱신)
             self.mag_cvs.fit_y()             # Magnitude Y축 자동 맞춤 (뷰는 건드리지 않음)
         else:
             from PyQt5.QtWidgets import QMessageBox
@@ -14134,9 +14206,18 @@ class TransferFunctionWindow(QWidget):
 
     def _start_active_pairs(self):
         """▶ 상태인 카드가 하나 이상 있을 때만 분석 시작."""
+        # 스윕 1-shot 캡쳐가 duplex(입출력 같은 장치)로 진행 중이면 별도 분석 입력 스트림을 열지
+        # 않는다 — 같은 장치에 2 스트림 → CoreAudio 충돌. 스윕은 duplex가 캡쳐/분석을 전담하고,
+        # 캡쳐 완료(auto-stop)로 duplex가 닫힌 뒤 핑크 재생 시 이 경로가 분석을 시작한다. [PLAY_AUTOSTART_CARD]
+        _sweep_armed = (self._duplex_thread is not None and self._duplex_thread.isRunning()
+                        and self._duplex_thread._sc_armed[0])
         primary_active = (not getattr(self, '_primary_deleted', False) and
                           bool(self._level_cards) and self._level_cards[0]._display_on)
         extra_active = any(p.get('display', False) for p in self._extra_pairs)
+        _diag('start_pairs', primary=bool(primary_active), extra=bool(extra_active),
+              running=bool(self._running), sweep_armed=bool(_sweep_armed))
+        if _sweep_armed:
+            return
         if (primary_active or extra_active) and not self._running:
             self._start()
 
@@ -14279,8 +14360,13 @@ class TransferFunctionWindow(QWidget):
         if pair_idx is None:
             # Primary 카드 — 카드의 _delay_spin을 직접 설정 (툴바 hidden spin 아님)
             if self._level_cards and hasattr(self._level_cards[0], '_delay_spin'):
-                self._level_cards[0]._delay_spin.setValue(d_ms)
-                # _on_delay_changed가 signal로 연결되어 self.delay_ms 자동 업데이트됨
+                _sp = self._level_cards[0]._delay_spin
+                # 찾은 값이 현재 표시값과 같으면 setValue가 valueChanged를 안 쏨(no-op) → _on_delay_changed
+                # 미호출로 delay_ms 미갱신(특히 스윕 후 delay_ms=0인데 카드가 같은 값 표시 시). 강제 적용. [DELAY_FORCE_APPLY]
+                if float(_sp.value()) == float(d_ms):
+                    self._on_delay_changed(d_ms)
+                else:
+                    _sp.setValue(d_ms)   # valueChanged → _on_delay_changed → self.delay_ms 갱신
         else:
             if pair_idx < len(self._extra_pairs):
                 card = self._extra_pairs[pair_idx].get('card')
@@ -14414,6 +14500,15 @@ class TransferFunctionWindow(QWidget):
     def _toggle_sig_gen(self, checked):
         if checked:
             self._on_gen_started()
+            # Play = 측정: 활성 카드가 하나도 없으면 primary 카드를 자동 Start (사용자 결정 2026-07-02).
+            # 스윕이 카드 Start 게이트를 우회해 카드는 Stopped인데 분석·표시되던 것(Bug1) + 그 상태로
+            # 스윕→핑크 전환 시 카드가 Stopped라 핑크가 (간헐적으로) 측정 안 되던 것(Bug2)을 함께 해소.
+            # (분석 스트림 자체는 아래 _start_active_pairs 가 시작; 여기선 카드 상태만 켬.) [PLAY_AUTOSTART_CARD]
+            _any_active = ((bool(self._level_cards) and self._level_cards[0]._display_on) or
+                           any(p.get('display', False) for p in getattr(self, '_extra_pairs', [])))
+            if (not _any_active and self._level_cards and
+                    not getattr(self, '_primary_deleted', False)):
+                self._level_cards[0].set_running(True)   # 카드 UI=▶, _display_on=True
             self._start_sig_gen()
             # 제너레이터 ON → ▶ 활성 카드가 있으면 분석 자동 시작
             # 600ms 딜레이: macOS CoreAudio 스트림 초기화 완료 후 입력 스트림 오픈
