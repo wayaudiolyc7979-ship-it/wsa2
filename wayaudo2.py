@@ -11453,15 +11453,23 @@ class TransferFunctionWindow(QWidget):
         self._mon_btn = None
 
         # ── 공유 Reference 섹션 ──
-        ref_sec = QFrame()
-        ref_sec.setStyleSheet(f'background:transparent;')
-        ref_sl = QVBoxLayout(ref_sec); ref_sl.setContentsMargins(0,0,0,0); ref_sl.setSpacing(3)
-        ref_hdr = QHBoxLayout(); ref_hdr.setSpacing(4)
-        _ref_dot = QLabel('▸ Reference')
-        _ref_dot.setStyleSheet(ss_text(FS_XS, bold=True))
-        ref_hdr.addWidget(_ref_dot); ref_hdr.addStretch()
+        # Reference도 측정 카드와 동일한 카드 박스로 — R/M 레벨 바가 동일 컨테이너·
+        # 동일 내부여백에 놓여 구조적으로 좌우 정렬됨(가로폭·세로 위치 통일, v1.9 #4).
+        ref_sec = QFrame(); ref_sec.setObjectName('measCard')
+        _rc = QColor(T('accent')); _rcr, _rcg, _rcb = _rc.red(), _rc.green(), _rc.blue()
+        ref_sec.setStyleSheet(
+            f'QFrame#measCard{{border:1px solid rgba({_rcr},{_rcg},{_rcb},120);border-radius:{RADIUS_SM}px;'
+            f'background:{T("panel")};padding:2px;}}')
+        ref_sl = QVBoxLayout(ref_sec); ref_sl.setContentsMargins(6,5,6,6); ref_sl.setSpacing(3)
+        ref_hdr = QHBoxLayout(); ref_hdr.setContentsMargins(0,0,0,0); ref_hdr.setSpacing(4)
+        _ref_dot = QLabel('●')
+        _ref_dot.setStyleSheet(f'color:{T("accent")};background:transparent;font-size:{FS_BODY}px;')
+        _ref_name = QLabel('Reference')
+        _ref_name.setStyleSheet(f'color:{T("accent")};background:transparent;font-size:{FS_BODY}px;font-weight:bold;')
+        ref_hdr.addWidget(_ref_dot); ref_hdr.addWidget(_ref_name); ref_hdr.addStretch()
         self._ref_db_lbl = QLabel('—')
-        self._ref_db_lbl.setStyleSheet(ss_text(FS_XS))
+        self._ref_db_lbl.setStyleSheet(f'color:{T("accent")};background:transparent;font-size:{FS_XS}px;font-weight:bold;')
+        self._ref_db_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         ref_hdr.addWidget(self._ref_db_lbl)
         ref_sl.addLayout(ref_hdr)
         # Ref VU bar
