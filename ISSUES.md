@@ -86,12 +86,14 @@
 - [ ] **코드서명 + 노타라이즈** (⏸️"나중에" 보류) — Developer ID 인증서·노타리 프로필. 배포 전 처리. *(상세: project_v1_5_verify_checklist C)*
 - [ ] **소스코드 보호/난독화** — Nuitka(전면 컴파일) 또는 PyArmor 택1. `_LIC_SECRET` 노출방지 중요. 빌드 3종+Actions 교체 필요. *(상세: project_todo_code_protection)*
 
-## 🔜 H. v1.8 수정 예정 (다음 버전 — Farina 스윕 중심)
+## ✅ H. v1.8 (2026-07-02 빌드·출시 완료 — Farina 스윕 중심)
 
-- [~] **[버그 3종·2026-07-02 수정, HW 재검증 대기] 스윕/핑크/딜레이 상태머신** — 미커밋(작업트리):
+> v1.8 3종(Silicon/Intel/Windows) 빌드·배포 완료. 아래는 릴리스 내역(완료). **남은 HW 필드 재검증은 섹션 I(v1.9)로 이월.**
+
+- [x] **[버그 3종·2026-07-02 수정→v1.8 출시(be0eec7)] 스윕/핑크/딜레이 상태머신** — 커밋·빌드 반영(마커 소스 확인). HW 필드 재검증 3종은 v1.9 섹션 I로 이월:
   - ✅**Bug3 딜레이 재적용 안 됨** — 원인: `_on_sweep_captured`가 공유 `delay_ms`를 0으로 덮으며 **숨은 툴바 스핀만** 리셋→보이는 primary 카드 스핀이 옛 값 stale 표시→desync + 재탐색 `setValue`가 같은 값이면 no-op(신호 미발화)로 delay_ms=0에 갇힘. 수정: 카드 스핀도 0 동기화(`[SWEEP_DELAY_SYNC]`) + 딜레이 파인더 강제 적용(`[DELAY_FORCE_APPLY]`, `_apply_find_pair_result`/`_apply_find_result`).
   - ✅**Bug1 카드 Start 안 눌러도 스윕 분석됨** + ✅**Bug2 스윕→핑크 간헐 측정안됨** — 원인: 스윕이 카드 Start(`_display_on`) 게이트를 우회(duplex 직접 캡쳐), 카드 Stopped인데 분석·표시 / 그 상태로 핑크 전환 시 `_start_active_pairs`가 카드 미활성이라 `_start()` 안 함(간헐=이전 카드상태 의존). **사용자 결정: "Play 시 카드 자동 Start"**. 수정: `_toggle_sig_gen`가 활성 카드 없으면 primary 자동 `set_running(True)` + `_start_active_pairs`에 스윕 duplex(`_sc_armed`) 중이면 `_start()` 스킵 가드(같은 장치 2스트림 충돌 방지). `[PLAY_AUTOSTART_CARD]`. 계측 `[DIAG] start_pairs`.
-  - selfcheck 32/32·test_farina 14/14. ⚠️**HW 실측**: ①Start 안 누르고 스윕 Play→카드 자동 ▶ ②스윕→핑크 전환 매번 측정 ③핑크 1ms→스윕→핑크(마이크이동) 재탐색 딜레이 적용. 로그 `start_pairs`.
+  - selfcheck 32/32·test_farina 14/14 통과. HW 필드 재검증 시나리오 3종 → **섹션 I(v1.9) 이월 항목** 참조.
 
 
 - [x] **[UI·2026-06-30 ✅구현+실앱검증] SPL 알람 창 디자인 정합** — ✅✅**실앱 검증완료(2026-06-30).** ①**창 배경 검정→회색(bg2)** — SPL 미터 창과 통일(`SplAlarmWindow` `:5008/5104`). ②**LAeq/LCeq 적분 진행 바 + 리셋(↻)** — 미터 LEQ 카드와 동일 언어로 **카드 내부 하단**에 SPECTRA 그라디언트 바 + `_draw_reload_arrow` 글리프를 `_SplAlarmDisplay.paintEvent`에서 직접 그림(텍스트 영역 ch=h*0.85로 축소해 하단 스트립 확보), 리셋 클릭=히트테스트→`reset_requested`. `_SplMetricEngine`에 `reset_leq()`/`leq_progress()` 추가. LEQ 지표일 때만 표시(`set_show_timebar`). selfcheck 알람 체크에 LEQ 변형 추가·PASS. 미커밋→커밋예정. *(처음 외부 위젯 행으로 했다가 "카드 밖이라 어색" 피드백 → 카드 내부 페인트로 재구현)*
@@ -106,16 +108,18 @@
 - [x] **[UI·2026-06-27 ✅구현완료] SPL 미터 버튼 아이콘 변경 (사람들이 기능 모름)** — ✅`extlink`(외부링크 화살표) → **"dB" 텍스트**(SPL=데시벨). ⚠️처음엔 레벨미터 세로바로 했다가 **LEVEL 섹션 헤더 막대 아이콘과 중복**되어 사용자 지적 → 목업 5종(게이지/dB/창+막대/숫자/되돌리기) 제시 후 **B(dB) 선택**. `_SplMeterBtn` paintEvent, 눌림 시 흰색 대비. selfcheck PASS. 미커밋. — LEVEL 패널 헤더의 SPL 미터 열기 버튼이 **Lucide `extlink`(외부링크 화살표)**라 "새 창 열기"로만 보이고 SPL 미터인지 인지 안 됨. 위치=`_SplMeterBtn`(`wayaudo2.py:6355`), 아이콘 그리는 곳 `:6386`. **방향**: 기능이 보이는 아이콘으로 교체 — 바로 아래 `_SplAlarmBtn`(`:6390`)이 미니 신호등을 **커스텀 드로우**하는 패턴 재활용. 후보 ①**레벨미터 세로바**(VU식 막대 = 오디오 표준, 추천) ②게이지/바늘(아날로그 SPL미터 느낌, Lucide `gauge` 신규추가) ③소형 "SPL"/"dB" 텍스트. 현 `_LUCIDE_ICONS`엔 gauge/meter/bar 없음 → 신규 path 추가 또는 alarm처럼 paintEvent 커스텀. selfcheck 렌더 확인. *(상세: [[project_v18_spl_meter_icon]])*
 - [x] **[UI·2026-06-27 ✅구현완료] 라우드니스 COMPLIANCE 원형 배지 테두리 거침(계단식)** — ✅QLabel+CSS `border-radius` → **`_ComplianceBadge(QWidget)` QPainter 안티앨리어싱 원**으로 교체(틴트채움+부드러운 링+가운데 글리프). `_build_compliance_card`/`_style_comp_banner`/테마재적용 수정, selfcheck PASS(3배확대 렌더 매끄러움 확인). 미커밋. *(상세: [[project_v18_compliance_badge_aa]])* — 빨강/색상 원형 배지의 링이 들쭉날쭉·점선처럼 보여 부자연스러움. **근본원인**: 배지가 `QLabel` + CSS `border-radius:34px` + `border:2px solid`로 그려짐(`_style_comp_banner` `wayaudo2.py:15467`, 생성 `_build_compliance_card:15449` 68×68). **Qt 스타일시트 border-radius는 안티앨리어싱이 약해 원 테두리 계단현상**. **수정 방향**: CSS 원 대신 **QPainter 커스텀 paintEvent로 안티앨리어싱 원**(틴트 채움 + 부드러운 컬러 링 + 가운데 글리프) 직접 그리기 — SPL 알람 신호등(`_SplAlarmBtn:6390`)·기타 배지 커스텀드로우 패턴 재활용. 상태색(col)·글리프(—/✓/✕)는 그대로, 라이트/다크 토큰 유지. selfcheck 렌더 확인. *(상세: [[project_v18_compliance_badge_aa]])*
 - [x] **[버그·2026-06-26 발견→✅✅해결확인] 스윕 측정 후 핑크(연속 노이즈) 작동 안 함** — ✅✅**HW 로그 검증완료(2026-07-02, Scarlett 2i2).** 6/26 이후 리팩터(`_stop_sig_gen` 듀플렉스 완전종료 `:14833` + `_start_sig_gen` 진입 즉시 `_sweep_freeze=False` `:14569`·`_pink_buf` 재생성 `:14594`)로 **부수 해결됨.** 로그(세션 085134): 2s 스윕 측정 직후 `sig_start src=pink` → `OutputStream started out=0` → `InputStream opened` → `mtw_live coh_med=1.0`(핑크 라이브 분석 정상), 예외·xrun 0건. **버그 아님.**
-- [~] **Farina 스윕 4종 수정** — ✅**① ② ④ 완료, ③은 코드상 이미 처리(HW 재현 필요).** 2026-06-26 진단, **2026-07-02 ①② 구현+headless 검증**:
+- [x] **Farina 스윕 4종 수정** — ✅✅**전종 완료+HW 로그 검증(2026-07-02)·v1.8 출시(be0eec7).** 2026-06-26 진단, 2026-07-02 구현+headless+HW 검증:
   - ✅**① 1s vs 2s 분석 다름** — `farina_analyze`에 **고정 분석길이**(`_FARINA_ANALYSIS_S=0.25s`, `nwin`을 T무관 고정) 도입. 1s/2s/4s가 동일 주파수그리드(Δf)·동일 IR길이. `[SWEEP_FIXED_RES]`. test_farina 신규 3어설션 PASS.
   - ✅**② 임펄스 Gibbs 링잉** — `H[...]=0` 하드컷 → **1옥타브 raised-cosine 경계 테이퍼**(`_band_taper`, 스윕대역 [f1,f2]은 평탄 유지·대역밖만 롤오프). 밴드 IR 꼬리링잉 -38→-47dB. `[SWEEP_BAND_TAPER]`. test PASS + before/after IR PNG 확인.
   - ✅**④ IR 딜레이 정렬** — 이미 완료(커밋 c3bb517, `_on_sweep_captured` `delay_ms=0`). ①② 후에도 IR 임펄스 +0.000ms 유지 확인.
   - ✅**③ 캡쳐 안됨** — ✅✅**HW 로그 검증완료(2026-07-02).** 스윕 auto-stop 후 캡쳐 정상: `tf_capture_done base="Capture 1" added=1`(1s), `base="2s" added=1`(2s) → total=2. **버그 아님.**
   - ✅✅**① + ⑤ 레벨매칭 HW 검증완료(2026-07-02, 내부루프백)** — 1s·2s가 **5.3dB 어긋나던** 진짜 원인 규명+수정. **원인**(로그 `sweep_level` 계측): 레벨매칭 스케일=median(Wiener÷Farina)인데 1s는 4-8k에서 **윈도우 Farina(`_far`)가 노이즈플로어로 무너지지만 전체배열 Wiener(`_Hw`)는 안 무너져** 비율이 폭등→중앙값 스케일 5dB 부풀림(1s=29.4 vs 2s=24.3dB). 짧을수록 일찍 무너져 길이의존. **수정**: `_wiener_match_scale()` — 피크 대비 -30dB 이하 무너진 bin 제외하고 스케일 계산. **검증**: 재측정 로그 scale 1s=24.5/2s=24.3(일치), CSV 중역 125-2k Δ<1dB(전 +5.3dB 소멸). test_farina `level_match_robust_to_hf_crash`. 잔차=LF SNR변동+HF는 1s가 원래 2s만큼 고역해상 못함(물리, 긴스윕 쓰면 됨).
   - ✅**② IR 경계 테이퍼** + ✅**추가수정: 고정창 pre/tail**(`_FARINA_PRE_S/TAIL_S`, 좁은대역서 2s 꼬리 truncate하던 버그도 수정, test `duration_independent_response`).
-  - 🔒**안전성**: #2 레벨/④ IR 정렬 유지. selfcheck 32/32, **test_farina 14/14**. **미커밋(작업트리)**. *(상세: `_on_sweep_captured`, `farina_analyze`/`_wiener_match_scale` `:7899`)*
+  - 🔒**안전성**: #2 레벨/④ IR 정렬 유지. selfcheck 32/32, **test_farina 14/14**. **커밋·빌드 반영(be0eec7)**. *(상세: `_on_sweep_captured`, `farina_analyze`/`_wiener_match_scale` `:7899`)*
 
 ## 🔮 I. v1.9 예정 (다음 버전 — 사용자 확정 2026-07-03)
+
+- [ ] `[검증·v1.8→1.9 이월]` **스윕/핑크/딜레이 상태머신 HW 필드 재검증** — v1.8(be0eec7)로 **코드는 출시 완료**된 스윕/상태머신 6종 수정의 실하드웨어 동작 확인만 남음(자동테스트 selfcheck 32/32·test_farina 14/14 통과, 내부루프백 로그검증도 일부 완료). **회사 HW(M4/외장 인터페이스) 있을 때 실측 시나리오 3종**: ①카드 Start 안 누르고 스윕 Play → primary 카드 자동 ▶(마커 `[PLAY_AUTOSTART_CARD]`) ②스윕→핑크(연속 노이즈) 전환 시 매번 측정되는지 ③핑크 1ms→스윕→핑크(마이크 이동)에서 재탐색 딜레이가 적용되는지(마커 `[SWEEP_DELAY_SYNC]`/`[DELAY_FORCE_APPLY]`). 판정=로그 `[DIAG] start_pairs`. 이미 출시본에 반영됐으니 동작 확인만(문제 없으면 종료). *(원 항목: 섹션 H)*
 
 - [ ] `[요청/v1.9]` **실시간 공간 평균화 (마이크 여러 개 동시 TF 측정 → 평균 곡선)** — 여러 측정 마이크(측정 카드)를 **동시에** 띄워놓고 라이브로 평균낸 하나의 매그/위상 곡선을 보는 기능. ⭐**기존 것과 구별**: 지금 있는 `_TFAverageDialog`(`:10941`)+`_do_tf_average`(`:13871`)는 **캡처된 정적 곡선**을 사후에 평균내는 것 → 신규는 **라이브 다중 카드 실시간 평균**. **데이터 소스**: primary 측정(`_process_audio` 경로) + extra 카드들(`_extra_pair_acc`, `_render_extra_pairs`)에 이미 카드별 H(크로스스펙트럼)가 각각 누적됨 → 이걸 매 렌더프레임에 **합쳐 평균**. **핵심 설계 결정(다음 세션 논의)**: ①**평균 방식** — 복소 벡터 평균(위상 보존, 같은 음원 여러 위치일 때 표준) vs 매그니튜드 파워 평균(위상 무시, 공간 RMS). Smaart 공간평균은 보통 코히런스 가중 복소 평균. ②**어느 카드를 평균에 넣을지 선택 UI**(체크박스/토글) ③**평균 곡선 표시 방식**(별도 색 곡선 하나 + 개별 카드는 흐리게, 또는 평균만) ④코히런스 가중 여부. **구현 포인트**: 렌더는 이미 `for i,acc in enumerate(_extra_pair_acc)` 구조라 카드 순회는 있음 → 순회 중 H 배열들을 모아 평균 배열 계산 후 별도 곡선으로 그리는 레이어 추가. producer/consumer 30fps 타이머 패턴 준수(콜백에서 평균 계산 금지, `_pending`에 저장). ⚠️카드마다 딜레이/정렬 다르면 위상 평균이 무의미 → 정렬(딜레이 보정) 후 평균해야. 라이브 엔진(MTW)·extra 카드 경로 양쪽 검증 필요.
 
