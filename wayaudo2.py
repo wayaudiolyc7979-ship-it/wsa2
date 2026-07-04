@@ -3278,10 +3278,11 @@ class FFTCanvas(QWidget):
             tw=p.fontMetrics().horizontalAdvance(txt)
             tx=max(pl,min(int(fx-tw/2),W-pr-tw))
             p.setPen(QColor(T('graph_txt'))); p.drawText(tx,H-5,txt)
-        if getattr(self,'_DB_LOCKABLE',False):   # dB축 고정 아이콘 (항상 표시·클릭=범위 입력) — 거터 좌상단
-            if self._db_lock: _draw_lock_badge(p, 2, pt-2, T('accent'))
-            else:             _draw_lock_badge(p, 2, pt-2, T('text_dim'), open_=True, op=0.5)
-            self._db_icon_rect = (0, 0, 16, pt+12)
+        if getattr(self,'_DB_LOCKABLE',False):   # dB축 고정 아이콘 (항상 표시·클릭=범위 입력) — 좌하단
+            _iy = H-pb+3
+            if self._db_lock: _draw_lock_badge(p, 2, _iy, T('accent'))
+            else:             _draw_lock_badge(p, 2, _iy, T('text_dim'), open_=True, op=0.5)
+            self._db_icon_rect = (0, H-pb, 18, pb)
         p.end(); self._cache=px
 
     def _draw_grid_lines(self, p, W, H):
@@ -3725,10 +3726,11 @@ class OctaveCanvas(QWidget):
             tw=p.fontMetrics().horizontalAdvance(txt)
             tx=max(pl,min(int(fx-tw/2),W-pr-tw))
             p.setPen(QColor(T('graph_txt'))); p.drawText(tx,H-5,txt)
-        if getattr(self,'_DB_LOCKABLE',False):   # dB축 고정 아이콘 (항상 표시·클릭=범위 입력) — 거터 좌상단
-            if self._db_lock: _draw_lock_badge(p, 2, pt-2, T('accent'))
-            else:             _draw_lock_badge(p, 2, pt-2, T('text_dim'), open_=True, op=0.5)
-            self._db_icon_rect = (0, 0, 16, pt+12)
+        if getattr(self,'_DB_LOCKABLE',False):   # dB축 고정 아이콘 (항상 표시·클릭=범위 입력) — 좌하단
+            _iy = H-pb+3
+            if self._db_lock: _draw_lock_badge(p, 2, _iy, T('accent'))
+            else:             _draw_lock_badge(p, 2, _iy, T('text_dim'), open_=True, op=0.5)
+            self._db_icon_rect = (0, H-pb, 18, pb)
         p.end(); self._cache=px
 
     def _draw_grid_lines(self, p, W, H):
@@ -4028,10 +4030,11 @@ class SpectrogramCanvas(QWidget):
             tw=p.fontMetrics().horizontalAdvance(txt)
             tx=max(pl,min(int(fx-tw/2),W-pr-tw))
             p.setPen(QColor(T('graph_txt'))); p.drawText(tx,H-5,txt)
-        if getattr(self,'_DB_LOCKABLE',False):   # dB축 고정 아이콘 (항상 표시·클릭=범위 입력) — 거터 좌상단
-            if self._db_lock: _draw_lock_badge(p, 2, pt-2, T('accent'))
-            else:             _draw_lock_badge(p, 2, pt-2, T('text_dim'), open_=True, op=0.5)
-            self._db_icon_rect = (0, 0, 16, pt+12)
+        if getattr(self,'_DB_LOCKABLE',False):   # dB축 고정 아이콘 (항상 표시·클릭=범위 입력) — 좌하단
+            _iy = H-pb+3
+            if self._db_lock: _draw_lock_badge(p, 2, _iy, T('accent'))
+            else:             _draw_lock_badge(p, 2, _iy, T('text_dim'), open_=True, op=0.5)
+            self._db_icon_rect = (0, H-pb, 18, pb)
         p.end(); self._cache=px
 
     # ── Triangle handles (left edge) ─────────────────────────────────────────
@@ -9359,10 +9362,11 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
             p.setPen(QColor(T('graph_txt'))); p.drawText(max(pl,min(int(fx-tw/2),W-pr-tw)),H-pb+18,txt)
         p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(_TF_CARD_COL['mag']))
         p.drawText(pl+4,pt+13,'Magnitude  +  Coherence  ▾')
-        # dB축 고정 아이콘 (항상 표시·클릭=범위 입력) — 거터 좌상단, 숫자는 우측정렬이라 안 겹침
-        if self._db_lock: _draw_lock_badge(p, 2, pt-2, T('accent'))
-        else:             _draw_lock_badge(p, 2, pt-2, T('text_dim'), open_=True, op=0.5)
-        self._db_icon_rect = (0, 0, 16, pt+12)
+        # dB축 고정 아이콘 (항상 표시·클릭=범위 입력) — 좌하단(제목메뉴·피크배지·숫자 모두 회피)
+        _iy = H-pb+3
+        if self._db_lock: _draw_lock_badge(p, 2, _iy, T('accent'))
+        else:             _draw_lock_badge(p, 2, _iy, T('text_dim'), open_=True, op=0.5)
+        self._db_icon_rect = (0, H-pb, 18, pb)
         p.end(); self._cache=px
 
     def _draw_grid_lines(self, p, W, H):
