@@ -71,6 +71,7 @@ Ed25519 is the live scheme: public key `_LIC_PUBKEY` (`:108`) verifies; the priv
 
 ## Project tracking & memory
 
+- **`docs/ALGORITHMS.md`** — measurement/DSP algorithm reference (spectrum, TF two-engine + delay align + Farina, loudness BS.1770, licensing). Read it to understand the signal processing; keep it in sync when changing DSP.
 - **`ISSUES.md` is the master todo/bug tracker** (todos, next-version `[v1.7]` items, docs, release). Check it first.
 - Persistent cross-session context lives in Claude memory at `~/.claude/projects/-Users-yuncheollee-WSA2/memory/` (`MEMORY.md` index + `project_*.md` detail files). These hold code locations, past decisions, and verification checklists that aren't in the repo.
 - Release policy: work accumulates on the current dev version (e.g. v1.6) — **do not bump/build/tag until the user explicitly says to build.**
