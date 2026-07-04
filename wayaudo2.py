@@ -1932,25 +1932,32 @@ def _db_ctrl_btn_style(locked):
 def _ask_db_range(parent, cur_top, cur_bot):
     """dB 축 상·하한 입력 대화상자 → (top, bottom) 반환, 취소/무효면 None.
     스펙트럼·TF 공용. 입력하면 그 범위로 '고정'하는 의미(호출측이 락 설정)."""
-    from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QDoubleSpinBox, QPushButton)
+    from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QWidget, QLabel, QDoubleSpinBox, QPushButton)
     dlg = QDialog(parent)
     dlg.setWindowTitle(_tx('dB Axis Range'))
-    dlg.setStyleSheet(f'QDialog{{background:{T("bg2")};}} QLabel{{color:{T("text")};font-size:12px;}}')
-    lay = QVBoxLayout(dlg); lay.setContentsMargins(18, 16, 18, 14); lay.setSpacing(10)
-    ttl = QLabel(_tx('dB Axis Range')); ttl.setStyleSheet(f'color:{T("text")};font-size:15px;font-weight:600;')
+    _apply_dark_titlebar(dlg)                        # 앱과 동일한 다크 타이틀바(네이티브 신호등 대신)
+    dlg.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
+    dlg.setMinimumWidth(360)
+    _dim = T('text_dim')
+    outer = QVBoxLayout(dlg); outer.setSpacing(0); outer.setContentsMargins(0, 0, 0, 0)
+    outer.addWidget(_grad_topline())                 # SPECTRA 브랜드 그라디언트 헤어라인(정적)
+    body = QWidget(); lay = QVBoxLayout(body); lay.setSpacing(11); lay.setContentsMargins(18, 15, 18, 16)
+    outer.addWidget(body)
     sub = QLabel(_tx('Enter top / bottom — the axis locks to that range.'))
-    sub.setStyleSheet(f'color:{T("text_dim")};font-size:11px;')
-    lay.addWidget(ttl); lay.addWidget(sub)
+    sub.setStyleSheet(f'color:{_dim};font-size:11px;background:transparent;'); sub.setWordWrap(True)
+    lay.addWidget(sub)
     def _spin(v):
         s = QDoubleSpinBox(); s.setRange(-160, 160); s.setDecimals(0); s.setSingleStep(3)
         s.setValue(float(v)); s.setSuffix(' dB'); s.setButtonSymbols(QDoubleSpinBox.NoButtons)
-        s.setStyleSheet(ss_spin()); s.setFixedHeight(30); s.setAlignment(Qt.AlignCenter); return s
+        s.setStyleSheet(ss_spin()); s.setFixedHeight(32); s.setAlignment(Qt.AlignCenter); return s
     top_sp = _spin(cur_top); bot_sp = _spin(cur_bot)
     for lbl, sp in ((_tx('Top'), top_sp), (_tx('Bottom'), bot_sp)):
-        r = QHBoxLayout(); L = QLabel(lbl); L.setFixedWidth(46); r.addWidget(L); r.addWidget(sp, 1); lay.addLayout(r)
-    lay.addWidget(hsep())
+        r = QHBoxLayout(); r.setSpacing(10)
+        L = QLabel(lbl); L.setStyleSheet(f'color:{T("text")};font-size:12px;font-weight:600;background:transparent;')
+        L.setFixedWidth(54); r.addWidget(L); r.addWidget(sp, 1); lay.addLayout(r)
+    lay.addSpacing(2); lay.addWidget(hsep())
     _res = {'v': None}
-    br = QHBoxLayout()
+    br = QHBoxLayout(); br.setSpacing(8)
     auto = QPushButton(_tx('Auto')); auto.setStyleSheet(ss_btn_neutral())
     auto.setToolTip(_tx('Auto-fit (unlock)'))
     auto.clicked.connect(lambda: (_res.__setitem__('v', 'auto'), dlg.accept()))
