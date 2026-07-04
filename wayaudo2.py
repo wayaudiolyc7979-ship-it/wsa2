@@ -11454,6 +11454,171 @@ class _TFTitleHotspot(QWidget):
         self._on_click(e.globalPos())
 
 
+class _AuralizeDialog(QDialog):
+    """오라리제이션 — 측정한 IR로 '그 자리 소리'를 헤드폰으로 듣기.
+
+    아무 음악 파일을 측정 IR과 컨볼루션해 재생. 원음(Dry) vs 공간(Room) A/B.
+    ⚠️헤드폰/노트북 출력으로 들을 것(측정한 PA로 내보내면 룸이 두 번 걸림).
+    측정 엔진과 격리(자체 sd.play).
+    """
+    def __init__(self, tf_win, parent=None):
+        super().__init__(parent)
+        self._tf = tf_win
+        self._music = None          # 모노 float32, tf.sample_rate
+        self._wet = None            # 컨볼루션 결과 캐시
+        self._music_name = ''
+        self.setWindowTitle(_tx('Auralization — listen through the room'))
+        _apply_dark_titlebar(self)
+        self.setMinimumWidth(360)
+        lay = QVBoxLayout(self); lay.setContentsMargins(16, 14, 16, 14); lay.setSpacing(10)
+
+        hint = QLabel(_tx('Hear any music as if played through the measured space.\n'
+                          'Use headphones (not the measured PA).'))
+        hint.setStyleSheet(ss_text(FS_XS)); hint.setWordWrap(True)
+        lay.addWidget(hint)
+
+        row1 = QHBoxLayout()
+        self._load_btn = QPushButton(_tx('Load music…')); self._load_btn.setIcon(_icon('folder'))
+        self._load_btn.clicked.connect(self._load_music)
+        self._music_lbl = QLabel(_tx('(no file)')); self._music_lbl.setStyleSheet(ss_text(FS_XS))
+        row1.addWidget(self._load_btn); row1.addWidget(self._music_lbl, 1)
+        lay.addLayout(row1)
+
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel(_tx('Output')))
+        self._out_cb = RoundComboBox(); self._populate_outputs()
+        row2.addWidget(self._out_cb, 1)
+        lay.addLayout(row2)
+
+        self._ir_lbl = QLabel(''); self._ir_lbl.setStyleSheet(ss_text(FS_XS)); lay.addWidget(self._ir_lbl)
+
+        row3 = QHBoxLayout(); row3.setSpacing(8)
+        self._dry_btn = QPushButton('▶  ' + _tx('Dry (original)'))
+        self._room_btn = QPushButton('▶  ' + _tx('Room (auralized)'))
+        self._room_btn.setStyleSheet(ss_btn_primary())
+        self._stop_btn = QPushButton('■')
+        self._dry_btn.clicked.connect(lambda: self._play('dry'))
+        self._room_btn.clicked.connect(lambda: self._play('room'))
+        self._stop_btn.clicked.connect(self._stop)
+        for b in (self._dry_btn, self._room_btn): row3.addWidget(b, 1)
+        row3.addWidget(self._stop_btn)
+        lay.addLayout(row3)
+
+        self._refresh_ir_state()
+        self._set_playable(False)
+
+    def _populate_outputs(self):
+        self._out_cb.clear()
+        try:
+            devs = sd.query_devices()
+            default_out = sd.default.device[1] if sd.default.device else -1
+        except Exception:
+            devs = []; default_out = -1
+        sel = 0
+        for i, d in enumerate(devs):
+            if int(d.get('max_output_channels', 0)) > 0:
+                self._out_cb.addItem(d['name'], i)
+                if i == default_out:
+                    sel = self._out_cb.count() - 1
+        if self._out_cb.count() == 0:
+            self._out_cb.addItem(_tx('(default)'), None)
+        self._out_cb.setCurrentIndex(sel)
+
+    def _current_ir(self):
+        """재생에 쓸 IR(h) — 라이브 IR 우선, 없으면 첫 캡처 IR."""
+        ir = getattr(self._tf, 'ir_cvs', None)
+        if ir is None: return None, ''
+        if ir.h_raw is not None and len(ir.h_raw) > 4:
+            return np.asarray(ir.h_raw, dtype=np.float64), _tx('live measurement')
+        for c in getattr(ir, '_captures', []):
+            if c.get('h') is not None and len(c['h']) > 4:
+                return np.asarray(c['h'], dtype=np.float64), c.get('label', 'capture')
+        return None, ''
+
+    def _refresh_ir_state(self):
+        ir, name = self._current_ir()
+        if ir is None:
+            self._ir_lbl.setText('⚠ ' + _tx('No IR yet — run a TF/sweep measurement first.'))
+            self._has_ir = False
+        else:
+            self._ir_lbl.setText('IR: ' + name)
+            self._has_ir = True
+
+    def _set_playable(self, on):
+        self._dry_btn.setEnabled(on and self._music is not None)
+        self._room_btn.setEnabled(on and self._music is not None and self._has_ir)
+
+    def _sr(self):
+        return int(getattr(self._tf, 'sample_rate', 48000) or 48000)
+
+    def _load_music(self):
+        from PyQt5.QtWidgets import QFileDialog
+        import os
+        path, _ = QFileDialog.getOpenFileName(
+            self, _tx('Select music file'), '',
+            'Audio (*.wav *.flac *.aiff *.aif *.ogg *.mp3 *.m4a *.caf);;All Files (*)')
+        if not path:
+            return
+        data = sr = None
+        try:
+            import soundfile as sf
+            data, sr = sf.read(path, dtype='float32', always_2d=False)
+        except ImportError:
+            try:
+                from scipy.io import wavfile as wf
+                sr, raw = wf.read(path)
+                data = raw.astype(np.float32) / (32768.0 if raw.dtype == np.int16 else 1.0)
+            except Exception as e:
+                _BrandBox.warning(self, _tx('Auralization'), _tx('Cannot read file:\n{e}').format(e=e)); return
+        except Exception as e:
+            _BrandBox.warning(self, _tx('Auralization'), _tx('Cannot read file:\n{e}').format(e=e)); return
+        if data.ndim == 2:
+            data = data.mean(axis=1)
+        srr = self._sr()
+        if sr != srr:
+            n_new = max(1, int(len(data) * srr / sr))
+            data = np.interp(np.linspace(0, len(data)-1, n_new), np.arange(len(data)), data)
+        data = np.asarray(data, dtype=np.float64)
+        pk = float(np.max(np.abs(data))) if len(data) else 0.0
+        if pk > 1e-6: data = data / pk * 0.9
+        self._music = data; self._wet = None
+        self._music_name = os.path.basename(path)
+        self._music_lbl.setText(self._music_name[:22] + ('…' if len(self._music_name) > 22 else ''))
+        self._refresh_ir_state()
+        self._set_playable(True)
+
+    def _render_wet(self):
+        ir, _ = self._current_ir()
+        if ir is None or self._music is None: return None
+        try:
+            from scipy.signal import fftconvolve
+            wet = fftconvolve(self._music, ir)
+        except Exception:
+            wet = np.convolve(self._music, ir)
+        pk = float(np.max(np.abs(wet))) if len(wet) else 0.0
+        if pk > 1e-6: wet = wet / pk * 0.9
+        return wet.astype(np.float32)
+
+    def _play(self, which):
+        buf = self._music if which == 'dry' else (self._wet if self._wet is not None else self._render_wet())
+        if which == 'room': self._wet = buf
+        if buf is None: return
+        stereo = np.column_stack([buf, buf]).astype(np.float32)   # 양 귀로
+        dev = self._out_cb.currentData()
+        try:
+            sd.stop()
+            sd.play(stereo, self._sr(), device=dev)
+        except Exception as e:
+            _BrandBox.warning(self, _tx('Auralization'), _tx('Playback failed:\n{e}').format(e=e))
+
+    def _stop(self):
+        try: sd.stop()
+        except Exception: pass
+
+    def closeEvent(self, e):
+        self._stop(); super().closeEvent(e)
+
+
 class TransferFunctionWindow(QWidget):
     _find_result_sig      = pyqtSignal(float)           # primary delay finder 결과
     _find_pair_result_sig = pyqtSignal(int, float)      # (pair_idx_enc, d_ms) per-card
@@ -11959,6 +12124,11 @@ class TransferFunctionWindow(QWidget):
         self.tf_stable_btn.setStyleSheet(_toggle_ss)
         self.tf_stable_btn.setToolTip(_tx('Stable capture — auto-capture after average converges + coherence stabilizes'))
         tl.addWidget(self.tf_stable_btn); tl.addSpacing(10)
+
+        self.auralize_btn = QPushButton('🎧'); self.auralize_btn.setFixedWidth(34); self.auralize_btn.setFixedHeight(30)
+        self.auralize_btn.setToolTip(_tx('Auralization — hear music through the measured space (headphones)'))
+        self.auralize_btn.clicked.connect(self._open_auralize)
+        tl.addWidget(self.auralize_btn); tl.addSpacing(10)
 
         tl.addWidget(_lb('IR'))
         self.ir_cb = RoundComboBox(); self.ir_cb.addItems(TF_IR_MODES); self.ir_cb.setCurrentIndex(0)
@@ -14015,6 +14185,12 @@ class TransferFunctionWindow(QWidget):
     def _refresh_tf_capture_bar(self):
         if callable(getattr(self, '_on_captures_changed', None)):
             self._on_captures_changed()
+
+    def _open_auralize(self):
+        """오라리제이션 다이얼로그 — 측정 IR로 음악을 그 공간 소리로 듣기."""
+        dlg = _AuralizeDialog(self, self)
+        self._auralize_dlg = dlg           # GC 방지
+        dlg.show()
 
     def _sync_freq_zoom(self, lo, hi):
         """매그·위상 주파수축 줌 연동 — 한쪽 조작이 양쪽 f_lo/f_hi를 같이 갱신."""
