@@ -11467,45 +11467,84 @@ class _AuralizeDialog(QDialog):
         self._music = None          # 모노 float32, tf.sample_rate
         self._wet = None            # 컨볼루션 결과 캐시
         self._music_name = ''
-        self.setWindowTitle(_tx('Auralization — listen through the room'))
+        self.setWindowTitle(_tx('Auralization'))
         _apply_dark_titlebar(self)
-        self.setMinimumWidth(360)
-        lay = QVBoxLayout(self); lay.setContentsMargins(16, 14, 16, 14); lay.setSpacing(10)
+        self.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
+        self.setMinimumWidth(340)
+        _dim = T('text_dim'); _bd = T('border')
 
-        hint = QLabel(_tx('Hear any music as if played through the measured space.\n'
-                          'Use headphones (not the measured PA).'))
-        hint.setStyleSheet(ss_text(FS_XS)); hint.setWordWrap(True)
+        outer = QVBoxLayout(self); outer.setSpacing(0); outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(_grad_topline())               # SPECTRA 브랜드 헤어라인(정적)
+        body = QWidget(); lay = QVBoxLayout(body); lay.setSpacing(10); lay.setContentsMargins(16, 14, 16, 16)
+        outer.addWidget(body)
+
+        hint = QLabel(_tx('Hear music through the measured space.  Use headphones.'))
+        hint.setStyleSheet(f'color:{_dim};font-size:11px;background:transparent;'); hint.setWordWrap(True)
         lay.addWidget(hint)
 
-        row1 = QHBoxLayout()
-        self._load_btn = QPushButton(_tx('Load music…')); self._load_btn.setIcon(_icon('folder'))
+        # 측정한 방(IR) 미리보기 + 소스 선택(라이브/캡처) — 시그니처(진짜 측정 데이터)
+        caprow = QHBoxLayout(); caprow.setSpacing(8)
+        cap = QLabel(_tx('MEASURED ROOM'))
+        cap.setStyleSheet(f'color:{_dim};font-size:9px;font-weight:bold;letter-spacing:1px;background:transparent;')
+        self._ir_cb = RoundComboBox(); self._ir_cb.setFixedHeight(24); self._ir_cb.setMinimumWidth(140)
+        self._populate_ir_sources()
+        self._ir_cb.currentIndexChanged.connect(self._on_ir_src_changed)
+        caprow.addWidget(cap); caprow.addStretch(); caprow.addWidget(self._ir_cb)
+        lay.addLayout(caprow)
+        self._ir_view = QLabel(); self._ir_view.setFixedHeight(54)
+        self._ir_view.setStyleSheet(f'background:{T("bg")};border:1px solid {_bd};border-radius:6px;')
+        lay.addWidget(self._ir_view)
+
+        row1 = QHBoxLayout(); row1.setSpacing(8)
+        self._load_btn = QPushButton(_tx('Load music…')); self._load_btn.setStyleSheet(ss_btn_neutral())
         self._load_btn.clicked.connect(self._load_music)
-        self._music_lbl = QLabel(_tx('(no file)')); self._music_lbl.setStyleSheet(ss_text(FS_XS))
+        self._music_lbl = QLabel(_tx('no file')); self._music_lbl.setStyleSheet(f'color:{_dim};font-size:11px;background:transparent;')
         row1.addWidget(self._load_btn); row1.addWidget(self._music_lbl, 1)
         lay.addLayout(row1)
 
-        row2 = QHBoxLayout()
-        row2.addWidget(QLabel(_tx('Output')))
+        row2 = QHBoxLayout(); row2.setSpacing(8)
+        _ol = QLabel(_tx('Output')); _ol.setStyleSheet(f'color:{_dim};font-size:11px;background:transparent;'); _ol.setFixedWidth(46)
         self._out_cb = RoundComboBox(); self._populate_outputs()
-        row2.addWidget(self._out_cb, 1)
+        row2.addWidget(_ol); row2.addWidget(self._out_cb, 1)
         lay.addLayout(row2)
 
-        self._ir_lbl = QLabel(''); self._ir_lbl.setStyleSheet(ss_text(FS_XS)); lay.addWidget(self._ir_lbl)
-
+        lay.addSpacing(2); lay.addWidget(hsep())
         row3 = QHBoxLayout(); row3.setSpacing(8)
-        self._dry_btn = QPushButton('▶  ' + _tx('Dry (original)'))
-        self._room_btn = QPushButton('▶  ' + _tx('Room (auralized)'))
-        self._room_btn.setStyleSheet(ss_btn_primary())
-        self._stop_btn = QPushButton('■')
+        self._dry_btn = QPushButton('▶  ' + _tx('Dry')); self._dry_btn.setStyleSheet(ss_btn_neutral())
+        self._room_btn = QPushButton('▶  ' + _tx('Room')); self._room_btn.setStyleSheet(ss_btn_primary())
+        self._stop_btn = QPushButton('■'); self._stop_btn.setFixedWidth(40); self._stop_btn.setStyleSheet(ss_btn_neutral())
         self._dry_btn.clicked.connect(lambda: self._play('dry'))
         self._room_btn.clicked.connect(lambda: self._play('room'))
         self._stop_btn.clicked.connect(self._stop)
-        for b in (self._dry_btn, self._room_btn): row3.addWidget(b, 1)
-        row3.addWidget(self._stop_btn)
+        row3.addWidget(self._dry_btn, 1); row3.addWidget(self._room_btn, 1); row3.addWidget(self._stop_btn)
         lay.addLayout(row3)
 
         self._refresh_ir_state()
         self._set_playable(False)
+
+    def _render_ir_view(self):
+        """측정 IR을 앱 IR 캔버스 스타일(얇은 청록 트레이스)로 그려 넣기 — 방의 지문."""
+        w_, h_ = 306, 54
+        pm = QPixmap(w_, h_); pm.fill(QColor(T('bg')))
+        p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing, True)
+        p.setPen(QPen(QColor(T('border')), 1)); p.drawLine(8, h_ // 2, w_ - 8, h_ // 2)
+        ir, _ = self._current_ir()
+        if ir is not None and len(ir) > 4:
+            h = np.asarray(ir, dtype=float)
+            pk = int(np.argmax(np.abs(h)))
+            b = min(len(h), pk + int(0.05 * self._sr()))
+            seg = h[max(0, pk - 16):b]
+            if len(seg) >= 2:
+                seg = seg / (np.max(np.abs(seg)) or 1.0)
+                n = len(seg); xs = 8 + np.arange(n) / max(n - 1, 1) * (w_ - 16)
+                ys = h_ / 2 - seg * (h_ / 2) * 0.82
+                p.setPen(QPen(QColor('#2DD4BF'), 1.6)); p.setBrush(Qt.NoBrush)   # 앱 IR 색(teal)
+                p.drawPolyline(QPolygonF([QPointF(float(x), float(y)) for x, y in zip(xs, ys)]))
+        else:
+            p.setPen(QColor(T('text_dim'))); p.setFont(_qfont(11))
+            p.drawText(pm.rect(), Qt.AlignCenter, _tx('measure first (TF / sweep)'))
+        p.end()
+        self._ir_view.setPixmap(pm)
 
     def _populate_outputs(self):
         self._out_cb.clear()
@@ -11524,29 +11563,49 @@ class _AuralizeDialog(QDialog):
             self._out_cb.addItem(_tx('(default)'), None)
         self._out_cb.setCurrentIndex(sel)
 
+    def _populate_ir_sources(self):
+        """IR 소스 목록 — 라이브 측정 + IR 있는 캡처들(캡처 데이터도 들을 수 있게)."""
+        self._ir_cb.blockSignals(True)
+        self._ir_cb.clear()
+        ir = getattr(self._tf, 'ir_cvs', None)
+        if ir is not None and getattr(ir, 'h_raw', None) is not None and len(ir.h_raw) > 4:
+            self._ir_cb.addItem(_tx('Live'), ('live', -1))
+        for i, c in enumerate(getattr(ir, '_captures', []) if ir else []):
+            if c.get('h') is not None and len(c['h']) > 4:
+                self._ir_cb.addItem(c.get('label', f'Capture {i+1}'), ('cap', i))
+        if self._ir_cb.count() == 0:
+            self._ir_cb.addItem(_tx('— none —'), (None, -1))
+        self._ir_cb.blockSignals(False)
+
+    def _on_ir_src_changed(self, *_):
+        self._wet = None                # 소스 바뀌면 컨볼루션 캐시 무효화
+        self._refresh_ir_state()
+        self._set_playable()
+
     def _current_ir(self):
-        """재생에 쓸 IR(h) — 라이브 IR 우선, 없으면 첫 캡처 IR."""
+        """선택된 IR(h) — 드롭다운(라이브/캡처)."""
         ir = getattr(self._tf, 'ir_cvs', None)
         if ir is None: return None, ''
-        if ir.h_raw is not None and len(ir.h_raw) > 4:
-            return np.asarray(ir.h_raw, dtype=np.float64), _tx('live measurement')
-        for c in getattr(ir, '_captures', []):
-            if c.get('h') is not None and len(c['h']) > 4:
-                return np.asarray(c['h'], dtype=np.float64), c.get('label', 'capture')
+        data = self._ir_cb.currentData() if hasattr(self, '_ir_cb') else ('live', -1)
+        if not data: return None, ''
+        kind, idx = data
+        if kind == 'live' and getattr(ir, 'h_raw', None) is not None and len(ir.h_raw) > 4:
+            return np.asarray(ir.h_raw, dtype=np.float64), _tx('Live')
+        if kind == 'cap':
+            caps = getattr(ir, '_captures', [])
+            if 0 <= idx < len(caps) and caps[idx].get('h') is not None:
+                return np.asarray(caps[idx]['h'], dtype=np.float64), caps[idx].get('label', 'capture')
         return None, ''
 
     def _refresh_ir_state(self):
         ir, name = self._current_ir()
-        if ir is None:
-            self._ir_lbl.setText('⚠ ' + _tx('No IR yet — run a TF/sweep measurement first.'))
-            self._has_ir = False
-        else:
-            self._ir_lbl.setText('IR: ' + name)
-            self._has_ir = True
+        self._has_ir = ir is not None
+        self._render_ir_view()
 
-    def _set_playable(self, on):
-        self._dry_btn.setEnabled(on and self._music is not None)
-        self._room_btn.setEnabled(on and self._music is not None and self._has_ir)
+    def _set_playable(self, on=True):
+        has_music = self._music is not None
+        self._dry_btn.setEnabled(has_music)
+        self._room_btn.setEnabled(has_music and self._has_ir)
 
     def _sr(self):
         return int(getattr(self._tf, 'sample_rate', 48000) or 48000)
