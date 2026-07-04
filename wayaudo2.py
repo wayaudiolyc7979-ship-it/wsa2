@@ -962,6 +962,7 @@ FS_VAL, FS_DISP = 14, 18                     # 보조 큰 값(LAeq/LCeq) / 표�
 FS_METRIC, FS_METRIC_BIG = 20, 27            # 라우드니스 메트릭(M/S/LRA) / 강조(I/TP)
 # 캔버스 QPainter 폰트 (pt) 역할별
 CF_AXIS, CF_MODE, CF_ANNO = 10, 8, 9       # TF 축 눈금 / 모드 제목 / 주석
+CF_TF_TITLE = CF_MODE + 3                   # TF 3패널 좌상단 제목(IR/Phase/Mag) — 모드보다 +3pt
 CF_CUR_TITLE, CF_CUR_VAL  = 16, 13          # 커서 정보박스 주파수 / 값
 CF_GRID, CF_BADGE, CF_TINY = 12, 20, 7      # Spectrum FFT/Oct 축 / Dominant badge / VU 초소형 타이틀
 # 모서리·패딩 (2단계: 툴바 컨트롤 / 카드 내부 소형)
@@ -8741,7 +8742,7 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
             tw=p.fontMetrics().horizontalAdvance(txt)
             p.setPen(QColor(T('graph_txt'))); p.drawText(max(pl,min(int(fx-tw/2),W-pr-tw)),H-pb+16,txt)
         mode_lbl=['Phase  Wrapped','Phase  Unwrapped','Group Delay'][self.phase_mode]+'  ▾'
-        p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(_TF_CARD_COL['phase']))
+        p.setFont(_qfont(CF_TF_TITLE, True)); p.setPen(QColor(_TF_CARD_COL['phase']))
         p.drawText(pl+4,pt+15,mode_lbl)
         p.end(); self._cache=px
 
@@ -9361,7 +9362,7 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
             txt=_fmt_freq_tick(f) if self.is_freq_zoomed() else (f'{int(f//1000)}k' if f>=1000 else str(int(f)))
             tw=p.fontMetrics().horizontalAdvance(txt)
             p.setPen(QColor(T('graph_txt'))); p.drawText(max(pl,min(int(fx-tw/2),W-pr-tw)),H-pb+18,txt)
-        p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(_TF_CARD_COL['mag']))
+        p.setFont(_qfont(CF_TF_TITLE, True)); p.setPen(QColor(_TF_CARD_COL['mag']))
         p.drawText(pl+4,pt+13,'Magnitude  +  Coherence  ▾')
         p.end(); self._cache=px
 
@@ -10414,7 +10415,7 @@ class TFIRCanvas(QWidget):
                 p.drawLine(pl, y, W - pr, y)
                 if _last_ly is None or abs(y-_last_ly)>=_lg:
                     p.setPen(QColor(T('graph_txt'))); p.drawText(0,y-8,pl-2,16,Qt.AlignRight|Qt.AlignVCenter,f'{amp:+.1f}'); _last_ly=y
-            p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(_TF_CARD_COL['ir']))
+            p.setFont(_qfont(CF_TF_TITLE, True)); p.setPen(QColor(_TF_CARD_COL['ir']))
             p.drawText(pl + 4, pt + 15, 'Live IR  (Linear)  ▾')
         else:  # ── ETC (1) or Log (2) ─────────────────────────────────────
             db_range = max(self.db_max - self.db_min, 1.0)
@@ -10431,7 +10432,7 @@ class TFIRCanvas(QWidget):
                 if _last_ly is None or abs(y-_last_ly)>=_lg:
                     p.setPen(QColor(T('graph_txt'))); p.drawText(0,y-8,pl-2,16,Qt.AlignRight|Qt.AlignVCenter,f'{db:+d}'); _last_ly=y
             lbl_text = ('Live IR  (ETC)' if self.ir_mode == 1 else 'Live IR  (Log)') + '  ▾'
-            p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(_TF_CARD_COL['ir']))
+            p.setFont(_qfont(CF_TF_TITLE, True)); p.setPen(QColor(_TF_CARD_COL['ir']))
             p.drawText(pl + 4, pt + 15, lbl_text)
         p.end()
         self._cache = pix
@@ -12082,7 +12083,7 @@ class TransferFunctionWindow(QWidget):
             cvs_w.addWidget(slot); cvs_w.setCollapsible(i, False)
             # 좌상단 제목 위 투명 클릭영역 — 제목 글씨를 누르면 _tf_slot_menu
             hot = _TFTitleHotspot(slot, lambda gp, si=i: self._tf_slot_menu(si, gp))
-            hot.setGeometry(0, 0, 250, 26)
+            hot.setGeometry(0, 0, 285, 34)   # 제목 baseline=pt+13=29, 최장 제목(Magnitude…▾ ≈265px)+여백 폭 285 · 높이 34로 글씨 완전 덮음(PAD_T=16 반영)
             self._tf_slot_w.append(slot); self._tf_slot_box.append(bx); self._tf_slot_hot.append(hot)
         cvs_w.setSizes([200, 400, 600])
         bl.addWidget(cvs_w, 1)
