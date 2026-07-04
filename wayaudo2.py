@@ -11528,17 +11528,35 @@ class _AuralizeDialog(QDialog):
 
         lay.addSpacing(2); lay.addWidget(hsep())
         row3 = QHBoxLayout(); row3.setSpacing(8)
-        self._dry_btn = QPushButton('▶  ' + _tx('Dry')); self._dry_btn.setStyleSheet(ss_btn_neutral())
-        self._room_btn = QPushButton('▶  ' + _tx('Room')); self._room_btn.setStyleSheet(ss_btn_primary())
-        self._stop_btn = QPushButton('■'); self._stop_btn.setFixedWidth(40); self._stop_btn.setStyleSheet(ss_btn_neutral())
+        self._dry_btn = QPushButton('  ' + _tx('Dry'));  self._dry_btn.setIcon(_icon('play', 13, color='#FFFFFF'))
+        self._room_btn = QPushButton('  ' + _tx('Room')); self._room_btn.setIcon(_icon('play', 13, color='#FFFFFF'))
+        self._stop_btn = QPushButton(''); self._stop_btn.setIcon(_icon('stop', 15, color=T('red'))); self._stop_btn.setFixedWidth(46)
+        self._stop_btn.setStyleSheet(ss_btn_neutral())
         self._dry_btn.clicked.connect(lambda: self._play('dry'))
         self._room_btn.clicked.connect(lambda: self._play('room'))
         self._stop_btn.clicked.connect(self._stop)
         row3.addWidget(self._dry_btn, 1); row3.addWidget(self._room_btn, 1); row3.addWidget(self._stop_btn)
         lay.addLayout(row3)
+        # 재생 중인 쪽만 파란불 — 재생 끝나면 폴 타이머가 자동으로 끔
+        self._playing = None; self._set_active(None)
+        self._poll_t = QTimer(self); self._poll_t.setInterval(200); self._poll_t.timeout.connect(self._poll_playing)
 
         self._refresh_ir_state()
         self._set_playable(False)
+
+    def _set_active(self, which):
+        """재생 중인 버튼만 파란불(primary), 나머지는 중립."""
+        self._playing = which
+        self._dry_btn.setStyleSheet(ss_btn_primary() if which == 'dry' else ss_btn_neutral())
+        self._room_btn.setStyleSheet(ss_btn_primary() if which == 'room' else ss_btn_neutral())
+
+    def _poll_playing(self):
+        try:
+            st = sd.get_stream(); active = st is not None and st.active
+        except Exception:
+            active = False
+        if not active:
+            self._poll_t.stop(); self._set_active(None)
 
     def _render_ir_view(self):
         """측정 IR을 앱 IR 캔버스 스타일(얇은 청록 트레이스)로 그려 넣기 — 방의 지문."""
@@ -11674,17 +11692,17 @@ class _AuralizeDialog(QDialog):
     def _play(self, which):
         if which == 'dry':
             self._pending_play = False
-            self._start_playback(self._music); return
+            self._set_active('dry'); self._start_playback(self._music); return
         ir, _ = self._current_ir()
         if ir is None or self._music is None: return
         sig = self._ir_sig(ir)
         if self._wet is not None and self._wet_sig == sig:   # 유효 캐시 → 즉시 재생
             self._pending_play = False
-            self._start_playback(self._wet); return
+            self._set_active('room'); self._start_playback(self._wet); return
         if self._conv is not None and self._conv.isRunning(): return
         # 캐시 없음/stale → 백그라운드 컨볼루션 후 재생 (긴 곡에서 UI 프리즈 방지)
         self._pending_play = True
-        self._room_btn.setEnabled(False); self._room_btn.setText('⏳ …')
+        self._room_btn.setEnabled(False); self._room_btn.setText('  …')
         self._conv = _ConvWorker(self._music, ir, sig)
         self._conv.done.connect(self._on_conv_done)
         self._conv.start()
@@ -11693,10 +11711,10 @@ class _AuralizeDialog(QDialog):
         cur, _ = self._current_ir()
         cur_sig = self._ir_sig(cur) if cur is not None else None
         self._wet = wet; self._wet_sig = getattr(self._conv, 'sig', None)
-        self._room_btn.setText('▶  ' + _tx('Room')); self._set_playable()
+        self._room_btn.setText('  ' + _tx('Room')); self._set_playable()
         if self._pending_play and cur_sig == self._wet_sig:  # 대기 중 소스 안 바뀌었으면 재생
             self._pending_play = False
-            self._start_playback(wet)
+            self._set_active('room'); self._start_playback(wet)
 
     def _start_playback(self, buf):
         if buf is None: return
@@ -11705,11 +11723,14 @@ class _AuralizeDialog(QDialog):
         dev = self._out_cb.currentData()
         try:
             sd.stop(); sd.play(stereo, self._sr(), device=dev)
+            self._poll_t.start()                             # 재생 끝나면 불 자동 끔
         except Exception as e:
+            self._set_active(None)
             _BrandBox.warning(self, _tx('Auralization'), _tx('Playback failed:\n{e}').format(e=e))
 
     def _stop(self):
         self._pending_play = False
+        self._poll_t.stop(); self._set_active(None)
         try: sd.stop()
         except Exception: pass
 
