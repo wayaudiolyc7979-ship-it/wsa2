@@ -475,6 +475,7 @@ _TR_KO = {        # {english_ui_string: 쉬운_한국어}
     '  Next capture goes here': '  다음 캡처가 여기 들어갑니다',
     'Click → bring to front  |  Double-click → rename': '클릭 → 맨 앞으로  |  더블클릭 → 이름 변경',
     'Rename': '이름 변경',
+    'Right-click: rename / delete': '우클릭: 이름 변경 · 삭제',
     'New name:': '새 이름:',
     'Set as Δ reference (one at a time)': 'Δ 비교 기준으로 지정 (한 번에 하나)',
     # ── TF 측정 ──────────────────────────────────────────────────────────
@@ -2087,6 +2088,19 @@ class _CardSplitter(QSplitter):
     """TF 3분석 카드 스플리터 — 거터에 옅은 그라디언트 경계선(_GradSplitterHandle)."""
     def createHandle(self):
         return _GradSplitterHandle(self.orientation(), self)
+
+
+class _VScrollArea(QScrollArea):
+    """세로 전용 스크롤 영역 — 내부 위젯 폭을 뷰포트 폭에 고정.
+    setWidgetResizable+ScrollBarAlwaysOff만으론 콘텐츠 최소폭이 뷰포트보다 넓을 때
+    트랙패드 가로 스와이프로 내용이 좌우로 밀리고(카드 이동) 오른쪽 테두리가 잘림.
+    내부 위젯 maxWidth를 뷰포트 폭으로 캡 → 가로 오버플로우/스크롤 원천 차단
+    (카드가 Reference처럼 패널 폭에 맞춰 자식이 축소됨)."""
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        w = self.widget()
+        if w is not None:
+            w.setMaximumWidth(self.viewport().width())
 
 
 # ───────────────────────────────────────────
@@ -6646,13 +6660,37 @@ def begin_inline_rename(host, label, on_done):
     edit.setGeometry(tl.x(), tl.y() - 1, w, label.height() + 2)
     edit.selectAll(); edit.setFocus()
     _done = {'v': False}
+    _filt = {'v': None}
     def _finish():
         if _done['v']: return
         _done['v'] = True
+        if _filt['v'] is not None:
+            _app = QApplication.instance()
+            if _app is not None: _app.removeEventFilter(_filt['v'])
+            _filt['v'] = None
         txt = edit.text().strip()
         edit.deleteLater()
         on_done(txt)
     edit.editingFinished.connect(_finish)
+
+    # 에디터 밖(다른 카드·분석화면 등 포커스 안 받는 위젯 포함) 클릭 시에도 커밋·닫힘.
+    # editingFinished는 포커스 이동 시에만 발동 → NoFocus 위젯 클릭 땐 안 닫히던 버그 해결.
+    from PyQt5.QtCore import QObject, QEvent
+    class _OutsideClick(QObject):
+        def eventFilter(self, obj, ev):
+            if ev.type() == QEvent.MouseButtonPress and not _done['v']:
+                w = obj
+                inside = False
+                while w is not None:
+                    if w is edit: inside = True; break
+                    w = w.parentWidget() if hasattr(w, 'parentWidget') else None
+                if not inside:
+                    _finish()   # 원래 클릭은 소비하지 않음(대상 카드 선택 등 정상 동작)
+            return False
+    _filt['v'] = _OutsideClick(edit)
+    _app = QApplication.instance()
+    if _app is not None: _app.installEventFilter(_filt['v'])
+
     edit.show(); edit.raise_()
 
 
@@ -9776,6 +9814,7 @@ class _MeasCard(QFrame):
         self._db_lbl = QLabel('—')
         self._db_lbl.setStyleSheet(f'color:{color};background:transparent;font-size:{FS_XS}px;font-weight:bold;')
         self._db_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._db_lbl_color = color   # 마지막 적용 색 캐시 — 매 프레임 setStyleSheet 재적용(테두리 깜빡임) 방지
         self._start_btn = QPushButton('Start'); _apply_txn(self._start_btn, False)
         self._start_btn.setFixedHeight(20)
         self._start_btn.setFocusPolicy(Qt.NoFocus)   # macOS 파란 포커스 링 제거(간헐적 깜빡임)
@@ -9783,14 +9822,10 @@ class _MeasCard(QFrame):
         self._start_btn.clicked.connect(self._on_start_stop)
         hdr.addWidget(self._vis_chk); hdr.addWidget(dot); hdr.addWidget(num_lbl); hdr.addStretch()
         hdr.addWidget(self._db_lbl); hdr.addWidget(self._start_btn)
-        # 삭제 버튼은 deletable 일 때만 생성·추가. (이전엔 부모 없는 상태에서 setVisible(True) 호출 →
-        # macOS에서 독립 top-level 창으로 떠 전체화면 Space 전환되는 버그. 조건부 생성으로 해결.)
-        if deletable:
-            del_btn = QPushButton('✕'); del_btn.setFixedSize(18, 18)
-            self._del_btn = del_btn
-            del_btn.setStyleSheet(self._del_btn_ss())
-            del_btn.clicked.connect(self.delete_clicked)
-            hdr.addWidget(del_btn)
+        # 삭제는 인라인 ✕ 대신 우클릭 메뉴(contextMenuEvent)로 통일 — 모든 카드(Reference·1번·
+        # 추가) 헤더가 동일해지고, 되돌리기 힘든 삭제를 의도적 우클릭 뒤에 둠. deletable=삭제 항목 노출 여부.
+        self._deletable = deletable
+        self.setToolTip(_tx('Right-click: rename / delete'))
         self._lay.addLayout(hdr)
 
         # M (Measurement) VU 바
@@ -9902,7 +9937,9 @@ class _MeasCard(QFrame):
     def set_meas(self, db, peak_db=None):
         self._m_bar.set_rms(db, peak_db)
         c = T('red') if db > METER_RED_DB else T('yellow') if db > METER_YELLOW_DB else self._color
-        self._db_lbl.setStyleSheet(f'color:{c};background:transparent;font-size:{FS_XS}px;font-weight:bold;')
+        if c != self._db_lbl_color:   # 존(색) 바뀔 때만 재적용 — 매 프레임 churn=테두리 깜빡임 방지
+            self._db_lbl.setStyleSheet(f'color:{c};background:transparent;font-size:{FS_XS}px;font-weight:bold;')
+            self._db_lbl_color = c
         self._db_lbl.setText(f'{db:.0f}')
 
     def set_ref(self, db):
@@ -9910,7 +9947,9 @@ class _MeasCard(QFrame):
 
     def reset(self):
         self._m_bar.reset()
-        self._db_lbl.setStyleSheet(f'color:{self._color};background:transparent;font-size:{FS_XS}px;font-weight:bold;')
+        if self._db_lbl_color != self._color:
+            self._db_lbl.setStyleSheet(f'color:{self._color};background:transparent;font-size:{FS_XS}px;font-weight:bold;')
+            self._db_lbl_color = self._color
         self._db_lbl.setText('—')
 
     def _on_start_stop(self):
@@ -9966,6 +10005,19 @@ class _MeasCard(QFrame):
     def mouseDoubleClickEvent(self, e):
         self._begin_rename()
         super().mouseDoubleClickEvent(e)
+
+    def contextMenuEvent(self, e):
+        # 우클릭 → 카드 액션 메뉴(인라인 ✕ 대체). 이름 변경은 항상, 삭제는 deletable일 때만.
+        from PyQt5.QtWidgets import QMenu
+        self.selected.emit()
+        m = QMenu(self)
+        a_rename = m.addAction(_tx('Rename'))
+        a_rename.triggered.connect(self._begin_rename)
+        if self._deletable:
+            m.addSeparator()
+            a_del = m.addAction(_tx('Delete'))
+            a_del.triggered.connect(self.delete_clicked)
+        m.exec_(e.globalPos())
 
     def set_running(self, running):
         self._running = running
@@ -12275,6 +12327,8 @@ class TransferFunctionWindow(QWidget):
         # ── Meas 카드 목록 ──
         self._level_cards = []
         self._cards_layout = QVBoxLayout(); self._cards_layout.setSpacing(6)
+        # 마진 0 = Reference 카드와 동일 폭·정렬. 가로 스크롤(카드 밀림·테두리 잘림)은
+        # _VScrollArea가 위젯 폭을 뷰포트에 고정해 원천 차단.
         self._cards_layout.setContentsMargins(0, 0, 0, 0)
 
         # 프라이머리 Meas 드롭다운
@@ -12308,7 +12362,7 @@ class TransferFunctionWindow(QWidget):
         cards_container = QWidget()
         cards_container.setLayout(self._cards_layout)   # 이미 만들어 둔 _cards_layout 재사용
         cards_container.setStyleSheet('background:transparent;')
-        self._cards_scroll = QScrollArea()
+        self._cards_scroll = _VScrollArea()   # 내부폭 뷰포트 고정 → 가로 스와이프로 카드 밀림 방지
         self._cards_scroll.setWidget(cards_container)
         self._cards_scroll.setWidgetResizable(True)
         self._cards_scroll.setFrameShape(QFrame.NoFrame)
