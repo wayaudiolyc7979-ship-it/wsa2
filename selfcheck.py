@@ -286,9 +286,15 @@ def _tf_freq_zoom():
     cv._fzoom_cb = pha._fzoom_cb = _sync
     cv._fz_zoom_around(300, 0.4)
     assert abs(cv.f_lo-pha.f_lo) < 1e-6 and abs(cv.f_hi-pha.f_hi) < 1e-6, 'mag/phase sync'
-    cv._fzoom_cb = None; cv.set_freq_zoom(160, 640); cv.show()
+    cv._fzoom_cb = None
+    # 눈금: 미확대=표준, 중간확대=ISO 보조, 극단확대(표준눈금 사이 좁은 창)=선형 nice(라벨 0개 방지)
+    cv.set_freq_zoom(20, 20000); assert cv._fz_marks() == list(w.FREQ_MARKS), 'marks: 미확대 변형'
+    cv.set_freq_zoom(160, 640); assert len(cv._fz_marks()) >= 3, 'marks: 중간확대'
+    cv.set_freq_zoom(3228, 3580); _m = cv._fz_marks()
+    assert len(_m) >= 2 and all(3228 <= f <= 3580 for f in _m), 'marks: 극단확대 라벨 0개'
+    cv.set_freq_zoom(160, 640); cv.show()
     return _save(cv, 'tf_freq_zoom.png')
-check('TF 주파수축 줌/팬 (매핑·클램프·연동)', _tf_freq_zoom)
+check('TF 주파수축 줌/팬 (매핑·클램프·연동·눈금)', _tf_freq_zoom)
 
 
 def _vectorscope():

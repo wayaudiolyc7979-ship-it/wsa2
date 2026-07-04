@@ -156,6 +156,52 @@ def test_fz_clamp_bounds_and_minspan():
     assert abs(math.sqrt(lo * hi) - 1000.0) < 1.0           # 중심 유지
 
 
+# ── _gen_ess : Farina 지수 사인 스윕 생성 ────────────────────────────────
+def test_gen_ess_properties():
+    T, f1, f2 = 1.0, 20.0, 20000.0
+    x = w._gen_ess(T, f1, f2, SR)
+    assert len(x) == round(T * SR)                         # 길이 = T·sr
+    assert abs(np.max(np.abs(x)) - 1.0) < 1e-6             # 진폭 1
+    X = np.abs(np.fft.rfft(x)); fr = np.fft.rfftfreq(len(x), 1 / SR)
+    inband = X[(fr >= 30) & (fr <= 18000)].sum()
+    outband = X[fr > 20500].sum()
+    assert inband > 50 * outband                           # 에너지 [f1,f2]에 집중
+
+
+# ── _tf_smooth : 분수옥타브 복소 스무딩(Smaart 방식) ──────────────────────
+def test_tf_smooth_flat_preserved():
+    """평탄 단위 전달함수(H=1) → 스무딩 후에도 0 dB / 0° (레벨·위상 보존)."""
+    N = 4096
+    freqs = np.fft.rfftfreq(N, 1 / SR)
+    H = np.ones(len(freqs), dtype=complex)
+    fo, mag, phw, phu, grp = w._tf_smooth(freqs, H, 3)
+    assert len(fo) == 1200                                 # 로그 등간격 출력 그리드
+    mid = (fo >= 200) & (fo <= 2000)
+    assert abs(float(mag[mid].mean())) < 1e-3
+    assert float(np.abs(phw[mid]).mean()) < 1e-3
+
+
+# ── _octave_bands : 모드별 밴드 수 ───────────────────────────────────────
+def test_octave_bands_mode_counts():
+    freqs = np.fft.rfftfreq(SR, 1 / SR)
+    z = np.zeros(len(freqs))
+    assert len(w._octave_bands(freqs, z, "oct3")) == 31
+    assert len(w._octave_bands(freqs, z, "oct12")) == 121
+    assert len(w._octave_bands(freqs, z, "oct24")) == 243
+
+
+# ── _fmt_freq_tick : 주파수 눈금 라벨(줌) ────────────────────────────────
+def test_fmt_freq_tick():
+    cases = [(1250, "1.25k"), (3150, "3.15k"), (100, "100"), (1000, "1k"),
+             (20000, "20k"), (6300, "6.3k"), (12500, "12.5k"), (315, "315")]
+    for f, exp in cases:
+        assert w._fmt_freq_tick(f) == exp, (f, w._fmt_freq_tick(f))
+
+
+def test_y_to_db_midpoint():
+    assert abs(w.y_to_db(50, 100, -60, 0) - (-30.0)) < 1e-9
+
+
 if __name__ == "__main__":
     # pytest 없이도 실행 가능 (standalone)
     import types
