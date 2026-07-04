@@ -11454,6 +11454,22 @@ class _TFTitleHotspot(QWidget):
         self._on_click(e.globalPos())
 
 
+class _ConvWorker(QThread):
+    """음악 × IR 컨볼루션을 백그라운드에서 (긴 곡에서 UI 프리즈 방지)."""
+    done = pyqtSignal(object)
+    def __init__(self, music, ir, sig):
+        super().__init__(); self._m = music; self._ir = ir; self.sig = sig
+    def run(self):
+        try:
+            from scipy.signal import fftconvolve
+            wet = fftconvolve(self._m, self._ir)
+        except Exception:
+            wet = np.convolve(self._m, self._ir)
+        pk = float(np.max(np.abs(wet))) if len(wet) else 0.0
+        if pk > 1e-6: wet = wet / pk * 0.9
+        self.done.emit(wet.astype(np.float32))
+
+
 class _AuralizeDialog(QDialog):
     """오라리제이션 — 측정한 IR로 '그 자리 소리'를 헤드폰으로 듣기.
 
@@ -11466,6 +11482,8 @@ class _AuralizeDialog(QDialog):
         self._tf = tf_win
         self._music = None          # 모노 float32, tf.sample_rate
         self._wet = None            # 컨볼루션 결과 캐시
+        self._wet_sig = None        # _wet가 어느 IR로 빌드됐는지(재측정 stale 방지)
+        self._conv = None; self._pending_play = False
         self._music_name = ''
         self.setWindowTitle(_tx('Auralization'))
         _apply_dark_titlebar(self)
@@ -11590,11 +11608,11 @@ class _AuralizeDialog(QDialog):
         if not data: return None, ''
         kind, idx = data
         if kind == 'live' and getattr(ir, 'h_raw', None) is not None and len(ir.h_raw) > 4:
-            return np.asarray(ir.h_raw, dtype=np.float64), _tx('Live')
+            return np.asarray(ir.h_raw, dtype=np.float32), _tx('Live')
         if kind == 'cap':
             caps = getattr(ir, '_captures', [])
             if 0 <= idx < len(caps) and caps[idx].get('h') is not None:
-                return np.asarray(caps[idx]['h'], dtype=np.float64), caps[idx].get('label', 'capture')
+                return np.asarray(caps[idx]['h'], dtype=np.float32), caps[idx].get('label', 'capture')
         return None, ''
 
     def _refresh_ir_state(self):
@@ -11637,45 +11655,69 @@ class _AuralizeDialog(QDialog):
         if sr != srr:
             n_new = max(1, int(len(data) * srr / sr))
             data = np.interp(np.linspace(0, len(data)-1, n_new), np.arange(len(data)), data)
-        data = np.asarray(data, dtype=np.float64)
+        data = np.asarray(data, dtype=np.float32)
         pk = float(np.max(np.abs(data))) if len(data) else 0.0
-        if pk > 1e-6: data = data / pk * 0.9
-        self._music = data; self._wet = None
+        if pk > 1e-6: data = (data / pk * 0.9).astype(np.float32)
+        self._music = data; self._wet = None; self._wet_sig = None
         self._music_name = os.path.basename(path)
         self._music_lbl.setText(self._music_name[:22] + ('…' if len(self._music_name) > 22 else ''))
         self._refresh_ir_state()
         self._set_playable(True)
 
-    def _render_wet(self):
-        ir, _ = self._current_ir()
-        if ir is None or self._music is None: return None
-        try:
-            from scipy.signal import fftconvolve
-            wet = fftconvolve(self._music, ir)
-        except Exception:
-            wet = np.convolve(self._music, ir)
-        pk = float(np.max(np.abs(wet))) if len(wet) else 0.0
-        if pk > 1e-6: wet = wet / pk * 0.9
-        return wet.astype(np.float32)
+    @staticmethod
+    def _ir_sig(ir):
+        # IR 식별 시그니처 — 재측정(Live IR 교체) 감지해 stale wet 캐시 무효화.
+        # ⚠️캡처는 SR 미저장 → 다른 SR로 측정된 옛 캡처는 타이밍 어긋날 수 있음
+        #   (현 세션 캡처·Live IR은 항상 현재 SR이라 정상).
+        return (len(ir), round(float(ir.sum()), 5), round(float(np.abs(ir).max()), 5))
 
     def _play(self, which):
-        buf = self._music if which == 'dry' else (self._wet if self._wet is not None else self._render_wet())
-        if which == 'room': self._wet = buf
+        if which == 'dry':
+            self._pending_play = False
+            self._start_playback(self._music); return
+        ir, _ = self._current_ir()
+        if ir is None or self._music is None: return
+        sig = self._ir_sig(ir)
+        if self._wet is not None and self._wet_sig == sig:   # 유효 캐시 → 즉시 재생
+            self._pending_play = False
+            self._start_playback(self._wet); return
+        if self._conv is not None and self._conv.isRunning(): return
+        # 캐시 없음/stale → 백그라운드 컨볼루션 후 재생 (긴 곡에서 UI 프리즈 방지)
+        self._pending_play = True
+        self._room_btn.setEnabled(False); self._room_btn.setText('⏳ …')
+        self._conv = _ConvWorker(self._music, ir, sig)
+        self._conv.done.connect(self._on_conv_done)
+        self._conv.start()
+
+    def _on_conv_done(self, wet):
+        cur, _ = self._current_ir()
+        cur_sig = self._ir_sig(cur) if cur is not None else None
+        self._wet = wet; self._wet_sig = getattr(self._conv, 'sig', None)
+        self._room_btn.setText('▶  ' + _tx('Room')); self._set_playable()
+        if self._pending_play and cur_sig == self._wet_sig:  # 대기 중 소스 안 바뀌었으면 재생
+            self._pending_play = False
+            self._start_playback(wet)
+
+    def _start_playback(self, buf):
         if buf is None: return
-        stereo = np.column_stack([buf, buf]).astype(np.float32)   # 양 귀로
+        if buf.dtype != np.float32: buf = buf.astype(np.float32)
+        stereo = np.column_stack([buf, buf])                 # 양 귀로 (buf는 이미 float32)
         dev = self._out_cb.currentData()
         try:
-            sd.stop()
-            sd.play(stereo, self._sr(), device=dev)
+            sd.stop(); sd.play(stereo, self._sr(), device=dev)
         except Exception as e:
             _BrandBox.warning(self, _tx('Auralization'), _tx('Playback failed:\n{e}').format(e=e))
 
     def _stop(self):
+        self._pending_play = False
         try: sd.stop()
         except Exception: pass
 
     def closeEvent(self, e):
-        self._stop(); super().closeEvent(e)
+        self._stop()
+        if self._conv is not None and self._conv.isRunning():
+            self._conv.wait(2000)
+        super().closeEvent(e)
 
 
 class TransferFunctionWindow(QWidget):
