@@ -74,3 +74,4 @@ Ed25519 is the live scheme: public key `_LIC_PUBKEY` (`:108`) verifies; the priv
 - **`ISSUES.md` is the master todo/bug tracker** (todos, next-version `[v1.7]` items, docs, release). Check it first.
 - Persistent cross-session context lives in Claude memory at `~/.claude/projects/-Users-yuncheollee-WSA2/memory/` (`MEMORY.md` index + `project_*.md` detail files). These hold code locations, past decisions, and verification checklists that aren't in the repo.
 - Release policy: work accumulates on the current dev version (e.g. v1.6) — **do not bump/build/tag until the user explicitly says to build.**
+- Git branch: development happens on **`develop`** (the GitHub default branch; renamed from `release/v1.0` on 2026-07-04). All versions since v1.0 accumulate on this one branch — the branch name is just a label and does not track `_APP_VERSION`. `main` is a separate stale branch.
