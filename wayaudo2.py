@@ -2006,6 +2006,13 @@ def freq_to_x(f, pad_l, usable, ny=24000, f_lo=20):
     if f <= 0: return pad_l
     return pad_l + (math.log10(max(f,1e-9)/f_lo) / math.log10(ny/f_lo)) * usable
 
+def _fmt_freq_tick(f):
+    """주파수 눈금 라벨 — 줌 시 비정수 눈금도 정확히(1250→'1.25k', 3150→'3.15k', 100→'100')."""
+    if f >= 1000:
+        v = f / 1000.0
+        return f'{int(round(v))}k' if abs(v - round(v)) < 1e-6 else f'{v:g}k'
+    return f'{int(round(f))}' if abs(f - round(f)) < 1e-6 else f'{f:g}'
+
 # 1/3옥타브 보조 그리드 (옥타브선 사이) — Smaart 스타일 촘촘한 로그 그리드용
 FREQ_MARKS_MINOR = [20,25,40,50,80,100,160,200,315,400,630,800,
                     1250,1600,2500,3150,5000,6300,10000,12500,20000]
@@ -8142,10 +8149,21 @@ class _TFFreqZoomMixin:
         return lo * (hi / lo) ** r
 
     def _fz_marks(self):
-        """라벨 찍을 주파수 눈금 — 확대 시 보조눈금까지 포함(성긴 라벨 방지)."""
-        if self.is_freq_zoomed():
-            return sorted(set(FREQ_MARKS) | set(FREQ_MARKS_MINOR))
-        return list(FREQ_MARKS)
+        """라벨 찍을 주파수 눈금. 미확대=옥타브 주눈금. 확대=ISO 보조눈금까지,
+        극단 확대로 표준 눈금이 범위에 거의 없으면 선형 nice 눈금 생성(라벨 0개 방지)."""
+        if not self.is_freq_zoomed():
+            return list(FREQ_MARKS)
+        lo, hi = self.f_lo, self.f_hi
+        std = [f for f in sorted(set(FREQ_MARKS) | set(FREQ_MARKS_MINOR)) if lo <= f <= hi]
+        if len(std) >= 2:
+            return std
+        span = hi - lo                                   # 좁은 확대 → 선형 nice 스텝
+        base = 10 ** math.floor(math.log10(span / 4.0)) if span > 0 else 1.0
+        step = next(s * base for s in (1, 2, 2.5, 5, 10) if s * base >= span / 4.0)
+        out, v = [], math.ceil(lo / step) * step
+        while v <= hi + 1e-6:
+            out.append(round(v, 3)); v += step
+        return out or [round(lo, 1), round(hi, 1)]
 
     # 줌 상태 반영 (창이 매그·위상 둘 다 호출)
     def set_freq_zoom(self, lo, hi):
@@ -8566,7 +8584,7 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
             p.setPen(QPen(QColor(T('grid')),1)); p.drawLine(int(fx),pt,int(fx),H-pb)
             if fx-last_lx<40: continue
             last_lx=fx
-            txt=f'{int(f//1000)}k' if f>=1000 else str(int(f))
+            txt=_fmt_freq_tick(f) if self.is_freq_zoomed() else (f'{int(f//1000)}k' if f>=1000 else str(int(f)))
             tw=p.fontMetrics().horizontalAdvance(txt)
             p.setPen(QColor(T('graph_txt'))); p.drawText(max(pl,min(int(fx-tw/2),W-pr-tw)),H-pb+16,txt)
         mode_lbl=['Phase  Wrapped','Phase  Unwrapped','Group Delay'][self.phase_mode]+'  ▾'
@@ -9159,7 +9177,7 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
             p.setPen(QPen(QColor(T('grid')),1)); p.drawLine(int(fx),pt,int(fx),H-pb)
             if fx-last_lx<40: continue
             last_lx=fx
-            txt=f'{int(f//1000)}k' if f>=1000 else str(int(f))
+            txt=_fmt_freq_tick(f) if self.is_freq_zoomed() else (f'{int(f//1000)}k' if f>=1000 else str(int(f)))
             tw=p.fontMetrics().horizontalAdvance(txt)
             p.setPen(QColor(T('graph_txt'))); p.drawText(max(pl,min(int(fx-tw/2),W-pr-tw)),H-pb+18,txt)
         p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(_TF_CARD_COL['mag']))
