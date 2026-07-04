@@ -6992,7 +6992,7 @@ class _CaptureDrawer(QWidget):
 
         # 헤더
         hdr = QWidget(); hdr.setFixedHeight(30)
-        hl = QHBoxLayout(hdr); hl.setContentsMargins(6, 4, 4, 4); hl.setSpacing(2)
+        hl = QHBoxLayout(hdr); hl.setContentsMargins(4, 4, 3, 4); hl.setSpacing(1)
         # 전체 표시/숨김 토글 — SPECTRA 그라디언트 웨이브 아이콘 (제목 왼쪽)
         self._vis_all_btn = QPushButton()
         self._vis_all_btn.setFixedSize(22, 20)
@@ -7008,10 +7008,11 @@ class _CaptureDrawer(QWidget):
         hl.addWidget(self._vis_all_btn)
         self._hdr_lbl = QLabel('CAPTURES',
             styleSheet=f'color:{T("accent")};font-size:11px;font-weight:bold;')
+        self._hdr_lbl.setMinimumWidth(64)   # 버튼이 다 떠도 제목 안 잘리게 최소폭 보장
         hl.addWidget(self._hdr_lbl)
         hl.addStretch()
         self._avg_btn = QPushButton('Avg')
-        self._avg_btn.setFixedSize(36, 20)
+        self._avg_btn.setFixedSize(32, 20)
         self._avg_btn.setToolTip(_tx('Average checked TF captures'))
         self._avg_btn.setStyleSheet(
             'font-size:9px;font-weight:600;border:1px solid #38383A;border-radius:5px;'
@@ -7020,7 +7021,7 @@ class _CaptureDrawer(QWidget):
         self._avg_btn.setVisible(False)
         hl.addWidget(self._avg_btn)
         self._export_btn = QPushButton(''); self._export_btn.setIcon(_icon('download',13))
-        self._export_btn.setFixedSize(22, 20)
+        self._export_btn.setFixedSize(20, 20)
         self._export_btn.setToolTip(_tx('Export TF captures (CSV + PNG)'))
         self._export_btn.setStyleSheet(
             'font-size:12px;font-weight:600;border:1px solid #38383A;border-radius:5px;'
@@ -7029,7 +7030,7 @@ class _CaptureDrawer(QWidget):
         self._export_btn.setVisible(False)
         hl.addWidget(self._export_btn)
         self._import_btn = QPushButton(''); self._import_btn.setIcon(_icon('upload',13))
-        self._import_btn.setFixedSize(22, 20)
+        self._import_btn.setFixedSize(20, 20)
         self._import_btn.setToolTip(_tx('Import TF captures (CSV)'))
         self._import_btn.setStyleSheet(
             'font-size:12px;font-weight:600;border:1px solid #38383A;border-radius:5px;'
@@ -7038,7 +7039,7 @@ class _CaptureDrawer(QWidget):
         self._import_btn.setVisible(False)
         hl.addWidget(self._import_btn)
         self._grp_btn = grp_btn = QPushButton('+ Grp')
-        grp_btn.setFixedSize(44, 20)
+        grp_btn.setFixedSize(40, 20)
         grp_btn.setToolTip(_tx('New Group'))
         grp_btn.setStyleSheet(
             'font-size:9px;font-weight:600;border:1px solid #38383A;border-radius:5px;'
@@ -13433,23 +13434,41 @@ class TransferFunctionWindow(QWidget):
         if (self._level_cards and self._level_cards[0].is_graph_visible() and rms > 1e-9):
             self._level_cards[0].set_meas(20 * _math.log10(rms))
 
+    @staticmethod
+    def _align_pair(ref, meas, D):
+        """시간영역 딜레이 정렬(Smaart 방식). 측정이 ref보다 D샘플 늦음(D>0) → ref를 D 지연
+        (앞에 0 채움)시켜 ref/meas를 정렬. D<0(측정이 앞섬)이면 meas를 지연. 길이 유지(엔진/누적
+        고정크기) — 최신 윈도우는 실샘플이라 magnitude·coherence가 정렬 기준으로 정확. [DELAY_TIME_ALIGN]"""
+        if D > 0:
+            ref = np.concatenate([np.zeros(D, dtype=ref.dtype), ref])[:len(ref)]
+        elif D < 0:
+            meas = np.concatenate([np.zeros(-D, dtype=meas.dtype), meas])[:len(meas)]
+        return ref, meas
+
     def _on_frame(self, ref_buf, meas_buf):
         # TFSyncThread/TFDuplexThread: 두 채널을 동일 콜백에서 수신 → ΔT=0 원자 처리
         n = len(ref_buf)
         rms_r = float(np.sqrt(np.mean(ref_buf ** 2)))
         rms_m = float(np.sqrt(np.mean(meas_buf ** 2)))
+        # 딜레이 시간영역 정렬 — magnitude/coherence가 딜레이 적용 즉시 올바른 레벨로(위상만 아니라).
+        # delay=0 이면 no-op(기존과 완전 동일). 잔여 sub-sample 위상은 표시단(_render_primary_H)서.
+        _D = int(round(self.delay_ms / 1000.0 * self.sample_rate)) if self.delay_ms else 0
+        if _D != 0 and abs(_D) < n:
+            ref_a, meas_a = self._align_pair(ref_buf, meas_buf, _D)
+        else:
+            ref_a, meas_a = ref_buf, meas_buf
         if self._tf_engine_mtw:
             # MTW: 시간영역 버퍼만 보관 (엔진이 자체 멀티레이트 FFT 수행) — 콜백 FFT 생략
             with QMutexLocker(self._mutex):
-                self._last_ref_buf = ref_buf; self._last_ref_rms = rms_r
-                self._last_meas_buf = meas_buf; self._last_meas_rms = rms_m
+                self._last_ref_buf = ref_a; self._last_ref_rms = rms_r
+                self._last_meas_buf = meas_a; self._last_meas_rms = rms_m
         else:
             # Hanning window 캐시 — 매 콜백마다 재생성 금지
             if not hasattr(self, '_hann_win') or self._hann_win is None or len(self._hann_win) != n:
                 self._hann_win = np.hanning(n).astype(np.float32)
             win = self._hann_win
-            fft_r = np.fft.rfft(ref_buf * win).astype(complex)
-            fft_m = np.fft.rfft(meas_buf * win).astype(complex)
+            fft_r = np.fft.rfft(ref_a * win).astype(complex)
+            fft_m = np.fft.rfft(meas_a * win).astype(complex)
             with QMutexLocker(self._mutex):
                 self._last_ref_fft = fft_r; self._last_ref_rms = rms_r
                 self._last_meas_fft = fft_m; self._last_meas_rms = rms_m
@@ -13473,13 +13492,23 @@ class TransferFunctionWindow(QWidget):
         if rms_m > 1e-9: card.set_meas(20 * _math.log10(rms_m),
                                        20 * _math.log10(pk_m) if pk_m > 1e-9 else -120.0)
 
+    def _extra_ffts(self, pair_idx, ref_buf, meas_buf):
+        """추가카드 ref/meas 를 카드 딜레이만큼 시간정렬(primary와 동일 _align_pair) 후 FFT.
+        magnitude·coherence 가 정렬 기준으로 정확해짐. 딜레이 0이면 no-op. [DELAY_TIME_ALIGN]"""
+        n = len(ref_buf)
+        dly = (self._extra_pairs[pair_idx].get('delay_ms', 0.0)
+               if isinstance(pair_idx, int) and pair_idx < len(self._extra_pairs) else 0.0)
+        D = int(round(dly / 1000.0 * self.sample_rate)) if dly else 0
+        if D != 0 and abs(D) < n and len(meas_buf) == n:
+            ref_buf, meas_buf = self._align_pair(ref_buf, meas_buf, D)
+        win = np.hanning(n).astype(np.float32)
+        return (np.fft.rfft(ref_buf * win).astype(complex),
+                np.fft.rfft(meas_buf * win).astype(complex))
+
     def _on_extra_frame(self, pair_idx, ref_buf, meas_buf):
         """TFSyncThread (same-device extra pair): ref+meas 원자 처리 → pair 누적."""
         self._update_extra_card(pair_idx, ref_buf, meas_buf)
-        n = len(ref_buf)
-        win = np.hanning(n).astype(np.float32)
-        fft_r = np.fft.rfft(ref_buf * win).astype(complex)
-        fft_m = np.fft.rfft(meas_buf * win).astype(complex)
+        fft_r, fft_m = self._extra_ffts(pair_idx, ref_buf, meas_buf)
         self._accumulate_extra(pair_idx, fft_r, fft_m)
 
     def _on_mc_chunk(self, device_idx, chunk_dict):
@@ -13541,16 +13570,19 @@ class TransferFunctionWindow(QWidget):
                     self._on_meas(meas_buf)
                     continue
                 if not isinstance(pair_idx, int): continue
-                fft_r = getattr(self, '_extra_ref_fft', {}).get(pair_idx)
-                if fft_r is None: continue
-                # meas FFT 계산 후 직접 누적 (_on_extra_meas 경로와 동일)
-                win = np.hanning(len(meas_buf)).astype(np.float32)
-                fft_m = np.fft.rfft(meas_buf * win).astype(complex)
-                if len(fft_r) == len(fft_m):
-                    ref_buf_cached = getattr(self, '_extra_ref_buf', {}).get(pair_idx)
-                    if ref_buf_cached is not None:
-                        self._update_extra_card(pair_idx, ref_buf_cached, meas_buf)
+                ref_buf_cached = getattr(self, '_extra_ref_buf', {}).get(pair_idx)
+                if ref_buf_cached is not None and len(ref_buf_cached) == len(meas_buf):
+                    # 시간버퍼 있으면 카드 딜레이만큼 정렬 후 FFT (magnitude 정확)
+                    fft_r, fft_m = self._extra_ffts(pair_idx, ref_buf_cached, meas_buf)
+                    self._update_extra_card(pair_idx, ref_buf_cached, meas_buf)
                     self._accumulate_extra(pair_idx, fft_r, fft_m)
+                else:
+                    fft_r = getattr(self, '_extra_ref_fft', {}).get(pair_idx)
+                    if fft_r is None: continue
+                    win = np.hanning(len(meas_buf)).astype(np.float32)
+                    fft_m = np.fft.rfft(meas_buf * win).astype(complex)
+                    if len(fft_r) == len(fft_m):
+                        self._accumulate_extra(pair_idx, fft_r, fft_m)
                 continue
             r['callback'](ref_buf, meas_buf)
 
@@ -13571,15 +13603,19 @@ class TransferFunctionWindow(QWidget):
     def _on_extra_meas(self, pair_idx, buf):
         """AudioThread meas 콜백 (diff-device extra pair)."""
         if not hasattr(self, '_extra_ref_fft'): return
+        ref_buf = getattr(self, '_extra_ref_buf', {}).get(pair_idx)
+        if ref_buf is not None and len(ref_buf) == len(buf):
+            # 시간버퍼 있으면 카드 딜레이만큼 정렬 후 FFT (magnitude 정확)
+            fft_r, fft_m = self._extra_ffts(pair_idx, ref_buf, buf)
+            self._update_extra_card(pair_idx, ref_buf, buf)
+            self._accumulate_extra(pair_idx, fft_r, fft_m)
+            return
         fft_r = self._extra_ref_fft.get(pair_idx)
         if fft_r is None: return
-        ref_buf = getattr(self, '_extra_ref_buf', {}).get(pair_idx)
         n = len(buf)
         win = np.hanning(n).astype(np.float32)
         fft_m = np.fft.rfft(buf * win).astype(complex)
         if len(fft_r) == len(fft_m):
-            if ref_buf is not None:
-                self._update_extra_card(pair_idx, ref_buf, buf)
             self._accumulate_extra(pair_idx, fft_r, fft_m)
 
     def _accumulate_extra(self, pair_idx, fft_r, fft_m):
@@ -13928,8 +13964,11 @@ class TransferFunctionWindow(QWidget):
             pair_delay = 0.0
             if i < len(self._extra_pairs):
                 pair_delay = self._extra_pairs[i].get('delay_ms', 0.0)
-            if pair_delay != 0.0:
-                H_ex_disp = H_ex_raw * np.exp(1j * 2 * np.pi * freqs * (pair_delay / 1000.0))
+            # 딜레이는 누적(_extra_ffts)에서 시간영역 정렬로 이미 반영 → 잔여(sub-sample) 위상만. [DELAY_TIME_ALIGN]
+            D_ex = int(round(pair_delay / 1000.0 * self.sample_rate)) if pair_delay else 0
+            _resid_ex = pair_delay / 1000.0 - D_ex / self.sample_rate
+            if _resid_ex != 0.0:
+                H_ex_disp = H_ex_raw * np.exp(1j * 2 * np.pi * freqs * _resid_ex)
             else:
                 H_ex_disp = H_ex_raw
             f_ex, mag_ex, ph_wrap_ex, ph_unwr_ex, grp_ms_ex = _tf_smooth(freqs, H_ex_disp, self.smooth_bpo)
@@ -13937,10 +13976,11 @@ class TransferFunctionWindow(QWidget):
             # 교차 데이터 같이 전달 → 커서 리드아웃이 1번 카드와 동일(dB+°+%)
             self.mag_cvs.set_tf_extra(i, color, f_ex, mag_ex, phase=ph_wrap_ex, coh=coh_ex)
             self.phase_cvs.set_tf_extra_phase(i, color, f_ex, ph_wrap_ex, ph_unwr_ex, grp_ms_ex, mag=mag_ex)
-            # 카드별 IR: 딜레이 보정 없이 raw H → 임펄스가 실제 도착(=딜레이) 위치에 표시.
-            # 딜레이 값은 카드색 마커로 그려지고, front 카드면 뷰가 그 위치로 센터링된다.
-            # (mag/phase 는 위 H_ex_disp 로 위상 보정 유지 — IR 만 물리 위치)
+            # 카드별 IR: H_ex_raw 는 이제 시간정렬됨(임펄스 0ms 중심) → 정렬량 D_ex 되돌려
+            # 임펄스를 실제 도착(=딜레이) 위치에 표시. 카드색 마커/센터링은 pair_delay 기준.
             h_ex = np.fft.fftshift(np.fft.irfft(H_ex_raw, n=self.fft_size)).astype(np.float32)
+            if D_ex != 0:
+                h_ex = np.roll(h_ex, D_ex)
             self.ir_cvs.set_tf_extra(i, color, t_ms, h_ex, delay=pair_delay)
 
     # ── 딜레이 자동 탐지 (2단계: 2초 측정 후 계산) ──────────────────────
@@ -14718,9 +14758,12 @@ class TransferFunctionWindow(QWidget):
     def _render_primary_H(self, H_raw, gamma2, freqs, t_ms, primary_show):
         """primary H(f)[선형 freqs 그리드] → mag/phase/IR 캔버스. Single·MTW 공통 렌더 테일.
         IR은 raw H로 생성(임펄스가 실제 도착=딜레이 위치) + 딜레이 마커 = Single과 동일 거동."""
-        # Phase/Mag 표시용: 딜레이 위상 보정
-        if self.delay_ms != 0.0:
-            H_disp = H_raw * np.exp(1j * 2 * np.pi * freqs * (self.delay_ms / 1000.0))
+        # 딜레이는 콜백(_on_frame)에서 시간영역 정렬(정수 D 샘플)로 이미 반영됨 → magnitude·coherence가
+        # 정렬 기준으로 즉시 올바르게 잡힘(Smaart 방식). 여기선 잔여(sub-sample) 위상만 보정. [DELAY_TIME_ALIGN]
+        D_al = int(round(self.delay_ms / 1000.0 * self.sample_rate)) if self.delay_ms else 0
+        _resid = self.delay_ms / 1000.0 - D_al / self.sample_rate
+        if _resid != 0.0:
+            H_disp = H_raw * np.exp(1j * 2 * np.pi * freqs * _resid)
         else:
             H_disp = H_raw
         f_out, mag_out, ph_wrap, ph_unwr, grp_ms = _tf_smooth(freqs, H_disp, self.smooth_bpo)
@@ -14740,8 +14783,11 @@ class TransferFunctionWindow(QWidget):
         else:
             coh_out = None
         if primary_show:
-            # Live IR: 딜레이 보정 없이 raw H → 임펄스가 실제 도착(=딜레이) 위치에.
+            # Live IR: H_raw 는 이제 시간정렬된 값(임펄스가 0ms 중심) → 정렬량 D_al 만큼 되돌려
+            # 임펄스를 실제 도착(=딜레이) 위치에 표시(기존 거동 유지).
             h_full = np.fft.fftshift(np.fft.irfft(H_raw, n=self.fft_size)).astype(np.float32)
+            if D_al != 0:
+                h_full = np.roll(h_full, D_al)
             # 캔버스에 직접 set_data 하지 않고 "목표 곡선"으로 저장 → 30fps 보간 타이머가
             # 10fps 갱신 사이를 부드럽게 그려준다(데이터 속도/평균은 불변, 모션만 매끈).
             self._pm_push_target(f_out, mag_out, coh_out, ph_wrap, ph_unwr, grp_ms, t_ms, h_full)
@@ -15104,8 +15150,12 @@ class TransferFunctionWindow(QWidget):
         """Extra pair delay_spin 변경 → pair dict 동기화 + 마커/센터 갱신.
         그 카드가 front 면 뷰를 그 딜레이 위치로 센터링(아니면 마커만 다음 렌더에서 갱신)."""
         if 0 <= idx < len(self._extra_pairs):
+            _chg = (v != self._extra_pairs[idx].get('delay_ms', 0.0))
             self._extra_pairs[idx]['delay_ms'] = v
             self._save_tf_extra_pairs()
+            # 딜레이 변경 → 그 카드 누적 재시드 → 정렬된 올바른 레벨로 즉시 스냅. [DELAY_SNAP]
+            if _chg and idx < len(self._extra_pair_acc):
+                self._extra_pair_acc[idx] = None
             if getattr(self, '_front_pair', None) == idx:
                 self._center_ir_on_delay(v)
             else:
@@ -15150,8 +15200,13 @@ class TransferFunctionWindow(QWidget):
     def _on_delay_changed(self, v):
         # raw H IR: 임펄스는 실제 도착 위치. 딜레이 변경 → 마커 위치 갱신 +
         # primary 가 front 면 뷰를 그 위치로 센터링(다른 카드 front 면 뷰 불변).
+        _changed = (v != self.delay_ms)
         self.delay_ms = v
         self.ir_cvs._delay_ms = v
+        # 딜레이 변경 순간 평균 재시드 → magnitude가 (정렬된) 올바른 레벨로 즉시 스냅(Smaart처럼).
+        # 정렬(_align_pair) 덕에 첫 프레임이 이미 정렬 기준이라 예전 "위→아래 크롤" 없음. [DELAY_SNAP]
+        if _changed and self._running:
+            self._reset_avg()
         if getattr(self, '_front_pair', None) in (None, -1):
             self._center_ir_on_delay(v)
         else:
