@@ -297,6 +297,25 @@ def _tf_freq_zoom():
 check('TF 주파수축 줌/팬 (매핑·클램프·연동·눈금)', _tf_freq_zoom)
 
 
+def _db_axis_lock():
+    """dB축 수동 고정 — TFMagCanvas 를 +30~-6 으로 락 + 우상단 자물쇠 배지 렌더.
+    락 중 fit_y(자동맞춤) 호출해도 범위가 안 바뀌는지 assert(핵심 동작)."""
+    cv = w.TFMagCanvas(); cv.resize(900, 300)
+    f = np.logspace(np.log10(20), np.log10(20000), 300).astype(np.float32)
+    mag = (5*np.exp(-((np.log10(f)-2.0)**2)/0.5)).astype(np.float32)
+    coh = np.clip(0.8 - 0.2*np.sin(f/1500), 0, 1).astype(np.float32)
+    cv.set_data(f, mag, coh, None)
+    cv._db_apply(30, -6)                       # 우클릭 '범위 입력' 경로
+    assert cv._db_lock and cv.db_max == 30 and cv.db_min == -6, 'lock apply failed'
+    cv.fit_y()                                  # 자동맞춤 시도 → 락이면 무시
+    assert cv.db_max == 30 and cv.db_min == -6, 'fit_y not ignored while locked'
+    cv._db_autofit()                            # 자동 복귀(락 해제) → 범위 재계산
+    assert not cv._db_lock, 'autofit should unlock'
+    cv._db_apply(30, -6); cv.show()             # 배지 보이게 다시 락
+    return _save(cv, 'db_axis_lock.png')
+check('dB축 수동 고정 (락·배지·fit_y 무시·해제)', _db_axis_lock)
+
+
 def _vectorscope():
     """VectorscopeCanvas 3패턴 — 모노(L=R→대각)/와이드(무상관→구름)/역상(L=-R→반대대각).
     전체 StereoLoudnessPage 안에서만 돌던 걸 통제신호로 단독 검증 + 상관도(_corr) 부호 단정."""

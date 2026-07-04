@@ -508,6 +508,15 @@ _TR_KO = {        # {english_ui_string: 쉬운_한국어}
     'Capture current TF snapshot (Mag + Phase + IR)   ·   Shortcut: Space': '현재 TF 스냅샷 캡처 (Mag + Phase + IR)   ·   단축키: Space',
     'Frequency axis:\nWheel = zoom at cursor   ·   Drag = box zoom   ·   Shift+drag = pan\nDouble-click = reset to full range   ·   ⌘ +/− = step zoom': '주파수축:\n휠 = 커서 기준 확대   ·   드래그 = 구간 박스줌   ·   Shift+드래그 = 좌우 이동\n더블클릭 = 전대역 리셋   ·   ⌘ +/− = 단계 확대',
     'Stop playback': '재생 정지',
+    'dB Axis Range': 'dB 축 범위',
+    'Enter top / bottom — the axis locks to that range.': '상·하한을 입력하면 그 범위로 고정됩니다.',
+    'Top': '상단',
+    'Bottom': '하단',
+    'Apply · Lock': '적용 · 고정',
+    'Set dB range…': 'dB 범위 입력…',
+    'Auto-fit (double-click)': '자동 맞춤 (더블클릭)',
+    'Lock dB axis to current range': '현재 범위로 고정',
+    'Unlock dB axis (back to auto)': '고정 해제 (자동으로)',
     'Delta compare — show difference vs reference capture (set with R)': 'Delta 비교 — 기준(R로 지정한 캡처) 대비 차이 표시',
     'Stable capture — auto-capture after average converges + coherence stabilizes': '안정화 캡처 — 평균 수렴 + 코히런스가 안정된 후 자동 캡처',
     'Delay display units — ms / distance (m) / both (speed of sound 343 m/s, adjustable in Delay Finder advanced settings)': '딜레이 표시 단위 — ms / 거리(m) / 둘 다 (음속 343 m/s, 딜레이 파인더 고급설정에서 변경)',
@@ -1904,6 +1913,78 @@ def hsep(color_key='border'):
     f.setStyleSheet(f'background:{T(color_key)};border:none;')
     return f
 
+def _ask_db_range(parent, cur_top, cur_bot):
+    """dB 축 상·하한 입력 대화상자 → (top, bottom) 반환, 취소/무효면 None.
+    스펙트럼·TF 공용. 입력하면 그 범위로 '고정'하는 의미(호출측이 락 설정)."""
+    from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QDoubleSpinBox, QPushButton)
+    dlg = QDialog(parent)
+    dlg.setWindowTitle(_tx('dB Axis Range'))
+    dlg.setStyleSheet(f'QDialog{{background:{T("bg2")};}} QLabel{{color:{T("text")};font-size:12px;}}')
+    lay = QVBoxLayout(dlg); lay.setContentsMargins(18, 16, 18, 14); lay.setSpacing(10)
+    ttl = QLabel(_tx('dB Axis Range')); ttl.setStyleSheet(f'color:{T("text")};font-size:15px;font-weight:600;')
+    sub = QLabel(_tx('Enter top / bottom — the axis locks to that range.'))
+    sub.setStyleSheet(f'color:{T("text_dim")};font-size:11px;')
+    lay.addWidget(ttl); lay.addWidget(sub)
+    def _spin(v):
+        s = QDoubleSpinBox(); s.setRange(-160, 160); s.setDecimals(0); s.setSingleStep(3)
+        s.setValue(float(v)); s.setSuffix(' dB'); s.setButtonSymbols(QDoubleSpinBox.NoButtons)
+        s.setStyleSheet(ss_spin()); s.setFixedHeight(30); s.setAlignment(Qt.AlignCenter); return s
+    top_sp = _spin(cur_top); bot_sp = _spin(cur_bot)
+    for lbl, sp in ((_tx('Top'), top_sp), (_tx('Bottom'), bot_sp)):
+        r = QHBoxLayout(); L = QLabel(lbl); L.setFixedWidth(46); r.addWidget(L); r.addWidget(sp, 1); lay.addLayout(r)
+    lay.addWidget(hsep())
+    br = QHBoxLayout(); br.addStretch()
+    cancel = QPushButton(_tx('Cancel')); cancel.setStyleSheet(ss_btn_neutral()); cancel.clicked.connect(dlg.reject)
+    ok = QPushButton(_tx('Apply · Lock')); ok.setStyleSheet(ss_btn_primary()); ok.setDefault(True); ok.clicked.connect(dlg.accept)
+    br.addWidget(cancel); br.addWidget(ok); lay.addLayout(br)
+    if dlg.exec_() != QDialog.Accepted:
+        return None
+    t, b = top_sp.value(), bot_sp.value()
+    if t < b: t, b = b, t            # 뒤집혀 입력되면 자동 교정
+    if t - b < 3:                    # 최소 3dB 스팬 보장(축 붕괴 방지)
+        return None
+    return (t, b)
+
+def _db_axis_context_menu(widget, gpos, cur_top, cur_bot, is_locked,
+                          on_apply, on_autofit, on_toggle_lock):
+    """dB 축 우클릭 메뉴 (스펙트럼·TF 공용). 더블클릭 자동맞춤은 그대로 두고 여기에 수동고정 추가.
+    on_apply(top,bot)=입력값으로 고정 / on_autofit()=자동맞춤+락해제 / on_toggle_lock()=현재범위 고정↔해제."""
+    from PyQt5.QtWidgets import QMenu
+    m = QMenu(widget)
+    a_in  = m.addAction(_tx('Set dB range…'))
+    a_fit = m.addAction(_tx('Auto-fit (double-click)'))
+    m.addSeparator()
+    a_lock = m.addAction(_tx('Unlock dB axis (back to auto)') if is_locked
+                         else _tx('Lock dB axis to current range'))
+    act = m.exec_(gpos)
+    if act is a_in:
+        r = _ask_db_range(widget, cur_top, cur_bot)
+        if r is not None:
+            on_apply(r[0], r[1])
+    elif act is a_fit:
+        on_autofit()
+    elif act is a_lock:
+        on_toggle_lock()
+
+def _draw_lock_badge(p, x, y, color):
+    """작은 자물쇠 배지 (dB축 수동 고정 표시). (x,y)=좌상단, 약 12×13px. QPainter 직접 그림."""
+    from PyQt5.QtGui import QPen, QBrush
+    from PyQt5.QtCore import QRectF
+    p.save()
+    p.setRenderHint(QPainter.Antialiasing, True)
+    bw, bh = 11.0, 8.0
+    bx, by = x + 0.5, y + 5.0
+    r = bw * 0.34
+    # 고리(shackle)
+    pen = QPen(QColor(color), 1.6); pen.setCapStyle(Qt.RoundCap)
+    p.setPen(pen); p.setBrush(Qt.NoBrush)
+    p.drawArc(QRectF(x + bw/2 - r + 0.5, by - r*1.7, 2*r, 2*r*1.6), 20*16, 140*16)
+    # 몸통
+    p.setPen(Qt.NoPen); p.setBrush(QBrush(QColor(color)))
+    path = QPainterPath(); path.addRoundedRect(QRectF(bx, by, bw, bh), 2.0, 2.0)
+    p.fillPath(path, QBrush(QColor(color)))
+    p.restore()
+
 
 def _sep_line_color():
     return '#4A4A4A' if _theme == 'dark' else T('border')
@@ -2867,7 +2948,7 @@ class FFTCanvas(QWidget):
         self.setMouseTracking(True)
         self.setAttribute(Qt.WA_OpaquePaintEvent,True)
         self.setFocusPolicy(Qt.StrongFocus)
-        self.db_min=-96; self.db_max=MAX_DB
+        self.db_min=-96; self.db_max=MAX_DB; self._db_lock=False
         self.freqs=None; self.avg=None; self.peak=None
         self.peak_hold=True; self.scale_log=True
         self.sample_rate=48000; self.fft_size=16384
@@ -3191,6 +3272,8 @@ class FFTCanvas(QWidget):
             tw=p.fontMetrics().horizontalAdvance(txt)
             tx=max(pl,min(int(fx-tw/2),W-pr-tw))
             p.setPen(QColor(T('graph_txt'))); p.drawText(tx,H-5,txt)
+        if getattr(self,'_db_lock',False):   # dB축 수동 고정 표시
+            _draw_lock_badge(p, W-pr-15, pt+2, T('accent'))
         p.end(); self._cache=px
 
     def _draw_grid_lines(self, p, W, H):
@@ -3260,9 +3343,16 @@ class FFTCanvas(QWidget):
         if e.x()<self.PAD_L and self._ds_avg is not None and len(self._ds_avg)>0:
             valid=self._ds_avg[self._ds_avg>-90]
             if len(valid)==0: return
+            _w=self.window()
+            if hasattr(_w,'_db_lock'): _w._db_lock=False   # 더블클릭=자동 복귀(고정 해제)
+            if hasattr(_w,'_persist_spec_db'): _w._persist_spec_db()
+            self._db_lock=False
             peak=float(np.max(valid)); span=self.db_max-self.db_min
             self.db_max=int(math.ceil((peak+12)/12))*12
-            self.db_min=self.db_max-span; self.update()
+            self.db_min=self.db_max-span; self._cache=None; self.update()
+    def contextMenuEvent(self,e):
+        _w=self.window()
+        if hasattr(_w,'_spec_db_menu'): _w._spec_db_menu(e.globalPos())
     def wheelEvent(self,e):
         if e.modifiers() & Qt.ControlModifier:
             step=1; delta=e.angleDelta().y()
@@ -3356,7 +3446,7 @@ class OctaveCanvas(QWidget):
         self.title_text=''   # 설정 시 좌상단 제목 표시(TF의 RTA 칸용; Spectrum 옥타브는 빈값)
         self.smooth={k:np.full(len(v),-96.0) for k,v in BANDS.items()}
         self.peaks ={k:np.full(len(v),-96.0) for k,v in BANDS.items()}
-        self.db_min=-96; self.db_max=MAX_DB
+        self.db_min=-96; self.db_max=MAX_DB; self._db_lock=False
         self.peak_hold=True; self.alpha=1.0-SPEED_LEVELS[2][1]; self.decay=0.08
         self.attack=SPEC_ATTACK   # 상승(어택) 계수 — self.alpha(하강/릴리즈)보다 빠름
         self.peak_hold_frames=30           # 기본 1초 홀드 (30fps)
@@ -3617,6 +3707,8 @@ class OctaveCanvas(QWidget):
             tw=p.fontMetrics().horizontalAdvance(txt)
             tx=max(pl,min(int(fx-tw/2),W-pr-tw))
             p.setPen(QColor(T('graph_txt'))); p.drawText(tx,H-5,txt)
+        if getattr(self,'_db_lock',False):   # dB축 수동 고정 표시
+            _draw_lock_badge(p, W-pr-15, pt+2, T('accent'))
         p.end(); self._cache=px
 
     def _draw_grid_lines(self, p, W, H):
@@ -3657,9 +3749,16 @@ class OctaveCanvas(QWidget):
         if e.x()<self.PAD_L:
             sm=self.smooth[self.mode]; valid=sm[sm>-90]
             if len(valid)==0: return
+            _w=self.window()
+            if hasattr(_w,'_db_lock'): _w._db_lock=False   # 더블클릭=자동 복귀(고정 해제)
+            if hasattr(_w,'_persist_spec_db'): _w._persist_spec_db()
+            self._db_lock=False
             peak=float(np.max(valid)); span=self.db_max-self.db_min
             self.db_max=int(math.ceil((peak+12)/12))*12
-            self.db_min=self.db_max-span; self.update()
+            self.db_min=self.db_max-span; self._cache=None; self.update()
+    def contextMenuEvent(self,e):
+        _w=self.window()
+        if hasattr(_w,'_spec_db_menu'): _w._spec_db_menu(e.globalPos())
     def wheelEvent(self,e):
         if e.modifiers() & Qt.ControlModifier:
             step=1; delta=e.angleDelta().y()
@@ -3775,7 +3874,7 @@ class SpectrogramCanvas(QWidget):
         self.setAttribute(Qt.WA_OpaquePaintEvent,True)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
-        self.db_min=-96; self.db_max=MAX_DB
+        self.db_min=-96; self.db_max=MAX_DB; self._db_lock=False
         self.scale_log=True
         self._cache=None
         # Dual ring buffers at canvas pixel width
@@ -3900,6 +3999,8 @@ class SpectrogramCanvas(QWidget):
             tw=p.fontMetrics().horizontalAdvance(txt)
             tx=max(pl,min(int(fx-tw/2),W-pr-tw))
             p.setPen(QColor(T('graph_txt'))); p.drawText(tx,H-5,txt)
+        if getattr(self,'_db_lock',False):   # dB축 수동 고정 표시
+            _draw_lock_badge(p, W-pr-15, pt+2, T('accent'))
         p.end(); self._cache=px
 
     # ── Triangle handles (left edge) ─────────────────────────────────────────
@@ -8865,6 +8966,8 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
         self._fz_init()   # 주파수축 줌/팬 상태(f_lo/f_hi)
         self.freqs=None; self.mag=None; self.coh=None; self.phase=None
         self.db_min=-15.0; self.db_max=15.0
+        self._db_lock=False   # dB축 수동 고정 (우클릭 메뉴로 설정, 더블클릭=자동 복귀)
+        self._on_lock_change=None   # 락 변경 시 콜백(TF 창이 설정 저장에 연결)
         self.coh_blank=0.5
         self._autofit_armed=False   # 측정 시작 후 첫 유효 데이터에 1회 자동 Y맞춤(아래로 깔리는 것 방지)
         self._mx=-1; self._peer_mx=-1; self._cache=None
@@ -9103,6 +9206,7 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
     def resizeEvent(self,e): self._cache=None; self.update()
 
     def fit_y(self):
+        if self._db_lock: return   # 수동 고정 중 → 자동맞춤/자동확장 무시
         all_vals = []
         if self.mag is not None and len(self.mag) > 0:
             m = np.asarray(self.mag, dtype=float)
@@ -9136,7 +9240,27 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
 
     def mouseDoubleClickEvent(self,e):
         self._fz_reset()                     # 주파수축 전대역 리셋
-        self.fit_y()
+        self._db_lock=False                  # 더블클릭=자동 모드 복귀(고정 해제)
+        self.fit_y(); self._notify_db_lock()
+
+    def contextMenuEvent(self,e):
+        _db_axis_context_menu(self, e.globalPos(), self.db_max, self.db_min, self._db_lock,
+                              on_apply=self._db_apply, on_autofit=self._db_autofit,
+                              on_toggle_lock=self._db_toggle)
+
+    def _notify_db_lock(self):
+        if callable(self._on_lock_change):
+            self._on_lock_change()
+
+    def _db_apply(self, top, bot):
+        self.db_max=float(top); self.db_min=float(bot); self._db_lock=True
+        self._cache=None; self.update(); self._notify_db_lock()
+
+    def _db_autofit(self):
+        self._db_lock=False; self.fit_y(); self._notify_db_lock()
+
+    def _db_toggle(self):
+        self._db_lock=not self._db_lock; self._cache=None; self.update(); self._notify_db_lock()
 
     def enterEvent(self,e): self.setFocus(); super().enterEvent(e)
     def mousePressEvent(self,e):
@@ -9199,6 +9323,8 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
             p.setPen(QColor(T('graph_txt'))); p.drawText(max(pl,min(int(fx-tw/2),W-pr-tw)),H-pb+18,txt)
         p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(_TF_CARD_COL['mag']))
         p.drawText(pl+4,pt+13,'Magnitude  +  Coherence  ▾')
+        if self._db_lock:   # 수동 고정 표시 — dB축 상단(우측)에 자물쇠 배지
+            _draw_lock_badge(p, W-pr-15, pt+3, T('accent'))
         p.end(); self._cache=px
 
     def _draw_grid_lines(self, p, W, H):
@@ -11876,6 +12002,12 @@ class TransferFunctionWindow(QWidget):
         # 카드형: handle(=카드 사이 거터)은 _GradSplitterHandle가 직접 그림(거터색 + 옅은 그라디언트 라인)
         self.ir_cvs = TFIRCanvas()
         self.phase_cvs = TFPhaseCanvas(); self.mag_cvs = TFMagCanvas()
+        self.mag_cvs._on_lock_change = self._persist_tf_db   # dB축 고정 → 설정 저장
+        if self._settings.get('tf_db_lock'):                 # 재시작 복원
+            self.mag_cvs._db_lock = True
+            self.mag_cvs.db_max = float(self._settings.get('tf_db_top', self.mag_cvs.db_max))
+            self.mag_cvs.db_min = float(self._settings.get('tf_db_bot', self.mag_cvs.db_min))
+            self.mag_cvs._cache = None
         # 주파수축 줌/팬 연동: 한쪽에서 줌 → 매그·위상 둘 다 같은 f_lo/f_hi (같은 주파수축)
         self.mag_cvs._fzoom_cb = self.phase_cvs._fzoom_cb = self._sync_freq_zoom
         # 분석창 클릭 → 그 창 외곽 하이라이트 (이벤트필터로 감지, 기존 마우스 동작 유지)
@@ -12700,6 +12832,13 @@ class TransferFunctionWindow(QWidget):
             'tf_out_ch': self.sig_out_ch_cb.currentData() or 0,
             'tf_out_ch2': self.sig_out_ch2_cb.currentData(),  # None = Off
         })
+        _save_settings(self._settings)
+
+    def _persist_tf_db(self):
+        """TF Magnitude dB축 수동 고정 상태 저장 (재시작 유지). MainWindow와 _settings 공유."""
+        self._settings['tf_db_lock'] = bool(self.mag_cvs._db_lock)
+        self._settings['tf_db_top']  = float(self.mag_cvs.db_max)
+        self._settings['tf_db_bot']  = float(self.mag_cvs.db_min)
         _save_settings(self._settings)
 
     def _save_tf_extra_pairs(self):
@@ -17228,7 +17367,7 @@ class MainWindow(QMainWindow):
         self._ca_watcher.changed.connect(self._on_coreaudio_devices_changed)
         QTimer.singleShot(1200, self._ca_watcher.start)   # 창 떠서 안정된 뒤 등록
         QTimer.singleShot(1500, lambda: setattr(self, '_ca_dev_count', self._ca_watcher.device_count()))
-        self.db_max=MAX_DB; self.db_range=96; self.db_min=self.db_max-self.db_range
+        self.db_max=MAX_DB; self.db_range=96; self.db_min=self.db_max-self.db_range; self._db_lock=False
         self.speed_idx=2; self.smoothing=SPEED_LEVELS[2][1]
         self.peak_hold=True; self.view_mode='oct12'; self._spectro_on=False; self.avg_count=16; self._last_oct_mode='oct12'
         self.calib_offset=0.0
@@ -17760,6 +17899,14 @@ class MainWindow(QMainWindow):
         _tbv = bool(self._settings.get('toolbar_visible', True))
         self.toolbar_wrapper.setVisible(_tbv); self.toolbar_underline.setVisible(_tbv)
         self._toolbar_btn.setChecked(_tbv); self._toolbar_btn.update()
+
+        # dB축 수동 고정 복원 (재시작에도 유지)
+        if self._settings.get('spec_db_lock'):
+            self._db_lock = True
+            self.db_max = float(self._settings.get('spec_db_top', self.db_max))
+            self.db_min = float(self._settings.get('spec_db_bot', self.db_min))
+            self.db_range = self.db_max - self.db_min
+            self._pending_auto_fit = False; self._apply_db_range()
 
         # TF 캡처 변경 시 드로어도 갱신
         self.tf_win._on_captures_changed = self._refresh_capture_drawer
@@ -18597,6 +18744,7 @@ class MainWindow(QMainWindow):
 
     def _auto_fit_y_to_data(self):
         """실제 데이터 피크 기준으로 Y축 자동 조정 (메인 스레드에서 호출)."""
+        if self._db_lock: return   # dB축 수동 고정 중 → 자동맞춤 무시
         peak = None
         if self.view_mode == 'fft' and self.fft_cvs._ds_avg is not None:
             valid = self.fft_cvs._ds_avg[self.fft_cvs._ds_avg > -90]
@@ -18763,8 +18911,31 @@ class MainWindow(QMainWindow):
         self.fft_cvs.db_max=self.db_max; self.fft_cvs.db_min=self.db_min
         self.oct_cvs.db_max=self.db_max; self.oct_cvs.db_min=self.db_min
         self.spectro_cvs.set_db_range(self.db_min,self.db_max)
+        self.fft_cvs._db_lock=self._db_lock; self.oct_cvs._db_lock=self._db_lock   # 잠금 배지 동기
         self.fft_cvs._cache=None; self.oct_cvs._cache=None
         self.fft_cvs.update(); self.oct_cvs.update()
+
+    # ── dB축 수동 고정 (우클릭 메뉴, 더블클릭 자동맞춤은 그대로) ──
+    def _spec_db_menu(self, gpos):
+        _db_axis_context_menu(self, gpos, self.db_max, self.db_min, self._db_lock,
+                              on_apply=self._spec_db_apply, on_autofit=self._spec_db_autofit,
+                              on_toggle_lock=self._spec_db_toggle)
+
+    def _spec_db_apply(self, top, bot):
+        self.db_max=float(top); self.db_min=float(bot); self.db_range=self.db_max-self.db_min
+        self._db_lock=True; self._pending_auto_fit=False; self._apply_db_range(); self._persist_spec_db()
+
+    def _spec_db_autofit(self):
+        self._db_lock=False; self._pending_auto_fit=True; self._auto_fit_y_to_data(); self._apply_db_range(); self._persist_spec_db()
+
+    def _spec_db_toggle(self):
+        self._db_lock=not self._db_lock; self._apply_db_range(); self._persist_spec_db()
+
+    def _persist_spec_db(self):
+        self._settings['spec_db_lock'] = bool(self._db_lock)
+        self._settings['spec_db_top']  = float(self.db_max)
+        self._settings['spec_db_bot']  = float(self.db_min)
+        _save_settings(self._settings)
 
     def _open_leq(self):
         if self.leq_win is None:
