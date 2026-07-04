@@ -2922,65 +2922,77 @@ class FFTCanvas(QWidget):
         finally:
             self._cap_building = False
 
-    def _build_cap_img(self, W, H, caps, front):
-        from PyQt5.QtGui import QImage
+    def _draw_cap_curve(self, p, cap, W, H, emph=False):
+        # 단일 캡쳐 곡선 — 베이스(dimmed)·front 오버레이(emph=밝고 굵게) 공용
         ny=min(self.sample_rate/2, 20000)
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
         dh=H-pt-pb; uw=W-pl-pr
+        max_pts = max(int(uw) * 2, 512)
+        cf=cap['f']; cd=cap['db']
+        if self.scale_log:
+            cxs=pl+(np.log10(np.maximum(cf,1)/20)/math.log10(ny/20))*uw
+        else:
+            cxs=pl+(cf/ny)*uw
+        cys=pt+np.clip((self.db_max-cd)/max(self.db_max-self.db_min,1)*dh,0,dh)
+        n=len(cxs)
+        if n > max_pts:
+            idx=np.linspace(0,n-1,max_pts,dtype=int)
+            cxs=cxs[idx]; cys=cys[idx]
+        poly=QPolygonF([QPointF(float(x),float(y)) for x,y in zip(cxs.tolist(),cys.tolist())])
+        qc=QColor(cap['color'])
+        if emph:
+            p.setPen(QPen(qc,2.6))
+        else:
+            qc.setAlpha(70); p.setPen(QPen(qc,1.2))
+        p.drawPolyline(poly)
+
+    def _build_cap_img(self, W, H, caps, front):
+        # 베이스 이미지 = 보이는 캡쳐 전부 dimmed. front 강조는 paintEvent 오버레이라 여기선 안 그림.
+        from PyQt5.QtGui import QImage
         img=QImage(W,H,QImage.Format_ARGB32_Premultiplied); img.fill(0)
         p=QPainter(img); p.setRenderHint(QPainter.Antialiasing,True)
-        max_pts = max(int(uw) * 2, 512)
-        def _draw_one(cap, emph=False):
-            # E 스타일: 선택(front)=밝고 굵은 선, 비선택=흐린 가는 선
-            cf=cap['f']; cd=cap['db']
-            if self.scale_log:
-                cxs=pl+(np.log10(np.maximum(cf,1)/20)/math.log10(ny/20))*uw
-            else:
-                cxs=pl+(cf/ny)*uw
-            cys=pt+np.clip((self.db_max-cd)/max(self.db_max-self.db_min,1)*dh,0,dh)
-            n=len(cxs)
-            if n > max_pts:
-                idx=np.linspace(0,n-1,max_pts,dtype=int)
-                cxs=cxs[idx]; cys=cys[idx]
-            poly=QPolygonF([QPointF(float(x),float(y)) for x,y in zip(cxs.tolist(),cys.tolist())])
-            qc=QColor(cap['color'])
-            if emph:
-                p.setPen(QPen(qc,2.6))
-            else:
-                qc.setAlpha(70); p.setPen(QPen(qc,1.2))
-            p.drawPolyline(poly)
-        for i,cap in enumerate(caps):
-            if i==front: continue
+        for cap in caps:
             if not cap.get('visible', True): continue
-            _draw_one(cap, emph=False)
-        if front is not None and 0<=front<len(caps):
-            if caps[front].get('visible', True):
-                _draw_one(caps[front], emph=True)   # 선택(front) 캡쳐 — 맨 위 + 밝고 굵게
+            self._draw_cap_curve(p, cap, W, H, emph=False)
         p.end()
         return img
 
-    def _build_cap_pix(self, W, H):
+    def _cap_base_key(self, n=None):
         ny=min(self.sample_rate/2, 20000)
+        if n is None: n=len(self._captures)
+        return (self.width(), self.height(), self.db_max, self.db_min, self.scale_log, int(ny), n)
+
+    def _append_cap_incr(self, cap):
+        # 베이스 캐시 유효 시 새 캡쳐 1개만 dimmed로 얹기(O(1)). 무효면 다음 paint에서 전체 rebuild.
+        if self._cap_pix is not None and self._cap_pix_key==self._cap_base_key(len(self._captures)-1) and cap.get('visible', True):
+            p=QPainter(self._cap_pix); p.setRenderHint(QPainter.Antialiasing,True)
+            self._draw_cap_curve(p, cap, self._cap_pix.width(), self._cap_pix.height(), emph=False)
+            p.end()
+            self._cap_pix_key=self._cap_base_key()   # 새 count 반영 → 재빌드 안 함
+        else:
+            self._cap_pix=None
+
+    def _build_cap_pix(self, W, H):
         img = self._build_cap_img(W, H, list(self._captures), self._front_idx)
         self._cap_pix = QPixmap.fromImage(img)
-        self._cap_pix_key = (W, H, self.db_max, self.db_min, self.scale_log, int(ny), self._front_idx, self._live_on_top)
+        self._cap_pix_key = self._cap_base_key()
 
     def add_capture(self, label, color, group=''):
         if self._ds_f is None or self._ds_avg is None: return
-        self._captures.append({
-            'f': self._ds_f.copy(), 'db': self._ds_avg.copy(),
-            'color': color, 'label': label, 'group': group
-        })
-        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
+        cap={'f': self._ds_f.copy(), 'db': self._ds_avg.copy(),
+             'color': color, 'label': label, 'group': group}
+        self._captures.append(cap)
+        self._append_cap_incr(cap)          # O(1) 증분 — 전체 재빌드 안 함
+        self._last_cap_t=time.monotonic(); self.update()
 
     def add_capture_data(self, label, color, f, db, group=''):
         """추가 소스 곡선을 캡쳐 (멀티 소스 일괄 캡쳐용)."""
         if f is None or db is None: return
-        self._captures.append({
-            'f': np.asarray(f, dtype=np.float64).copy(), 'db': np.asarray(db, dtype=np.float64).copy(),
-            'color': color, 'label': label, 'group': group
-        })
-        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
+        cap={'f': np.asarray(f, dtype=np.float64).copy(), 'db': np.asarray(db, dtype=np.float64).copy(),
+             'color': color, 'label': label, 'group': group}
+        self._captures.append(cap)
+        self._append_cap_incr(cap)
+        self._last_cap_t=time.monotonic(); self.update()
 
     def recapture(self, idx):
         """기존 캡쳐 idx 의 곡선만 현재 라이브값으로 덮어쓰기 (색/이름/그룹/가시성 유지)."""
@@ -3002,7 +3014,7 @@ class FFTCanvas(QWidget):
     def bring_to_front(self, idx):
         if 0 <= idx < len(self._captures):
             self._front_idx=idx; self._live_on_top=False
-            self._cap_pix=None; self.update()
+            self.update()   # front=paintEvent 오버레이 → 베이스 재빌드 불필요
 
     def _grad_fill_pixmap(self, W, H, x0, x1, alpha):
         """브랜드 그라디언트 채움용 캐시 픽스맵 — 픽셀별 그라디언트 계산을 1회로(크기/색 동일 시 재사용)."""
@@ -3257,11 +3269,14 @@ class FFTCanvas(QWidget):
         _cap_focus = _focused_capture_visible(self)
         def _draw_caps():
             if not self._captures: return
-            _cap_key=(W,H,self.db_max,self.db_min,self.scale_log,int(ny),self._front_idx,self._live_on_top)
+            _cap_key=(W,H,self.db_max,self.db_min,self.scale_log,int(ny))
             if self._cap_pix is None or self._cap_pix_key!=_cap_key:
                 self._trigger_cap_build(W, H, _cap_key)
             if self._cap_pix is not None:
                 p.drawPixmap(0,0,self._cap_pix)
+            fi=self._front_idx
+            if fi is not None and 0<=fi<len(self._captures) and self._captures[fi].get('visible',True):
+                self._draw_cap_curve(p, self._captures[fi], W, H, emph=True)   # 선택 캡쳐 강조(재빌드 없이)
         if _cap_focus:
             self._draw_live(p, W, H, dim=True)
             _draw_caps()
@@ -3365,8 +3380,9 @@ class OctaveCanvas(QWidget):
         finally:
             self._cap_building = False
 
-    def _build_cap_img(self, W, H, caps, front):
-        from PyQt5.QtGui import QImage
+    def _draw_cap_curve(self, p, cap, W, H, emph=False):
+        # 단일 옥타브 캡쳐 막대 — 베이스(옅은 채움+외곽선)·front 오버레이(emph=솔리드 그라디언트) 공용
+        if cap['mode']!=self.mode: return
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
         dh=H-pt-pb; uw=W-pl-pr
         db_range=max(self.db_max-self.db_min,1)
@@ -3374,63 +3390,74 @@ class OctaveCanvas(QWidget):
         bar_w=uw/n if n else 1
         gap_r=0.06 if self.mode=='oct24' else 0.08 if self.mode=='oct12' else 0.12
         gap=max(1.0,bar_w*gap_r)
+        cv=cap['values']; qc=QColor(cap['color'])
+        if emph:
+            cbrush, ccap = _vbar_gradient(qc)   # 캡쳐 front 막대도 라이브와 같은 입체 그라디언트
+            for i in range(n):
+                db=float(np.clip(cv[i],self.db_min,self.db_max))
+                bh=max(2,int((db-self.db_min)/db_range*dh))
+                bx=int(pl+i*bar_w+gap/2); bw=max(1,int(bar_w-gap)); by=pt+dh-bh
+                p.fillRect(bx,by,bw,bh,cbrush)
+                if bh>5: p.fillRect(bx,by,bw,1,ccap)
+        else:
+            qf=QColor(qc); qf.setAlpha(26); qe=QColor(qc); qe.setAlpha(110)
+            for i in range(n):
+                db=float(np.clip(cv[i],self.db_min,self.db_max))
+                bh=max(2,int((db-self.db_min)/db_range*dh))
+                bx=int(pl+i*bar_w+gap/2); bw=max(1,int(bar_w-gap)); by=pt+dh-bh
+                p.fillRect(bx,by,bw,bh,qf)
+                p.setPen(QPen(qe,1)); p.drawRect(bx,by,bw-1,bh-1)
+
+    def _build_cap_img(self, W, H, caps, front):
+        # 베이스 = 보이는 캡쳐 전부 dimmed. front 강조는 paintEvent 오버레이.
+        from PyQt5.QtGui import QImage
         img=QImage(W,H,QImage.Format_ARGB32_Premultiplied); img.fill(0)
         p=QPainter(img)
-        def _draw_one(cap, emph=False):
-            # E 스타일: 선택(front)=솔리드 막대(라이브처럼 꽉), 비선택=아주 옅은 채움+옅은 외곽선
-            if cap['mode']!=self.mode: return
-            cv=cap['values']; qc=QColor(cap['color'])
-            if emph:
-                cbrush, ccap = _vbar_gradient(qc)   # 캡쳐 front 막대도 라이브와 같은 입체 그라디언트
-                for i in range(n):
-                    db=float(np.clip(cv[i],self.db_min,self.db_max))
-                    bh=max(2,int((db-self.db_min)/db_range*dh))
-                    bx=int(pl+i*bar_w+gap/2); bw=max(1,int(bar_w-gap)); by=pt+dh-bh
-                    p.fillRect(bx,by,bw,bh,cbrush)
-                    if bh>5: p.fillRect(bx,by,bw,1,ccap)
-            else:
-                qf=QColor(qc); qf.setAlpha(26); qe=QColor(qc); qe.setAlpha(110)
-                for i in range(n):
-                    db=float(np.clip(cv[i],self.db_min,self.db_max))
-                    bh=max(2,int((db-self.db_min)/db_range*dh))
-                    bx=int(pl+i*bar_w+gap/2); bw=max(1,int(bar_w-gap)); by=pt+dh-bh
-                    p.fillRect(bx,by,bw,bh,qf)
-                    p.setPen(QPen(qe,1)); p.drawRect(bx,by,bw-1,bh-1)
-        for i,cap in enumerate(caps):
-            if i==front: continue
+        for cap in caps:
             if not cap.get('visible', True): continue
-            _draw_one(cap, emph=False)
-        if front is not None and 0<=front<len(caps):
-            if caps[front].get('visible', True):
-                _draw_one(caps[front], emph=True)
+            self._draw_cap_curve(p, cap, W, H, emph=False)
         p.end()
         return img
 
-    def _build_cap_pix(self, W, H):
+    def _cap_base_key(self, ncap=None):
         bands=BANDS[self.mode]; n=len(bands)
-        pl=self.PAD_L; pr=self.PAD_R; uw=W-pl-pr
+        pl=self.PAD_L; pr=self.PAD_R; uw=self.width()-pl-pr
         bar_w=uw/n if n else 1
         gap_r=0.06 if self.mode=='oct24' else 0.08 if self.mode=='oct12' else 0.12
         gap=max(1.0,bar_w*gap_r)
+        if ncap is None: ncap=len(self._captures)
+        return (self.width(),self.height(),self.db_max,self.db_min,self.mode,round(bar_w*1000),round(gap*1000),ncap)
+
+    def _append_cap_incr(self, cap):
+        # 베이스 유효 시 새 캡쳐 1개만 dimmed로 얹기(O(1)). 무효면 다음 paint에서 전체 rebuild.
+        if self._cap_pix is not None and self._cap_pix_key==self._cap_base_key(len(self._captures)-1) and cap.get('visible', True):
+            p=QPainter(self._cap_pix)
+            self._draw_cap_curve(p, cap, self._cap_pix.width(), self._cap_pix.height(), emph=False)
+            p.end()
+            self._cap_pix_key=self._cap_base_key()   # 새 count 반영 → 재빌드 안 함
+        else:
+            self._cap_pix=None
+
+    def _build_cap_pix(self, W, H):
         img = self._build_cap_img(W, H, list(self._captures), self._front_idx)
         self._cap_pix = QPixmap.fromImage(img)
-        self._cap_pix_key = (W,H,self.db_max,self.db_min,self.mode,round(bar_w*1000),round(gap*1000),self._front_idx,self._live_on_top)
+        self._cap_pix_key = self._cap_base_key()
 
     def add_capture(self, label, color, group=''):
-        self._captures.append({
-            'values': self.smooth[self.mode].copy(),
-            'mode': self.mode, 'color': color, 'label': label, 'group': group
-        })
-        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
+        cap={'values': self.smooth[self.mode].copy(),
+             'mode': self.mode, 'color': color, 'label': label, 'group': group}
+        self._captures.append(cap)
+        self._append_cap_incr(cap)
+        self._last_cap_t=time.monotonic(); self.update()
 
     def add_capture_data(self, label, color, values, mode=None, group=''):
         """추가 소스 옥타브 곡선을 캡쳐 (멀티 소스 일괄 캡쳐용)."""
         if values is None: return
-        self._captures.append({
-            'values': np.asarray(values, dtype=np.float64).copy(),
-            'mode': mode or self.mode, 'color': color, 'label': label, 'group': group
-        })
-        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
+        cap={'values': np.asarray(values, dtype=np.float64).copy(),
+             'mode': mode or self.mode, 'color': color, 'label': label, 'group': group}
+        self._captures.append(cap)
+        self._append_cap_incr(cap)
+        self._last_cap_t=time.monotonic(); self.update()
 
     def recapture(self, idx):
         """기존 옥타브 캡쳐 idx 를 현재 라이브값으로 덮어쓰기 (색/이름/그룹/가시성 유지)."""
@@ -3451,7 +3478,7 @@ class OctaveCanvas(QWidget):
     def bring_to_front(self, idx):
         if 0 <= idx < len(self._captures):
             self._front_idx=idx; self._live_on_top=False
-            self._cap_pix=None; self.update()
+            self.update()   # front=paintEvent 오버레이 → 베이스 재빌드 불필요
 
     def _draw_live(self, p, W, H, dim=False):
         if self._idle_hint: return   # 시작 전 빈 상태 — 바닥(floor) 막대/선 안 그림(초록 바닥선 제거)
@@ -3651,11 +3678,14 @@ class OctaveCanvas(QWidget):
                 if bh > 5: p.fillRect(bx, by, bw, 1, scap)
         def _draw_caps():
             if not self._captures: return
-            _cap_key=(W,H,self.db_max,self.db_min,self.mode,round(bar_w*1000),round(gap*1000),self._front_idx,self._live_on_top)
+            _cap_key=self._cap_base_key()
             if self._cap_pix is None or self._cap_pix_key!=_cap_key:
                 self._trigger_cap_build(W, H, _cap_key)
             if self._cap_pix is not None:
                 p.drawPixmap(0,0,self._cap_pix)
+            fi=self._front_idx
+            if fi is not None and 0<=fi<len(self._captures) and self._captures[fi].get('visible',True):
+                self._draw_cap_curve(p, self._captures[fi], W, H, emph=True)   # 선택 캡쳐 강조(재빌드 없이)
         def _draw_all_live(dim):
             self._draw_live(p, W, H, dim=dim)
             if self._ch_oct:
@@ -8142,86 +8172,102 @@ class TFPhaseCanvas(QWidget):
         finally:
             self._cap_building = False
 
-    def _build_cap_img(self, W, H, caps, front):
-        from PyQt5.QtGui import QImage
+    def _draw_cap_curve(self, p, cap, W, H, emph=False):
+        # 단일 위상 캡쳐 곡선 — 베이스(dimmed)·front 오버레이(emph) 공용
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
         dh=H-pt-pb; uw=W-pl-pr; ny=20000
         rng=self.ph_max-self.ph_min if self.ph_max!=self.ph_min else 1.0
+        max_pts=max(int(uw),200)  # 픽셀 1:1
+        data=[cap['ph_wrap'],cap['ph_unwr'],cap['grp_ms']][self.phase_mode]
+        if data is None: return
+        freqs=cap['f']
+        xs=pl+(np.log10(np.maximum(freqs,1)/20)/math.log10(ny/20))*uw
+        if self.phase_mode==0:
+            mid=(self.ph_min+self.ph_max)/2
+            data_plot=data-360.0*np.round((data-mid)/360.0)
+        else:
+            data_plot=data
+        ys=pt+np.clip(((self.ph_max-data_plot)/rng*dh).astype(float),0,dh)
+        if len(xs)>max_pts:
+            _ids=np.linspace(0,len(xs)-1,max_pts,dtype=int)
+            xs=xs[_ids]; ys=ys[_ids]; data_plot=data_plot[_ids]
+        is_wrap=(self.phase_mode==0)
+        path=QPainterPath(); seg_x=[]; seg_y=[]
+        def _flush():
+            if len(seg_x)>=2: path.addPath(_catmull_seg(seg_x,seg_y))
+            seg_x.clear(); seg_y.clear()
+        for i in range(len(xs)):
+            brk=(i>0 and is_wrap and abs(data_plot[i]-data_plot[i-1])>270.0)
+            if brk:
+                _flush()
+            else:
+                seg_x.append(float(xs[i])); seg_y.append(float(ys[i]))
+        _flush()
+        qc=QColor(cap['color'])
+        if emph:
+            p.setPen(QPen(qc,3.0))
+        else:
+            qc.setAlpha(140); p.setPen(QPen(qc,1.4))
+        p.setBrush(Qt.NoBrush); p.drawPath(path)
+
+    def _build_cap_img(self, W, H, caps, front):
+        # 베이스 = 보이는 캡쳐 전부 dimmed. front 강조는 paintEvent 오버레이.
+        from PyQt5.QtGui import QImage
         img=QImage(W,H,QImage.Format_ARGB32_Premultiplied); img.fill(0)
         p=QPainter(img); p.setRenderHint(QPainter.Antialiasing,True)
-        max_pts=max(int(uw),200)  # 픽셀 1:1
-        def _draw_one(cap, emph=False):
-            # E 포커스: 선택(front)=밝고 굵게, 비선택=흐리고 얇게
-            data=[cap['ph_wrap'],cap['ph_unwr'],cap['grp_ms']][self.phase_mode]
-            if data is None: return
-            freqs=cap['f']
-            xs=pl+(np.log10(np.maximum(freqs,1)/20)/math.log10(ny/20))*uw
-            if self.phase_mode==0:
-                mid=(self.ph_min+self.ph_max)/2
-                data_plot=data-360.0*np.round((data-mid)/360.0)
-            else:
-                data_plot=data
-            ys=pt+np.clip(((self.ph_max-data_plot)/rng*dh).astype(float),0,dh)
-            if len(xs)>max_pts:
-                _ids=np.linspace(0,len(xs)-1,max_pts,dtype=int)
-                xs=xs[_ids]; ys=ys[_ids]; data_plot=data_plot[_ids]
-            is_wrap=(self.phase_mode==0)
-            path=QPainterPath(); seg_x=[]; seg_y=[]
-            def _flush():
-                if len(seg_x)>=2: path.addPath(_catmull_seg(seg_x,seg_y))
-                seg_x.clear(); seg_y.clear()
-            for i in range(len(xs)):
-                brk=(i>0 and is_wrap and abs(data_plot[i]-data_plot[i-1])>270.0)
-                if brk:
-                    _flush()
-                else:
-                    seg_x.append(float(xs[i])); seg_y.append(float(ys[i]))
-            _flush()
-            qc=QColor(cap['color'])
-            if emph:
-                p.setPen(QPen(qc,3.0))
-            else:
-                qc.setAlpha(140); p.setPen(QPen(qc,1.4))
-            p.setBrush(Qt.NoBrush); p.drawPath(path)
-        for i,cap in enumerate(caps):
-            if i==front: continue
+        for cap in caps:
             if not cap.get('visible', True): continue
-            _draw_one(cap, emph=False)
-        if front is not None and 0<=front<len(caps):
-            if caps[front].get('visible', True):
-                _draw_one(caps[front], emph=True)
+            self._draw_cap_curve(p, cap, W, H, emph=False)
         p.end()
         return img
+
+    def _cap_base_key(self, n=None):
+        if n is None: n=len(self._captures)
+        return (self.width(), self.height(), self.ph_max, self.ph_min, self.phase_mode, self.coh_blank, n)
+
+    def _append_cap_incr(self, cap):
+        # 베이스 유효 시 새 캡쳐 1개만 dimmed로 얹기(O(1)). 무효면 다음 paint에서 전체 rebuild.
+        if self._cap_pix is not None and self._cap_pix_key==self._cap_base_key(len(self._captures)-1) and cap.get('visible', True):
+            p=QPainter(self._cap_pix); p.setRenderHint(QPainter.Antialiasing,True)
+            self._draw_cap_curve(p, cap, self._cap_pix.width(), self._cap_pix.height(), emph=False)
+            p.end()
+            self._cap_pix_key=self._cap_base_key()   # 새 count 반영 → 재빌드 안 함
+        else:
+            self._cap_pix=None
 
     def _build_cap_pix(self, W, H):
         img = self._build_cap_img(W, H, list(self._captures), self._front_idx)
         self._cap_pix = QPixmap.fromImage(img)
-        self._cap_pix_key = (W, H, self.ph_max, self.ph_min, self.phase_mode, self.coh_blank, self._front_idx, self._live_on_top)
+        self._cap_pix_key = self._cap_base_key()
 
     def add_capture(self, label, color):
         if self.freqs is None: return
-        self._captures.append({
+        cap={
             'f': self.freqs.copy(),
             'ph_wrap': self.ph_wrap.copy() if self.ph_wrap is not None else None,
             'ph_unwr': self.ph_unwr.copy() if self.ph_unwr is not None else None,
             'grp_ms':  self.grp_ms.copy()  if self.grp_ms  is not None else None,
             'coh':     self.coherence.copy() if self.coherence is not None else None,
             'color': color, 'label': label
-        })
-        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
+        }
+        self._captures.append(cap)
+        self._append_cap_incr(cap)
+        self._last_cap_t=time.monotonic(); self.update()
 
     def add_capture_data(self, label, color, f, ph_wrap, ph_unwr, grp_ms, coh=None):
         """외부 데이터(extra 카드 등)로 직접 위상 캡쳐 추가."""
         if f is None: return
-        self._captures.append({
+        cap={
             'f': np.asarray(f, dtype=np.float32).copy(),
             'ph_wrap': np.asarray(ph_wrap, dtype=np.float32).copy() if ph_wrap is not None else None,
             'ph_unwr': np.asarray(ph_unwr, dtype=np.float32).copy() if ph_unwr is not None else None,
             'grp_ms':  np.asarray(grp_ms,  dtype=np.float32).copy() if grp_ms  is not None else None,
             'coh':     np.asarray(coh,     dtype=np.float32).copy() if coh     is not None else None,
             'color': color, 'label': label
-        })
-        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
+        }
+        self._captures.append(cap)
+        self._append_cap_incr(cap)
+        self._last_cap_t=time.monotonic(); self.update()
 
     def recapture_live(self, idx):
         """primary 위상 캡쳐 idx 를 현재 라이브로 덮어쓰기 (색/이름 유지)."""
@@ -8258,7 +8304,7 @@ class TFPhaseCanvas(QWidget):
     def bring_to_front(self, idx):
         if 0 <= idx < len(self._captures):
             self._front_idx=idx; self._live_on_top=False
-            self._cap_pix=None; self.update()
+            self.update()   # front=paintEvent 오버레이 → 베이스 재빌드 불필요
 
     def set_data(self,f,pw,pu,gm,coh=None,mag=None):
         self.freqs=f; self.ph_wrap=pw; self.ph_unwr=pu; self.grp_ms=gm
@@ -8524,11 +8570,14 @@ class TFPhaseCanvas(QWidget):
         _cap_focus = _focused_capture_visible(self)
         def _draw_caps():
             if not (self._captures and not self._delta): return  # 델타 모드 절대값 캡쳐 숨김
-            _cap_key=(W,H,self.ph_max,self.ph_min,self.phase_mode,self.coh_blank,self._front_idx,self._live_on_top)
+            _cap_key=self._cap_base_key()
             if self._cap_pix is None or self._cap_pix_key!=_cap_key:
                 self._trigger_cap_build(W, H, _cap_key)
             if self._cap_pix is not None:
                 p.drawPixmap(0,0,self._cap_pix)
+            fi=self._front_idx
+            if fi is not None and 0<=fi<len(self._captures) and self._captures[fi].get('visible',True):
+                self._draw_cap_curve(p, self._captures[fi], W, H, emph=True)   # 선택 캡쳐 강조(재빌드 없이)
         if _cap_focus:
             self._draw_curve(p,W,H); _draw_caps()
         else:
@@ -8716,68 +8765,84 @@ class TFMagCanvas(QWidget):
         finally:
             self._cap_building = False
 
-    def _build_cap_img(self, W, H, caps, front):
-        from PyQt5.QtGui import QImage
+    def _draw_cap_curve(self, p, cap, W, H, emph=False):
+        # 단일 매그니튜드 캡쳐 곡선 — 베이스(dimmed)·front 오버레이(emph) 공용
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
         dh=H-pt-pb; uw=W-pl-pr; ny=20000
         rng=max(self.db_max-self.db_min,1.0)
-        img=QImage(W,H,QImage.Format_ARGB32_Premultiplied); img.fill(0)
-        p=QPainter(img); p.setRenderHint(QPainter.Antialiasing,True)
+        max_pts=max(int(uw),200)  # 픽셀 1:1 — Python 루프 최소화
         def _vs(arr,k=7):
             if len(arr)<k: return arr
             return np.convolve(np.pad(arr,k//2,mode='edge'),np.ones(k)/k,mode='valid').astype(float)
-        max_pts=max(int(uw),200)  # 픽셀 1:1 — Python 루프 최소화
-        def _draw_one(cap, emph=False):
-            # E 포커스: 선택(front)=밝고 굵게, 비선택=흐리고 얇게
-            f_arr=cap['f']; m_arr=cap['mag']
-            xs=(pl+(np.log10(np.maximum(f_arr,1)/20)/math.log10(ny/20))*uw).astype(float)
-            ys=(pt+np.clip((self.db_max-m_arr)/rng*dh,0,dh)).astype(float)
-            ys_s=_vs(ys,7)
-            if len(xs)>max_pts:
-                _ids=np.linspace(0,len(xs)-1,max_pts,dtype=int)
-                xs=xs[_ids]; ys_s=ys_s[_ids]
-            poly=QPolygonF([QPointF(x,y) for x,y in zip(xs.tolist(),ys_s.tolist())])
-            qc=QColor(cap['color'])
-            if emph:
-                p.setPen(QPen(qc,3.0))
-            else:
-                qc.setAlpha(140); p.setPen(QPen(qc,1.4))
-            p.setBrush(Qt.NoBrush)
-            p.drawPolyline(poly)
-        for i,cap in enumerate(caps):
-            if i==front: continue
+        f_arr=cap['f']; m_arr=cap['mag']
+        xs=(pl+(np.log10(np.maximum(f_arr,1)/20)/math.log10(ny/20))*uw).astype(float)
+        ys=(pt+np.clip((self.db_max-m_arr)/rng*dh,0,dh)).astype(float)
+        ys_s=_vs(ys,7)
+        if len(xs)>max_pts:
+            _ids=np.linspace(0,len(xs)-1,max_pts,dtype=int)
+            xs=xs[_ids]; ys_s=ys_s[_ids]
+        poly=QPolygonF([QPointF(x,y) for x,y in zip(xs.tolist(),ys_s.tolist())])
+        qc=QColor(cap['color'])
+        if emph:
+            p.setPen(QPen(qc,3.0))
+        else:
+            qc.setAlpha(140); p.setPen(QPen(qc,1.4))
+        p.setBrush(Qt.NoBrush)
+        p.drawPolyline(poly)
+
+    def _build_cap_img(self, W, H, caps, front):
+        # 베이스 = 보이는 캡쳐 전부 dimmed. front 강조는 paintEvent 오버레이.
+        from PyQt5.QtGui import QImage
+        img=QImage(W,H,QImage.Format_ARGB32_Premultiplied); img.fill(0)
+        p=QPainter(img); p.setRenderHint(QPainter.Antialiasing,True)
+        for cap in caps:
             if not cap.get('visible', True): continue
-            _draw_one(cap, emph=False)
-        if front is not None and 0<=front<len(caps):
-            if caps[front].get('visible', True):
-                _draw_one(caps[front], emph=True)
+            self._draw_cap_curve(p, cap, W, H, emph=False)
         p.end()
         return img
+
+    def _cap_base_key(self, n=None):
+        if n is None: n=len(self._captures)
+        return (self.width(), self.height(), self.db_max, self.db_min, n)
+
+    def _append_cap_incr(self, cap):
+        # 베이스 유효 시 새 캡쳐 1개만 dimmed로 얹기(O(1)). 무효면 다음 paint에서 전체 rebuild.
+        if self._cap_pix is not None and self._cap_pix_key==self._cap_base_key(len(self._captures)-1) and cap.get('visible', True):
+            p=QPainter(self._cap_pix); p.setRenderHint(QPainter.Antialiasing,True)
+            self._draw_cap_curve(p, cap, self._cap_pix.width(), self._cap_pix.height(), emph=False)
+            p.end()
+            self._cap_pix_key=self._cap_base_key()   # 새 count 반영 → 재빌드 안 함
+        else:
+            self._cap_pix=None
 
     def _build_cap_pix(self, W, H):
         img = self._build_cap_img(W, H, list(self._captures), self._front_idx)
         self._cap_pix = QPixmap.fromImage(img)
-        self._cap_pix_key = (W, H, self.db_max, self.db_min, self._front_idx, self._live_on_top)
+        self._cap_pix_key = self._cap_base_key()
 
     def add_capture(self, label, color):
         if self.freqs is None or self.mag is None: return
-        self._captures.append({
+        cap={
             'f': self.freqs.copy(), 'mag': self.mag.copy(),
             'coh': self.coh.copy() if self.coh is not None else None,
             'color': color, 'label': label
-        })
-        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
+        }
+        self._captures.append(cap)
+        self._append_cap_incr(cap)
+        self._last_cap_t=time.monotonic(); self.update()
 
     def add_capture_data(self, label, color, f, mag, coh=None):
         """외부 데이터(extra 카드 등)로 직접 캡쳐 추가."""
         if f is None or mag is None: return
-        self._captures.append({
+        cap={
             'f': np.asarray(f, dtype=np.float32).copy(),
             'mag': np.asarray(mag, dtype=np.float32).copy(),
             'coh': np.asarray(coh, dtype=np.float32).copy() if coh is not None else None,
             'color': color, 'label': label
-        })
-        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
+        }
+        self._captures.append(cap)
+        self._append_cap_incr(cap)
+        self._last_cap_t=time.monotonic(); self.update()
 
     def recapture_live(self, idx):
         """primary 매그니튜드 캡쳐 idx 를 현재 라이브로 덮어쓰기 (색/이름 유지)."""
@@ -8810,7 +8875,7 @@ class TFMagCanvas(QWidget):
     def bring_to_front(self, idx):
         if 0 <= idx < len(self._captures):
             self._front_idx=idx; self._live_on_top=False
-            self._cap_pix=None; self.update()
+            self.update()   # front=paintEvent 오버레이 → 베이스 재빌드 불필요
 
     def arm_autofit(self):
         """다음 유효 데이터에 Y축 1회 자동맞춤(측정 시작 직후 호출). 매프레임 아님 → 점프 없음."""
@@ -9057,11 +9122,14 @@ class TFMagCanvas(QWidget):
         _cap_focus = _focused_capture_visible(self)
         def _draw_caps():
             if not (self._captures and not self._delta): return  # 델타 모드 절대값 캡쳐 숨김
-            _cap_key=(W,H,self.db_max,self.db_min,self._front_idx,self._live_on_top)
+            _cap_key=self._cap_base_key()
             if self._cap_pix is None or self._cap_pix_key!=_cap_key:
                 self._trigger_cap_build(W, H, _cap_key)
             if self._cap_pix is not None:
                 p.drawPixmap(0,0,self._cap_pix)
+            fi=self._front_idx
+            if fi is not None and 0<=fi<len(self._captures) and self._captures[fi].get('visible',True):
+                self._draw_cap_curve(p, self._captures[fi], W, H, emph=True)   # 선택 캡쳐 강조(재빌드 없이)
         if _cap_focus:
             self._draw_live_curve(p,W,H); _draw_caps()
         else:
@@ -9649,82 +9717,97 @@ class TFIRCanvas(QWidget):
         finally:
             self._cap_building = False
 
-    def _build_cap_img(self, W, H, caps, front):
-        from PyQt5.QtGui import QImage
+    def _draw_cap_curve(self, p, cap, W, H, emph=False):
+        # 단일 IR 캡쳐 곡선 — 베이스(dimmed)·front 오버레이(emph) 공용
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
         dh=H-pt-pb; uw=W-pl-pr
         t_range=max(self.t_max-self.t_min,1.0)
         MAX_PTS = max(int(uw), 200)  # 화면 픽셀 수 기준 — Python 루프 최소화
-        img=QImage(W,H,QImage.Format_ARGB32_Premultiplied); img.fill(0)
-        p=QPainter(img); p.setRenderHint(QPainter.Antialiasing,True)
-        def _draw_one(cap, emph=False):
-            t_arr=cap['t']; h_raw=cap['h']
-            if t_arr is None or h_raw is None: return  # extra 카드 빈 IR 캡쳐 스킵
-            xs_r=ys_r=None
-            if self.ir_mode==0:
-                peak_lin=max(float(np.max(np.abs(h_raw))),1e-10)
-                h_norm=h_raw/peak_lin
+        t_arr=cap['t']; h_raw=cap['h']
+        if t_arr is None or h_raw is None: return  # extra 카드 빈 IR 캡쳐 스킵
+        xs_r=ys_r=None
+        if self.ir_mode==0:
+            peak_lin=max(float(np.max(np.abs(h_raw))),1e-10)
+            h_norm=h_raw/peak_lin
+            mask=(t_arr>=self.t_min)&(t_arr<=self.t_max)
+            if np.any(mask):
+                t_v=t_arr[mask]; h_v=h_norm[mask]
+                if len(t_v)>MAX_PTS:
+                    ids=np.linspace(0,len(t_v)-1,MAX_PTS,dtype=int); t_v=t_v[ids]; h_v=h_v[ids]
+                xs_r=(pl+(t_v-self.t_min)/t_range*uw).astype(float)
+                ys_r=(pt+np.clip((1.0-h_v)/2.0*dh,0,dh)).astype(float)
+        else:
+            db_arr=cap['etc_db']
+            if self.ir_mode==2 and h_raw is not None:
+                pk=max(float(np.max(np.abs(h_raw))),1e-10)
+                db_arr=20*np.log10(np.maximum(np.abs(h_raw)/pk,1e-10))
+            if db_arr is not None:
+                db_range=max(self.db_max-self.db_min,1.0)
                 mask=(t_arr>=self.t_min)&(t_arr<=self.t_max)
                 if np.any(mask):
-                    t_v=t_arr[mask]; h_v=h_norm[mask]
+                    t_v=t_arr[mask]; db_v=db_arr[mask]
                     if len(t_v)>MAX_PTS:
-                        ids=np.linspace(0,len(t_v)-1,MAX_PTS,dtype=int); t_v=t_v[ids]; h_v=h_v[ids]
+                        ids=np.linspace(0,len(t_v)-1,MAX_PTS,dtype=int); t_v=t_v[ids]; db_v=db_v[ids]
                     xs_r=(pl+(t_v-self.t_min)/t_range*uw).astype(float)
-                    ys_r=(pt+np.clip((1.0-h_v)/2.0*dh,0,dh)).astype(float)
+                    ys_r=(pt+np.clip((self.db_max-db_v)/db_range*dh,0,dh)).astype(float)
+        if xs_r is not None and len(xs_r)>=2:
+            poly=QPolygonF([QPointF(x,y) for x,y in zip(xs_r.tolist(),ys_r.tolist())])
+            qc=QColor(cap['color'])
+            if emph:
+                p.setPen(QPen(qc,3.0))
             else:
-                db_arr=cap['etc_db']
-                if self.ir_mode==2 and h_raw is not None:
-                    pk=max(float(np.max(np.abs(h_raw))),1e-10)
-                    db_arr=20*np.log10(np.maximum(np.abs(h_raw)/pk,1e-10))
-                if db_arr is not None:
-                    db_range=max(self.db_max-self.db_min,1.0)
-                    mask=(t_arr>=self.t_min)&(t_arr<=self.t_max)
-                    if np.any(mask):
-                        t_v=t_arr[mask]; db_v=db_arr[mask]
-                        if len(t_v)>MAX_PTS:
-                            ids=np.linspace(0,len(t_v)-1,MAX_PTS,dtype=int); t_v=t_v[ids]; db_v=db_v[ids]
-                        xs_r=(pl+(t_v-self.t_min)/t_range*uw).astype(float)
-                        ys_r=(pt+np.clip((self.db_max-db_v)/db_range*dh,0,dh)).astype(float)
-            if xs_r is not None and len(xs_r)>=2:
-                # E 포커스: 선택(front)=밝고 굵게, 비선택=흐리고 얇게
-                poly=QPolygonF([QPointF(x,y) for x,y in zip(xs_r.tolist(),ys_r.tolist())])
-                qc=QColor(cap['color'])
-                if emph:
-                    p.setPen(QPen(qc,3.0))
-                else:
-                    qc.setAlpha(140); p.setPen(QPen(qc,1.4))
-                p.setBrush(Qt.NoBrush)
-                p.drawPolyline(poly)
-        for i,cap in enumerate(caps):
-            if i==front: continue
+                qc.setAlpha(140); p.setPen(QPen(qc,1.4))
+            p.setBrush(Qt.NoBrush)
+            p.drawPolyline(poly)
+
+    def _build_cap_img(self, W, H, caps, front):
+        # 베이스 = 보이는 캡쳐 전부 dimmed. front 강조는 paintEvent 오버레이.
+        from PyQt5.QtGui import QImage
+        img=QImage(W,H,QImage.Format_ARGB32_Premultiplied); img.fill(0)
+        p=QPainter(img); p.setRenderHint(QPainter.Antialiasing,True)
+        for cap in caps:
             if not cap.get('visible', True): continue
-            _draw_one(cap, emph=False)
-        if front is not None and 0<=front<len(caps):
-            if caps[front].get('visible', True):
-                _draw_one(caps[front], emph=True)
+            self._draw_cap_curve(p, cap, W, H, emph=False)
         p.end()
         return img
+
+    def _cap_base_key(self, n=None):
+        if n is None: n=len(self._captures)
+        return (self.width(), self.height(), self.db_max, self.db_min,
+                round(self.t_min,1), round(self.t_max,1), self.ir_mode, n)
+
+    def _append_cap_incr(self, cap):
+        # 베이스 유효 시 새 캡쳐 1개만 dimmed로 얹기(O(1)). 무효면 다음 paint에서 전체 rebuild.
+        if self._cap_pix is not None and self._cap_pix_key==self._cap_base_key(len(self._captures)-1) and cap.get('visible', True):
+            p=QPainter(self._cap_pix); p.setRenderHint(QPainter.Antialiasing,True)
+            self._draw_cap_curve(p, cap, self._cap_pix.width(), self._cap_pix.height(), emph=False)
+            p.end()
+            self._cap_pix_key=self._cap_base_key()   # 새 count 반영 → 재빌드 안 함
+        else:
+            self._cap_pix=None
 
     def _build_cap_pix(self, W, H):
         img = self._build_cap_img(W, H, list(self._captures), self._front_idx)
         self._cap_pix = QPixmap.fromImage(img)
-        self._cap_pix_key = (W, H, self.db_max, self.db_min, round(self.t_min,1), round(self.t_max,1), self.ir_mode, self._front_idx, self._live_on_top)
+        self._cap_pix_key = self._cap_base_key()
 
     def add_capture(self, label, color, delay=0.0):
         if self.t_ms is None or self.h_raw is None: return
-        self._captures.append({
+        cap={
             't': self.t_ms.copy(), 'h': self.h_raw.copy(),
             'etc_db': self.etc_db.copy() if self.etc_db is not None else None,
             'color': color, 'label': label, 'delay': delay
-        })
-        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
+        }
+        self._captures.append(cap)
+        self._append_cap_incr(cap)
+        self._last_cap_t=time.monotonic(); self.update()
 
     def add_capture_empty(self, label, color, delay=0.0):
         """extra 카드는 IR 데이터가 없음 — _tf_captures 인덱스 정합용 빈 캡쳐."""
-        self._captures.append({
-            't': None, 'h': None, 'etc_db': None, 'color': color, 'label': label, 'delay': delay
-        })
-        self._cap_pix=None; self.update()
+        cap={'t': None, 'h': None, 'etc_db': None, 'color': color, 'label': label, 'delay': delay}
+        self._captures.append(cap)
+        self._append_cap_incr(cap)   # 빈 IR은 그려지는 게 없어 베이스 그대로 유지
+        self.update()
 
     def add_capture_data(self, label, color, t, h, etc_db=None, delay=0.0):
         """extra 카드(멀티카드)의 live IR 캡쳐 — 카드별 _tf_extra 의 t/h 사용."""
@@ -9734,12 +9817,14 @@ class TFIRCanvas(QWidget):
         if etc_db is None:
             etc = _hilbert_env(h); pk = max(float(np.max(etc)), 1e-10)
             etc_db = (20 * np.log10(np.maximum(etc / pk, 1e-10))).astype(np.float32)
-        self._captures.append({
+        cap={
             't': np.asarray(t, dtype=np.float32).copy(), 'h': h.copy(),
             'etc_db': np.asarray(etc_db, dtype=np.float32).copy(),
             'color': color, 'label': label, 'delay': delay
-        })
-        self._cap_pix=None; self._last_cap_t=time.monotonic(); self.update()
+        }
+        self._captures.append(cap)
+        self._append_cap_incr(cap)
+        self._last_cap_t=time.monotonic(); self.update()
 
     def recapture_live(self, idx, delay=0.0):
         """primary IR 캡쳐 idx 를 현재 라이브로 덮어쓰기 (색/이름 유지)."""
@@ -9779,7 +9864,7 @@ class TFIRCanvas(QWidget):
     def bring_to_front(self, idx):
         if 0 <= idx < len(self._captures):
             self._front_idx=idx; self._live_on_top=False
-            self._cap_pix=None; self.update()
+            self.update()   # front=paintEvent 오버레이 → 베이스 재빌드 불필요
 
     def set_tf_extra(self, ch_idx, color, t, h, delay=0.0):
         # ETC 포락선은 한 번만 계산해 저장 (paint마다 hilbert 재계산 방지)
@@ -10084,11 +10169,14 @@ class TFIRCanvas(QWidget):
         _cap_focus = _focused_capture_visible(self)
         def _draw_caps():
             if not self._captures: return
-            _cap_key=(W,H,self.db_max,self.db_min,round(self.t_min,1),round(self.t_max,1),self.ir_mode,self._front_idx,self._live_on_top)
+            _cap_key=self._cap_base_key()
             if self._cap_pix is None or self._cap_pix_key!=_cap_key:
                 self._trigger_cap_build(W, H, _cap_key)
             if self._cap_pix is not None:
                 p.drawPixmap(0,0,self._cap_pix)
+            fi=self._front_idx
+            if fi is not None and 0<=fi<len(self._captures) and self._captures[fi].get('visible',True):
+                self._draw_cap_curve(p, self._captures[fi], W, H, emph=True)   # 선택 캡쳐 강조(재빌드 없이)
         if _cap_focus:
             self._draw_live_curve(p, W, H); _draw_caps()
         else:
