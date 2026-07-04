@@ -8759,10 +8759,12 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
             fi=self._front_idx
             if fi is not None and 0<=fi<len(self._captures) and self._captures[fi].get('visible',True):
                 self._draw_cap_curve(p, self._captures[fi], W, H, emph=True)   # 선택 캡쳐 강조(재빌드 없이)
+        p.save(); p.setClipRect(QRectF(self.PAD_L, self.PAD_T, W-self.PAD_L-self.PAD_R, H-self.PAD_T-self.PAD_B))
         if _cap_focus:
             self._draw_curve(p,W,H); _draw_caps()
         else:
             _draw_caps(); self._draw_curve(p,W,H)
+        p.restore()                                    # 확대 시 범위 밖 곡선이 왼쪽 여백으로 삐져나가지 않게 클립
 
         self._draw_grid_lines(p, W, H)
 
@@ -9323,10 +9325,12 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
             fi=self._front_idx
             if fi is not None and 0<=fi<len(self._captures) and self._captures[fi].get('visible',True):
                 self._draw_cap_curve(p, self._captures[fi], W, H, emph=True)   # 선택 캡쳐 강조(재빌드 없이)
+        p.save(); p.setClipRect(QRectF(self.PAD_L, self.PAD_T, W-self.PAD_L-self.PAD_R, H-self.PAD_T-self.PAD_B))
         if _cap_focus:
             self._draw_live_curve(p,W,H); _draw_caps()
         else:
             _draw_caps(); self._draw_live_curve(p,W,H)
+        p.restore()                                    # 확대 시 범위 밖 곡선이 왼쪽 여백으로 삐져나가지 않게 클립
 
         self._draw_grid_lines(p, W, H)
 
