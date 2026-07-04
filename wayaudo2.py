@@ -1015,14 +1015,15 @@ def _icon(name, size=16, color=None):
     from PyQt5.QtCore import QByteArray
     if color is None:
         color = '#C7CAD1' if _theme == 'dark' else '#46566e'
-    s = size; dpr = 2
+    s = size; dpr = 3   # 레티나에서 크게 렌더(작은 아이콘 계단현상 완화)
     pm = QPixmap(s * dpr, s * dpr); pm.setDevicePixelRatio(dpr); pm.fill(Qt.transparent)
     entry = _LUCIDE_ICONS.get(name)
     if entry is None:
         return QIcon(pm)
     inner, filled = entry
     if filled:
-        attrs = f'fill="{color}" stroke="none"'
+        # 채움 아이콘도 같은색 둥근-조인트 스트로크를 얹어 뾰족한 꼭짓점을 부드럽게(play 삼각형 등)
+        attrs = f'fill="{color}" stroke="{color}" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"'
     else:
         attrs = f'fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'
     svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" {attrs}>{inner}</svg>'
@@ -14309,10 +14310,13 @@ class TransferFunctionWindow(QWidget):
             self._on_captures_changed()
 
     def _open_auralize(self):
-        """오라리제이션 다이얼로그 — 측정 IR로 음악을 그 공간 소리로 듣기."""
-        dlg = _AuralizeDialog(self, self)
-        self._auralize_dlg = dlg           # GC 방지
-        dlg.show()
+        """오라리제이션 다이얼로그 — 단일 인스턴스(무한 열림 방지). 있으면 앞으로, 로드한 음악 유지."""
+        dlg = getattr(self, '_auralize_dlg', None)
+        if dlg is None:
+            dlg = self._auralize_dlg = _AuralizeDialog(self, self)
+        else:
+            dlg._populate_ir_sources(); dlg._refresh_ir_state()   # 그새 재측정/새 캡처 반영
+        dlg.show(); dlg.raise_(); dlg.activateWindow()
 
     def _sync_freq_zoom(self, lo, hi):
         """매그·위상 주파수축 줌 연동 — 한쪽 조작이 양쪽 f_lo/f_hi를 같이 갱신."""
