@@ -737,9 +737,16 @@ def _load_settings():
         return {}
 
 def _save_settings(data):
-    os.makedirs(os.path.dirname(_SETTINGS_PATH), exist_ok=True)
-    with open(_SETTINGS_PATH, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    try:
+        d = os.path.dirname(_SETTINGS_PATH)
+        if d: os.makedirs(d, exist_ok=True)          # bare filename이면 dirname='' → makedirs 스킵
+        tmp = _SETTINGS_PATH + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, _SETTINGS_PATH)              # 원자적 교체(중간 실패해도 기존 파일 보존)
+    except Exception as e:
+        try: _alog.warning(f'settings 저장 실패: {e}')
+        except Exception: pass
 
 # 모듈 로드 시점에 _LANG 확정
 try:
@@ -2789,6 +2796,7 @@ class TFSyncThread(QThread):
                 _last_cb[0] = time.monotonic(); _got_cb[0] = True   # 콜백 살아있음 갱신
                 nc = indata.shape[1]
                 rc = min(r_ch, nc - 1); mc = min(m_ch, nc - 1)
+                frames = min(frames, self.fft_size)   # 큰 호스트버퍼(bs=0 폴백)에서 frames>fft_size 시 ValueError 방지
                 ref_buf[:-frames]  = ref_buf[frames:];  ref_buf[-frames:]  = indata[:frames, rc]
                 meas_buf[:-frames] = meas_buf[frames:]; meas_buf[-frames:] = indata[:frames, mc]
                 self.frame_ready.emit(ref_buf.copy(), meas_buf.copy())
@@ -3064,7 +3072,7 @@ class FFTCanvas(QWidget):
                 p.setPen(QPen(_ch_col(ch_data['color']),1.8)); p.drawPath(sc)
             return
         if self.scale_log:
-            xs=self._fx(f_arr,pl,uw)
+            xs=pl+(np.log10(np.maximum(f_arr,1)/20)/math.log10(ny/20))*uw
         else:
             xs=pl+(f_arr/ny)*uw
         ys=pt+np.clip((self.db_max-a_arr)/(self.db_max-self.db_min)*dh,0,dh)
@@ -5816,6 +5824,7 @@ class SplMeterWindow(QWidget):
         """LEQ 시간 리셋 — 적분 버퍼 비워 진행 미터/LEQ를 0부터 다시 시작."""
         with QMutexLocker(self._mutex):
             self._buf_a.clear(); self._buf_c.clear()
+        self._max_laeq = None; self._max_lceq = None   # 적분 재시작 시 옛 Max 표시 안 남게
         self._update_timebar(0)
 
     def _scale_panels(self):
@@ -13923,7 +13932,11 @@ class TransferFunctionWindow(QWidget):
 
         prompt=True 면 이름 입력 다이얼로그를 띄우고, False 면 자동 이름으로 즉시 캡쳐.
         """
-        if self.mag_cvs.freqs is None:
+        # primary가 Stop이어도(freqs None) 표시 중인 extra 카드에 데이터 있으면 캡처 허용
+        has_extra = any(
+            p.get('display', False) and (self.mag_cvs._tf_extra.get(i) or {}).get('f') is not None
+            for i, p in enumerate(getattr(self, '_extra_pairs', [])))
+        if self.mag_cvs.freqs is None and not has_extra:
             return False
         n = len(self._tf_captures)
         default = f'Capture {n + 1}'
@@ -13948,7 +13961,7 @@ class TransferFunctionWindow(QWidget):
         n = len(self._tf_captures)
         added = 0
         # primary — 표시 중일 때만 (꺼져 있으면 캔버스 데이터가 stale)
-        primary_on = (not self._level_cards) or self._level_cards[0]._display_on
+        primary_on = bool(self._level_cards) and self._level_cards[0]._display_on   # 카드 없으면(primary 삭제) 캡처 안 함(유령 방지)
         if primary_on:
             color = _auto_capture_color(n)
             self.mag_cvs.add_capture(base, color)
@@ -14014,7 +14027,7 @@ class TransferFunctionWindow(QWidget):
         src = meta.get('source', 'primary')
         ok = False
         if src == 'primary':
-            primary_on = (not self._level_cards) or self._level_cards[0]._display_on
+            primary_on = bool(self._level_cards) and self._level_cards[0]._display_on   # 카드 없으면(primary 삭제) 캡처 안 함(유령 방지)
             if not primary_on: return False
             ok = self.mag_cvs.recapture_live(idx)
             self.phase_cvs.recapture_live(idx)
@@ -15543,7 +15556,7 @@ class LoudnessMeter:
             self._acc_r+=float(np.sum(sq_r[i:i+take]))
             self._acc_n+=take; i+=take
             if self._acc_n>=self._blk:
-                ms=(self._acc_l+self._acc_r)/(2*self._blk)
+                ms=(self._acc_l+self._acc_r)/self._blk   # BS.1770: 채널 평균제곱의 합(z_L+z_R). /2(평균) 아님 → 이전 대비 +3.01 LU
                 self._sq_hist.append(ms)
                 self._fast_hist.append(ms)
                 if self._int_on: self._int_sq.append(ms)
@@ -15593,6 +15606,7 @@ class LoudnessMeter:
     def start_integration(self):
         self._int_sq=[]; self._int_on=True; self._I=-100.0
         self._lra_st=[]; self._LRA=0.0; self._maxM=-100.0; self._maxS=-100.0
+        self._TP=-100.0; self._PH=-100.0   # 새 프로그램 적분 → 트루피크도 리셋(PLR/PSR·표시 피크가 stale 안 되게)
 
     def stop_integration(self): self._int_on=False
 
@@ -19104,8 +19118,9 @@ class MainWindow(QMainWindow):
                 from PyQt5.QtWidgets import QMessageBox
                 _BrandBox.warning(self, _tx('Device Error'), _tx('The selected device has no input channels.'))
                 return
-            l_ch=min(self._st_l_cb.currentData() or 0, n_ch-1)
-            r_ch=min(self._st_r_cb.currentData() or 1, n_ch-1)
+            _ld=self._st_l_cb.currentData(); _rd=self._st_r_cb.currentData()   # 0-based 채널 데이터 → 'or'는 Ch1(=0) falsy로 오매핑
+            l_ch=min(_ld if _ld is not None else 0, n_ch-1)
+            r_ch=min(_rd if _rd is not None else 1, n_ch-1)
             _alog.info(f'Stereo 시작  device="{dev_name}"({idx})  L=ch{l_ch}  R=ch{r_ch}  sr={sr}')
             self.stereo_page.start(idx, sr, l_ch, r_ch, self.audio_engine)
             self._st_start_btn.setText('Stop (S)')
@@ -19375,7 +19390,7 @@ class MainWindow(QMainWindow):
         죽었는지 판정. True = 사용 중 입력 장치가 사라진 것으로 보임(끊김 복구 필요).
         제너레이터 출력만 켠 경우(입력 미사용)는 오판 방지 위해 건드리지 않는다(False)."""
         tw = self.tf_win
-        input_active = (getattr(self, '_running', False)
+        input_active = (self._spec_running()                    # MainWindow엔 _running 없음 → 스펙트럼만 측정 시 백스톱 죽던 버그
                         or (tw is not None and getattr(tw, '_running', False))
                         or (self.stereo_page is not None and getattr(self.stereo_page, '_running', False)))
         if not input_active:
@@ -19397,7 +19412,7 @@ class MainWindow(QMainWindow):
           (RTA만 켠 채 USB를 뽑았다 꽂으면 RTA가 폴백 장치로 재구독돼 active_devices가 비지 않는데,
            이를 활성으로 보면 replug 폴링/리스너가 보류돼 장치가 영영 다시 안 보인다. 측정 중이면
            위의 _running/sig_gen 플래그로 이미 보호되므로 RTA 제외가 측정을 끊지 않는다.)"""
-        if getattr(self, '_running', False): return True   # spectrum
+        if self._spec_running(): return True   # spectrum (MainWindow엔 _running 속성 없음)
         tw = self.tf_win
         if tw is not None and (getattr(tw, '_running', False) or
                                (getattr(tw, 'sig_on_btn', None) is not None and tw.sig_on_btn.isChecked())):
