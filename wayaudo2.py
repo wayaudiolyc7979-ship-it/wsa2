@@ -526,6 +526,11 @@ _TR_KO = {        # {english_ui_string: 쉬운_한국어}
     'Export': '내보내기',
     'Export complete:\n{csv_path}\n+ Mag/Phase/IR PNG': '내보내기 완료:\n{csv_path}\n+ Mag/Phase/IR PNG',
     'Export failed:\n{e}': '내보내기 실패:\n{e}',
+    'Import TF captures (CSV)': 'TF 캡처 불러오기 (CSV)',
+    'Select TF capture CSV': 'TF 캡처 CSV 선택',
+    'Import complete: {n} capture(s)\nIR reconstructed from magnitude + phase.': '불러오기 완료: {n}개 캡처\nIR은 크기+위상에서 복원됨.',
+    'Import failed:\n{e}': '불러오기 실패:\n{e}',
+    'No valid captures in file.': '파일에 유효한 캡처가 없습니다.',
     'No TF captures available.': 'TF 캡처가 없습니다.',
     'Select 2 or more captures.': '캡처를 2개 이상 선택하세요.',
     'Ref and Meas are on different devices.\n\nDifferent audio interfaces have separate hardware clocks,\nso automatic delay detection may be inaccurate.\n\nEnter the delay value manually,\nor sync clocks via Word Clock / ADAT.': 'Ref와 Meas 장치가 다릅니다.\n\n오디오 인터페이스가 다르면 하드웨어 클럭이 따로 동작해\n딜레이 자동 검출이 정확하지 않을 수 있습니다.\n\n딜레이 값을 직접 입력하거나\nWord Clock / ADAT로 클럭을 동기화하세요.',
@@ -965,6 +970,7 @@ _LUCIDE_ICONS = {
     'folder':   ('<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>', False),
     'hourglass':('<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>', False),
     'download': ('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>', False),
+    'upload':   ('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>', False),
     'save':     ('<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>', False),
     'trash':    ('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>', False),
     'globe':    ('<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>', False),
@@ -6932,6 +6938,7 @@ class _CaptureDrawer(QWidget):
     average_requested  = pyqtSignal(str)            # (mode) — TF 평균
     reference_changed  = pyqtSignal(str, int)       # (mode, idx) — Δ 기준 캡쳐 (-1=해제)
     export_requested   = pyqtSignal(str)            # (mode) — 캡쳐 내보내기
+    import_requested   = pyqtSignal(str)            # (mode) — 캡쳐 불러오기(CSV)
     move_to_group_req  = pyqtSignal(str, int, str)  # (mode, idx, group_name) — 그룹 이동 ('' = 그룹 해제)
     visibility_all_changed   = pyqtSignal(str, bool)       # (mode, visible) — 현재 탭 전체 일괄 표시/숨김
     group_visibility_changed = pyqtSignal(str, str, bool)  # (mode, group_name, visible) — 그룹 일괄
@@ -7004,6 +7011,15 @@ class _CaptureDrawer(QWidget):
         self._export_btn.clicked.connect(lambda: self.export_requested.emit(self._panel_tab))
         self._export_btn.setVisible(False)
         hl.addWidget(self._export_btn)
+        self._import_btn = QPushButton(''); self._import_btn.setIcon(_icon('upload',13))
+        self._import_btn.setFixedSize(22, 20)
+        self._import_btn.setToolTip(_tx('Import TF captures (CSV)'))
+        self._import_btn.setStyleSheet(
+            'font-size:12px;font-weight:600;border:1px solid #38383A;border-radius:5px;'
+            'background:#1C1C1E;color:#4E7DF0;padding:0;')
+        self._import_btn.clicked.connect(lambda: self.import_requested.emit(self._panel_tab))
+        self._import_btn.setVisible(False)
+        hl.addWidget(self._import_btn)
         self._grp_btn = grp_btn = QPushButton('+ Grp')
         grp_btn.setFixedSize(44, 20)
         grp_btn.setToolTip(_tx('New Group'))
@@ -7106,6 +7122,9 @@ class _CaptureDrawer(QWidget):
         self._export_btn.setStyleSheet(
             f'font-size:12px;font-weight:600;border:1px solid {bd};border-radius:5px;'
             f'background:{btn_bg};color:{acc};padding:0;')
+        self._import_btn.setStyleSheet(
+            f'font-size:12px;font-weight:600;border:1px solid {bd};border-radius:5px;'
+            f'background:{btn_bg};color:{acc};padding:0;')
         self._grp_btn.setStyleSheet(
             f'font-size:9px;font-weight:600;border:1px solid {bd};border-radius:5px;'
             f'background:{grp_bg};color:{grp_fg};padding:0 3px;')
@@ -7117,6 +7136,7 @@ class _CaptureDrawer(QWidget):
         self._tf_tab_btn.setChecked(mode == 'tf')
         self._avg_btn.setVisible(mode == 'tf')
         self._export_btn.setVisible(mode == 'tf')
+        self._import_btn.setVisible(mode == 'tf')
         self._redraw()
 
     def set_active_mode(self, mode):
@@ -9658,6 +9678,27 @@ def _hilbert_env(x):
     else:
         h[0] = 1; h[1:(N + 1) // 2] = 2
     return np.abs(np.fft.ifft(X * h)).astype(np.float32)
+
+
+def _ir_from_mag_phase(f_hz, mag_db, phase_deg, fs=48000, N=16384):
+    """크기(dB)+위상(deg)에서 IR을 역FFT로 복원 (임포트용).
+
+    CSV의 mag/phase는 로그격자라 균일 rfft 격자로 복소 보간 후 irfft.
+    위상 래핑은 exp()가 주기적이라 무관하고, real/imag 따로 보간해 위상점프 안전.
+    반환: (t_ms, h) — 시간축 중앙(0ms)을 임펄스 근처로 맞춤. 검증: 지연 정확·형상 상관 0.9.
+    """
+    f_hz = np.asarray(f_hz, dtype=np.float64)
+    mag_lin = 10.0 ** (np.asarray(mag_db, dtype=np.float64) / 20.0)
+    ph = np.radians(np.asarray(phase_deg, dtype=np.float64))
+    Hc = mag_lin * np.exp(1j * ph)
+    f_uni = np.fft.rfftfreq(N, 1.0 / fs)
+    re = np.interp(f_uni, f_hz, Hc.real, left=0.0, right=0.0)
+    im = np.interp(f_uni, f_hz, Hc.imag, left=0.0, right=0.0)
+    h = np.fft.irfft(re + 1j * im, n=N).astype(np.float32)
+    # 시간축: irfft는 0..N. 임펄스가 0ms 근처(지연보정 데이터)라 음/양 대칭 창으로 재배치.
+    t_ms = (np.arange(N) - N // 2) / fs * 1000.0
+    h = np.roll(h, N // 2).astype(np.float32)   # 0ms를 가운데로
+    return t_ms.astype(np.float32), h
 
 
 class TFIRCanvas(QWidget):
@@ -13964,6 +14005,83 @@ class TransferFunctionWindow(QWidget):
             _alog.warning(f'TF Export 실패: {e}')
             _BrandBox.warning(self, _tx('Export'), _tx('Export failed:\n{e}').format(e=e))
 
+    def _import_tf_captures(self):
+        """익스포트한 CSV(capture,freq_hz,mag_db,phase_deg,coherence)를 불러와 캡쳐로 복원.
+
+        Mag/Phase/Coherence는 그대로, IR은 크기+위상에서 역FFT로 재구성(_ir_from_mag_phase).
+        반환: True(1개 이상 추가) / False.
+        """
+        from PyQt5.QtWidgets import QFileDialog
+        import csv as _csv, collections
+        path, _ = QFileDialog.getOpenFileName(self, _tx('Select TF capture CSV'), '', 'CSV (*.csv)')
+        if not path:
+            return False
+        try:
+            with open(path, newline='', encoding='utf-8') as f:
+                rows = list(_csv.reader(f))
+            if not rows or rows[0][:2] != ['capture', 'freq_hz']:
+                _BrandBox.warning(self, _tx('Import TF captures (CSV)'), _tx('No valid captures in file.'))
+                return False
+            # 라벨별 그룹핑(등장 순서 유지)
+            groups = collections.OrderedDict()
+            for r in rows[1:]:
+                if len(r) < 3:
+                    continue
+                groups.setdefault(r[0], []).append(r)
+            added = 0
+            for label, grp in groups.items():
+                f_hz, mag_db, ph_deg, coh = [], [], [], []
+                has_ph = False
+                for r in grp:
+                    try:
+                        fv = float(r[1]); mv = float(r[2])
+                    except (ValueError, IndexError):
+                        continue
+                    f_hz.append(fv); mag_db.append(mv)
+                    pv = r[3] if len(r) > 3 else ''
+                    cv = r[4] if len(r) > 4 else ''
+                    ph_deg.append(float(pv) if pv not in ('', None) else 0.0)
+                    if pv not in ('', None): has_ph = True
+                    coh.append(float(cv) if cv not in ('', None) else np.nan)
+                if len(f_hz) < 2:
+                    continue
+                f_hz = np.asarray(f_hz, dtype=np.float32)
+                mag = np.asarray(mag_db, dtype=np.float32)
+                phw = np.asarray(ph_deg, dtype=np.float32)
+                phu = np.degrees(np.unwrap(np.radians(ph_deg))).astype(np.float32)
+                # 그룹딜레이(ms) = -dφ/dω = -(dφ_deg/df)/360*1000
+                with np.errstate(all='ignore'):
+                    grp_ms = (-(np.gradient(phu, f_hz) / 360.0) * 1000.0).astype(np.float32)
+                coh_a = np.asarray(coh, dtype=np.float32)
+                if np.all(np.isnan(coh_a)):
+                    coh_a = None
+                color = _auto_capture_color(len(self._tf_captures))
+                # Mag / Phase / Coherence
+                self.mag_cvs.add_capture_data(label, color, f_hz, mag, coh_a)
+                self.phase_cvs.add_capture_data(label, color, f_hz, phw, phu, grp_ms, coh_a)
+                # IR — 크기+위상에서 복원(위상 있을 때만)
+                if has_ph:
+                    t_ms, h = _ir_from_mag_phase(f_hz, mag_db, ph_deg)
+                    self.ir_cvs.add_capture_data(label, color, t_ms, h, None, delay=0.0)
+                else:
+                    self.ir_cvs.add_capture_empty(label, color, delay=0.0)
+                self._tf_captures.append({'color': color, 'label': label,
+                                          'group': '', 'source': 'import'})
+                added += 1
+            if added == 0:
+                _BrandBox.warning(self, _tx('Import TF captures (CSV)'), _tx('No valid captures in file.'))
+                return False
+            _alog.info(f'TF Import 완료  file={path}  +{added}')
+            self._refresh_tf_capture_bar()
+            self._save_tf_captures()
+            _BrandBox.information(self, _tx('Import TF captures (CSV)'),
+                                  _tx('Import complete: {n} capture(s)\nIR reconstructed from magnitude + phase.').format(n=added))
+            return True
+        except Exception as e:
+            _alog.warning(f'TF Import 실패: {e}')
+            _BrandBox.warning(self, _tx('Import TF captures (CSV)'), _tx('Import failed:\n{e}').format(e=e))
+            return False
+
     def _do_tf_average(self):
         if not self._tf_captures:
             from PyQt5.QtWidgets import QMessageBox
@@ -17065,6 +17183,7 @@ class MainWindow(QMainWindow):
         self._capture_drawer.average_requested.connect(self._on_drawer_average)
         self._capture_drawer.reference_changed.connect(self._on_drawer_reference)
         self._capture_drawer.export_requested.connect(self._on_drawer_export)
+        self._capture_drawer.import_requested.connect(self._on_drawer_import)
         self._capture_drawer.setVisible(False)
         body_lay.addWidget(self._capture_drawer, 0)
         body_lay.addWidget(self.main_stack, 1)
@@ -20073,6 +20192,11 @@ class MainWindow(QMainWindow):
     def _on_drawer_export(self, mode):
         if mode == 'tf' and hasattr(self, 'tf_win') and self.tf_win is not None:
             self.tf_win._export_tf_captures()
+
+    def _on_drawer_import(self, mode):
+        if mode == 'tf' and hasattr(self, 'tf_win') and self.tf_win is not None:
+            if self.tf_win._import_tf_captures():
+                self._refresh_capture_drawer()
 
     def _on_drawer_rename(self, mode, idx, name):
         if mode == 'spec':
