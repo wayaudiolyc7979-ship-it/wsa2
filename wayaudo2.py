@@ -3287,14 +3287,16 @@ class FFTCanvas(QWidget):
         dh=H-pt-pb; uw=W-pl-pr; ny=min(self.sample_rate/2,20000)
         # dB 그리드
         p.setFont(_qfont(CF_GRID))
+        _lg=p.fontMetrics().height()+2; _last_ly=None   # 짧은(분할) 뷰서 라벨 겹침 방지(그리드는 유지)
         for db in range(int(self.db_min),int(self.db_max)+1,12):
             y=pt+db_to_y(db,dh,self.db_min,self.db_max)
             if not pt<=y<=H-pb: continue
             is0=(db==0)
             p.setPen(QPen(QColor(T('grid_ref')),1.5 if is0 else 0.7,Qt.SolidLine))
             p.drawLine(pl,y,W-pr,y)
-            p.setPen(QColor(T('graph_txt')))
-            p.drawText(2,y-10,pl-12,20,Qt.AlignRight|Qt.AlignVCenter,str(db))
+            if _last_ly is None or abs(y-_last_ly)>=_lg:
+                p.setPen(QColor(T('graph_txt')))
+                p.drawText(2,y-10,pl-12,20,Qt.AlignRight|Qt.AlignVCenter,str(db)); _last_ly=y
         # 주파수 수직선 + 레이블
         p.setFont(_qfont(CF_GRID, True))
         last_lx=-999
@@ -3723,14 +3725,16 @@ class OctaveCanvas(QWidget):
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
         dh=H-pt-pb; uw=W-pl-pr; ny=20000
         p.setFont(_qfont(CF_GRID))
+        _lg=p.fontMetrics().height()+2; _last_ly=None   # 짧은(분할) 뷰서 라벨 겹침 방지(그리드는 유지)
         for db in range(int(self.db_min),int(self.db_max)+1,12):
             y=pt+db_to_y(db,dh,self.db_min,self.db_max)
             if not pt<=y<=H-pb: continue
             is0=(db==0)
             p.setPen(QPen(QColor(T('grid_ref')),1.5 if is0 else 0.7,Qt.SolidLine))
             p.drawLine(pl,y,W-pr,y)
-            p.setPen(QColor(T('graph_txt')))
-            p.drawText(2,y-10,pl-12,20,Qt.AlignRight|Qt.AlignVCenter,str(db))
+            if _last_ly is None or abs(y-_last_ly)>=_lg:
+                p.setPen(QColor(T('graph_txt')))
+                p.drawText(2,y-10,pl-12,20,Qt.AlignRight|Qt.AlignVCenter,str(db)); _last_ly=y
         p.setFont(_qfont(CF_GRID, True)); last_x=-999
         for f in FREQ_MARKS:
             if f<20 or f>ny: continue
@@ -8390,7 +8394,7 @@ class _TFFreqZoomMixin:
 #  TF Phase Canvas
 # ───────────────────────────────────────────
 class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
-    PAD_L=40; PAD_R=15; PAD_T=16; PAD_B=24   # PAD_T: 맨위 라벨이 카드 상단에 안 잘리게
+    PAD_L=40; PAD_R=15; PAD_T=16; PAD_B=28   # PAD_T/B: 맨위·맨아래 라벨이 카드 둥근 프레임에 안 겹치게(3패널 통일 28)
     cursor_x_changed = pyqtSignal(int)
     cursor_left      = pyqtSignal()
     _cap_built       = pyqtSignal()
@@ -8714,14 +8718,16 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
             else:                step_deg=360
             start=int(math.ceil(self.ph_min/step_deg))*step_deg
             gs=[v for v in range(start,int(self.ph_max)+step_deg,step_deg) if self.ph_min<=v<=self.ph_max]
+        _lg=p.fontMetrics().height()+2; _last_ly=None   # 짧은 패널서 라벨 겹침 방지(그리드는 유지)
         for deg in gs:
             y=int(pt+(self.ph_max-deg)/rng*dh)
             is0=(deg==0)
             p.setPen(QPen(QColor(T('grid_ref')),1.5 if is0 else 0.7,Qt.SolidLine))
             p.drawLine(pl,y,W-pr,y)
-            p.setPen(QColor(T('graph_txt')))
-            lbl=f'{deg}{unit}' if is_grp else f'{int(deg)}°'
-            p.drawText(0,y-8,pl-2,16,Qt.AlignRight|Qt.AlignVCenter,lbl)
+            if _last_ly is None or abs(y-_last_ly)>=_lg:
+                p.setPen(QColor(T('graph_txt')))
+                lbl=f'{deg}{unit}' if is_grp else f'{int(deg)}°'
+                p.drawText(0,y-8,pl-2,16,Qt.AlignRight|Qt.AlignVCenter,lbl); _last_ly=y
         p.setFont(_qfont(CF_AXIS, True)); last_lx=-999
         draw_freq_minor_grid(p, pl, pr, uw, pt, pb, W, H, self.f_hi, self.f_lo)
         for f in self._fz_marks():
@@ -9333,6 +9339,7 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
         rng=self.db_max-self.db_min if self.db_max!=self.db_min else 1.0
         step_db=3
         p.setFont(_qfont(CF_AXIS))
+        _lg=p.fontMetrics().height()+2; _last_ly=None   # 짧은 패널서 라벨 겹침 방지(그리드는 유지)
         for db in range(int(self.db_min)-step_db,int(self.db_max)+step_db+1,step_db):
             if db<self.db_min or db>self.db_max: continue
             y=int(pt+(self.db_max-db)/rng*dh)
@@ -9340,7 +9347,8 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
             is0=(db==0)
             p.setPen(QPen(QColor(T('grid_ref')),1.5 if is0 else 0.7,Qt.SolidLine))
             p.drawLine(pl,y,W-pr,y)
-            p.setPen(QColor(T('graph_txt'))); p.drawText(0,y-8,pl-2,16,Qt.AlignRight|Qt.AlignVCenter,f'{db:+d}')
+            if _last_ly is None or abs(y-_last_ly)>=_lg:
+                p.setPen(QColor(T('graph_txt'))); p.drawText(0,y-8,pl-2,16,Qt.AlignRight|Qt.AlignVCenter,f'{db:+d}'); _last_ly=y
         p.setFont(_qfont(CF_AXIS, True)); last_lx=-999
         draw_freq_minor_grid(p, pl, pr, uw, pt, pb, W, H, self.f_hi, self.f_lo)
         for f in self._fz_marks():
@@ -10043,7 +10051,7 @@ def _ir_from_mag_phase(f_hz, mag_db, phase_deg, fs=48000, N=16384):
 
 class TFIRCanvas(QWidget):
     """Live IR — Lin / ETC / Log 3-mode 표시."""
-    PAD_L = 40; PAD_R = 15; PAD_T = 16; PAD_B = 20   # PAD_T: 맨위 라벨이 카드 상단에 안 잘리게
+    PAD_L = 40; PAD_R = 15; PAD_T = 16; PAD_B = 28   # PAD_T/B: 맨위·맨아래 라벨(±1.0)+미터축이 카드 둥근 프레임에 안 겹치게(Mag과 동일 28)
     _cap_built = pyqtSignal()
 
     def __init__(self):
@@ -10396,6 +10404,7 @@ class TFIRCanvas(QWidget):
 
         if self.ir_mode == 0:  # ── Lin ───────────────────────────────────
             p.setFont(_qfont(CF_AXIS))
+            _lg=p.fontMetrics().height()+2; _last_ly=None   # 짧은 패널서 라벨 겹침 방지(그리드는 유지)
             for amp in [1.0, 0.5, 0.0, -0.5, -1.0]:
                 y = int(pt + (1.0 - amp) / 2.0 * dh)
                 if not pt <= y <= H - pb: continue
@@ -10403,12 +10412,14 @@ class TFIRCanvas(QWidget):
                 p.setPen(QPen(QColor(T('grid_ref')), 1.5 if is0 else 0.7,
                              Qt.SolidLine))
                 p.drawLine(pl, y, W - pr, y)
-                p.setPen(QColor(T('graph_txt'))); p.drawText(0,y-8,pl-2,16,Qt.AlignRight|Qt.AlignVCenter,f'{amp:+.1f}')
+                if _last_ly is None or abs(y-_last_ly)>=_lg:
+                    p.setPen(QColor(T('graph_txt'))); p.drawText(0,y-8,pl-2,16,Qt.AlignRight|Qt.AlignVCenter,f'{amp:+.1f}'); _last_ly=y
             p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(_TF_CARD_COL['ir']))
             p.drawText(pl + 4, pt + 15, 'Live IR  (Linear)  ▾')
         else:  # ── ETC (1) or Log (2) ─────────────────────────────────────
             db_range = max(self.db_max - self.db_min, 1.0)
             p.setFont(_qfont(CF_AXIS))
+            _lg=p.fontMetrics().height()+2; _last_ly=None   # 짧은 패널서 라벨 겹침 방지(그리드는 유지)
             for db in range(int(self.db_min), int(self.db_max) + 1, 10):
                 if not self.db_min <= db <= self.db_max: continue
                 y = int(pt + (self.db_max - db) / db_range * dh)
@@ -10417,7 +10428,8 @@ class TFIRCanvas(QWidget):
                 p.setPen(QPen(QColor(T('grid_ref')), 1.3 if is0 else 0.6,
                              Qt.SolidLine))
                 p.drawLine(pl, y, W - pr, y)
-                p.setPen(QColor(T('graph_txt'))); p.drawText(0,y-8,pl-2,16,Qt.AlignRight|Qt.AlignVCenter,f'{db:+d}')
+                if _last_ly is None or abs(y-_last_ly)>=_lg:
+                    p.setPen(QColor(T('graph_txt'))); p.drawText(0,y-8,pl-2,16,Qt.AlignRight|Qt.AlignVCenter,f'{db:+d}'); _last_ly=y
             lbl_text = ('Live IR  (ETC)' if self.ir_mode == 1 else 'Live IR  (Log)') + '  ▾'
             p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(_TF_CARD_COL['ir']))
             p.drawText(pl + 4, pt + 15, lbl_text)
