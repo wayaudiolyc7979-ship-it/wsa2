@@ -17987,6 +17987,7 @@ class MainWindow(QMainWindow):
         self.tf_win._popout_btn.clicked.connect(self._toggle_tf_popout)
         # 이전 세션 캡처 복원
         QTimer.singleShot(0, self._restore_spec_captures)
+        QTimer.singleShot(0, self._restore_active_tab)   # 마지막 탭으로 시작(현재 화면=기본화면)
 
         # ── 푸터
         self.ft=QWidget(); self.ft.setFixedHeight(22)
@@ -18014,6 +18015,18 @@ class MainWindow(QMainWindow):
             # Stereo 탭: 캡처 드로어 비활성화
             if i==2: self._capture_drawer.setVisible(False)
         self._apply_tab_styles()
+        # 마지막 탭 기억 → 다음 실행 시 그 탭으로 시작(현재 화면=기본화면)
+        if getattr(self, '_tab_restore_done', False):
+            self._settings['active_tab'] = int(i); _save_settings(self._settings)
+
+    def _restore_active_tab(self):
+        """저장된 마지막 탭으로 시작 — 설정 auto-save와 합쳐 '현재 화면=기본화면'."""
+        try: i = int(self._settings.get('active_tab', 0))
+        except Exception: i = 0
+        if i not in (0, 1, 2): i = 0
+        if i != 0:
+            self._switch_tab(i)
+        self._tab_restore_done = True
 
     def _apply_tab_styles(self):
         accent=T('accent'); text=T('text'); text_dim=T('text_dim')
