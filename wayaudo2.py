@@ -3275,7 +3275,7 @@ class FFTCanvas(QWidget):
         _cap_focus = _focused_capture_visible(self)
         def _draw_caps():
             if not self._captures: return
-            _cap_key=(W,H,self.db_max,self.db_min,self.scale_log,int(ny))
+            _cap_key=self._cap_base_key()   # 개수 포함 7-튜플 — 증분 경로와 일치(다른 캔버스와 동일)
             if self._cap_pix is None or self._cap_pix_key!=_cap_key:
                 self._trigger_cap_build(W, H, _cap_key)
             if self._cap_pix is not None:
@@ -14184,41 +14184,50 @@ class TransferFunctionWindow(QWidget):
                     continue
                 groups.setdefault(r[0], []).append(r)
             added = 0
+            def _num(s):                                 # 잘못된 값은 None (행 통째로 버리지 않음)
+                try: return float(s)
+                except (ValueError, TypeError): return None
             for label, grp in groups.items():
-                f_hz, mag_db, ph_deg, coh = [], [], [], []
+                rows = []
                 has_ph = False
                 for r in grp:
                     try:
                         fv = float(r[1]); mv = float(r[2])
                     except (ValueError, IndexError):
-                        continue
-                    f_hz.append(fv); mag_db.append(mv)
-                    pv = r[3] if len(r) > 3 else ''
-                    cv = r[4] if len(r) > 4 else ''
-                    ph_deg.append(float(pv) if pv not in ('', None) else 0.0)
-                    if pv not in ('', None): has_ph = True
-                    coh.append(float(cv) if cv not in ('', None) else np.nan)
-                if len(f_hz) < 2:
+                        continue                          # 주파수/크기 불량 행만 스킵
+                    pv = _num(r[3]) if len(r) > 3 else None
+                    cv = _num(r[4]) if len(r) > 4 else None
+                    if pv is not None: has_ph = True
+                    rows.append((fv, mv, pv if pv is not None else 0.0,
+                                 cv if cv is not None else np.nan))
+                if len(rows) < 2:
                     continue
-                f_hz = np.asarray(f_hz, dtype=np.float32)
-                mag = np.asarray(mag_db, dtype=np.float32)
-                phw = np.asarray(ph_deg, dtype=np.float32)
+                rows.sort(key=lambda t: t[0])             # 주파수 오름차순(np.interp/gradient 전제)
+                arr = np.array(rows, dtype=np.float64)
+                keep = np.concatenate(([True], np.diff(arr[:, 0]) > 0))  # 중복주파수 제거(gradient div0 방지)
+                arr = arr[keep]
+                if len(arr) < 2:
+                    continue
+                f_hz = arr[:, 0].astype(np.float32)
+                mag = arr[:, 1].astype(np.float32)
+                ph_deg = arr[:, 2]
+                phw = ph_deg.astype(np.float32)
                 phu = np.degrees(np.unwrap(np.radians(ph_deg))).astype(np.float32)
                 # 그룹딜레이(ms) = -dφ/dω = -(dφ_deg/df)/360*1000
                 with np.errstate(all='ignore'):
                     grp_ms = (-(np.gradient(phu, f_hz) / 360.0) * 1000.0).astype(np.float32)
-                coh_a = np.asarray(coh, dtype=np.float32)
+                coh_a = arr[:, 3].astype(np.float32)
                 if np.all(np.isnan(coh_a)):
                     coh_a = None
                 color = _auto_capture_color(len(self._tf_captures))
-                # Mag / Phase / Coherence
                 self.mag_cvs.add_capture_data(label, color, f_hz, mag, coh_a)
-                self.phase_cvs.add_capture_data(label, color, f_hz, phw, phu, grp_ms, coh_a)
-                # IR — 크기+위상에서 복원(위상 있을 때만)
+                # Phase/IR — 위상 있을 때만 복원, 없으면 None(가짜 0° 곡선 방지)
                 if has_ph:
-                    t_ms, h = _ir_from_mag_phase(f_hz, mag_db, ph_deg)
+                    self.phase_cvs.add_capture_data(label, color, f_hz, phw, phu, grp_ms, coh_a)
+                    t_ms, h = _ir_from_mag_phase(f_hz, mag.astype(np.float64), ph_deg)
                     self.ir_cvs.add_capture_data(label, color, t_ms, h, None, delay=0.0)
                 else:
+                    self.phase_cvs.add_capture_data(label, color, f_hz, None, None, None, coh_a)
                     self.ir_cvs.add_capture_empty(label, color, delay=0.0)
                 self._tf_captures.append({'color': color, 'label': label,
                                           'group': '', 'source': 'import'})
