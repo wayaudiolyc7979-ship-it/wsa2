@@ -263,6 +263,34 @@ def _tf_mag():
 check('TFMagCanvas (Mag+Coherence, 코히 기준선 제거)', _tf_mag)
 
 
+def _tf_freq_zoom():
+    """주파수축 줌/팬 — Mag를 100~500Hz로 확대 렌더 + 줌 로직·클램프·연동 검증.
+    곡선/그리드/코히가 f_lo~f_hi 따라가는지 + 최소스팬 클램프 + 매그↔위상 동기화."""
+    f = np.logspace(np.log10(20), np.log10(20000), 400).astype(np.float32)
+    cv = w.TFMagCanvas(); cv.resize(900, 300)
+    cv.set_data(f, (5*np.sin(np.linspace(0,8,400))).astype(np.float32),
+                np.clip(0.7+0.3*np.cos(np.linspace(0,10,400)),0,1).astype(np.float32), None)
+    cv.set_freq_zoom(100, 500)
+    assert cv.f_lo == 100 and cv.f_hi == 500 and cv.is_freq_zoomed(), 'zoom state'
+    # 매핑: 100→왼쪽끝, 500→오른쪽끝
+    pl, uw = cv.PAD_L, cv.width()-cv.PAD_L-cv.PAD_R
+    assert abs(float(cv._fx(100, pl, uw)) - pl) < 1.0, 'f_lo→left'
+    assert abs(float(cv._fx(500, pl, uw)) - (pl+uw)) < 1.0, 'f_hi→right'
+    # 과도확대 클램프
+    cv.set_freq_zoom(1000, 1001)
+    import math as _m
+    assert _m.log10(cv.f_hi/cv.f_lo) >= w._FZ_MIN_DECADES - 1e-9, 'min-span clamp'
+    # 매그↔위상 연동
+    pha = w.TFPhaseCanvas(); pha.resize(900, 240)
+    def _sync(lo, hi): cv.set_freq_zoom(lo, hi); pha.set_freq_zoom(lo, hi)
+    cv._fzoom_cb = pha._fzoom_cb = _sync
+    cv._fz_zoom_around(300, 0.4)
+    assert abs(cv.f_lo-pha.f_lo) < 1e-6 and abs(cv.f_hi-pha.f_hi) < 1e-6, 'mag/phase sync'
+    cv._fzoom_cb = None; cv.set_freq_zoom(160, 640); cv.show()
+    return _save(cv, 'tf_freq_zoom.png')
+check('TF 주파수축 줌/팬 (매핑·클램프·연동)', _tf_freq_zoom)
+
+
 def _vectorscope():
     """VectorscopeCanvas 3패턴 — 모노(L=R→대각)/와이드(무상관→구름)/역상(L=-R→반대대각).
     전체 StereoLoudnessPage 안에서만 돌던 걸 통제신호로 단독 검증 + 상관도(_corr) 부호 단정."""

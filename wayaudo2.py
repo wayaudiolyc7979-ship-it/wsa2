@@ -2002,23 +2002,23 @@ def _vbar_gradient(col):
 # ───────────────────────────────────────────
 #  좌표 변환
 # ───────────────────────────────────────────
-def freq_to_x(f, pad_l, usable, ny=24000):
+def freq_to_x(f, pad_l, usable, ny=24000, f_lo=20):
     if f <= 0: return pad_l
-    return pad_l + (math.log10(max(f,1)/20) / math.log10(ny/20)) * usable
+    return pad_l + (math.log10(max(f,1e-9)/f_lo) / math.log10(ny/f_lo)) * usable
 
 # 1/3옥타브 보조 그리드 (옥타브선 사이) — Smaart 스타일 촘촘한 로그 그리드용
 FREQ_MARKS_MINOR = [20,25,40,50,80,100,160,200,315,400,630,800,
                     1250,1600,2500,3150,5000,6300,10000,12500,20000]
 
-def draw_freq_minor_grid(p, pl, pr, uw, pt, pb, W, H, ny):
+def draw_freq_minor_grid(p, pl, pr, uw, pt, pb, W, H, ny, f_lo=20):
     """1/3옥타브 보조 세로 그리드선 — 옥타브선보다 '흐리게'(behind). FREQ_MARKS 주선 직전 호출.
     '흐리게'의 방향은 배경에 따라 반대: 다크=어둡게(검정쪽), 라이트=밝게(흰쪽). 안 그러면 라이트에서
-    보조선이 옥타브선보다 진해져 위계가 뒤집힘."""
+    보조선이 옥타브선보다 진해져 위계가 뒤집힘. f_lo=줌 좌하한(주파수축 확대 반영)."""
     minor = QColor(T('grid')).lighter(116) if _theme == 'light' else QColor(T('grid')).darker(150)
     p.setPen(QPen(minor, 1, Qt.SolidLine))
     for f in FREQ_MARKS_MINOR:
-        if f < 20 or f > ny: continue
-        fx = freq_to_x(f, pl, uw, ny)
+        if f < f_lo or f > ny: continue
+        fx = freq_to_x(f, pl, uw, ny, f_lo)
         if not pl <= fx <= W - pr: continue
         p.drawLine(int(fx), pt, int(fx), H - pb)
 
@@ -2027,9 +2027,9 @@ def db_to_y(db, draw_h, db_min, db_max):
     rng = db_max - db_min
     return int((db_max - db) / rng * draw_h) if rng > 0 else 0
 
-def x_to_freq(x, pad_l, usable, ny=24000):
+def x_to_freq(x, pad_l, usable, ny=24000, f_lo=20):
     r = max(0.0, min(1.0, (x-pad_l)/usable))
-    return 20*(ny/20)**r
+    return f_lo*(ny/f_lo)**r
 
 def y_to_db(y, draw_h, db_min, db_max):
     return db_max - (y/max(draw_h,1))*(db_max-db_min)
@@ -3057,7 +3057,7 @@ class FFTCanvas(QWidget):
                 p.setPen(QPen(_ch_col(ch_data['color']),1.8)); p.drawPath(sc)
             return
         if self.scale_log:
-            xs=pl+(np.log10(np.maximum(f_arr,1)/20)/math.log10(ny/20))*uw
+            xs=self._fx(f_arr,pl,uw)
         else:
             xs=pl+(f_arr/ny)*uw
         ys=pt+np.clip((self.db_max-a_arr)/(self.db_max-self.db_min)*dh,0,dh)
@@ -8101,9 +8101,131 @@ def _draw_tf_sel_border(widget, p):
 
 
 # ───────────────────────────────────────────
+#  TF 매그/위상 주파수축 줌·팬 (공유 믹스인)
+#  프로 툴(REW/Smaart) 방식: 휠=커서기준 확대·축소 · 그냥드래그=박스줌 · Shift+드래그/두손가락=팬
+#  · Cmd±=단계 · 더블클릭/Cmd0=전대역 리셋. 매그·위상·코히런스는 창이 _fzoom_cb로 연동.
+#  각 캔버스는 좌표를 self._fx(freq→x)/self._xf(x→freq)로 매핑(줌 반영).
+# ───────────────────────────────────────────
+_FZ_LO_LIMIT = 20.0
+_FZ_HI_LIMIT = 20000.0
+_FZ_MIN_DECADES = 0.045          # 최소 스팬(log10 hi/lo) ≈ 1/7 옥타브 — 과도 확대 방지
+
+def _fz_clamp(lo, hi):
+    lo = float(min(max(lo, _FZ_LO_LIMIT), _FZ_HI_LIMIT))
+    hi = float(min(max(hi, _FZ_LO_LIMIT), _FZ_HI_LIMIT))
+    if hi <= lo * 1.0001: hi = min(lo * 1.05, _FZ_HI_LIMIT)
+    if math.log10(hi / lo) < _FZ_MIN_DECADES:      # 너무 좁으면 중심 유지하며 넓힘
+        c = math.sqrt(lo * hi); half = 10 ** (_FZ_MIN_DECADES / 2)
+        lo, hi = c / half, c * half
+        if lo < _FZ_LO_LIMIT: lo, hi = _FZ_LO_LIMIT, _FZ_LO_LIMIT * (hi / lo)
+        if hi > _FZ_HI_LIMIT: hi, lo = _FZ_HI_LIMIT, _FZ_HI_LIMIT / (hi / lo)
+    return lo, hi
+
+
+class _TFFreqZoomMixin:
+    def _fz_init(self):
+        self.f_lo = _FZ_LO_LIMIT; self.f_hi = _FZ_HI_LIMIT
+        self._fzoom_cb = None          # 창이 설정: (lo,hi) → 매그·위상 둘 다 set_freq_zoom
+        self._fz_drag = None           # 'box' | 'pan' | None
+        self._fz_x0 = self._fz_x1 = 0
+
+    def is_freq_zoomed(self):
+        return not (abs(self.f_lo - _FZ_LO_LIMIT) < 1e-6 and abs(self.f_hi - _FZ_HI_LIMIT) < 1e-6)
+
+    # 좌표 매핑 — 스칼라·numpy 배열 공용 (줌 f_lo~f_hi 반영)
+    def _fx(self, f, pl, uw):
+        lo, hi = self.f_lo, self.f_hi
+        return pl + (np.log10(np.maximum(f, 1e-9) / lo) / math.log10(hi / lo)) * uw
+    def _xf(self, x, pl, uw):
+        lo, hi = self.f_lo, self.f_hi
+        r = np.clip((np.asarray(x, dtype=float) - pl) / max(uw, 1), 0.0, 1.0)
+        return lo * (hi / lo) ** r
+
+    def _fz_marks(self):
+        """라벨 찍을 주파수 눈금 — 확대 시 보조눈금까지 포함(성긴 라벨 방지)."""
+        if self.is_freq_zoomed():
+            return sorted(set(FREQ_MARKS) | set(FREQ_MARKS_MINOR))
+        return list(FREQ_MARKS)
+
+    # 줌 상태 반영 (창이 매그·위상 둘 다 호출)
+    def set_freq_zoom(self, lo, hi):
+        lo, hi = _fz_clamp(lo, hi)
+        if abs(lo - self.f_lo) < 1e-9 and abs(hi - self.f_hi) < 1e-9: return
+        self.f_lo, self.f_hi = lo, hi
+        self._cache = None
+        if hasattr(self, '_cap_pix'): self._cap_pix = None   # 캡처곡선도 줌 따라 재빌드
+        self.update()
+    def _fz_apply(self, lo, hi):
+        if self._fzoom_cb: self._fzoom_cb(*_fz_clamp(lo, hi))   # 창이 연동
+        else: self.set_freq_zoom(lo, hi)
+
+    def _fz_zoom_around(self, f_center, factor):
+        L, Hh = math.log10(self.f_lo), math.log10(self.f_hi)
+        C = min(max(math.log10(max(f_center, 1e-9)), L), Hh)
+        r = (C - L) / (Hh - L) if Hh > L else 0.5
+        span = (Hh - L) * factor
+        nL = C - r * span
+        self._fz_apply(10 ** nL, 10 ** (nL + span))
+    def _fz_pan_px(self, dx_px):
+        pl, pr = self.PAD_L, self.PAD_R; uw = max(self.width() - pl - pr, 1)
+        L, Hh = math.log10(self.f_lo), math.log10(self.f_hi)
+        d = -(dx_px / uw) * (Hh - L)
+        self._fz_apply(10 ** (L + d), 10 ** (Hh + d))
+    def _fz_reset(self):
+        self._fz_apply(_FZ_LO_LIMIT, _FZ_HI_LIMIT)
+
+    # 이벤트 — 각 캔버스 핸들러가 호출, 처리했으면 True
+    def _fz_wheel(self, e):
+        d = e.angleDelta(); dy, dx = d.y(), d.x()
+        if dx != 0 and abs(dx) > abs(dy):            # 트랙패드 두 손가락 좌우 = 팬
+            self._fz_pan_px(dx * 0.5); e.accept(); return True
+        if dy != 0:                                  # 휠/핀치 = 커서 기준 확대·축소
+            pl, pr = self.PAD_L, self.PAD_R; uw = max(self.width() - pl - pr, 1)
+            fc = float(self._xf(e.x(), pl, uw))
+            self._fz_zoom_around(fc, 0.85 if dy > 0 else 1 / 0.85); e.accept(); return True
+        return False
+    def _fz_press(self, e):
+        if e.button() != Qt.LeftButton: return False
+        if e.modifiers() & Qt.ShiftModifier:
+            self._fz_drag = 'pan'; self._fz_x0 = e.x(); self.setCursor(Qt.ClosedHandCursor)
+        else:
+            self._fz_drag = 'box'; self._fz_x0 = self._fz_x1 = e.x()
+        return True
+    def _fz_move(self, e):
+        if self._fz_drag is None: return False
+        if self._fz_drag == 'pan':
+            self._fz_pan_px(e.x() - self._fz_x0); self._fz_x0 = e.x()
+        else:
+            self._fz_x1 = e.x(); self.update()
+        return True
+    def _fz_release(self, e):
+        if self._fz_drag is None: return False
+        mode = self._fz_drag; self._fz_drag = None; self.unsetCursor()
+        if mode == 'box':
+            pl, pr = self.PAD_L, self.PAD_R; uw = max(self.width() - pl - pr, 1)
+            x0, x1 = sorted((self._fz_x0, self._fz_x1))
+            if x1 - x0 >= 8:                          # 최소 드래그 폭
+                self._fz_apply(float(self._xf(x0, pl, uw)), float(self._xf(x1, pl, uw)))
+            self.update()
+        return True
+    def _fz_key(self, e):
+        if not (e.modifiers() & Qt.ControlModifier): return False    # macOS Cmd
+        k = e.key(); c = math.sqrt(self.f_lo * self.f_hi)
+        if k in (Qt.Key_Equal, Qt.Key_Plus):  self._fz_zoom_around(c, 0.7); return True
+        if k == Qt.Key_Minus:                 self._fz_zoom_around(c, 1 / 0.7); return True
+        if k == Qt.Key_0:                     self._fz_reset(); return True
+        return False
+    def _fz_overlay(self, p, W, H):
+        if self._fz_drag == 'box' and abs(self._fz_x1 - self._fz_x0) >= 2:
+            x0, x1 = sorted((self._fz_x0, self._fz_x1))
+            rr = QRectF(x0, self.PAD_T, x1 - x0, H - self.PAD_T - self.PAD_B)
+            p.fillRect(rr, QColor(90, 150, 230, 55))
+            p.setPen(QPen(QColor(T('accent')), 1, Qt.DashLine)); p.setBrush(Qt.NoBrush); p.drawRect(rr)
+
+
 #  TF Phase Canvas
 # ───────────────────────────────────────────
-class TFPhaseCanvas(QWidget):
+class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
     PAD_L=40; PAD_R=15; PAD_T=10; PAD_B=24
     cursor_x_changed = pyqtSignal(int)
     cursor_left      = pyqtSignal()
@@ -8113,6 +8235,7 @@ class TFPhaseCanvas(QWidget):
         self.setMinimumSize(400,110); self.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Expanding)
         self.setMouseTracking(True); self.setAttribute(Qt.WA_OpaquePaintEvent,True)
         self.setFocusPolicy(Qt.StrongFocus)
+        self._fz_init()   # 주파수축 줌/팬 상태(f_lo/f_hi)
         self.freqs=None; self.ph_wrap=None; self.ph_unwr=None; self.grp_ms=None
         self.coherence=None; self.mag=None; self.coh_blank=0.5
         self.phase_mode=0
@@ -8201,7 +8324,7 @@ class TFPhaseCanvas(QWidget):
         data=[cap['ph_wrap'],cap['ph_unwr'],cap['grp_ms']][self.phase_mode]
         if data is None: return
         freqs=cap['f']
-        xs=pl+(np.log10(np.maximum(freqs,1)/20)/math.log10(ny/20))*uw
+        xs=self._fx(freqs,pl,uw)
         if self.phase_mode==0:
             mid=(self.ph_min+self.ph_max)/2
             data_plot=data-360.0*np.round((data-mid)/360.0)
@@ -8343,6 +8466,7 @@ class TFPhaseCanvas(QWidget):
         self._cache=None; self._cap_pix=None; self.update()
 
     def mouseMoveEvent(self,e):
+        if self._fz_move(e): return          # 박스줌 러버밴드 / 팬 드래그 중
         x=e.x()
         if x!=self._mx:
             self._mx=x; self._peer_mx=-1; self.update()
@@ -8362,17 +8486,27 @@ class TFPhaseCanvas(QWidget):
     def resizeEvent(self,e): self._cache=None; self.update()
 
     def mouseDoubleClickEvent(self,e):
+        self._fz_reset()                     # 주파수축 전대역 리셋 (Smaart 테두리클릭 방식)
         if self.phase_mode==0:   self.ph_min,self.ph_max=-150.0,150.0
         elif self.phase_mode==1: self.ph_min,self.ph_max=-540.0,540.0
         else:                    self.ph_min,self.ph_max=-2.0,30.0
         self._cache=None; self.update()
 
-    def wheelEvent(self, e): e.ignore()
+    def wheelEvent(self, e):
+        if self._fz_wheel(e): return
+        e.ignore()
 
     def enterEvent(self, e): self.setFocus(); super().enterEvent(e)
-    def mousePressEvent(self, e): self.setFocus(); super().mousePressEvent(e)
+    def mousePressEvent(self, e):
+        self.setFocus()
+        if self._fz_press(e): return         # 박스줌/팬 시작
+        super().mousePressEvent(e)
+    def mouseReleaseEvent(self, e):
+        if self._fz_release(e): return
+        super().mouseReleaseEvent(e)
 
     def keyPressEvent(self, e):
+        if self._fz_key(e): return           # Cmd± 줌 / Cmd0 리셋
         key = e.key()
         if key in (Qt.Key_Up, Qt.Key_Down):
             step = 1 if key == Qt.Key_Up else -1
@@ -8424,10 +8558,10 @@ class TFPhaseCanvas(QWidget):
             lbl=f'{deg}{unit}' if is_grp else f'{int(deg)}°'
             p.drawText(0,y-8,pl-2,16,Qt.AlignRight|Qt.AlignVCenter,lbl)
         p.setFont(_qfont(CF_AXIS, True)); last_lx=-999
-        draw_freq_minor_grid(p, pl, pr, uw, pt, pb, W, H, ny)
-        for f in FREQ_MARKS:
-            if f<20 or f>ny: continue
-            fx=freq_to_x(f,pl,uw,ny)
+        draw_freq_minor_grid(p, pl, pr, uw, pt, pb, W, H, self.f_hi, self.f_lo)
+        for f in self._fz_marks():
+            if f<self.f_lo or f>self.f_hi: continue
+            fx=freq_to_x(f,pl,uw,self.f_hi,self.f_lo)
             if not pl<=fx<=W-pr: continue
             p.setPen(QPen(QColor(T('grid')),1)); p.drawLine(int(fx),pt,int(fx),H-pb)
             if fx-last_lx<40: continue
@@ -8461,10 +8595,10 @@ class TFPhaseCanvas(QWidget):
             is0=(deg==0)
             p.setPen(QPen(QColor(T('grid_ref')),1.5 if is0 else 0.7,Qt.SolidLine))
             p.drawLine(pl,y,W-pr,y)
-        draw_freq_minor_grid(p, pl, pr, uw, pt, pb, W, H, ny)
-        for f in FREQ_MARKS:
-            if f<20 or f>ny: continue
-            fx=freq_to_x(f,pl,uw,ny)
+        draw_freq_minor_grid(p, pl, pr, uw, pt, pb, W, H, self.f_hi, self.f_lo)
+        for f in self._fz_marks():
+            if f<self.f_lo or f>self.f_hi: continue
+            fx=freq_to_x(f,pl,uw,self.f_hi,self.f_lo)
             if not pl<=fx<=W-pr: continue
             p.setPen(QPen(QColor(T('grid')),1)); p.drawLine(int(fx),pt,int(fx),H-pb)
 
@@ -8499,7 +8633,7 @@ class TFPhaseCanvas(QWidget):
             pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
             dh=H-pt-pb; uw=W-pl-pr; ny=20000
             rng=self.ph_max-self.ph_min if self.ph_max!=self.ph_min else 1.0
-            xs=pl+(np.log10(np.maximum(self.freqs,1)/20)/math.log10(ny/20))*uw
+            xs=self._fx(self.freqs,pl,uw)
             if self.phase_mode==0:
                 mid=(self.ph_min+self.ph_max)/2
                 data_plot=data-360.0*np.round((data-mid)/360.0)
@@ -8552,7 +8686,7 @@ class TFPhaseCanvas(QWidget):
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
         dh=H-pt-pb; uw=W-pl-pr; ny=20000
         rng=self.ph_max-self.ph_min if self.ph_max!=self.ph_min else 1.0
-        xs=pl+(np.log10(np.maximum(f_arr,1)/20)/math.log10(ny/20))*uw
+        xs=self._fx(f_arr,pl,uw)
         if self.phase_mode==0:
             mid=(self.ph_min+self.ph_max)/2
             data_plot=data_arr-360.0*np.round((data_arr-mid)/360.0)
@@ -8616,7 +8750,7 @@ class TFPhaseCanvas(QWidget):
             if self.freqs is not None:
                 data=[self.ph_wrap,self.ph_unwr,self.grp_ms][self.phase_mode]
                 if data is not None:
-                    pfreq=x_to_freq(self._peer_mx,pl,uw,ny)
+                    pfreq=float(self._xf(self._peer_mx,pl,uw))
                     _pi=np.searchsorted(self.freqs,pfreq)
                     if _pi>0 and (_pi>=len(self.freqs) or self.freqs[_pi]-pfreq>pfreq-self.freqs[_pi-1]): _pi-=1
                     pidx=int(np.clip(_pi,0,len(data)-1))
@@ -8647,7 +8781,7 @@ class TFPhaseCanvas(QWidget):
             if data is not None:
                 is_grp=(self.phase_mode==2)
                 cx=self._mx
-                freq=x_to_freq(cx,pl,uw,ny)
+                freq=float(self._xf(cx,pl,uw))
                 _oi=np.searchsorted(_cf,freq)
                 if _oi>0 and (_oi>=len(_cf) or _cf[_oi]-freq>freq-_cf[_oi-1]): _oi-=1
                 idx=int(np.clip(_oi,0,len(data)-1))
@@ -8674,13 +8808,14 @@ class TFPhaseCanvas(QWidget):
                 else:
                     ph_str=f'  {val_plot:+.1f}°'
                 draw_info_box(p,W,fs,f'{mag_str}{ph_str}')
+        self._fz_overlay(p, W, H)          # 박스줌 러버밴드
         _draw_tf_sel_border(self, p)
         p.end()
 
 # ───────────────────────────────────────────
 #  TF Magnitude + Coherence Canvas
 # ───────────────────────────────────────────
-class TFMagCanvas(QWidget):
+class TFMagCanvas(_TFFreqZoomMixin, QWidget):
     PAD_L=40; PAD_R=15; PAD_T=10; PAD_B=28
     _COH_COLOR=(77,163,255)   # γ² 코히런스 = 블루 채움 밴드(#4DA3FF). 기존 주황(255,107,53)은 초록 마그니튜드와 충돌
     _COH_BAND=0.5   # γ² 트레이스가 차지하는 플롯 높이 비율 (위=1.0, 아래=0) — Smaart식 디테일
@@ -8692,6 +8827,7 @@ class TFMagCanvas(QWidget):
         self.setMinimumSize(400,110); self.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Expanding)
         self.setMouseTracking(True); self.setAttribute(Qt.WA_OpaquePaintEvent,True)
         self.setFocusPolicy(Qt.StrongFocus)
+        self._fz_init()   # 주파수축 줌/팬 상태(f_lo/f_hi)
         self.freqs=None; self.mag=None; self.coh=None; self.phase=None
         self.db_min=-15.0; self.db_max=15.0
         self.coh_blank=0.5
@@ -8719,7 +8855,7 @@ class TFMagCanvas(QWidget):
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
         dh=H-pt-pb; uw=W-pl-pr; ny=20000
         rng=self.db_max-self.db_min if self.db_max!=self.db_min else 1.0
-        xs=(pl+(np.log10(np.maximum(f,1)/20)/math.log10(ny/20))*uw).astype(float)
+        xs=self._fx(f,pl,uw).astype(float)
         ys=(pt+np.clip((self.db_max-mag)/rng*dh,0,dh)).astype(float)
         if len(ys)>=7:
             ys=np.convolve(np.pad(ys,3,mode='edge'),np.ones(7)/7,mode='valid').astype(float)
@@ -8795,7 +8931,7 @@ class TFMagCanvas(QWidget):
             if len(arr)<k: return arr
             return np.convolve(np.pad(arr,k//2,mode='edge'),np.ones(k)/k,mode='valid').astype(float)
         f_arr=cap['f']; m_arr=cap['mag']
-        xs=(pl+(np.log10(np.maximum(f_arr,1)/20)/math.log10(ny/20))*uw).astype(float)
+        xs=self._fx(f_arr,pl,uw).astype(float)
         ys=(pt+np.clip((self.db_max-m_arr)/rng*dh,0,dh)).astype(float)
         ys_s=_vs(ys,7)
         if len(xs)>max_pts:
@@ -8912,6 +9048,7 @@ class TFMagCanvas(QWidget):
 
     def clear(self): self.freqs=self.mag=self.coh=self.phase=None; self._cache=None; self.update()
     def mouseMoveEvent(self,e):
+        if self._fz_move(e): return          # 박스줌 러버밴드 / 팬 드래그 중
         x=e.x()
         if x!=self._mx:
             self._mx=x; self._peer_mx=-1; self.update()
@@ -8963,13 +9100,20 @@ class TFMagCanvas(QWidget):
         self._cache=None; self.update()
 
     def mouseDoubleClickEvent(self,e):
+        self._fz_reset()                     # 주파수축 전대역 리셋
         self.fit_y()
 
     def enterEvent(self,e): self.setFocus(); super().enterEvent(e)
     def mousePressEvent(self,e):
-        self.setFocus(); super().mousePressEvent(e)
+        self.setFocus()
+        if self._fz_press(e): return         # 박스줌/팬 시작
+        super().mousePressEvent(e)
+    def mouseReleaseEvent(self,e):
+        if self._fz_release(e): return
+        super().mouseReleaseEvent(e)
 
     def keyPressEvent(self,e):
+        if self._fz_key(e): return           # Cmd± 줌 / Cmd0 리셋
         key=e.key()
         if key in (Qt.Key_Up, Qt.Key_Down):
             step=6.0 if key==Qt.Key_Up else -6.0
@@ -8982,7 +9126,9 @@ class TFMagCanvas(QWidget):
         else:
             super().keyPressEvent(e)
 
-    def wheelEvent(self, e): e.ignore()
+    def wheelEvent(self, e):
+        if self._fz_wheel(e): return
+        e.ignore()
 
     def _build_cache(self,W,H):
         from PyQt5.QtGui import QPixmap
@@ -9005,10 +9151,10 @@ class TFMagCanvas(QWidget):
             p.drawLine(pl,y,W-pr,y)
             p.setPen(QColor(T('graph_txt'))); p.drawText(0,y-8,pl-2,16,Qt.AlignRight|Qt.AlignVCenter,f'{db:+d}')
         p.setFont(_qfont(CF_AXIS, True)); last_lx=-999
-        draw_freq_minor_grid(p, pl, pr, uw, pt, pb, W, H, ny)
-        for f in FREQ_MARKS:
-            if f<20 or f>ny: continue
-            fx=freq_to_x(f,pl,uw,ny)
+        draw_freq_minor_grid(p, pl, pr, uw, pt, pb, W, H, self.f_hi, self.f_lo)
+        for f in self._fz_marks():
+            if f<self.f_lo or f>self.f_hi: continue
+            fx=freq_to_x(f,pl,uw,self.f_hi,self.f_lo)
             if not pl<=fx<=W-pr: continue
             p.setPen(QPen(QColor(T('grid')),1)); p.drawLine(int(fx),pt,int(fx),H-pb)
             if fx-last_lx<40: continue
@@ -9032,10 +9178,10 @@ class TFMagCanvas(QWidget):
             is0=(db==0)
             p.setPen(QPen(QColor(T('grid_ref')),1.5 if is0 else 0.7,Qt.SolidLine))
             p.drawLine(pl,y,W-pr,y)
-        draw_freq_minor_grid(p, pl, pr, uw, pt, pb, W, H, ny)
-        for f in FREQ_MARKS:
-            if f<20 or f>ny: continue
-            fx=freq_to_x(f,pl,uw,ny)
+        draw_freq_minor_grid(p, pl, pr, uw, pt, pb, W, H, self.f_hi, self.f_lo)
+        for f in self._fz_marks():
+            if f<self.f_lo or f>self.f_hi: continue
+            fx=freq_to_x(f,pl,uw,self.f_hi,self.f_lo)
             if not pl<=fx<=W-pr: continue
             p.setPen(QPen(QColor(T('grid')),1)); p.drawLine(int(fx),pt,int(fx),H-pb)
         # 코히어런스 정적 기준선(1.0/0.5/0.0 점선)·우측 % 라벨 제거(2026-06-27) —
@@ -9067,7 +9213,7 @@ class TFMagCanvas(QWidget):
         if self.freqs is not None and self.mag is not None and len(self.freqs)>=2:
             f_arr=self.freqs
             m_arr=self.mag - np.interp(f_arr, self._ref_f, self._ref_mag) if refmode else self.mag
-            xs=(pl+(np.log10(np.maximum(f_arr,1)/20)/math.log10(ny/20))*uw).astype(float)
+            xs=self._fx(f_arr,pl,uw).astype(float)
             ys_m=(pt+np.clip((self.db_max-m_arr)/rng*dh,0,dh)).astype(float)
             max_pts=max(int(uw),200)
             ys_ms=_vis_smooth(ys_m,7)
@@ -9107,7 +9253,7 @@ class TFMagCanvas(QWidget):
                 if ex_f is None or ex_m is None or len(ex_f)<2: continue
                 if refmode:
                     ex_m = ex_m - np.interp(ex_f, self._ref_f, self._ref_mag)
-                ex_xs=(pl+(np.log10(np.maximum(ex_f,1)/20)/math.log10(ny/20))*uw).astype(float)
+                ex_xs=self._fx(ex_f,pl,uw).astype(float)
                 ex_ys=(pt+np.clip((self.db_max-ex_m)/rng*dh,0,dh)).astype(float)
                 ex_ys_s=_vis_smooth(ex_ys,7)
                 if len(ex_xs)>_ex_max_pts:
@@ -9169,7 +9315,7 @@ class TFMagCanvas(QWidget):
             p.setPen(QPen(_PEER,1,Qt.DashLine))
             p.drawLine(self._peer_mx,pt,self._peer_mx,H-pb)
             if self.freqs is not None and self.mag is not None:
-                pfreq=x_to_freq(self._peer_mx,pl,uw,ny)
+                pfreq=float(self._xf(self._peer_mx,pl,uw))
                 _pi=np.searchsorted(self.freqs,pfreq)
                 if _pi>0 and (_pi>=len(self.freqs) or self.freqs[_pi]-pfreq>pfreq-self.freqs[_pi-1]): _pi-=1
                 pidx=int(np.clip(_pi,0,len(self.mag)-1))
@@ -9188,7 +9334,7 @@ class TFMagCanvas(QWidget):
                 _cf = _ex.get('f'); _cm = _ex.get('mag'); _cp = _ex.get('phase'); _cc = _ex.get('coh')
         if pl<=self._mx<=W-pr and _cf is not None and _cm is not None:
             cx=self._mx
-            freq=x_to_freq(cx,pl,uw,ny)
+            freq=float(self._xf(cx,pl,uw))
             _oi=np.searchsorted(_cf,freq)
             if _oi>0 and (_oi>=len(_cf) or _cf[_oi]-freq>freq-_cf[_oi-1]): _oi-=1
             idx=int(np.clip(_oi,0,len(_cm)-1))
@@ -9206,6 +9352,7 @@ class TFMagCanvas(QWidget):
             if _cc is not None and len(_cc)==len(_cf):
                 coh_str=f'  {_cc[idx]*100:.0f}%'
             draw_info_box(p,W,fs,f'{mag_str}{ph_str}{coh_str}')
+        self._fz_overlay(p, W, H)          # 박스줌 러버밴드
         _draw_tf_sel_border(self, p)
         p.end()
 
@@ -11404,6 +11551,8 @@ class TransferFunctionWindow(QWidget):
         # 카드형: handle(=카드 사이 거터)은 _GradSplitterHandle가 직접 그림(거터색 + 옅은 그라디언트 라인)
         self.ir_cvs = TFIRCanvas()
         self.phase_cvs = TFPhaseCanvas(); self.mag_cvs = TFMagCanvas()
+        # 주파수축 줌/팬 연동: 한쪽에서 줌 → 매그·위상 둘 다 같은 f_lo/f_hi (같은 주파수축)
+        self.mag_cvs._fzoom_cb = self.phase_cvs._fzoom_cb = self._sync_freq_zoom
         # 분석창 클릭 → 그 창 외곽 하이라이트 (이벤트필터로 감지, 기존 마우스 동작 유지)
         self._tf_cvs_list = [self.ir_cvs, self.phase_cvs, self.mag_cvs]
         for _c in self._tf_cvs_list:
@@ -13831,6 +13980,12 @@ class TransferFunctionWindow(QWidget):
     def _refresh_tf_capture_bar(self):
         if callable(getattr(self, '_on_captures_changed', None)):
             self._on_captures_changed()
+
+    def _sync_freq_zoom(self, lo, hi):
+        """매그·위상 주파수축 줌 연동 — 한쪽 조작이 양쪽 f_lo/f_hi를 같이 갱신."""
+        self.mag_cvs.set_freq_zoom(lo, hi)
+        self.phase_cvs.set_freq_zoom(lo, hi)
+        _diag('tf_fzoom', lo=round(self.mag_cvs.f_lo, 1), hi=round(self.mag_cvs.f_hi, 1))
 
     def _recapture_tf(self, idx):
         """기존 TF 캡쳐 idx 를 현재 라이브로 제자리 덮어쓰기 (색/이름/그룹 유지).
