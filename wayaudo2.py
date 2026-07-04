@@ -7866,7 +7866,7 @@ class ColorPickerDialog(QDialog):
 # ───────────────────────────────────────────
 TF_SMOOTH_BPO    = [0, 48, 24, 12, 6, 3, 1]
 TF_SMOOTH_LABELS = ['None', '1/48', '1/24', '1/12', '1/6', '1/3', '1/1 Oct']
-TF_AVG_SEC       = [4, 8, 16, 32, 64]
+TF_AVG_SEC       = [0.5, 1, 2, 4, 8]   # 상승·하강 대칭 시정수(초). Smaart 라이브 튜닝식 짧은 범위. Normal=2초
 TF_AVG_LABELS    = ['Fast', 'Quick', 'Normal', 'Smooth', 'Stable']   # 응답 속도(빠름→안정)
 TF_FFT_SIZES     = [4096, 8192, 16384, 32768]
 TF_FFT_LABELS    = ['4K', '8K', '16K', '32K']
@@ -8011,13 +8011,11 @@ class MTWEngine:
                 # 목표 시정수에 ~10프레임 만에 도달(1씩 올리면 큰 avg에서 한참 동일하게 보임)
                 self._n[s] = min(self._n[s] + max(1, self.avg_target // 10), self.avg_target)
                 a = 1.0 / self._n[s]
-                # 빠른 하강(fast release): 측정 파워가 떨어지는 빈만 2배 빠르게 따라감 → 곡선 하강 속도 2배.
-                # 상승·정상 구간은 기존 평균 그대로(안정성·정확도 유지). [찾기: TF_FAST_RELEASE]
-                a_arr = np.where(syy < self._syy[s], min(2.0 * a, 1.0), a)
-                b_arr = 1.0 - a_arr
-                self._sxy[s] = b_arr * self._sxy[s] + a_arr * sxy
-                self._sxx[s] = b_arr * self._sxx[s] + a_arr * sxx
-                self._syy[s] = b_arr * self._syy[s] + a_arr * syy
+                # 상승·하강 완전 대칭(Smaart식) — 위/아래 같은 시정수(=Response). fast-release 없음.
+                b = 1.0 - a
+                self._sxy[s] = b * self._sxy[s] + a * sxy
+                self._sxx[s] = b * self._sxx[s] + a * sxx
+                self._syy[s] = b * self._syy[s] + a * syy
 
     def _stage_bounds(self, s):
         """[lo, hi] frequency band stage s is responsible for on the output grid."""
@@ -11923,7 +11921,7 @@ class TransferFunctionWindow(QWidget):
         self._settings = settings or {}
         self._tf_primary_name = self._settings.get('tf_primary_name', '')  # primary 카드 사용자 이름
         self.sample_rate = 48000; self.fft_size = 16384
-        self.smooth_bpo = 3; self.averaging_sec = 16.0   # 기본 Normal(16초)
+        self.smooth_bpo = 3; self.averaging_sec = 2.0   # 기본 Normal(2초, 대칭)
         self.delay_ms = 0.0; self.phase_mode = 0; self.coh_blank = 0.5
         self._ref_capture_idx = None; self._delta_on = False  # Δ 비교 상태
         self._stabilizing = False; self._stable_timer = None  # 안정화 캡쳐 상태
@@ -12377,7 +12375,7 @@ class TransferFunctionWindow(QWidget):
         # 응답 속도(평균 시정수) — 단어 라벨, 툴팁에 실제 초 표시
         for _lbl, _sec in zip(TF_AVG_LABELS, TF_AVG_SEC):
             self.avg_cb.addItem(_lbl)
-        self.avg_cb.setCurrentIndex(TF_AVG_SEC.index(16))   # 기본 Normal(16s)
+        self.avg_cb.setCurrentIndex(TF_AVG_SEC.index(2))   # 기본 Normal(2s, 대칭)
         self.avg_cb.setToolTip(_tx('Response speed — Fast (quick, sensitive) … Stable (slow, steady).\nHigher values average longer, producing a smoother curve.'))
         self.avg_cb._align_center = True
         self.avg_cb.setFixedWidth(74); self.avg_cb.setFixedHeight(30)
@@ -14119,12 +14117,11 @@ class TransferFunctionWindow(QWidget):
                 # (1프레임씩 올리면 avg=16은 16초 걸려 그 사이 모든 Avg가 동일하게 보였음)
                 self._n_avg = min(self._n_avg + max(1, self._avg_target // 10), self._avg_target)
                 α = 1.0 / self._n_avg   # 목표 도달 후 1/target 고정 = 시정수 = Avg초
-                # 빠른 하강(fast release): 측정 파워 떨어지는 빈만 2배 빠르게 → 곡선 하강 2배 (Single 경로). [TF_FAST_RELEASE]
-                α_arr = np.where(S_yy < self._auto_acc_y, min(2.0 * α, 1.0), α)
-                β_arr = 1.0 - α_arr
-                self._cross_acc  = β_arr * self._cross_acc  + α_arr * S_xy
-                self._auto_acc_x = β_arr * self._auto_acc_x + α_arr * S_xx
-                self._auto_acc_y = β_arr * self._auto_acc_y + α_arr * S_yy
+                # 상승·하강 완전 대칭(Smaart식) — 위/아래 같은 시정수(=Response averaging_sec). fast-release 없음.
+                β = 1.0 - α
+                self._cross_acc  = β * self._cross_acc  + α * S_xy
+                self._auto_acc_x = β * self._auto_acc_x + α * S_xx
+                self._auto_acc_y = β * self._auto_acc_y + α * S_yy
             self.avg_lbl.setText(f'Avg: {self._n_avg} / {self._avg_target}')
             if self._n_avg >= 3:   # 초기 3프레임 미만: EMA 수렴 전, 표시 생략
                 H_raw = self._cross_acc / np.maximum(self._auto_acc_x, 1e-30)
