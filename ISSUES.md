@@ -79,7 +79,7 @@
 
 ## 📦 F. 배포 / 빌드 / 보안
 
-- [ ] **[빌드 직전] `RELEASE_NOTES.html` v1.8 섹션 동기화** — 브랜드용 HTML이 v1.8 섹션 자체가 없음(라우드니스 멈춤·COMPLIANCE 배지 등 미반영). 앱 내 릴리스노트는 `RELEASE_NOTES.md` 직접 렌더라 영향 없음. 빌드 때 md→html 한 번에 정리(사용자: "빌드 때 한번에").
+- [ ] **[빌드 직전] `RELEASE_NOTES.html` v1.8·v1.9 섹션 동기화** — 브랜드용 HTML에 v1.8·v1.9 섹션이 아직 없음(라우드니스 멈춤·COMPLIANCE 배지·오라리제이션·TF 줌팬 등 미반영). 앱 내 릴리스노트는 `RELEASE_NOTES.md` 직접 렌더라 영향 없음. 빌드 때 md→html 한 번에 정리(사용자: "빌드 때 한번에"). ⚠️같은 시점에 `bump_version.sh 1.9`로 `_APP_VERSION` 1.8→1.9 bump도 함께.
 
 - [x] 🪟✅✅ **[버그·Windows] USB 인터페이스 안 잡힘/안 열림 — 수정+Parallels 실측 검증완료(2026-06-30, Scarlett 2i2)** — 근본=PortAudio **호스트 API 미지정** → Windows 기본 MME로 USB 4벌 중복열거·SR경직. **수정(macOS 무영향):** WASAPI 우선 필터 + `WasapiSettings(auto_convert=True)`. 빌드 SPECTRA.exe를 Parallels Win11서 실행→로그 `audio_hostapi wasapi_idx=2`·`eng_add dev=12(WASAPI)`·연속 chunks로 정상 입증. 커밋 `991e6ea` push. 상세=[[project_bug_windows_usb_hostapi]].
 - [ ] **윈도우 빌드 검증** — v태그 push→GitHub Actions(windows-latest) 산출물이 **SPECTRA.exe**·아이콘·속성(1.5.0.0/WAYAUDIO)인지. *(상세: project_verify_iphone_session)*
