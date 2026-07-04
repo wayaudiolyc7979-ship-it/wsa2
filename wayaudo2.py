@@ -1966,19 +1966,24 @@ def _db_axis_context_menu(widget, gpos, cur_top, cur_bot, is_locked,
     elif act is a_lock:
         on_toggle_lock()
 
-def _draw_lock_badge(p, x, y, color):
-    """작은 자물쇠 배지 (dB축 수동 고정 표시). (x,y)=좌상단, 약 12×13px. QPainter 직접 그림."""
+def _draw_lock_badge(p, x, y, color, open_=False, op=1.0):
+    """작은 자물쇠 아이콘 (dB축 고정 상태·클릭 타겟). (x,y)=좌상단, 약 12×13px. QPainter 직접.
+    open_=True → 열린 자물쇠(해제 상태, 보통 흐리게 op<1). op=투명도."""
     from PyQt5.QtGui import QPen, QBrush
     from PyQt5.QtCore import QRectF
     p.save()
+    p.setOpacity(op)
     p.setRenderHint(QPainter.Antialiasing, True)
     bw, bh = 11.0, 8.0
     bx, by = x + 0.5, y + 5.0
     r = bw * 0.34
-    # 고리(shackle)
+    # 고리(shackle) — 잠김=중앙 닫힘 / 해제=왼쪽으로 열림
     pen = QPen(QColor(color), 1.6); pen.setCapStyle(Qt.RoundCap)
     p.setPen(pen); p.setBrush(Qt.NoBrush)
-    p.drawArc(QRectF(x + bw/2 - r + 0.5, by - r*1.7, 2*r, 2*r*1.6), 20*16, 140*16)
+    if open_:
+        p.drawArc(QRectF(x - 1.5, by - r*1.85, 2*r, 2*r*1.6), 55*16, 155*16)
+    else:
+        p.drawArc(QRectF(x + bw/2 - r + 0.5, by - r*1.7, 2*r, 2*r*1.6), 20*16, 140*16)
     # 몸통
     p.setPen(Qt.NoPen); p.setBrush(QBrush(QColor(color)))
     path = QPainterPath(); path.addRoundedRect(QRectF(bx, by, bw, bh), 2.0, 2.0)
@@ -2936,6 +2941,7 @@ class TFSyncThread(QThread):
 # ───────────────────────────────────────────
 class FFTCanvas(QWidget):
     PAD_L=40; PAD_R=10; PAD_T=12; PAD_B=28
+    _DB_LOCKABLE=True   # dB축 수동 고정 아이콘 표시
     MAX_POINTS=600   # primary 곡선 포인트 수
     MAX_POINTS_EXTRA=600   # 추가 곡선 포인트 수 (원복: primary 와 동일)
     _idle_hint=True   # 시작 전 브랜드 엠프티 스테이트 표시
@@ -3272,8 +3278,10 @@ class FFTCanvas(QWidget):
             tw=p.fontMetrics().horizontalAdvance(txt)
             tx=max(pl,min(int(fx-tw/2),W-pr-tw))
             p.setPen(QColor(T('graph_txt'))); p.drawText(tx,H-5,txt)
-        if getattr(self,'_db_lock',False):   # dB축 수동 고정 표시
-            _draw_lock_badge(p, W-pr-15, pt+2, T('accent'))
+        if getattr(self,'_DB_LOCKABLE',False):   # dB축 고정 아이콘 (항상 표시·클릭=범위 입력) — 거터 좌상단
+            if self._db_lock: _draw_lock_badge(p, 2, pt-2, T('accent'))
+            else:             _draw_lock_badge(p, 2, pt-2, T('text_dim'), open_=True, op=0.5)
+            self._db_icon_rect = (0, 0, 16, pt+12)
         p.end(); self._cache=px
 
     def _draw_grid_lines(self, p, W, H):
@@ -3331,6 +3339,15 @@ class FFTCanvas(QWidget):
         self.peak_hold_frames = hold_frames
         self.peak_decay_rate_pk = 20.0/30.0  # 20 dB/s 고정 낙하
     def set_db_range(self,lo,hi): self._cache=None; self.db_min=lo; self.db_max=hi; self.update()
+    def mousePressEvent(self,e):
+        r=getattr(self,'_db_icon_rect',None)
+        if r and e.button()==Qt.LeftButton and r[0]<=e.x()<r[0]+r[2] and r[1]<=e.y()<r[1]+r[3]:
+            _w=self.window()   # dB 자물쇠 클릭 = 범위 입력 → 고정
+            if hasattr(_w,'_spec_db_apply'):
+                res=_ask_db_range(self, self.db_max, self.db_min)
+                if res is not None: _w._spec_db_apply(res[0], res[1])
+            return
+        super().mousePressEvent(e)
     def mouseMoveEvent(self,e): self._mx=e.x(); self._my=e.y(); self.update()
     def leaveEvent(self,e): self._mx=-1; self.update()
     def enterEvent(self,e): self.setFocus()
@@ -3434,6 +3451,7 @@ class FFTCanvas(QWidget):
 # ───────────────────────────────────────────
 class OctaveCanvas(QWidget):
     PAD_L=40; PAD_R=10; PAD_T=12; PAD_B=28
+    _DB_LOCKABLE=True   # dB축 수동 고정 아이콘 표시
     _idle_hint=True   # 시작 전 브랜드 엠프티 스테이트 표시
     _cap_built = pyqtSignal()
     def __init__(self):
@@ -3707,8 +3725,10 @@ class OctaveCanvas(QWidget):
             tw=p.fontMetrics().horizontalAdvance(txt)
             tx=max(pl,min(int(fx-tw/2),W-pr-tw))
             p.setPen(QColor(T('graph_txt'))); p.drawText(tx,H-5,txt)
-        if getattr(self,'_db_lock',False):   # dB축 수동 고정 표시
-            _draw_lock_badge(p, W-pr-15, pt+2, T('accent'))
+        if getattr(self,'_DB_LOCKABLE',False):   # dB축 고정 아이콘 (항상 표시·클릭=범위 입력) — 거터 좌상단
+            if self._db_lock: _draw_lock_badge(p, 2, pt-2, T('accent'))
+            else:             _draw_lock_badge(p, 2, pt-2, T('text_dim'), open_=True, op=0.5)
+            self._db_icon_rect = (0, 0, 16, pt+12)
         p.end(); self._cache=px
 
     def _draw_grid_lines(self, p, W, H):
@@ -3736,6 +3756,15 @@ class OctaveCanvas(QWidget):
         self.peak_hold_frames = hold_frames
         self.peak_decay_rate_pk = 20.0/30.0  # 20 dB/s 고정 낙하
     def set_db_range(self,lo,hi): self._cache=None; self.db_min=lo; self.db_max=hi; self.update()
+    def mousePressEvent(self,e):
+        r=getattr(self,'_db_icon_rect',None)
+        if r and e.button()==Qt.LeftButton and r[0]<=e.x()<r[0]+r[2] and r[1]<=e.y()<r[1]+r[3]:
+            _w=self.window()   # dB 자물쇠 클릭 = 범위 입력 → 고정
+            if hasattr(_w,'_spec_db_apply'):
+                res=_ask_db_range(self, self.db_max, self.db_min)
+                if res is not None: _w._spec_db_apply(res[0], res[1])
+            return
+        super().mousePressEvent(e)
     def set_speed(self,a,d): self.alpha=a; self.decay=d
     def mouseMoveEvent(self,e): self._mx=e.x(); self._my=e.y(); self.update()
     def leaveEvent(self,e): self._mx=-1; self.update()
@@ -3999,8 +4028,10 @@ class SpectrogramCanvas(QWidget):
             tw=p.fontMetrics().horizontalAdvance(txt)
             tx=max(pl,min(int(fx-tw/2),W-pr-tw))
             p.setPen(QColor(T('graph_txt'))); p.drawText(tx,H-5,txt)
-        if getattr(self,'_db_lock',False):   # dB축 수동 고정 표시
-            _draw_lock_badge(p, W-pr-15, pt+2, T('accent'))
+        if getattr(self,'_DB_LOCKABLE',False):   # dB축 고정 아이콘 (항상 표시·클릭=범위 입력) — 거터 좌상단
+            if self._db_lock: _draw_lock_badge(p, 2, pt-2, T('accent'))
+            else:             _draw_lock_badge(p, 2, pt-2, T('text_dim'), open_=True, op=0.5)
+            self._db_icon_rect = (0, 0, 16, pt+12)
         p.end(); self._cache=px
 
     # ── Triangle handles (left edge) ─────────────────────────────────────────
@@ -9265,6 +9296,11 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
     def enterEvent(self,e): self.setFocus(); super().enterEvent(e)
     def mousePressEvent(self,e):
         self.setFocus()
+        r=getattr(self,'_db_icon_rect',None)
+        if r and e.button()==Qt.LeftButton and r[0]<=e.x()<r[0]+r[2] and r[1]<=e.y()<r[1]+r[3]:
+            res=_ask_db_range(self, self.db_max, self.db_min)   # 자물쇠 클릭=범위 입력→고정
+            if res is not None: self._db_apply(res[0], res[1])
+            return
         if self._fz_press(e): return         # 박스줌/팬 시작
         super().mousePressEvent(e)
     def mouseReleaseEvent(self,e):
@@ -9323,8 +9359,10 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
             p.setPen(QColor(T('graph_txt'))); p.drawText(max(pl,min(int(fx-tw/2),W-pr-tw)),H-pb+18,txt)
         p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(_TF_CARD_COL['mag']))
         p.drawText(pl+4,pt+13,'Magnitude  +  Coherence  ▾')
-        if self._db_lock:   # 수동 고정 표시 — dB축 상단(우측)에 자물쇠 배지
-            _draw_lock_badge(p, W-pr-15, pt+3, T('accent'))
+        # dB축 고정 아이콘 (항상 표시·클릭=범위 입력) — 거터 좌상단, 숫자는 우측정렬이라 안 겹침
+        if self._db_lock: _draw_lock_badge(p, 2, pt-2, T('accent'))
+        else:             _draw_lock_badge(p, 2, pt-2, T('text_dim'), open_=True, op=0.5)
+        self._db_icon_rect = (0, 0, 16, pt+12)
         p.end(); self._cache=px
 
     def _draw_grid_lines(self, p, W, H):
