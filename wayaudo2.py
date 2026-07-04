@@ -514,6 +514,9 @@ _TR_KO = {        # {english_ui_string: 쉬운_한국어}
     'Bottom': '하단',
     'Apply · Lock': '적용 · 고정',
     'Set dB range…': 'dB 범위 입력…',
+    'Auto-fit (unlock)': '자동 맞춤 (고정 해제)',
+    'Auto': '자동',
+    'dB axis range (click to fix top/bottom)': 'dB 축 범위 (클릭해서 상·하한 고정)',
     'Auto-fit (double-click)': '자동 맞춤 (더블클릭)',
     'Lock dB axis to current range': '현재 범위로 고정',
     'Unlock dB axis (back to auto)': '고정 해제 (자동으로)',
@@ -1913,6 +1916,19 @@ def hsep(color_key='border'):
     f.setStyleSheet(f'background:{T(color_key)};border:none;')
     return f
 
+def _db_ctrl_btn_style(locked):
+    """툴바 dB 범위 버튼 스타일 — 고정=로고블루 테두리·틴트 / 자동=중립 pill (Engine/FFT 컨트롤과 톤 맞춤)."""
+    if locked:
+        a = QColor(T('accent')); ar, ag, ab = a.red(), a.green(), a.blue()
+        return (f'QPushButton{{background:rgba({ar},{ag},{ab},34);color:#9DB7E0;'
+                f'border:1.4px solid {T("accent")};border-radius:{RADIUS_CTRL}px;'
+                f'padding:2px 12px;font-size:12px;font-weight:600;}}'
+                f'QPushButton:hover{{background:rgba({ar},{ag},{ab},60);}}')
+    return (f'QPushButton{{background:{T("panel")};color:{T("text")};'
+            f'border:1px solid {T("border")};border-radius:{RADIUS_CTRL}px;'
+            f'padding:2px 12px;font-size:12px;}}'
+            f'QPushButton:hover{{border-color:{T("accent")};}}')
+
 def _ask_db_range(parent, cur_top, cur_bot):
     """dB 축 상·하한 입력 대화상자 → (top, bottom) 반환, 취소/무효면 None.
     스펙트럼·TF 공용. 입력하면 그 범위로 '고정'하는 의미(호출측이 락 설정)."""
@@ -1933,12 +1949,20 @@ def _ask_db_range(parent, cur_top, cur_bot):
     for lbl, sp in ((_tx('Top'), top_sp), (_tx('Bottom'), bot_sp)):
         r = QHBoxLayout(); L = QLabel(lbl); L.setFixedWidth(46); r.addWidget(L); r.addWidget(sp, 1); lay.addLayout(r)
     lay.addWidget(hsep())
-    br = QHBoxLayout(); br.addStretch()
+    _res = {'v': None}
+    br = QHBoxLayout()
+    auto = QPushButton(_tx('Auto')); auto.setStyleSheet(ss_btn_neutral())
+    auto.setToolTip(_tx('Auto-fit (unlock)'))
+    auto.clicked.connect(lambda: (_res.__setitem__('v', 'auto'), dlg.accept()))
+    br.addWidget(auto); br.addStretch()
     cancel = QPushButton(_tx('Cancel')); cancel.setStyleSheet(ss_btn_neutral()); cancel.clicked.connect(dlg.reject)
-    ok = QPushButton(_tx('Apply · Lock')); ok.setStyleSheet(ss_btn_primary()); ok.setDefault(True); ok.clicked.connect(dlg.accept)
+    ok = QPushButton(_tx('Apply · Lock')); ok.setStyleSheet(ss_btn_primary()); ok.setDefault(True)
+    ok.clicked.connect(lambda: (_res.__setitem__('v', 'ok'), dlg.accept()))
     br.addWidget(cancel); br.addWidget(ok); lay.addLayout(br)
     if dlg.exec_() != QDialog.Accepted:
         return None
+    if _res['v'] == 'auto':
+        return 'auto'                # 자동맞춤(고정 해제)
     t, b = top_sp.value(), bot_sp.value()
     if t < b: t, b = b, t            # 뒤집혀 입력되면 자동 교정
     if t - b < 3:                    # 최소 3dB 스팬 보장(축 붕괴 방지)
@@ -1959,7 +1983,9 @@ def _db_axis_context_menu(widget, gpos, cur_top, cur_bot, is_locked,
     act = m.exec_(gpos)
     if act is a_in:
         r = _ask_db_range(widget, cur_top, cur_bot)
-        if r is not None:
+        if r == 'auto':
+            on_autofit()
+        elif r is not None:
             on_apply(r[0], r[1])
     elif act is a_fit:
         on_autofit()
@@ -3278,11 +3304,6 @@ class FFTCanvas(QWidget):
             tw=p.fontMetrics().horizontalAdvance(txt)
             tx=max(pl,min(int(fx-tw/2),W-pr-tw))
             p.setPen(QColor(T('graph_txt'))); p.drawText(tx,H-5,txt)
-        if getattr(self,'_DB_LOCKABLE',False):   # dB축 고정 아이콘 (항상 표시·클릭=범위 입력) — 좌하단
-            _iy = H-pb+3
-            if self._db_lock: _draw_lock_badge(p, 2, _iy, T('accent'))
-            else:             _draw_lock_badge(p, 2, _iy, T('text_dim'), open_=True, op=0.5)
-            self._db_icon_rect = (0, H-pb, 18, pb)
         p.end(); self._cache=px
 
     def _draw_grid_lines(self, p, W, H):
@@ -3340,15 +3361,6 @@ class FFTCanvas(QWidget):
         self.peak_hold_frames = hold_frames
         self.peak_decay_rate_pk = 20.0/30.0  # 20 dB/s 고정 낙하
     def set_db_range(self,lo,hi): self._cache=None; self.db_min=lo; self.db_max=hi; self.update()
-    def mousePressEvent(self,e):
-        r=getattr(self,'_db_icon_rect',None)
-        if r and e.button()==Qt.LeftButton and r[0]<=e.x()<r[0]+r[2] and r[1]<=e.y()<r[1]+r[3]:
-            _w=self.window()   # dB 자물쇠 클릭 = 범위 입력 → 고정
-            if hasattr(_w,'_spec_db_apply'):
-                res=_ask_db_range(self, self.db_max, self.db_min)
-                if res is not None: _w._spec_db_apply(res[0], res[1])
-            return
-        super().mousePressEvent(e)
     def mouseMoveEvent(self,e): self._mx=e.x(); self._my=e.y(); self.update()
     def leaveEvent(self,e): self._mx=-1; self.update()
     def enterEvent(self,e): self.setFocus()
@@ -3726,11 +3738,6 @@ class OctaveCanvas(QWidget):
             tw=p.fontMetrics().horizontalAdvance(txt)
             tx=max(pl,min(int(fx-tw/2),W-pr-tw))
             p.setPen(QColor(T('graph_txt'))); p.drawText(tx,H-5,txt)
-        if getattr(self,'_DB_LOCKABLE',False):   # dB축 고정 아이콘 (항상 표시·클릭=범위 입력) — 좌하단
-            _iy = H-pb+3
-            if self._db_lock: _draw_lock_badge(p, 2, _iy, T('accent'))
-            else:             _draw_lock_badge(p, 2, _iy, T('text_dim'), open_=True, op=0.5)
-            self._db_icon_rect = (0, H-pb, 18, pb)
         p.end(); self._cache=px
 
     def _draw_grid_lines(self, p, W, H):
@@ -3758,15 +3765,6 @@ class OctaveCanvas(QWidget):
         self.peak_hold_frames = hold_frames
         self.peak_decay_rate_pk = 20.0/30.0  # 20 dB/s 고정 낙하
     def set_db_range(self,lo,hi): self._cache=None; self.db_min=lo; self.db_max=hi; self.update()
-    def mousePressEvent(self,e):
-        r=getattr(self,'_db_icon_rect',None)
-        if r and e.button()==Qt.LeftButton and r[0]<=e.x()<r[0]+r[2] and r[1]<=e.y()<r[1]+r[3]:
-            _w=self.window()   # dB 자물쇠 클릭 = 범위 입력 → 고정
-            if hasattr(_w,'_spec_db_apply'):
-                res=_ask_db_range(self, self.db_max, self.db_min)
-                if res is not None: _w._spec_db_apply(res[0], res[1])
-            return
-        super().mousePressEvent(e)
     def set_speed(self,a,d): self.alpha=a; self.decay=d
     def mouseMoveEvent(self,e): self._mx=e.x(); self._my=e.y(); self.update()
     def leaveEvent(self,e): self._mx=-1; self.update()
@@ -4030,11 +4028,6 @@ class SpectrogramCanvas(QWidget):
             tw=p.fontMetrics().horizontalAdvance(txt)
             tx=max(pl,min(int(fx-tw/2),W-pr-tw))
             p.setPen(QColor(T('graph_txt'))); p.drawText(tx,H-5,txt)
-        if getattr(self,'_DB_LOCKABLE',False):   # dB축 고정 아이콘 (항상 표시·클릭=범위 입력) — 좌하단
-            _iy = H-pb+3
-            if self._db_lock: _draw_lock_badge(p, 2, _iy, T('accent'))
-            else:             _draw_lock_badge(p, 2, _iy, T('text_dim'), open_=True, op=0.5)
-            self._db_icon_rect = (0, H-pb, 18, pb)
         p.end(); self._cache=px
 
     # ── Triangle handles (left edge) ─────────────────────────────────────────
@@ -8392,7 +8385,7 @@ class _TFFreqZoomMixin:
 #  TF Phase Canvas
 # ───────────────────────────────────────────
 class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
-    PAD_L=40; PAD_R=15; PAD_T=10; PAD_B=24
+    PAD_L=40; PAD_R=15; PAD_T=16; PAD_B=24   # PAD_T: 맨위 라벨이 카드 상단에 안 잘리게
     cursor_x_changed = pyqtSignal(int)
     cursor_left      = pyqtSignal()
     _cap_built       = pyqtSignal()
@@ -8985,7 +8978,7 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
 #  TF Magnitude + Coherence Canvas
 # ───────────────────────────────────────────
 class TFMagCanvas(_TFFreqZoomMixin, QWidget):
-    PAD_L=40; PAD_R=15; PAD_T=10; PAD_B=28
+    PAD_L=40; PAD_R=15; PAD_T=16; PAD_B=28   # PAD_T: 맨위 라벨이 카드 상단에 안 잘리게
     _COH_COLOR=(77,163,255)   # γ² 코히런스 = 블루 채움 밴드(#4DA3FF). 기존 주황(255,107,53)은 초록 마그니튜드와 충돌
     _COH_BAND=0.5   # γ² 트레이스가 차지하는 플롯 높이 비율 (위=1.0, 아래=0) — Smaart식 디테일
     cursor_x_changed = pyqtSignal(int)
@@ -9299,11 +9292,6 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
     def enterEvent(self,e): self.setFocus(); super().enterEvent(e)
     def mousePressEvent(self,e):
         self.setFocus()
-        r=getattr(self,'_db_icon_rect',None)
-        if r and e.button()==Qt.LeftButton and r[0]<=e.x()<r[0]+r[2] and r[1]<=e.y()<r[1]+r[3]:
-            res=_ask_db_range(self, self.db_max, self.db_min)   # 자물쇠 클릭=범위 입력→고정
-            if res is not None: self._db_apply(res[0], res[1])
-            return
         if self._fz_press(e): return         # 박스줌/팬 시작
         super().mousePressEvent(e)
     def mouseReleaseEvent(self,e):
@@ -9362,11 +9350,6 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
             p.setPen(QColor(T('graph_txt'))); p.drawText(max(pl,min(int(fx-tw/2),W-pr-tw)),H-pb+18,txt)
         p.setFont(_qfont(CF_MODE, True)); p.setPen(QColor(_TF_CARD_COL['mag']))
         p.drawText(pl+4,pt+13,'Magnitude  +  Coherence  ▾')
-        # dB축 고정 아이콘 (항상 표시·클릭=범위 입력) — 좌하단(제목메뉴·피크배지·숫자 모두 회피)
-        _iy = H-pb+3
-        if self._db_lock: _draw_lock_badge(p, 2, _iy, T('accent'))
-        else:             _draw_lock_badge(p, 2, _iy, T('text_dim'), open_=True, op=0.5)
-        self._db_icon_rect = (0, H-pb, 18, pb)
         p.end(); self._cache=px
 
     def _draw_grid_lines(self, p, W, H):
@@ -10055,7 +10038,7 @@ def _ir_from_mag_phase(f_hz, mag_db, phase_deg, fs=48000, N=16384):
 
 class TFIRCanvas(QWidget):
     """Live IR — Lin / ETC / Log 3-mode 표시."""
-    PAD_L = 40; PAD_R = 15; PAD_T = 10; PAD_B = 20
+    PAD_L = 40; PAD_R = 15; PAD_T = 16; PAD_B = 20   # PAD_T: 맨위 라벨이 카드 상단에 안 잘리게
     _cap_built = pyqtSignal()
 
     def __init__(self):
@@ -10402,7 +10385,8 @@ class TFIRCanvas(QWidget):
                 p.setPen(QPen(QColor(T('grid')), 1)); p.drawLine(x, pt, x, H - pb)
                 p.setPen(QColor(T('graph_txt'))); p.setFont(_qfont(CF_AXIS))
                 lbl = fmt_delay(t, 0, compact=True); tw = p.fontMetrics().horizontalAdvance(lbl)
-                p.drawText(x - tw // 2, H - pb + 14, lbl)
+                if pl <= x - tw // 2 and x + tw // 2 <= W - pr:   # 양끝 라벨은 y라벨·카드모서리와 겹쳐 생략
+                    p.drawText(x - tw // 2, H - pb + 14, lbl)
             t += step_ms
 
         if self.ir_mode == 0:  # ── Lin ───────────────────────────────────
@@ -12044,7 +12028,7 @@ class TransferFunctionWindow(QWidget):
         # 카드형: handle(=카드 사이 거터)은 _GradSplitterHandle가 직접 그림(거터색 + 옅은 그라디언트 라인)
         self.ir_cvs = TFIRCanvas()
         self.phase_cvs = TFPhaseCanvas(); self.mag_cvs = TFMagCanvas()
-        self.mag_cvs._on_lock_change = self._persist_tf_db   # dB축 고정 → 설정 저장
+        self.mag_cvs._on_lock_change = self._on_tf_db_change   # dB축 고정 → 저장 + 툴바 버튼 갱신
         if self._settings.get('tf_db_lock'):                 # 재시작 복원
             self.mag_cvs._db_lock = True
             self.mag_cvs.db_max = float(self._settings.get('tf_db_top', self.mag_cvs.db_max))
@@ -12397,6 +12381,15 @@ class TransferFunctionWindow(QWidget):
         self.sm_cb._align_center = True
         self.sm_cb.setFixedWidth(62); self.sm_cb.setFixedHeight(30)
         self.sm_cb.currentIndexChanged.connect(self._smooth_changed); tl.addWidget(self.sm_cb); tl.addSpacing(10)
+
+        # dB 세로축 범위 — Auto ↔ 수동 고정 (클릭=범위 입력 대화상자)
+        tl.addWidget(_lb('dB'))
+        self.db_btn = QPushButton('Auto'); self.db_btn.setFixedHeight(30); self.db_btn.setMinimumWidth(88)
+        self.db_btn.setCursor(Qt.PointingHandCursor); self.db_btn.setFocusPolicy(Qt.NoFocus)
+        self.db_btn.setToolTip(_tx('dB axis range (click to fix top/bottom)'))
+        self.db_btn.clicked.connect(self._tf_db_control)
+        tl.addWidget(self.db_btn); tl.addSpacing(10)
+        self._update_tf_db_btn()
 
         # delay_spin: primary 카드의 delay_spin과 동기화 (DelayFinderDialog 호환용)
         self.delay_spin = QDoubleSpinBox()
@@ -12882,6 +12875,22 @@ class TransferFunctionWindow(QWidget):
         self._settings['tf_db_top']  = float(self.mag_cvs.db_max)
         self._settings['tf_db_bot']  = float(self.mag_cvs.db_min)
         _save_settings(self._settings)
+
+    def _on_tf_db_change(self):
+        self._persist_tf_db(); self._update_tf_db_btn()
+
+    def _tf_db_control(self):
+        """툴바 dB 버튼 클릭 → 범위 대화상자 (자동/적용·고정)."""
+        c = self.mag_cvs
+        r = _ask_db_range(self, c.db_max, c.db_min)
+        if r == 'auto':      c._db_autofit()
+        elif r is not None:  c._db_apply(r[0], r[1])
+
+    def _update_tf_db_btn(self):
+        if not hasattr(self, 'db_btn'): return
+        c = self.mag_cvs
+        self.db_btn.setText(f'{c.db_max:+g} / {c.db_min:+g}' if c._db_lock else _tx('Auto'))
+        self.db_btn.setStyleSheet(_db_ctrl_btn_style(c._db_lock))
 
     def _save_tf_extra_pairs(self):
         """추가 Meas 카드(extra pairs)의 장치/채널/딜레이를 settings 에 저장."""
@@ -13904,6 +13913,8 @@ class TransferFunctionWindow(QWidget):
         self._rta_pow_smooth = None   # IIR 누적 리셋(다시 켜거나 채널 바뀌면 새로 시작)
         self._rta_pending = None   # 소비자가 stale 데이터로 그리지 않도록
         self.rta_cvs._rta_range_init = False   # 다시 켤 때 자동맞춤 재실행
+        self.rta_cvs._idle_hint = True   # RTA 꺼짐 → 빈상태 안내 복귀
+        self.rta_cvs.update()
 
     def _on_rta_chunk(self, d):
         """RTA producer — 청크마다(스펙트럼 _process_audio와 동일 빈도·동일 처리) 옥타브 값을 계산해
@@ -13950,6 +13961,8 @@ class TransferFunctionWindow(QWidget):
         rc.calib_offset = calib
         if mode != rc.mode:
             return
+        rc._idle_hint = False        # RTA 데이터 도착 → 빈상태("Press Start") 해제(바 표시).
+                                     # rta_cvs 는 스펙트럼 Start와 무관해 여기서 직접 꺼줘야 함(v1.8 누락 수정).
         rc.update_data(mode, vals)   # IIR 스무딩 + peak aging + repaint (일정 30fps cadence)
         if not getattr(rc, '_rta_range_init', False):   # 첫 데이터 1회 자동맞춤
             sm = rc.smooth[rc.mode]; valid = sm[sm > -90]
@@ -17706,6 +17719,14 @@ class MainWindow(QMainWindow):
         self._scale_seg.set_active('log')
         self._scale_seg.changed.connect(lambda k: self._set_scale(k=='log'))
         sl0.addWidget(self._scale_seg)
+        sl0.addSpacing(8)
+        # dB 세로축 범위 — Auto ↔ 수동 고정 (클릭=범위 입력 대화상자)
+        sl0.addWidget(self._lbl('dB'))
+        self.spec_db_btn = QPushButton('Auto'); self.spec_db_btn.setFixedHeight(30); self.spec_db_btn.setMinimumWidth(92)
+        self.spec_db_btn.setCursor(Qt.PointingHandCursor); self.spec_db_btn.setFocusPolicy(Qt.NoFocus)
+        self.spec_db_btn.setToolTip(_tx('dB axis range (click to fix top/bottom)'))
+        self.spec_db_btn.clicked.connect(self._spec_db_control)
+        sl0.addWidget(self.spec_db_btn); self._update_spec_db_btn()
         sl0.addSpacing(8); sl0.addWidget(self._vsep()); sl0.addSpacing(8)
         sl0.addWidget(self._lbl('SR'))
         self.sr_cb=RoundComboBox(); self.sr_cb._align_center=True
@@ -17949,6 +17970,7 @@ class MainWindow(QMainWindow):
             self.db_min = float(self._settings.get('spec_db_bot', self.db_min))
             self.db_range = self.db_max - self.db_min
             self._pending_auto_fit = False; self._apply_db_range()
+        self._update_spec_db_btn()
 
         # TF 캡처 변경 시 드로어도 갱신
         self.tf_win._on_captures_changed = self._refresh_capture_drawer
@@ -18978,6 +19000,18 @@ class MainWindow(QMainWindow):
         self._settings['spec_db_top']  = float(self.db_max)
         self._settings['spec_db_bot']  = float(self.db_min)
         _save_settings(self._settings)
+        self._update_spec_db_btn()
+
+    def _spec_db_control(self):
+        """툴바 dB 버튼 클릭 → 범위 대화상자 (자동/적용·고정)."""
+        r = _ask_db_range(self, self.db_max, self.db_min)
+        if r == 'auto':      self._spec_db_autofit()
+        elif r is not None:  self._spec_db_apply(r[0], r[1])
+
+    def _update_spec_db_btn(self):
+        if not hasattr(self, 'spec_db_btn'): return
+        self.spec_db_btn.setText(f'{self.db_max:+g} / {self.db_min:+g}' if self._db_lock else _tx('Auto'))
+        self.spec_db_btn.setStyleSheet(_db_ctrl_btn_style(self._db_lock))
 
     def _open_leq(self):
         if self.leq_win is None:
