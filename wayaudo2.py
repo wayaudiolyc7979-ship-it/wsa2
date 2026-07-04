@@ -506,6 +506,8 @@ _TR_KO = {        # {english_ui_string: 쉬운_한국어}
     'Single = fixed FFT  ·  Adaptive = multi-rate (high-res low end, adaptive resolution per frequency)': 'Single = 고정 FFT  ·  Adaptive = 멀티레이트 (저음역 고해상도, 주파수별 적응 해상도)',
     'Response speed — Fast (quick, sensitive) … Stable (slow, steady).\nHigher values average longer, producing a smoother curve.': '응답 속도 — Fast(빠름·민감) … Stable(느림·안정).\n값이 클수록 평균을 길게 잡아 곡선이 부드러워집니다.',
     'Capture current TF snapshot (Mag + Phase + IR)   ·   Shortcut: Space': '현재 TF 스냅샷 캡처 (Mag + Phase + IR)   ·   단축키: Space',
+    'Frequency axis:\nWheel = zoom at cursor   ·   Drag = box zoom   ·   Shift+drag = pan\nDouble-click = reset to full range   ·   ⌘ +/− = step zoom': '주파수축:\n휠 = 커서 기준 확대   ·   드래그 = 구간 박스줌   ·   Shift+드래그 = 좌우 이동\n더블클릭 = 전대역 리셋   ·   ⌘ +/− = 단계 확대',
+    'Stop playback': '재생 정지',
     'Delta compare — show difference vs reference capture (set with R)': 'Delta 비교 — 기준(R로 지정한 캡처) 대비 차이 표시',
     'Stable capture — auto-capture after average converges + coherence stabilizes': '안정화 캡처 — 평균 수렴 + 코히런스가 안정된 후 자동 캡처',
     'Delay display units — ms / distance (m) / both (speed of sound 343 m/s, adjustable in Delay Finder advanced settings)': '딜레이 표시 단위 — ms / 거리(m) / 둘 다 (음속 343 m/s, 딜레이 파인더 고급설정에서 변경)',
@@ -8264,6 +8266,7 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
         self.setMinimumSize(400,110); self.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Expanding)
         self.setMouseTracking(True); self.setAttribute(Qt.WA_OpaquePaintEvent,True)
         self.setFocusPolicy(Qt.StrongFocus)
+        self.setToolTip(_tx('Frequency axis:\nWheel = zoom at cursor   ·   Drag = box zoom   ·   Shift+drag = pan\nDouble-click = reset to full range   ·   ⌘ +/− = step zoom'))
         self._fz_init()   # 주파수축 줌/팬 상태(f_lo/f_hi)
         self.freqs=None; self.ph_wrap=None; self.ph_unwr=None; self.grp_ms=None
         self.coherence=None; self.mag=None; self.coh_blank=0.5
@@ -8491,7 +8494,7 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
         self.phase_mode=idx
         if idx==0:   self.ph_min,self.ph_max=-150.0,150.0   # Smaart 기본: -150~150° (중심 0°)
         elif idx==1: self.ph_min,self.ph_max=-540.0,540.0
-        else:        self.ph_min,self.ph_max=-2.0,30.0
+        else:        self.ph_min,self.ph_max=-5.0,30.0
         self._cache=None; self._cap_pix=None; self.update()
 
     def mouseMoveEvent(self,e):
@@ -8518,7 +8521,7 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
         self._fz_reset()                     # 주파수축 전대역 리셋 (Smaart 테두리클릭 방식)
         if self.phase_mode==0:   self.ph_min,self.ph_max=-150.0,150.0
         elif self.phase_mode==1: self.ph_min,self.ph_max=-540.0,540.0
-        else:                    self.ph_min,self.ph_max=-2.0,30.0
+        else:                    self.ph_min,self.ph_max=-5.0,30.0
         self._cache=None; self.update()
 
     def wheelEvent(self, e):
@@ -8568,7 +8571,7 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
         is_grp=(self.phase_mode==2); unit=' ms' if is_grp else '°'
         p.setFont(_qfont(CF_AXIS))
         if is_grp:
-            gs=[v for v in [-2,0,2,5,10,15,20,25,30] if self.ph_min<=v<=self.ph_max]
+            gs=[v for v in [-5,0,5,10,15,20,25,30] if self.ph_min<=v<=self.ph_max]
         else:
             rng_deg=self.ph_max-self.ph_min
             if   rng_deg<=360:   step_deg=30
@@ -8609,7 +8612,7 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
         rng=self.ph_max-self.ph_min if self.ph_max!=self.ph_min else 1.0
         is_grp=(self.phase_mode==2)
         if is_grp:
-            gs=[v for v in [-2,0,2,5,10,15,20,25,30] if self.ph_min<=v<=self.ph_max]
+            gs=[v for v in [-5,0,5,10,15,20,25,30] if self.ph_min<=v<=self.ph_max]
         else:
             rng_deg=self.ph_max-self.ph_min
             if   rng_deg<=360:   step_deg=30
@@ -8858,6 +8861,7 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
         self.setMinimumSize(400,110); self.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Expanding)
         self.setMouseTracking(True); self.setAttribute(Qt.WA_OpaquePaintEvent,True)
         self.setFocusPolicy(Qt.StrongFocus)
+        self.setToolTip(_tx('Frequency axis:\nWheel = zoom at cursor   ·   Drag = box zoom   ·   Shift+drag = pan\nDouble-click = reset to full range   ·   ⌘ +/− = step zoom'))
         self._fz_init()   # 주파수축 줌/팬 상태(f_lo/f_hi)
         self.freqs=None; self.mag=None; self.coh=None; self.phase=None
         self.db_min=-15.0; self.db_max=15.0
@@ -11533,6 +11537,7 @@ class _AuralizeDialog(QDialog):
         self._dry_btn = QPushButton('  ' + _tx('Dry'));  self._dry_btn.setIcon(_icon('play', 13, color='#FFFFFF'))
         self._room_btn = QPushButton('  ' + _tx('Room')); self._room_btn.setIcon(_icon('play', 13, color='#FFFFFF'))
         self._stop_btn = QPushButton(''); self._stop_btn.setIcon(_icon('stop', 15, color=T('red'))); self._stop_btn.setFixedWidth(46)
+        self._stop_btn.setToolTip(_tx('Stop playback'))
         self._stop_btn.setStyleSheet(ss_btn_neutral())
         self._dry_btn.clicked.connect(lambda: self._play('dry'))
         self._room_btn.clicked.connect(lambda: self._play('room'))
