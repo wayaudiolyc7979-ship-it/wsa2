@@ -690,6 +690,60 @@ def _tf_preset_card_count():
 check('TF 프리셋 카드개수 반영', _tf_preset_card_count)
 
 
+def _tf_avg_group_render():
+    """AVERAGE 그룹 UI(마스터토글/모드세그먼트/평균만/딜레이정렬) + 카드 avg 토글 렌더."""
+    try:
+        tf = w.TransferFunctionWindow(None, settings={}, embedded=True)
+    except Exception as e:
+        return f'SKIP (TF 창 offscreen 인스턴스화 불가: {type(e).__name__})'
+    tf._avg_group_box.resize(240, 110); _app.processEvents()
+    out = _save(tf._avg_group_box, 'tf_average_group.png')
+    c = w._MeasCard(2, w.T('green'), deletable=True)
+    c._avg_chk.setChecked(True)
+    c.resize(240, 100); _app.processEvents()
+    out += '  ' + _save(c, 'meascard_avg_toggle.png')
+    return out
+check('TF AVERAGE 그룹 + 카드 avg 토글 렌더', _tf_avg_group_render)
+
+
+def _tf_avg_state_roundtrip():
+    """avg 마스터/모드/평균만/딜레이정렬 상태 + 카드별 in_average 저장·복원 라운드트립."""
+    try:
+        tf = w.TransferFunctionWindow(None, settings={}, embedded=True)
+    except Exception as e:
+        return f'SKIP (TF 창 offscreen 인스턴스화 불가: {type(e).__name__})'
+    tf._avg_master_btn.setChecked(True); tf._avg_on = True
+    tf._avg_mode_seg.set_active('complex'); tf._avg_mode = 'complex'
+    tf._avg_only_btn.setChecked(True); tf._avg_only = True
+    tf._avg_align_btn.setChecked(False); tf._avg_align = False
+    tf._tf_add_pair()
+    tf._extra_pairs[0]['card']._avg_chk.setChecked(True)
+    st = tf.get_state()
+    assert st['tf_avg_on'] is True and st['tf_avg_mode'] == 'complex', st
+    assert st['tf_avg_only'] is True and st['tf_avg_align'] is False, st
+    assert st['extra_pairs'][0]['in_average'] is True, st['extra_pairs']
+    # 위젯/상태를 기본값으로 되돌린 뒤 저장된 st 로 복원 — 필드+위젯 동기화 확인
+    tf._avg_master_btn.setChecked(False); tf._avg_on = False
+    tf._avg_mode_seg.set_active('mag'); tf._avg_mode = 'mag'
+    tf._avg_only_btn.setChecked(False); tf._avg_only = False
+    tf._avg_align_btn.setChecked(True); tf._avg_align = True
+    tf.apply_state(st)
+    assert tf._avg_on is True and tf._avg_mode == 'complex' and tf._avg_only is True and tf._avg_align is False, \
+        (tf._avg_on, tf._avg_mode, tf._avg_only, tf._avg_align)
+    assert tf._avg_master_btn.isChecked() is True, 'master 토글 위젯 미동기화'
+    assert tf._avg_mode_seg.active() == 'complex', 'mode 세그먼트 위젯 미동기화'
+    assert tf._avg_only_btn.isChecked() is True, '평균만 토글 위젯 미동기화'
+    assert tf._avg_align_btn.isChecked() is False, '딜레이정렬 토글 위젯 미동기화'
+    # 추가카드 in_average 복원 — 새 pair 로 재현(0개→apply_state 로 재생성)
+    tf.apply_state({'extra_pairs': []})
+    assert len(tf._extra_pairs) == 0
+    tf.apply_state(st)
+    assert len(tf._extra_pairs) == 1 and tf._extra_pairs[0]['card'].in_average is True, \
+        'extra pair in_average 복원 실패'
+    return 'TF avg 상태+카드 in_average 라운드트립 OK'
+check('TF AVERAGE 상태 직렬화 라운드트립', _tf_avg_state_roundtrip)
+
+
 def _i18n_t():
     """t(): en=원문, ko=_TR_KO 조회(없으면 원문 폴백)."""
     w._set_lang('en')

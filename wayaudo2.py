@@ -13751,6 +13751,8 @@ class TransferFunctionWindow(QWidget):
         return {
             'engine': self.eng_cb.currentIndex(), 'fft': self.fft_cb.currentIndex(),
             'response': self.avg_cb.currentIndex(), 'smooth': self.sm_cb.currentIndex(),
+            'tf_avg_on': self._avg_on, 'tf_avg_mode': self._avg_mode,
+            'tf_avg_only': self._avg_only, 'tf_avg_align': self._avg_align,
             'ir': self.ir_cb.currentIndex(), 'phase': self.phase_cb.currentIndex(),
             'units': self.unit_cb.currentIndex(),
             'gen': self._active_gen(), 'sine_freq': float(self._sine_freq),
@@ -13768,6 +13770,7 @@ class TransferFunctionWindow(QWidget):
                             if (p.get('meas_ch_cb') and p['meas_ch_cb'].currentData() is not None) else 0),
                 'delay_ms': float(p.get('delay_ms', 0.0)),
                 'name': p.get('name', ''), 'num': p.get('num', 2),
+                'in_average': (p.get('card').in_average if p.get('card') else False),
             } for p in self._extra_pairs],
         }
 
@@ -13778,6 +13781,16 @@ class TransferFunctionWindow(QWidget):
             except Exception: pass
         _idx('engine', self.eng_cb); _idx('fft', self.fft_cb); _idx('response', self.avg_cb)
         _idx('smooth', self.sm_cb); _idx('ir', self.ir_cb); _idx('phase', self.phase_cb); _idx('units', self.unit_cb)
+        self._avg_on = bool(d.get('tf_avg_on', False))
+        self._avg_mode = d.get('tf_avg_mode', 'mag')
+        self._avg_only = bool(d.get('tf_avg_only', False))
+        self._avg_align = bool(d.get('tf_avg_align', True))
+        if hasattr(self, '_avg_master_btn'):
+            self._avg_master_btn.setChecked(self._avg_on)
+            self._avg_mode_seg.set_active(self._avg_mode)
+            self._avg_only_btn.setChecked(self._avg_only)
+            self._avg_align_btn.setChecked(self._avg_align)
+            self._update_avg_align_enabled()
         try:
             g = d.get('gen', 'none')
             btnmap = {'pink': self.sig_pink_btn, 'white': self.sig_white_btn, 'sine': self.sig_sine_btn,
@@ -13883,6 +13896,7 @@ class TransferFunctionWindow(QWidget):
                 'delay_ms': float(p.get('delay_ms', 0.0)),
                 'name': p.get('name', ''),
                 'num': p.get('num', 2),
+                'in_average': (p.get('card').in_average if p.get('card') else False),
             })
         self._settings['tf_extra_pairs'] = pairs
         self._settings['tf_primary_name'] = getattr(self, '_tf_primary_name', '')
@@ -13909,6 +13923,8 @@ class TransferFunctionWindow(QWidget):
         if saved_num:
             pair['num'] = saved_num
             pair['card'].set_number(saved_num)
+        if entry.get('in_average'):
+            pair['card']._avg_chk.setChecked(True)
 
     def _restore_tf_extra_pairs(self):
         """시작 시 저장된 추가 카드들을 재생성·복원 (1회). _load_devices 이후 호출."""
@@ -16557,10 +16573,19 @@ class TransferFunctionWindow(QWidget):
         for c in getattr(self, '_level_cards', []):
             try: c.restyle()
             except Exception: pass
-        # 캡스 그룹 헤더 라벨(SIGNAL GENERATOR/MEASUREMENT) 색 재적용
+        # 캡스 그룹 헤더 라벨(SIGNAL GENERATOR/MEASUREMENT/AVERAGE) 색 재적용
         if hasattr(self, 'rp'):
             for _hl in self.rp.findChildren(QLabel, 'n2GroupHdr'):
                 _hl.setStyleSheet(f'color:{T("text")};background:transparent;')
+        # AVERAGE 그룹 N2 컨트롤(토글/세그먼트) 재스타일 + 카드별 avg 토글(레벨카드+추가카드) 재적용
+        if hasattr(self, '_avg_group_box'):
+            for _b in self._avg_group_box.findChildren(QWidget):
+                if hasattr(_b, 'restyle') and _b is not self._avg_group_box:
+                    try: _b.restyle()
+                    except Exception: pass
+        for c in (self._level_cards + [p.get('card') for p in getattr(self, '_extra_pairs', []) if p.get('card')]):
+            if hasattr(c, '_avg_chk'):
+                c._avg_chk.setStyleSheet(c._avg_chk_ss())
 
     def _update_sig_type_label(self):
         """타입 드롭다운 셀의 아이콘+이름을 현재 선택된 신호 타입으로 갱신."""
