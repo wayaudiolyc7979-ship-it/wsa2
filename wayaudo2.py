@@ -13155,33 +13155,21 @@ class TransferFunctionWindow(QWidget):
         self.sig_on_btn.clicked.connect(self._toggle_sig_gen); sgl.addWidget(self.sig_on_btn)
         rl.addWidget(sg)
 
-        # 라이브 멀티마이크 평균 — 상시 노출 대신 툴바 Avg(Σ) 버튼으로 여는 플로팅 팝업
+        # 라이브 멀티마이크 평균(크기/공간 평균) — 툴바 Σ 버튼으로 여는 플로팅 팝업
         pop = QFrame(); pop.setObjectName('avgPop')
         pop.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
         avg_l = QVBoxLayout(pop); avg_l.setContentsMargins(12, 10, 12, 12); avg_l.setSpacing(8)
         avg_l.addWidget(_n2_group_header('AVERAGE'))
-        # 1행: 마스터 AVG 토글 + 모드 세그먼트
         row1 = QHBoxLayout(); row1.setSpacing(8)
         self._avg_master_btn = _N2Toggle(text='AVG')
         self._avg_master_btn.setChecked(False)
         self._avg_master_btn.toggled.connect(self._on_avg_master)
-        self._avg_mode_seg = _N2Segmented([('mag', '크기'), ('complex', '복소')])
-        self._avg_mode_seg.set_active(self._avg_mode)
-        self._avg_mode_seg.changed.connect(self._on_avg_mode)
-        row1.addWidget(self._avg_master_btn); row1.addWidget(self._avg_mode_seg, 1)
-        avg_l.addLayout(row1)
-        # 2행: 평균만 + 딜레이정렬
-        row2 = QHBoxLayout(); row2.setSpacing(8)
         self._avg_only_btn = _N2Toggle(text='평균만')
         self._avg_only_btn.toggled.connect(self._on_avg_only)
-        self._avg_align_btn = _N2Toggle(text='딜레이정렬')
-        self._avg_align_btn.setChecked(True)
-        self._avg_align_btn.toggled.connect(self._on_avg_align)
-        row2.addWidget(self._avg_only_btn); row2.addWidget(self._avg_align_btn)
-        avg_l.addLayout(row2)
+        row1.addWidget(self._avg_master_btn); row1.addWidget(self._avg_only_btn); row1.addStretch()
+        avg_l.addLayout(row1)
         self._avg_popup = pop
         self._style_avg_popup()
-        self._update_avg_align_enabled()
 
         # 입력 장치
         # ── Measurement 패널: 공유 Ref 섹션 + N개 Meas 채널 카드 ──
@@ -13714,21 +13702,8 @@ class TransferFunctionWindow(QWidget):
             pass
         pop.move(gp); pop.show(); pop.raise_()
 
-    def _on_avg_mode(self, key):
-        self._avg_mode = key
-        self._update_avg_align_enabled()
-        self._request_avg_render()
-
     def _on_avg_only(self, on):
         self._avg_only = bool(on); self._request_avg_render()
-
-    def _on_avg_align(self, on):
-        self._avg_align = bool(on); self._request_avg_render()
-
-    def _update_avg_align_enabled(self):
-        # 딜레이정렬은 복소 모드에서만 의미
-        if hasattr(self, '_avg_align_btn'):
-            self._avg_align_btn.setEnabled(self._avg_mode == 'complex')
 
     def _request_avg_render(self):
         # 다음 렌더 틱에서 Task5 훅이 반영. 즉시 캔버스 갱신도 트리거.
@@ -13783,8 +13758,7 @@ class TransferFunctionWindow(QWidget):
         return {
             'engine': self.eng_cb.currentIndex(), 'fft': self.fft_cb.currentIndex(),
             'response': self.avg_cb.currentIndex(), 'smooth': self.sm_cb.currentIndex(),
-            'tf_avg_on': self._avg_on, 'tf_avg_mode': self._avg_mode,
-            'tf_avg_only': self._avg_only, 'tf_avg_align': self._avg_align,
+            'tf_avg_on': self._avg_on, 'tf_avg_only': self._avg_only,
             'tf_avg_primary': (self._level_cards[0].in_average if getattr(self, '_level_cards', None) else False),
             'ir': self.ir_cb.currentIndex(), 'phase': self.phase_cb.currentIndex(),
             'units': self.unit_cb.currentIndex(),
@@ -13815,15 +13789,10 @@ class TransferFunctionWindow(QWidget):
         _idx('engine', self.eng_cb); _idx('fft', self.fft_cb); _idx('response', self.avg_cb)
         _idx('smooth', self.sm_cb); _idx('ir', self.ir_cb); _idx('phase', self.phase_cb); _idx('units', self.unit_cb)
         self._avg_on = bool(d.get('tf_avg_on', False))
-        self._avg_mode = d.get('tf_avg_mode', 'mag')
         self._avg_only = bool(d.get('tf_avg_only', False))
-        self._avg_align = bool(d.get('tf_avg_align', True))
         if hasattr(self, '_avg_master_btn'):
             self._avg_master_btn.setChecked(self._avg_on)
-            self._avg_mode_seg.set_active(self._avg_mode)
             self._avg_only_btn.setChecked(self._avg_only)
-            self._avg_align_btn.setChecked(self._avg_align)
-            self._update_avg_align_enabled()
             if self._level_cards and hasattr(self._level_cards[0], '_avg_chk'):
                 self._level_cards[0]._avg_chk.setChecked(bool(d.get('tf_avg_primary', False)))
         try:
