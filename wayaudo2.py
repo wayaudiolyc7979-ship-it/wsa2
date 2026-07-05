@@ -8212,11 +8212,11 @@ def _n2_group_header(text):
     v = QVBoxLayout(w_); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(6)
     row = QHBoxLayout(); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(7)
     bar = QFrame(); bar.setFixedSize(3, 12); bar.setStyleSheet(f'background:{T("accent")};border-radius:1px;')
-    lbl = QLabel(text); lbl.setFont(_n2_caps_font(11)); lbl.setStyleSheet(f'color:{T("text")};background:transparent;')
+    lbl = QLabel(text); lbl.setObjectName('n2GroupHdr'); lbl.setFont(_n2_caps_font(11)); lbl.setStyleSheet(f'color:{T("text")};background:transparent;')
     row.addWidget(bar); row.addWidget(lbl); row.addStretch()
     v.addLayout(row)
     hair = QFrame(); hair.setFixedHeight(1)
-    hair.setStyleSheet(f'background:{"#2C2C32" if _theme == "dark" else T("border")};')
+    hair.setStyleSheet('background:rgba(128,128,128,0.28);border:none;')   # 테마 중립
     v.addWidget(hair)
     return w_
 
@@ -12961,6 +12961,7 @@ class TransferFunctionWindow(QWidget):
         _tmenu.addAction(_icon('folder',15,_n2_icon_color()),   'File…',  lambda: (self._pick_audio_file(), self._update_sig_type_label()))
         self._sig_type_menu = _tmenu
         _tcell.mousePressEvent = lambda e: self._sig_type_menu.exec_(_tcell.mapToGlobal(QPoint(0, _tcell.height()+2)))
+        self._sig_type_cell = _tcell; self._sig_type_chev = _tchev   # 테마 재스타일용 참조
         row1.addWidget(_tcell, 5)
         _step_ss = (f'QPushButton{{{_c_cell}font-size:16px;font-weight:600;color:{T("text_dim")};}}' + _c_hover)
         self.sig_lvl_btn_m = QPushButton('−'); self.sig_lvl_btn_m.setFixedSize(28, 30); self.sig_lvl_btn_m.setFocusPolicy(Qt.NoFocus); self.sig_lvl_btn_m.setStyleSheet(_step_ss)
@@ -13020,7 +13021,7 @@ class TransferFunctionWindow(QWidget):
         # ── 공유 Reference 섹션 ──
         # Reference도 측정 카드와 동일한 카드 박스로 — R/M 레벨 바가 동일 컨테이너·
         # 동일 내부여백에 놓여 구조적으로 좌우 정렬됨(가로폭·세로 위치 통일, v1.9 #4).
-        ref_sec = QFrame(); ref_sec.setObjectName('refCard')
+        ref_sec = QFrame(); ref_sec.setObjectName('refCard'); self._ref_sec = ref_sec
         _ref_bd = '#34343B' if _theme == 'dark' else T('border')
         _ref_bg = '#1E1E22' if _theme == 'dark' else '#F3F5FA'
         ref_sec.setStyleSheet(f'QFrame#refCard{{border:1px solid {_ref_bd};border-radius:10px;background:{_ref_bg};padding:2px;}}')
@@ -16267,6 +16268,39 @@ class TransferFunctionWindow(QWidget):
             f'padding:5px;font-size:12px;font-weight:bold;}}'
             f'QPushButton:hover{{background:{_bg_h};}}')
 
+    def _restyle_sig_gen_theme(self):
+        """테마 토글(다크↔라이트) 시 TF 신호발생기/측정 패널 N2 컨트롤 재스타일."""
+        _bd = '#34343B' if _theme == 'dark' else T('border')
+        _bd_h = '#4A4A54' if _theme == 'dark' else '#B7B7C0'
+        if hasattr(self, '_sig_type_cell'):
+            self._sig_type_cell.setStyleSheet(
+                f'#sigTypeCell{{border:1px solid {_bd};background:transparent;border-radius:8px;}}'
+                f'#sigTypeCell:hover{{border-color:{_bd_h};}}')
+            self._sig_type_txt.setStyleSheet(f'color:{T("text")};background:transparent;')
+            self._sig_type_chev.setStyleSheet(f'color:{T("text_dim")};background:transparent;')
+            self._update_sig_type_label()
+        for cb in (getattr(self, 'sig_out_cb', None), getattr(self, 'sig_out_ch_cb', None), getattr(self, 'sig_out_ch2_cb', None)):
+            if cb is not None:
+                cb._flat_border = _bd; cb.update()
+        if hasattr(self, '_ref_sec'):
+            _rbg = '#1E1E22' if _theme == 'dark' else '#F3F5FA'
+            self._ref_sec.setStyleSheet(f'QFrame#refCard{{border:1px solid {_bd};border-radius:10px;background:{_rbg};padding:2px;}}')
+        if hasattr(self, '_ref_db_lbl'):
+            self._ref_db_lbl.setStyleSheet(f'color:{T("accent")};background:transparent;')
+        _rflat = (f'QComboBox{{background:transparent;color:{T("text")};border:1px solid {_bd};'
+                  f'border-radius:8px;padding:1px 8px;font-size:{FS_SM}px;min-height:22px;}}'
+                  f'QComboBox::drop-down{{width:0;border:none;}}QComboBox::down-arrow{{width:0;height:0;image:none;}}')
+        for cb in (getattr(self, 'ref_cb', None), getattr(self, 'ref_ch_cb', None)):
+            if cb is not None:
+                cb.setStyleSheet(_rflat); cb._flat_border = _bd; cb.update()
+        for c in getattr(self, '_level_cards', []):
+            try: c.restyle()
+            except Exception: pass
+        # 캡스 그룹 헤더 라벨(SIGNAL GENERATOR/MEASUREMENT) 색 재적용
+        if hasattr(self, 'rp'):
+            for _hl in self.rp.findChildren(QLabel, 'n2GroupHdr'):
+                _hl.setStyleSheet(f'color:{T("text")};background:transparent;')
+
     def _update_sig_type_label(self):
         """타입 드롭다운 셀의 아이콘+이름을 현재 선택된 신호 타입으로 갱신."""
         if not hasattr(self, '_sig_type_txt'): return
@@ -17927,14 +17961,21 @@ class StereoLoudnessPage(QWidget):
         tl.setAlignment(Qt.AlignHCenter)
         self._lu_btn = QPushButton('LU'); self._lu_btn.setCheckable(True); self._lu_btn.setFixedSize(54, 24)
         self._lu_btn.setToolTip(_tx('LUFS ↔ LU (show relative value vs target)'))
-        self._lu_btn.setStyleSheet(
-            f"QPushButton{{background:{T('panel')};color:{T('text_dim')};border:1px solid {T('border')};"
-            f"border-radius:6px;font-size:11px;font-weight:bold;}}"
-            f"QPushButton:checked{{background:rgba(78,125,240,40);color:{T('accent')};"
-            f"border:1px solid {T('accent')};}}")
+        self._lu_btn.setStyleSheet(self._lu_btn_ss())
+        self._lu_btn.setFocusPolicy(Qt.NoFocus)
         self._lu_btn.toggled.connect(self._on_lu_toggled)
         vl.addWidget(tl); vl.addWidget(self._lu_btn, 0, Qt.AlignHCenter)
         return w
+
+    def _lu_btn_ss(self):
+        # N2 — 투명+서브틀 테두리 / 활성=회색 채움(파랑 필 폐지, 세그먼트 트랙과 통일)
+        _bd = '#34343B' if _theme == 'dark' else T('border')
+        _fill, _fg = ('#42424A', '#FFFFFF') if _theme == 'dark' else ('#3A3A42', '#FFFFFF')
+        _bd_h = '#4A4A54' if _theme == 'dark' else '#B7B7C0'
+        return (f"QPushButton{{background:transparent;color:{T('text_dim')};border:1px solid {_bd};"
+                f"border-radius:7px;font-size:11px;font-weight:bold;}}"
+                f"QPushButton:hover{{color:{T('text')};border-color:{_bd_h};}}"
+                f"QPushButton:checked{{background:{_fill};color:{_fg};border-color:{_fill};}}")
 
     def set_target(self, val):
         """상단 툴바 콤보가 호출 — 타겟 동기화 + 편차/표시 즉시 갱신."""
@@ -17989,11 +18030,7 @@ class StereoLoudnessPage(QWidget):
         if hasattr(self, '_hero_avg_btn'): self._hero_avg_btn.setStyleSheet(self._seg_btn_ss(left=True))
         if hasattr(self, '_hero_live_btn'): self._hero_live_btn.setStyleSheet(self._seg_btn_ss(left=False))
         if hasattr(self, '_lu_btn'):
-            self._lu_btn.setStyleSheet(
-                f"QPushButton{{background:{T('panel')};color:{T('text_dim')};border:1px solid {T('border')};"
-                f"border-radius:6px;font-size:11px;font-weight:bold;}}"
-                f"QPushButton:checked{{background:rgba(78,125,240,40);color:{T('accent')};"
-                f"border:1px solid {T('accent')};}}")
+            self._lu_btn.setStyleSheet(self._lu_btn_ss())
         if hasattr(self, '_lbl_I'): self._lbl_I.update()
         if hasattr(self, '_hist'): self._hist.update()
         if hasattr(self, '_vs'): self._vs.update()
@@ -19475,6 +19512,8 @@ class MainWindow(QMainWindow):
                 grp.setStyleSheet(_bss)
             # Play — C 스타일러 (재생상태 유지)
             self.tf_win._style_sig_play(self.tf_win.sig_on_btn.isChecked())
+            # 타입 셀·OUT 콤보·Reference·측정 카드 라이트/다크 재스타일
+            self.tf_win._restyle_sig_gen_theme()
             # VU 레이블 → 카드 방식으로 교체됨, 별도 테마 갱신 불필요
             # TF 캔버스 캐시 무효화
             for cvs in [self.tf_win.mag_cvs, self.tf_win.phase_cvs, self.tf_win.ir_cvs]:
@@ -19593,12 +19632,11 @@ class MainWindow(QMainWindow):
         super().changeEvent(e)
 
     def _st_dev_lbl_ss(self):
-        # 장치명은 보조 정보 → text_dim 세미볼드. 배경은 옆 툴바 컨트롤(은은한 오버레이)과 맞춤
-        # (기존 bg3 진한 회색 블록이 혼자 튀던 문제).
-        bg = 'rgba(255,255,255,10)' if _theme != 'light' else T('bg2')
-        return (f'font-size:{FS_BODY}px;font-weight:500;color:{T("text_dim")};'
-                f'background:{bg};border:1px solid {T("border")};'
-                f'border-radius:{RADIUS_SM}px;padding:2px 8px;')
+        # N2 flat 셀 — 투명 배경 + 서브틀 테두리(다른 N2 컨트롤과 통일).
+        _bd = '#34343B' if _theme == 'dark' else T('border')
+        return (f'font-size:{FS_BODY}px;font-weight:600;color:{T("text")};'
+                f'background:transparent;border:1px solid {_bd};'
+                f'border-radius:8px;padding:2px 8px;')
 
     def _toggle_theme(self):
         global _theme
