@@ -155,7 +155,7 @@ from PyQt5.QtWidgets import QShortcut
 from PyQt5.QtGui   import (
     QPainter, QColor, QPen, QFont, QCursor,
     QLinearGradient, QConicalGradient, QBrush, QPainterPath,
-    QRadialGradient, QPalette, QImage, QPixmap, QPolygon, QPolygonF, QKeySequence
+    QRadialGradient, QPalette, QImage, QPixmap, QPolygon, QPolygonF, QKeySequence, QIcon, QFontMetrics
 )
 import math as _math
 
@@ -1030,6 +1030,10 @@ _LUCIDE_ICONS = {
     # 탭 아이콘 (겹침 회피) — TF=비교(기준↔측정), Stereo=음량(스피커)
     'git-compare':('<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M11 18H8a2 2 0 0 1-2-2V9"/>', False),  # Transfer Function 탭
     'volume2':('<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>', False),  # Stereo Loudness 탭
+    'palette':('<path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/><circle cx="6.5" cy="11.5" r="1.1"/><circle cx="9.5" cy="7.5" r="1.1"/><circle cx="14.5" cy="7.5" r="1.1"/><circle cx="17.5" cy="11.5" r="1.1"/>', False),  # Color 버튼(누락됐던 것)
+    'panel-bottom':('<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 15h18"/>', False),  # (하단 패널)
+    'panel-left':('<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>', False),  # 캡쳐 드로어 토글(우측 panel-right와 짝)
+    'clock':('<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>', False),  # HOLD(누락됐던 것)
 }
 
 def _svg_render(p, inner, color, size, filled=False):
@@ -6750,9 +6754,10 @@ class _SpecCard(QFrame):
         self._num_label.setStyleSheet(f'color:{color};background:transparent;font-size:11px;font-weight:bold;')
         self._num_label.setToolTip(_tx('Double-click to rename'))
         hdr.addWidget(self._chk); hdr.addWidget(dot); hdr.addWidget(self._num_label); hdr.addStretch()
-        # dBFS 값은 헤더 우측에 (TF 측정 카드와 동일) → 레벨바가 카드 끝까지 꽉 차게
+        # E안: dBFS 값을 헤더 우측에 크게·모노로 (라이브 레벨 강조)
         self._db_lbl = QLabel('—')
-        self._db_lbl.setStyleSheet(f'color:{T("text_dim")};background:transparent;font-size:10px;')
+        self._db_lbl.setStyleSheet(f'color:{T("text")};background:transparent;')
+        self._db_lbl.setFont(_n2_mono_font(14, QFont.Bold))
         self._db_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         hdr.addWidget(self._db_lbl)
         # 삭제는 인라인 ✕ 대신 우클릭 메뉴(contextMenuEvent)로 통일 — 모든 카드(1번·추가) 헤더가
@@ -6762,7 +6767,7 @@ class _SpecCard(QFrame):
 
         # 미터 행: 레벨바가 카드 폭 끝까지 꽉 차게 (TF M바와 동일)
         mr = QHBoxLayout(); mr.setContentsMargins(0,0,0,0); mr.setSpacing(0)
-        self._meter = _MiniMeterBar(); self._meter.setFixedHeight(10)
+        self._meter = _MiniMeterBar(); self._meter.setFixedHeight(12)   # E안: 미터 강조
         mr.addWidget(self._meter, 1)
         lay.addLayout(mr)
 
@@ -6791,14 +6796,18 @@ class _SpecCard(QFrame):
         self._ch_cb.currentIndexChanged.connect(lambda _: self.channel_changed.emit(self._card_id))
 
     def _apply_border(self):
-        # 네온 풀컬러 → 차분한 저알파 색 프레임 (정체성은 스와치·점·번호가 담당). TF _MeasCard와 통일.
+        # E안: 중립 카드(테두리 회색·배경 서브틀), 정체성은 스와치·번호·미터색. 선택 시 채널색 테두리로 front 표시.
         c = QColor(self._color); r, g, b = c.red(), c.green(), c.blue()
+        _bg  = '#1E1E22' if _theme == 'dark' else '#F3F5FA'
+        _bd  = '#34343B' if _theme == 'dark' else T('border')
+        _bd_s = '#4A4A54' if _theme == 'dark' else T('accent')   # 선택 = 밝은 중립 테두리(채널색 대신)
         if self._is_selected:
-            self.setStyleSheet(f'#specCard{{border:2px solid rgba({r},{g},{b},230);'
-                               f'border-radius:{RADIUS_SM}px;background:rgba({r},{g},{b},30);padding:1px;}}')
+            # front 표시 = 채널색 은은한 배경 틴트 + 밝은 중립 테두리 (테두리는 중립 유지 = E안)
+            self.setStyleSheet(f'#specCard{{border:1px solid {_bd_s};'
+                               f'border-radius:8px;background:rgba({r},{g},{b},20);padding:2px;}}')
         else:
-            self.setStyleSheet(f'#specCard{{border:1px solid rgba({r},{g},{b},110);'
-                               f'border-radius:{RADIUS_SM}px;background:{T("panel")};padding:2px;}}')
+            self.setStyleSheet(f'#specCard{{border:1px solid {_bd};'
+                               f'border-radius:8px;background:{_bg};padding:2px;}}')
 
     def set_selected(self, on):
         on = bool(on)
@@ -7114,6 +7123,24 @@ class _CaptureBar(QWidget):
 
 
 
+def _cap_dot_pm(color, filled, size=11):
+    """캡쳐 표시 점 — 안티앨리어싱 원(채움=표시 / 링=숨김). CSS border-radius의
+    레티나 계단현상(외곽 안 칠해짐) 회피용 페인트 픽스맵."""
+    dpr = 3
+    pm = QPixmap(int(size * dpr), int(size * dpr)); pm.setDevicePixelRatio(dpr)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing, True)
+    c = QColor(color)
+    if filled:
+        p.setPen(Qt.NoPen); p.setBrush(c)
+        p.drawEllipse(QRectF(0.6, 0.6, size - 1.2, size - 1.2))
+    else:
+        pen = QPen(c); pen.setWidthF(1.7); p.setPen(pen); p.setBrush(Qt.NoBrush)
+        p.drawEllipse(QRectF(1.3, 1.3, size - 2.6, size - 2.6))
+    p.end()
+    return pm
+
+
 class _DragGrip(QLabel):
     """캡처 행 드래그 핸들. 전역 이벤트 필터 없이 마우스 이벤트를 직접 처리."""
     def __init__(self, drawer, mode, cap_idx):
@@ -7251,8 +7278,9 @@ class _CaptureDrawer(QWidget):
         grp_btn.setFixedSize(40, 20)
         grp_btn.setToolTip(_tx('New Group'))
         grp_btn.setStyleSheet(
-            'font-size:9px;font-weight:600;border:1px solid #38383A;border-radius:5px;'
-            'background:#2C2C2E;color:#8E8E93;padding:0 3px;')
+            'QPushButton{font-size:9px;font-weight:600;border:1px solid rgba(78,125,240,120);'
+            'border-radius:6px;background:rgba(78,125,240,28);color:#6E9BFF;padding:0 3px;}'
+            'QPushButton:hover{background:rgba(78,125,240,52);border-color:#4E7DF0;}')
         grp_btn.clicked.connect(lambda: self.new_group_req.emit(self._panel_tab))
         hl.addWidget(grp_btn)
         pv.addWidget(hdr)
@@ -7264,26 +7292,40 @@ class _CaptureDrawer(QWidget):
         tbl_outer.setContentsMargins(8, 5, 8, 5); tbl_outer.setSpacing(0)
 
         self._seg_pill = QWidget(); self._seg_pill.setObjectName('segPill')
-        self._seg_pill.setStyleSheet(
-            '#segPill{background:#3A3A3C;border-radius:8px;}')
+        self._seg_pill.setStyleSheet('#segPill{background:transparent;}')   # 언더라인 탭 — 트랙 없음
         tbl = QHBoxLayout(self._seg_pill)
         tbl.setContentsMargins(2, 2, 2, 2); tbl.setSpacing(2)
 
         self._spec_tab_btn = QPushButton('Spectrum')
         self._tf_tab_btn   = QPushButton('Transfer Fn')
         _tab_ss = (
-            'QPushButton{font-size:11px;font-weight:600;border:none;'
-            'background:transparent;color:#8E8E93;padding:0 4px;border-radius:6px;}'
-            'QPushButton:checked{background:#636366;color:#FFFFFF;}'
-            'QPushButton:hover:!checked{background:rgba(255,255,255,12);}')
-        for btn, mode in [(self._spec_tab_btn, 'spec'), (self._tf_tab_btn, 'tf')]:
-            btn.setFixedHeight(26); btn.setCheckable(True)
+            'QPushButton{font-size:12px;font-weight:600;border:none;'
+            'background:transparent;color:#8E8E93;padding:2px 6px 2px 6px;}'
+            'QPushButton:checked{color:#FFFFFF;}'
+            'QPushButton:hover:!checked{color:#B0B0B8;}')
+        # 글자 폭만큼의 일자 밑줄(2px) — border-bottom의 곡선 렌더 회피
+        _uw_font = QFont('Helvetica Neue'); _uw_font.setPixelSize(12); _uw_font.setWeight(QFont.DemiBold)
+        _uw_fm = QFontMetrics(_uw_font)
+        self._dtab_uls = {}
+        for btn, mode, txt in [(self._spec_tab_btn, 'spec', 'Spectrum'),
+                               (self._tf_tab_btn, 'tf', 'Transfer Fn')]:
+            btn.setFixedHeight(24); btn.setCheckable(True)
             btn.setStyleSheet(_tab_ss)
             btn.clicked.connect(lambda _, m=mode: self._switch_panel_tab(m))
-            tbl.addWidget(btn, 1)
+            cell = QWidget()
+            cv = QVBoxLayout(cell); cv.setContentsMargins(0, 0, 0, 0); cv.setSpacing(3)
+            cv.addWidget(btn)
+            ur = QHBoxLayout(); ur.setContentsMargins(0, 0, 0, 0); ur.setSpacing(0)
+            ul = QFrame(); ul.setFixedSize(max(28, _uw_fm.horizontalAdvance(txt) + 8), 2)
+            ul.setStyleSheet('background:#4E7DF0;border:none;border-radius:1px;')
+            ur.addStretch(); ur.addWidget(ul); ur.addStretch()
+            cv.addLayout(ur)
+            self._dtab_uls[mode] = ul
+            tbl.addWidget(cell, 1)
 
         tbl_outer.addWidget(self._seg_pill, 1)
         self._spec_tab_btn.setChecked(True)
+        self._dtab_uls['tf'].setVisible(False)
         self._seg_tab_bar = tab_bar
         pv.addWidget(tab_bar)
 
@@ -7307,15 +7349,15 @@ class _CaptureDrawer(QWidget):
         self._scroll.setFrameShape(QFrame.NoFrame)
         self._scroll.setObjectName('capScroll')
         self._scroll.setStyleSheet(
-            f'#capScroll {{ background:{T("bg")}; border:1px solid {T("border")}; }}'
+            f'#capScroll {{ background:transparent; border:none; }}'
             f'QScrollBar:vertical{{width:5px;background:transparent;}}'
             f'QScrollBar::handle:vertical{{background:{T("border")};border-radius:2px;}}')
-        self._scroll.viewport().setStyleSheet(f'background:{T("bg")};')
+        self._scroll.viewport().setStyleSheet('background:transparent;')
 
         self._inner = QWidget()
         self._inner.setObjectName('capInner')
         self._inner.setMouseTracking(True)
-        self._inner.setStyleSheet(f'#capInner {{ background:{T("bg")}; }}')
+        self._inner.setStyleSheet('#capInner { background:transparent; }')
         # 빈 공간 우클릭 → 전체삭제 메뉴
         self._inner.setContextMenuPolicy(Qt.CustomContextMenu)
         self._inner.customContextMenuRequested.connect(
@@ -7352,15 +7394,25 @@ class _CaptureDrawer(QWidget):
         self._import_btn.setStyleSheet(
             f'font-size:12px;font-weight:600;border:1px solid {bd};border-radius:5px;'
             f'background:{btn_bg};color:{acc};padding:0;')
-        self._grp_btn.setStyleSheet(
-            f'font-size:9px;font-weight:600;border:1px solid {bd};border-radius:5px;'
-            f'background:{grp_bg};color:{grp_fg};padding:0 3px;')
+        if _theme == 'dark':
+            self._grp_btn.setStyleSheet(
+                'QPushButton{font-size:9px;font-weight:600;border:1px solid rgba(78,125,240,120);'
+                'border-radius:6px;background:rgba(78,125,240,28);color:#6E9BFF;padding:0 3px;}'
+                'QPushButton:hover{background:rgba(78,125,240,52);border-color:#4E7DF0;}')
+        else:
+            self._grp_btn.setStyleSheet(
+                f'QPushButton{{font-size:9px;font-weight:600;border:1px solid {acc};'
+                f'border-radius:6px;background:{T("bg3")};color:{acc};padding:0 3px;}}'
+                f'QPushButton:hover{{background:{grp_bg};}}')
 
     # ── 공개 메서드 ─────────────────────────────────
     def _switch_panel_tab(self, mode):
         self._panel_tab = mode
         self._spec_tab_btn.setChecked(mode == 'spec')
         self._tf_tab_btn.setChecked(mode == 'tf')
+        if hasattr(self, '_dtab_uls'):
+            self._dtab_uls['spec'].setVisible(mode == 'spec')
+            self._dtab_uls['tf'].setVisible(mode == 'tf')
         self._avg_btn.setVisible(mode == 'tf')
         self._export_btn.setVisible(mode == 'tf')
         self._import_btn.setVisible(mode == 'tf')
@@ -7407,20 +7459,22 @@ class _CaptureDrawer(QWidget):
             return
         tgt = self._target.get(self._panel_tab, '')
         if tgt:
-            chip.setText(f'  ▸  Capture Target:  {tgt}    ✕')
+            chip.setText(f'  ▸  Capture Target   {tgt}     ✕')
             chip.setEnabled(True)
+            _tint = ('rgba(78,125,240,28)' if _theme == 'dark' else T("bg3"))
+            _tint_h = ('rgba(78,125,240,52)' if _theme == 'dark' else T("bg2"))
             chip.setStyleSheet(
-                f'QPushButton{{text-align:left;font-size:11px;font-weight:bold;'
-                f'color:{T("accent")};background:{T("bg2")};'
-                f'border:1px solid {T("accent")};border-radius:5px;padding:0 6px;}}'
-                f'QPushButton:hover{{background:{T("bg3")};}}')
+                f'QPushButton{{text-align:left;font-size:11px;font-weight:600;'
+                f'color:{T("accent")};background:{_tint};'
+                f'border:1px solid rgba(78,125,240,120);border-radius:6px;padding:0 8px;}}'
+                f'QPushButton:hover{{background:{_tint_h};border-color:{T("accent")};}}')
         else:
-            chip.setText('  ▸  Capture Target:  None')
+            chip.setText('  ▸  Capture Target   None')
             chip.setEnabled(False)   # 이미 미지정 → 클릭 불필요(상태 표시)
             chip.setStyleSheet(
                 f'QPushButton{{text-align:left;font-size:11px;'
                 f'color:{T("text_dim")};background:transparent;'
-                f'border:1px solid {T("border")};border-radius:5px;padding:0 6px;}}')
+                f'border:1px solid {T("border")};border-radius:6px;padding:0 8px;}}')
 
     def toggle(self):
         self.setVisible(not self.isVisible())
@@ -7668,33 +7722,37 @@ class _CaptureDrawer(QWidget):
     def _make_row(self, cap, idx, mode, indent, is_front=False):
         row = QWidget()
         rl  = QHBoxLayout(row)
-        rl.setContentsMargins(indent + 2, 2, 2, 2); rl.setSpacing(3)
+        rl.setContentsMargins(indent + 4, 5, 6, 5); rl.setSpacing(3)
 
         grip = _DragGrip(self, mode, idx)
 
         _vis = cap.get('visible', True)
-        chk = QPushButton('✓' if _vis else '')
-        chk.setCheckable(True); chk.setChecked(_vis)
-        chk.setFixedSize(20, 20)
-        chk.setFocusPolicy(Qt.NoFocus)   # macOS 파란 포커스 링 제거
-        _ck_bg, _ck_bd, _ck_on = (('#1C1C1E', '#48484A', '#1C2A3A') if _theme == 'dark'
-                                  else (T('panel'), '#C4CCD8', '#E3ECFF'))
-        chk.setStyleSheet(
-            f'QPushButton{{font-size:13px;font-weight:bold;border:2px solid {_ck_bd};'
-            f'border-radius:4px;background:{_ck_bg};color:#4E7DF0;padding:0;}}'
-            f'QPushButton:checked{{border:2px solid #4E7DF0;background:{_ck_on};}}')
-        def _on_vis(c, b=chk, m=mode, i=idx):
-            b.setText('✓' if c else '')
-            self.visibility_changed.emit(m, i, c)
-        chk.toggled.connect(_on_vis)
+        _cc = QColor(cap["color"]); _c_rgb = f'{_cc.red()},{_cc.green()},{_cc.blue()}'
+        # 이름 글씨색 — 선택행=흰색, 표시=곡선색 85%, 숨김=곡선색 40% (C안: 배경 위 글씨)
+        def _lbl_col(vis):
+            if is_front: return T('text')
+            return f'rgba({_c_rgb},{217 if vis else 102})'
+        _lbl_wt = 'bold' if is_front else 'normal'
 
-        dot = QLabel('■')
-        dot.setStyleSheet(f'color:{cap["color"]};font-size:12px;')
-        dot.setFixedWidth(14)
+        # 색 점 = 표시/숨김 토글 (채움=표시, 빈 원=숨김) — 박스형 체크박스 폐지.
+        # 점은 안티앨리어싱 페인트 원(외곽 매끈, 완전 칠해짐).
+        chk = QPushButton()
+        chk.setCheckable(True); chk.setChecked(_vis)
+        chk.setFixedSize(16, 16)
+        chk.setFocusPolicy(Qt.NoFocus)   # macOS 파란 포커스 링 제거
+        chk.setCursor(Qt.PointingHandCursor)
+        chk.setToolTip(_tx('Show / hide this capture'))
+        chk.setIconSize(QSize(12, 12))
+        chk.setStyleSheet('QPushButton{border:none;background:transparent;padding:0;}')
+        chk.setIcon(QIcon(_cap_dot_pm(cap["color"], _vis, 12)))
 
         lbl = QLabel(cap['label'])
-        lbl_color = T('text') if is_front else T('text_dim')
-        lbl.setStyleSheet(f'color:{lbl_color};font-size:11px;font-weight:{"bold" if is_front else "normal"};')
+        lbl.setStyleSheet(f'color:{_lbl_col(_vis)};font-size:12px;font-weight:{_lbl_wt};background:transparent;')
+        def _on_vis(c, b=chk, m=mode, i=idx, _l=lbl, _col=cap["color"]):
+            b.setIcon(QIcon(_cap_dot_pm(_col, c, 12)))
+            _l.setStyleSheet(f'color:{_lbl_col(c)};font-size:12px;font-weight:{_lbl_wt};background:transparent;')
+            self.visibility_changed.emit(m, i, c)
+        chk.toggled.connect(_on_vis)
         lbl.setCursor(Qt.PointingHandCursor)
         lbl.setToolTip(_tx('Click → bring to front  |  Double-click → rename'))
         def on_press(ev, m=mode, i=idx):
@@ -7709,9 +7767,10 @@ class _CaptureDrawer(QWidget):
                 self.rename_requested.emit(m, i, name.strip())
         lbl.mouseDoubleClickEvent = on_dbl
 
+        rl.setSpacing(8)
         rl.addWidget(grip)
         rl.addWidget(chk)
-        rl.addWidget(dot)
+        rl.addSpacing(2)
         rl.addWidget(lbl, 1)
 
         # TF 전용: Δ 비교 기준(Reference) 토글
@@ -7734,7 +7793,8 @@ class _CaptureDrawer(QWidget):
         badge_txt = cap.get('mode', '')
         if badge_txt and badge_txt not in ('FFT', ''):
             badge = QLabel(badge_txt)
-            badge.setStyleSheet(f'color:{T("text_dim")};font-size:10px;')
+            badge.setFont(_n2_mono_font(9))
+            badge.setStyleSheet(f'color:{T("text_dim")};background:transparent;')
             rl.addWidget(badge)
 
         del_btn = QPushButton('×')
@@ -7752,18 +7812,17 @@ class _CaptureDrawer(QWidget):
             lambda pos, m=mode, i=idx, w=row: self._show_row_menu(m, i, w.mapToGlobal(pos)))
 
         row.setObjectName(f'capRow')
-        sep_c = '#2A2A2A' if _theme == 'dark' else '#D5DCE6'
-        row_bg = T('bg')
+        # C안 — 완전 플랫: 행 테두리/구분선 없이 배경 위 글씨.
+        # 선택행 = 폭 전체 은은한 틴트 + 좌측 액센트 바 (떠있는 박스처럼 안 보이게 라운드/인셋 없음).
         if is_front:
-            # 선택(활성) 캡쳐 — 좌측 액센트 바 + 볼드 라벨로만 표시 (행 전체 파랑 틴트는
-            # oct12·× 쪽 빈 공간에서 박스처럼 도드라져 제거. 좌측 바+볼드로 충분히 구분).
+            _sel_bg = 'rgba(78,125,240,24)' if _theme == 'dark' else 'rgba(78,125,240,20)'
+            _sel_hv = 'rgba(78,125,240,38)' if _theme == 'dark' else 'rgba(78,125,240,32)'
             row.setStyleSheet(
-                f'#capRow{{background:{row_bg};'
-                f'border-left:3px solid {T("accent")};border-bottom:1px solid {sep_c};}}'
-                f'#capRow:hover{{background:{T("bg3")};}}')
+                f'#capRow{{background:{_sel_bg};border-left:2px solid {T("accent")};}}'
+                f'#capRow:hover{{background:{_sel_hv};}}')
         else:
             row.setStyleSheet(
-                f'#capRow{{background:{row_bg};border-left:3px solid transparent;border-bottom:1px solid {sep_c};}}'
+                f'#capRow{{background:transparent;border-left:2px solid transparent;}}'
                 f'#capRow:hover{{background:{T("bg3")};}}')
         return row
 
@@ -8222,7 +8281,7 @@ class _N2Segmented(QFrame):
 
 def _n2_divider():
     f = QFrame(); f.setFrameShape(QFrame.VLine); f.setFixedWidth(1); f.setFixedHeight(26)
-    hair = '#232329' if _theme == 'dark' else T('border')
+    hair = '#3E3E46' if _theme == 'dark' else T('border')   # 또렷하게(기존 #232329 너무 흐림)
     f.setStyleSheet(f'color:{hair};background:{hair};border:none;')
     return f
 
@@ -8233,6 +8292,14 @@ def _n2_tab_ss():
             f'#n2tab:hover{{background:{hov};}}')
 
 
+def _sec_hairline():
+    """사이드 패널 섹션 헤더 아래 하어라인 구분선."""
+    f = QFrame(); f.setFixedHeight(1)
+    c = '#33333A' if _theme == 'dark' else '#D5DBE6'
+    f.setStyleSheet(f'background:{c};border:none;')
+    return f
+
+
 class _N2Tab(QFrame):
     """N2 상단 탭 — [아이콘][이름], 활성=액센트 밑줄+흰글씨/액센트아이콘. 트랙 없음.
     _CheckBtn 호환: setChecked/isChecked/clicked."""
@@ -8240,28 +8307,17 @@ class _N2Tab(QFrame):
 
     def __init__(self, icon_name, label, parent=None):
         super().__init__(parent)
-        from PyQt5.QtGui import QFontMetrics
         self._icon_name = icon_name; self._checked = False
         self.setObjectName('n2tab'); self.setStyleSheet(_n2_tab_ss())
         self.setCursor(Qt.PointingHandCursor); self.setAttribute(Qt.WA_Hover, True)
-        v = QVBoxLayout(self); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(3)
-        inner = QWidget(); inner.setStyleSheet('background:transparent;')
-        h = QHBoxLayout(inner); h.setContentsMargins(0, 0, 0, 0); h.setSpacing(8); h.addStretch()
+        # 밑줄 없음 — 활성 = 아이콘 액센트 + 흰 볼드 (탭↔메뉴 구분은 하단 전체 파란 라인이 담당)
+        h = QHBoxLayout(self); h.setContentsMargins(0, 0, 0, 0); h.setSpacing(8); h.addStretch()
         self._icl = QLabel(); self._icl.setFixedSize(15, 15); self._icl.setStyleSheet('background:transparent;')
         self._icl.setPixmap(_icon_pm(icon_name, 15, _n2_icon_color())); h.addWidget(self._icl)
         self._txt = QLabel(label)
         _tf = QFont(); _tf.setPixelSize(13); _tf.setWeight(QFont.Medium); _tf.setLetterSpacing(QFont.AbsoluteSpacing, 0.6)
         self._txt.setFont(_tf); self._txt.setStyleSheet(f'color:{T("text_dim")};background:transparent;')
         h.addWidget(self._txt); h.addStretch()
-        v.addWidget(inner, 1)
-        # 밑줄 — 글자+아이콘 폭에 맞춰 중앙에만 (활성 시). B안: 정밀·에디토리얼
-        _bf = QFont(_tf); _bf.setWeight(QFont.DemiBold)
-        ul_w = 15 + 8 + QFontMetrics(_bf).horizontalAdvance(label)
-        indr = QWidget(); indr.setFixedHeight(2); indr.setStyleSheet('background:transparent;')
-        ih = QHBoxLayout(indr); ih.setContentsMargins(0, 0, 0, 0); ih.setSpacing(0); ih.addStretch()
-        self._ul = QFrame(); self._ul.setFixedSize(int(ul_w), 2); self._ul.setStyleSheet('background:transparent;border-radius:1px;')
-        ih.addWidget(self._ul); ih.addStretch()
-        v.addWidget(indr)
 
     def isChecked(self): return self._checked
     def setChecked(self, on):
@@ -8271,7 +8327,6 @@ class _N2Tab(QFrame):
         self._icl.setPixmap(_icon_pm(self._icon_name, 15, T('accent') if on else _n2_icon_color()))
         self._txt.setStyleSheet(f'color:{T("text") if on else T("text_dim")};background:transparent;')
         f = self._txt.font(); f.setWeight(QFont.DemiBold if on else QFont.Medium); self._txt.setFont(f)
-        self._ul.setStyleSheet(f'background:{T("accent")};border-radius:1px;' if on else 'background:transparent;border-radius:1px;')
     def mousePressEvent(self, e):
         e.accept()
     def mouseReleaseEvent(self, e):
@@ -12824,8 +12879,9 @@ class TransferFunctionWindow(QWidget):
         def _dv1():
             tl.addSpacing(4); tl.addWidget(_n2_divider()); tl.addSpacing(4)
         _g = QColor(T('accent')); _gr,_gg,_gb = _g.red(),_g.green(),_g.blue()
-        self._drawer_btn = _DrawerToggleBtn()
+        self._drawer_btn = _N2IconBtn('panel-left', checkable=True); self._drawer_btn.setFixedHeight(34)
         self._drawer_btn.setChecked(False)
+        self._drawer_btn.setToolTip(_tx('Capture drawer'))
         tl.addWidget(self._drawer_btn); tl.addSpacing(4)
         # Start 버튼 — 제너레이터 자동 연동으로 대체(숨김, 코드 참조용). 레이아웃엔 미추가.
         self.start_btn = QPushButton('Start'); _apply_txn(self.start_btn, False)
@@ -12833,7 +12889,7 @@ class TransferFunctionWindow(QWidget):
         self.start_btn.setFocusPolicy(Qt.NoFocus)
         self.start_btn.clicked.connect(self._toggle)
         self.start_btn.hide()
-        # Engine
+        # ── 측정: ENG(엔진) · FFT · RESP(응답/평균) · SMTH(스무딩) ──
         self.eng_cb = _N2Select('cpu','ENG'); self.eng_cb.setFixedHeight(_H)
         self.eng_cb.addItems(['Single', 'Adaptive'])
         self.eng_cb.setToolTip(_tx('Single = fixed FFT  ·  Adaptive = multi-rate (high-res low end, adaptive resolution per frequency)'))
@@ -12853,13 +12909,32 @@ class TransferFunctionWindow(QWidget):
         self.sm_cb = _N2Select('spline','SMTH'); self.sm_cb.setFixedHeight(_H)
         self.sm_cb.addItems(TF_SMOOTH_LABELS); self.sm_cb.setCurrentIndex(5)
         self.sm_cb.currentIndexChanged.connect(self._smooth_changed); tl.addWidget(self.sm_cb)
-        # dB 세로축 범위 — Auto ↔ 수동 고정 (클릭=범위 입력 대화상자)
+        _dv1()
+        # ── 레벨축: dB (Auto ↔ 수동 고정) ──
         self.db_btn = _N2Button('scale-v','Auto',label='dB'); self.db_btn.setFixedHeight(_H)
         self.db_btn.setToolTip(_tx('dB axis range (click to fix top/bottom)'))
         self.db_btn.clicked.connect(self._tf_db_control)
         tl.addWidget(self.db_btn); self._update_tf_db_btn()
         _dv1()
-        # delay_spin: primary 카드의 delay_spin과 동기화 (DelayFinderDialog 호환용, 숨김)
+        # ── 뷰: IR · UNIT(딜레이 단위) · PHASE ──
+        self.ir_cb = _N2Select('activity','IR'); self.ir_cb.setFixedHeight(_H)
+        self.ir_cb.addItems(TF_IR_MODES); self.ir_cb.setCurrentIndex(0)
+        self.ir_cb.currentIndexChanged.connect(self._ir_mode_changed)
+        tl.addWidget(self.ir_cb)
+        # Units
+        self.unit_cb = _N2Select('ruler','UNIT',mono=True); self.unit_cb.setFixedHeight(_H)
+        self.unit_cb.addItems(['ms', 'ms·m', 'm'])
+        self.unit_cb.setCurrentIndex(('ms', 'both', 'm').index(_DELAY_UNIT))
+        self.unit_cb.setToolTip(_tx('Delay display units — ms / distance (m) / both (speed of sound 343 m/s, adjustable in Delay Finder advanced settings)'))
+        self.unit_cb.currentIndexChanged.connect(self._unit_changed)
+        tl.addWidget(self.unit_cb)
+        # Phase
+        self.phase_cb = _N2Select('waves','PHASE'); self.phase_cb.setFixedHeight(_H)
+        self.phase_cb.addItems(TF_PHASE_MODES)
+        self.phase_cb.currentIndexChanged.connect(self._phase_mode_changed)
+        tl.addWidget(self.phase_cb)
+        _dv1()
+        # delay_spin: primary 카드의 delay_spin과 동기화 (DelayFinderDialog 호환용, 숨김·레이아웃 미추가)
         self.delay_spin = QDoubleSpinBox()
         self.delay_spin.setRange(-2000,2000); self.delay_spin.setDecimals(2)
         self.delay_spin.setSingleStep(0.5); self.delay_spin.setValue(0.0)
@@ -12869,7 +12944,7 @@ class TransferFunctionWindow(QWidget):
         self.delay_spin.setStyleSheet(ss_input(FS_BODY, RADIUS_CTRL))
         self.delay_spin.hide()
         self.delay_spin.valueChanged.connect(self._on_delay_changed)
-        # Find (딜레이 자동탐색, 단축키 L)
+        # ── 동작: Find · Capture · Δ · Stable · 🎧 (한 묶음, 파라미터 밖) ──
         self.find_btn = _N2Button('search','Find'); self.find_btn.setFixedHeight(_H)
         self.find_btn.setToolTip(_tx('Find delay for all measurement channels  ·  L'))
         self.find_btn.clicked.connect(self._find_all_delays); tl.addWidget(self.find_btn)
@@ -12889,24 +12964,6 @@ class TransferFunctionWindow(QWidget):
         self.auralize_btn.setToolTip(_tx('Auralization — hear music through the measured space (headphones)'))
         self.auralize_btn.clicked.connect(self._open_auralize)
         tl.addWidget(self.auralize_btn)
-        _dv1()
-        # IR
-        self.ir_cb = _N2Select('activity','IR'); self.ir_cb.setFixedHeight(_H)
-        self.ir_cb.addItems(TF_IR_MODES); self.ir_cb.setCurrentIndex(0)
-        self.ir_cb.currentIndexChanged.connect(self._ir_mode_changed)
-        tl.addWidget(self.ir_cb)
-        # Units
-        self.unit_cb = _N2Select('ruler','UNIT',mono=True); self.unit_cb.setFixedHeight(_H)
-        self.unit_cb.addItems(['ms', 'ms·m', 'm'])
-        self.unit_cb.setCurrentIndex(('ms', 'both', 'm').index(_DELAY_UNIT))
-        self.unit_cb.setToolTip(_tx('Delay display units — ms / distance (m) / both (speed of sound 343 m/s, adjustable in Delay Finder advanced settings)'))
-        self.unit_cb.currentIndexChanged.connect(self._unit_changed)
-        tl.addWidget(self.unit_cb)
-        # Phase
-        self.phase_cb = _N2Select('waves','PHASE'); self.phase_cb.setFixedHeight(_H)
-        self.phase_cb.addItems(TF_PHASE_MODES)
-        self.phase_cb.currentIndexChanged.connect(self._phase_mode_changed)
-        tl.addWidget(self.phase_cb)
         tl.addStretch()
         # 별도 창 팝아웃 토글 (멀티모니터) — 클릭 연결은 MainWindow가 함
         self._popout_btn = _N2IconBtn('extlink', checkable=True); self._popout_btn.setFixedHeight(_H)
@@ -18109,6 +18166,10 @@ class MainWindow(QMainWindow):
         self._toolbar_btn.clicked.connect(self._toggle_toolbar)
         tbl_outer.addWidget(self._toolbar_btn)
         root.addWidget(self.tab_bar)
+        # 탭 ↔ 메뉴(툴바) 구분 — 전체 폭 파란(액센트) 라인
+        self.tab_menu_sep = QFrame(); self.tab_menu_sep.setObjectName('tabMenuSep')
+        self.tab_menu_sep.setFixedHeight(2)
+        root.addWidget(self.tab_menu_sep)
 
         # ── toolbar_wrapper: ctrl_bar + sub_stack를 하나의 그라디언트 영역으로 감쌈
         self.toolbar_wrapper = QWidget()
@@ -18146,9 +18207,10 @@ class MainWindow(QMainWindow):
         _H = 34
         def _dv0():
             sl0.addSpacing(4); sl0.addWidget(_n2_divider()); sl0.addSpacing(4)
-        # 드로어 토글 (좌측, 기존 위젯 유지)
-        self._drawer_btn = _DrawerToggleBtn()
+        # 드로어(캡쳐) 토글 (좌측) — panel-bottom 아이콘(하단 드로어), 우측 패널 토글과 동일 N2 룩
+        self._drawer_btn = _N2IconBtn('panel-left', checkable=True); self._drawer_btn.setFixedHeight(_H)
         self._drawer_btn.setChecked(False)
+        self._drawer_btn.setToolTip(_tx('Capture drawer'))
         self._drawer_btn.clicked.connect(self._toggle_capture_drawer)
         sl0.addWidget(self._drawer_btn); sl0.addSpacing(4)
         # Start
@@ -18156,7 +18218,7 @@ class MainWindow(QMainWindow):
         self.start_btn.setToolTip(_tx('Start / Stop  (S)'))
         self.start_btn.clicked.connect(self._toggle)
         sl0.addWidget(self.start_btn); _dv0()
-        # View 세그먼트
+        # ── 분석/신호: View · +Spectro · Scale(FFT 전용) · SR ──
         self._view_seg = _N2Segmented(
             [('fft','FFT',42),('oct3','1/3',34),('oct12','1/12',42),('oct24','1/24',42)],
             icon_name='audio-lines', height=_H)
@@ -18166,27 +18228,45 @@ class MainWindow(QMainWindow):
         # +Spectro 토글
         self.spectro_btn=_N2Toggle('rows-2', text='+Spectro'); self.spectro_btn.setFixedHeight(_H)
         self.spectro_btn.clicked.connect(self._toggle_spectro)
-        sl0.addWidget(self.spectro_btn); _dv0()
-        # Scale 세그먼트
+        sl0.addWidget(self.spectro_btn)
+        # Scale 세그먼트 — FFT 뷰에서만 표시(옥타브는 로그 밴드라 무관). 앞 구분선도 함께 토글.
+        self._scale_sep = _n2_divider()
+        sl0.addSpacing(4); sl0.addWidget(self._scale_sep); sl0.addSpacing(4)
         self._scale_seg = _N2Segmented([('log','Log',36),('lin','Lin',36)], height=_H)
         self._scale_seg.set_active('log')
         self._scale_seg.changed.connect(lambda k: self._set_scale(k=='log'))
-        sl0.addWidget(self._scale_seg); _dv0()
-        # dB 세로축 범위 — Auto ↔ 수동 고정 (클릭=범위 입력 대화상자)
+        sl0.addWidget(self._scale_seg)
+        _init_fft = (getattr(self, 'view_mode', 'oct12') == 'fft')   # 기본 oct12 → Scale 숨김
+        self._scale_seg.setVisible(_init_fft); self._scale_sep.setVisible(_init_fft)
+        # SR (샘플레이트 — 측정 신호/엔진 설정)
+        self.sr_cb=_N2Select('waves','SR',mono=True); self.sr_cb.setFixedHeight(_H)
+        self.sr_cb.addItems(['44.1 kHz','48 kHz','88.2 kHz','96 kHz']); self.sr_cb.setCurrentIndex(1)
+        self.sr_cb.currentIndexChanged.connect(self._sr_changed)
+        sl0.addSpacing(4); sl0.addWidget(self.sr_cb); _dv0()
+        # ── 레벨축: DB(스케일) · RANGE(dB 범위) ──
         self.spec_db_btn = _N2Button('scale-v','Auto',label='dB'); self.spec_db_btn.setFixedHeight(_H)
         self.spec_db_btn.setToolTip(_tx('dB axis range (click to fix top/bottom)'))
         self.spec_db_btn.clicked.connect(self._spec_db_control)
         sl0.addWidget(self.spec_db_btn); self._update_spec_db_btn()
-        # SR
-        self.sr_cb=_N2Select('waves','SR',mono=True); self.sr_cb.setFixedHeight(_H)
-        self.sr_cb.addItems(['44.1 kHz','48 kHz','88.2 kHz','96 kHz']); self.sr_cb.setCurrentIndex(1)
-        self.sr_cb.currentIndexChanged.connect(self._sr_changed)
-        sl0.addWidget(self.sr_cb); _dv0()
-        # Peak 토글 + Reset + Capture
+        self.db_cb=_N2Select('move-vertical','RANGE',mono=True); self.db_cb.setFixedHeight(_H)
+        self.db_cb.addItems(['72 dB','96 dB','120 dB']); self.db_cb.setCurrentIndex(1)
+        self.db_cb.setToolTip(_tx('Display dB range   ·   Use ↑/↓ keys on the graph to shift up/down'))
+        self.db_cb.currentIndexChanged.connect(self._db_changed)
+        sl0.addWidget(self.db_cb); _dv0()
+        # ── 시간거동: PEAK · HOLD(피크 홀드시간) · SPEED(평균) ──
         self.peak_btn=_N2Toggle('peak-up', text='ON', label='PEAK'); self.peak_btn.setFixedHeight(_H)
         self.peak_btn.setChecked(True)
         self.peak_btn.clicked.connect(self._toggle_peak)
         sl0.addWidget(self.peak_btn)
+        self.hold_cb=_N2Select('clock','HOLD',mono=True); self.hold_cb.setFixedHeight(_H)
+        self.hold_cb.addItems(['Fast','0.3s','0.5s','1s']); self.hold_cb.setCurrentIndex(3)
+        self.hold_cb.currentIndexChanged.connect(self._set_peak_hold_time)
+        sl0.addWidget(self.hold_cb)
+        self.spd_cb=_N2Select('gauge','SPEED'); self.spd_cb.setFixedHeight(_H)
+        self.spd_cb.addItems([lb for lb,*_ in SPEED_LEVELS]); self.spd_cb.setCurrentIndex(self.speed_idx)
+        self.spd_cb.currentIndexChanged.connect(self._set_speed)
+        sl0.addWidget(self.spd_cb); _dv0()
+        # ── 동작: Reset · Capture ──
         rst=_N2Button('refresh','Reset'); rst.setFixedHeight(_H)
         rst.clicked.connect(self._reset_peak)
         sl0.addWidget(rst)
@@ -18194,23 +18274,7 @@ class MainWindow(QMainWindow):
         self.spec_cap_btn.setToolTip(_tx('Capture current spectrum   ·   Shortcut: Space'))
         self.spec_cap_btn.clicked.connect(self._do_spec_capture)
         sl0.addWidget(self.spec_cap_btn); _dv0()
-        # Hold
-        self.hold_cb=_N2Select('clock','HOLD',mono=True); self.hold_cb.setFixedHeight(_H)
-        self.hold_cb.addItems(['Fast','0.3s','0.5s','1s']); self.hold_cb.setCurrentIndex(3)
-        self.hold_cb.currentIndexChanged.connect(self._set_peak_hold_time)
-        sl0.addWidget(self.hold_cb)
-        # Range
-        self.db_cb=_N2Select('move-vertical','RANGE',mono=True); self.db_cb.setFixedHeight(_H)
-        self.db_cb.addItems(['72 dB','96 dB','120 dB']); self.db_cb.setCurrentIndex(1)
-        self.db_cb.setToolTip(_tx('Display dB range   ·   Use ↑/↓ keys on the graph to shift up/down'))
-        self.db_cb.currentIndexChanged.connect(self._db_changed)
-        sl0.addWidget(self.db_cb)
-        # Speed
-        self.spd_cb=_N2Select('gauge','SPEED'); self.spd_cb.setFixedHeight(_H)
-        self.spd_cb.addItems([lb for lb,*_ in SPEED_LEVELS]); self.spd_cb.setCurrentIndex(self.speed_idx)
-        self.spd_cb.currentIndexChanged.connect(self._set_speed)
-        sl0.addWidget(self.spd_cb)
-        # Color
+        # ── 외형: Color ──
         self.color_btn=_N2Button('palette','Color'); self.color_btn.setFixedHeight(_H)
         self.color_btn.clicked.connect(self._open_color_picker)
         sl0.addWidget(self.color_btn)
@@ -18497,10 +18561,13 @@ class MainWindow(QMainWindow):
         return sc
 
     def _build_info(self):
-        panel=QWidget(); panel.setFixedWidth(200)
+        panel=QWidget(); panel.setFixedWidth(218)
         panel.setObjectName('infoPanel')
         self._info_panel = panel
-        layout=QVBoxLayout(panel); layout.setContentsMargins(10,10,10,10); layout.setSpacing(8)
+        # 개별 섹션 박스 대신 외곽 프레임 1개로 감쌈 (테두리는 외곽만)
+        _outer=QVBoxLayout(panel); _outer.setContentsMargins(8,8,8,8); _outer.setSpacing(0)
+        _rpframe=QFrame(); _rpframe.setObjectName('rpFrame'); _outer.addWidget(_rpframe)
+        layout=QVBoxLayout(_rpframe); layout.setContentsMargins(9,11,9,11); layout.setSpacing(8)
 
         # ── Level section (top) — custom header with SPL btn
         level_w = QWidget()
@@ -18517,6 +18584,7 @@ class MainWindow(QMainWindow):
         hdr_row.addWidget(level_icon); hdr_row.addWidget(level_title)
         hdr_row.addStretch(); hdr_row.addWidget(alarm_btn); hdr_row.addWidget(spl_btn)
         level_lay.addLayout(hdr_row)
+        level_lay.addWidget(_sec_hairline()); level_lay.addSpacing(2)
 
         refs={}
         _soft_a = '#9DB7E0' if _theme != 'light' else '#5A78B0'   # A가중 = 소프트 화이트블루
@@ -18569,12 +18637,14 @@ class MainWindow(QMainWindow):
         info_title.setStyleSheet(ss_text(FS_LG, 'text_dim', True))
         info_hdr.addWidget(info_icon); info_hdr.addWidget(info_title); info_hdr.addStretch()
         info_lay.addLayout(info_hdr)
+        info_lay.addWidget(_sec_hairline()); info_lay.addSpacing(2)
         labels={}
         for k,v in [('Sample Rate','48 kHz'),('FFT Size','16384'),
                     ('Resolution','11.7 Hz'),('Calibration','0.0 dB'),('Speed','Normal')]:
             row=QHBoxLayout()
             kl=QLabel(k); kl.setStyleSheet(ss_text(FS_SM))
-            vl=QLabel(v); vl.setStyleSheet(ss_text(FS_BODY, 'text', True))
+            vl=QLabel(v); vl.setStyleSheet(f'color:{T("text")};background:transparent;')
+            vl.setFont(_n2_mono_font(FS_BODY, QFont.DemiBold))   # 세련 — 계측기 모노 숫자
             vl.setAlignment(Qt.AlignRight)
             row.addWidget(kl); row.addWidget(vl); info_lay.addLayout(row); labels[k]=vl
         self.i_sr=labels['Sample Rate']; self.i_fft=labels['FFT Size']
@@ -18583,19 +18653,20 @@ class MainWindow(QMainWindow):
 
         # ── INPUT 섹션 (카드 기반) ──
         input_w = QWidget(); input_w.setObjectName('infoBox')
-        input_lay = QVBoxLayout(input_w); input_lay.setContentsMargins(8,8,8,8); input_lay.setSpacing(5)
+        input_lay = QVBoxLayout(input_w); input_lay.setContentsMargins(2,8,2,8); input_lay.setSpacing(5)
         in_hdr = QHBoxLayout(); in_hdr.setContentsMargins(0,0,0,6); in_hdr.setSpacing(5)
         in_icon = _SidebarIcon('input', T('accent'), 15)
         in_title = QLabel('INPUT')
         in_title.setStyleSheet(ss_text(FS_LG, 'text_dim', True))
         in_hdr.addWidget(in_icon); in_hdr.addWidget(in_title); in_hdr.addStretch()
         input_lay.addLayout(in_hdr)
+        input_lay.addWidget(_sec_hairline()); input_lay.addSpacing(2)
         # 카드 컨테이너 — TF식 스크롤 목록 (카드 많아져도 압축/겹침 없이 스크롤)
         self._ch_cards_container = QWidget()
         self._ch_cards_container.setStyleSheet('background:transparent;')
         self._ch_cards_layout = QVBoxLayout(self._ch_cards_container)
         # 카드를 좌우 대칭 인셋 → 패널 안에서 가운데 정렬 (오른쪽 viewportMargin 2 + 여기 4 = 6, 왼쪽 6)
-        self._ch_cards_layout.setContentsMargins(6,0,4,0); self._ch_cards_layout.setSpacing(6)
+        self._ch_cards_layout.setContentsMargins(1,0,3,0); self._ch_cards_layout.setSpacing(6)
         self._ch_cards_scroll = QScrollArea()
         self._ch_cards_scroll.setWidget(self._ch_cards_container)
         self._ch_cards_scroll.setWidgetResizable(True)
@@ -18856,21 +18927,25 @@ class MainWindow(QMainWindow):
             seg_chk_txt   = '#000000'
             seg_unchk_txt = '#666666'
             seg_hover     = 'rgba(0,0,0,8)'
-        self._capture_drawer._seg_pill.setStyleSheet(
-            f'#segPill{{background:{seg_pill_bg};border-radius:8px;}}')
+        # 캡쳐 탭 = 언더라인 스타일(메인 탭바와 통일) — 회색 트랙 제거.
+        # 밑줄은 별도 QFrame(글자 폭만큼 일자) — border-bottom의 곡선 렌더 회피.
+        self._capture_drawer._seg_pill.setStyleSheet('#segPill{background:transparent;}')
         _dtab_ss = (
-            f'QPushButton{{font-size:11px;font-weight:600;border:none;'
-            f'background:transparent;color:{seg_unchk_txt};padding:0 4px;border-radius:6px;}}'
-            f'QPushButton:checked{{background:{seg_chk_bg};color:{seg_chk_txt};}}'
-            f'QPushButton:hover:!checked{{background:{seg_hover};}}')
+            f'QPushButton{{font-size:12px;font-weight:600;border:none;'
+            f'background:transparent;color:{seg_unchk_txt};padding:2px 6px 2px 6px;}}'
+            f'QPushButton:checked{{color:{T("text")};}}'
+            f'QPushButton:hover:!checked{{color:{T("text_dim")};background:transparent;}}')
         self._capture_drawer._spec_tab_btn.setStyleSheet(_dtab_ss)
         self._capture_drawer._tf_tab_btn.setStyleSheet(_dtab_ss)
+        for _ul in getattr(self._capture_drawer, '_dtab_uls', {}).values():
+            _ul.setStyleSheet(f'background:{T("accent")};border:none;border-radius:1px;')
+        # 리스트 영역 배경 = 툴바/패널과 통일(bg2), 순검정(bg) 제거
         self._capture_drawer._scroll.setStyleSheet(
-            f'#capScroll {{ background:{bg}; border:1px solid {border}; }}'
+            f'#capScroll {{ background:transparent; border:none; }}'
             f'QScrollBar:vertical{{width:5px;background:transparent;}}'
             f'QScrollBar::handle:vertical{{background:{scr_hdl};border-radius:2px;}}')
-        self._capture_drawer._scroll.viewport().setStyleSheet(f'background:{bg};')
-        self._capture_drawer._inner.setStyleSheet(f'#capInner {{ background:{bg}; }}')
+        self._capture_drawer._scroll.viewport().setStyleSheet('background:transparent;')
+        self._capture_drawer._inner.setStyleSheet('#capInner { background:transparent; }')
         # 헤더 버튼 테마색 + 행/칩 재빌드 (라이트에서 검정 배경 잔재 제거)
         self._capture_drawer._restyle_chrome()
         self._capture_drawer._redraw()
@@ -18886,9 +18961,13 @@ class MainWindow(QMainWindow):
         # toolbar_wrapper: ID selector로 cascade 방지 (자식 위젯 border 미영향)
         self.toolbar_wrapper.setStyleSheet(
             f'#toolbarWrapper {{ background: {bg2}; }}')
-        # 툴바 하단 라인 제거 — N2 탭 밑줄과 겹쳐 가로줄이 과했음. 투명 2px 스페이서로 유지.
+        # 탭 ↔ 메뉴 구분: 전체 폭 파란(액센트) 라인
+        if hasattr(self, 'tab_menu_sep'):
+            self.tab_menu_sep.setStyleSheet(f'#tabMenuSep {{ background: {accent}; border: none; }}')
+        # 툴바 하단 구분선 — 큰 틀 구분(회색 하어라인). 툴바↔콘텐츠 분리.
+        _tbline = '#54545E' if _theme == 'dark' else border
         self.toolbar_underline.setStyleSheet(
-            '#toolbarUnderline { background: transparent; border: none; }')
+            f'#toolbarUnderline {{ background: {_tbline}; border: none; }}')
         if hasattr(self, '_view_seg'):
             self._view_seg.apply_theme(); self._scale_seg.apply_theme()
             # N2 툴바 위젯 인라인 색 재적용 (테마 토글) — start_btn은 실행상태가 관리하므로 제외
@@ -19042,11 +19121,15 @@ class MainWindow(QMainWindow):
         if hasattr(self, '_preset_del_btn'): self._preset_del_btn.setStyleSheet(_hdr_icon_ss)
         # 오른쪽 사이드 패널 배경 + 왼쪽 경계선 (셀렉터 지정으로 자식 위젯 미영향)
         if hasattr(self, '_info_panel'):
+            _frame_bd = '#3A3A42' if _theme == 'dark' else border    # 외곽 프레임 테두리(개별 박스 없음)
+            _pan_bd   = '#54545E' if _theme == 'dark' else sep_line   # 그래프↔패널 세로 구분선(또렷)
             self._info_panel.setStyleSheet(
-                f'#infoPanel {{ background:{panel}; border-left:1px solid {sep_line}; }}'
-                f'#levelBox {{ background:transparent; border:1px solid {sep_line}; border-radius:8px; }}'
+                f'#infoPanel {{ background:{bg2}; border-left:2px solid {_pan_bd}; }}'   # 툴바(bg2)와 배경 통일
+                f'#rpFrame {{ background:transparent; border:1px solid {_frame_bd}; border-radius:11px; }}'
+                # 개별 섹션 박스 테두리 제거 — 하어라인으로만 구분
+                f'#levelBox {{ background:transparent; border:none; }}'
                 f'#levelBox QLabel {{ background:transparent; border:none; }}'
-                f'#infoBox  {{ background:transparent; border:1px solid {sep_line}; border-radius:8px; }}'
+                f'#infoBox  {{ background:transparent; border:none; }}'
                 f'#infoBox QLabel {{ background:transparent; border:none; }}')
         # 캡처 드로어 오른쪽 경계선 (셀렉터 지정으로 자식 위젯 미영향)
         self._capture_drawer._panel.setStyleSheet(
@@ -21057,7 +21140,9 @@ class MainWindow(QMainWindow):
         self.view_mode=m
         if m in ('oct3','oct12','oct24'): self._last_oct_mode=m
         self._view_seg.set_active(m)
-        self._scale_seg.setEnabled(m=='fft')
+        _is_fft = (m == 'fft')
+        self._scale_seg.setVisible(_is_fft)     # Log/Lin은 FFT에서만
+        if hasattr(self, '_scale_sep'): self._scale_sep.setVisible(_is_fft)
         self._apply_canvas_layout()
 
     def _sr_changed(self,idx):
