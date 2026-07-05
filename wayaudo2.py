@@ -12838,6 +12838,7 @@ class TransferFunctionWindow(QWidget):
         self._avg_mode = 'mag'      # 'mag'(파워RMS) | 'complex'(벡터)
         self._avg_only = False      # True면 개별 곡선 숨기고 AVG만
         self._avg_align = True      # 복소 모드 딜레이 자동정렬
+        self._last_avg_diag = None  # tf_avg_render 로그 스팸 방지용 마지막 상태 시그니처
         self._extra_pairs = []        # Smaart 방식: 추가 Ref+Meas 쌍 목록
         self._front_pair = None       # 분석 화면 맨 앞 곡선: None=primary, int=pair idx
         self._extra_pair_threads = [] # 쌍마다 (sync_thread, ref_thread, meas_thread)
@@ -13753,6 +13754,7 @@ class TransferFunctionWindow(QWidget):
             'response': self.avg_cb.currentIndex(), 'smooth': self.sm_cb.currentIndex(),
             'tf_avg_on': self._avg_on, 'tf_avg_mode': self._avg_mode,
             'tf_avg_only': self._avg_only, 'tf_avg_align': self._avg_align,
+            'tf_avg_primary': (self._level_cards[0].in_average if getattr(self, '_level_cards', None) else False),
             'ir': self.ir_cb.currentIndex(), 'phase': self.phase_cb.currentIndex(),
             'units': self.unit_cb.currentIndex(),
             'gen': self._active_gen(), 'sine_freq': float(self._sine_freq),
@@ -13791,6 +13793,8 @@ class TransferFunctionWindow(QWidget):
             self._avg_only_btn.setChecked(self._avg_only)
             self._avg_align_btn.setChecked(self._avg_align)
             self._update_avg_align_enabled()
+            if self._level_cards and hasattr(self._level_cards[0], '_avg_chk'):
+                self._level_cards[0]._avg_chk.setChecked(bool(d.get('tf_avg_primary', False)))
         try:
             g = d.get('gen', 'none')
             btnmap = {'pink': self.sig_pink_btn, 'white': self.sig_white_btn, 'sine': self.sig_sine_btn,
@@ -15189,6 +15193,7 @@ class TransferFunctionWindow(QWidget):
             self.mag_cvs.clear_tf_average(); self.phase_cvs.clear_tf_average()
             self.ir_cvs.clear_tf_average()
             self._apply_avg_only(False)
+            self._last_avg_diag = None
             return
         H_list, g_list, d_list = [], [], []
         # primary(카드1) — in_average이고 분석 중이며 이번 프레임 H 저장됐을 때
@@ -15216,8 +15221,11 @@ class TransferFunctionWindow(QWidget):
             H_list.append(H_disp); g_list.append(g); d_list.append(pd)
         r = _multimic_average(H_list, g_list, d_list, freqs, self.sample_rate,
                               self.smooth_bpo, mode=self._avg_mode, align=self._avg_align)
-        _diag('tf_avg_render', on=True, mode=self._avg_mode,
-              n=(r['n'] if r else 0), aligned=self._avg_align, only=self._avg_only)
+        _sig = (self._avg_mode, (r['n'] if r else 0), self._avg_align, self._avg_only)
+        if getattr(self, '_last_avg_diag', None) != _sig:
+            _diag('tf_avg_render', on=True, mode=self._avg_mode,
+                  n=(r['n'] if r else 0), aligned=self._avg_align, only=self._avg_only)
+            self._last_avg_diag = _sig
         if r is None:
             self.mag_cvs.clear_tf_average(); self.phase_cvs.clear_tf_average()
             self.ir_cvs.clear_tf_average(); self._apply_avg_only(False)
@@ -15233,10 +15241,12 @@ class TransferFunctionWindow(QWidget):
         self._apply_avg_only(self._avg_only)
 
     def _apply_avg_only(self, only):
-        """'평균만' ON → 개별 라이브 곡선 숨김(캔버스 _hide_individual 플래그)."""
+        """'평균만' ON → 그 캔버스에 AVG 오버레이가 있을 때만 개별 라이브 곡선 숨김.
+        (크기 모드는 phase/IR에 AVG가 없으므로 그 둘은 개별을 계속 보여줌 → 빈 화면 방지.)"""
         for cvs in (self.mag_cvs, self.phase_cvs, self.ir_cvs):
-            if getattr(cvs, '_hide_individual', False) != bool(only):
-                cvs._hide_individual = bool(only); cvs.update()
+            want = bool(only) and (getattr(cvs, '_tf_avg', None) is not None)
+            if getattr(cvs, '_hide_individual', False) != want:
+                cvs._hide_individual = want; cvs.update()
 
     # ── 딜레이 자동 탐지 (2단계: 2초 측정 후 계산) ──────────────────────
     def _on_sweep_captured(self, ref_arr, meas_arr, start_pos=0):
