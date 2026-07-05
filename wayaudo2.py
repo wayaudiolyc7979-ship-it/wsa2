@@ -10558,10 +10558,12 @@ class _MeasCard(QFrame):
     selected           = pyqtSignal()   # 카드 본문 클릭 → 곡선 맨 앞으로
     renamed            = pyqtSignal(str)  # 카드 이름 변경 (새 이름)
     graph_toggled      = pyqtSignal(bool) # 그래프 표시 ON/OFF (분석은 계속)
+    avg_include_toggled = pyqtSignal(int, bool)  # (card_id, included) — 라이브 평균 참여 토글
 
     def __init__(self, number, color, deletable=True):
         super().__init__()
         self._color = color
+        self._card_id = number
         self._running = False
         self._display_on = False  # backward-compat alias
         self._is_selected = False
@@ -10606,7 +10608,17 @@ class _MeasCard(QFrame):
         # 텍스트 Start 버튼은 상태보관용 숨김(set_running 호환)
         self._start_btn = QPushButton('Start'); self._start_btn.hide()
         self._start_btn.clicked.connect(self._on_start_stop)
-        hdr.addWidget(self._vis_chk); hdr.addWidget(self._start_dot); hdr.addWidget(num_lbl); hdr.addStretch()
+        # 평균 참여 토글 — 카드가 라이브 평균 계산에 포함되는지 선택 (기본 OFF)
+        self.in_average = False
+        self._avg_chk = QPushButton('avg'); self._avg_chk.setCheckable(True)
+        self._avg_chk.setChecked(False); self._avg_chk.setFocusPolicy(Qt.NoFocus)
+        self._avg_chk.setCursor(Qt.PointingHandCursor)
+        self._avg_chk.setToolTip(_tx('Include this source in the live average'))
+        self._avg_chk.setStyleSheet(self._avg_chk_ss())
+        self._avg_chk.toggled.connect(self._on_avg_include)
+        hdr.addWidget(self._vis_chk); hdr.addWidget(self._start_dot); hdr.addWidget(num_lbl)
+        hdr.addWidget(self._avg_chk)
+        hdr.addStretch()
         hdr.addWidget(self._db_lbl)
         # 삭제는 인라인 ✕ 대신 우클릭 메뉴(contextMenuEvent)로 통일 — 모든 카드(Reference·1번·
         # 추가) 헤더가 동일해지고, 되돌리기 힘든 삭제를 의도적 우클릭 뒤에 둠. deletable=삭제 항목 노출 여부.
@@ -10621,6 +10633,19 @@ class _MeasCard(QFrame):
         self._m_bar = _HorizBarVU()
         mr.addWidget(self._ml); mr.addWidget(self._m_bar, 1)
         self._lay.addLayout(mr)
+
+    def _avg_chk_ss(self):
+        acc = T('accent'); dim = T('text_dim')
+        _a = QColor(acc); _tint = f'rgba({_a.red()},{_a.green()},{_a.blue()},0.14)'
+        return (f'QPushButton{{font-size:{FS_SM}px;border:1px solid {T("border")};'
+                f'border-radius:5px;padding:1px 6px;background:transparent;color:{dim};}}'
+                f'QPushButton:checked{{border-color:{acc};color:{acc};'
+                f'background:{_tint};}}')
+
+    def _on_avg_include(self, on):
+        self.in_average = bool(on)
+        self._avg_chk.setStyleSheet(self._avg_chk_ss())
+        self.avg_include_toggled.emit(self._card_id, self.in_average)
 
     def _del_btn_ss(self):
         return (f'QPushButton{{background:transparent;color:{T("text_dim")};border:none;'
@@ -10664,6 +10689,7 @@ class _MeasCard(QFrame):
             _ss = self._cb_style(); self._meas_cb.setStyleSheet(_ss); self._meas_ch_cb.setStyleSheet(_ss)
         if hasattr(self, '_delay_spin'): self._delay_spin.setStyleSheet(self._delay_spin_ss())
         if self._auto_btn is not None: self._auto_btn.setStyleSheet(self._auto_btn_ss())
+        if hasattr(self, '_avg_chk'): self._avg_chk.setStyleSheet(self._avg_chk_ss())
 
     def add_device_row(self, meas_cb, meas_ch_cb):
         """Meas 장치 선택 드롭다운 + 딜레이 행을 카드 내부로 임베드."""
