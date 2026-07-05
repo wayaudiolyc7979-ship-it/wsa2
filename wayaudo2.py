@@ -7393,9 +7393,9 @@ class _CaptureDrawer(QWidget):
         grp_btn.setFixedSize(40, 20)
         grp_btn.setToolTip(_tx('New Group'))
         grp_btn.setStyleSheet(
-            'QPushButton{font-size:9px;font-weight:600;border:1px solid rgba(78,125,240,120);'
-            'border-radius:6px;background:rgba(78,125,240,28);color:#6E9BFF;padding:0 3px;}'
-            'QPushButton:hover{background:rgba(78,125,240,52);border-color:#4E7DF0;}')
+            'QPushButton{font-size:9px;font-weight:600;border:none;border-radius:6px;'
+            'background:transparent;color:#C8C8CE;padding:0 5px;}'
+            'QPushButton:hover{background:#2A2A30;color:#FFFFFF;}')
         grp_btn.clicked.connect(lambda: self.new_group_req.emit(self._panel_tab))
         hl.addWidget(grp_btn)
         pv.addWidget(hdr)
@@ -7517,14 +7517,14 @@ class _CaptureDrawer(QWidget):
             f'background:{btn_bg};color:{acc};padding:0;')
         if _theme == 'dark':
             self._grp_btn.setStyleSheet(
-                'QPushButton{font-size:9px;font-weight:600;border:1px solid rgba(78,125,240,120);'
-                'border-radius:6px;background:rgba(78,125,240,28);color:#6E9BFF;padding:0 3px;}'
-                'QPushButton:hover{background:rgba(78,125,240,52);border-color:#4E7DF0;}')
+                'QPushButton{font-size:9px;font-weight:600;border:none;border-radius:6px;'
+                'background:transparent;color:#C8C8CE;padding:0 5px;}'
+                'QPushButton:hover{background:#2A2A30;color:#FFFFFF;}')
         else:
             self._grp_btn.setStyleSheet(
-                f'QPushButton{{font-size:9px;font-weight:600;border:1px solid {acc};'
-                f'border-radius:6px;background:{T("bg3")};color:{acc};padding:0 3px;}}'
-                f'QPushButton:hover{{background:{grp_bg};}}')
+                f'QPushButton{{font-size:9px;font-weight:600;border:none;border-radius:6px;'
+                f'background:transparent;color:{T("text_dim")};padding:0 5px;}}'
+                f'QPushButton:hover{{background:{T("bg3")};color:{T("text")};}}')
 
     # ── 공개 메서드 ─────────────────────────────────
     def _switch_panel_tab(self, mode):
@@ -19220,31 +19220,41 @@ class MainWindow(QMainWindow):
         if hasattr(self, '_st_dev_lbl'): self._st_dev_lbl.setStyleSheet(self._st_dev_lbl_ss())
         # 시작 버튼
         self._go_style(self.start_btn)
-        # 테마 버튼
+        # ── 상단 헤더 컨트롤 = N2(테두리리스 + hover 배경, 중립 아이콘) — 파란 필/테두리 폐지
+        _hov = 'rgba(255,255,255,0.07)' if _theme == 'dark' else 'rgba(0,0,0,0.06)'
+        _icc = _n2_icon_color()
+        # 테마 버튼 (Light/Dark)
         lbl = 'Dark' if _theme == 'light' else 'Light'
         self.theme_btn.setText(lbl)
-        self.theme_btn.setIcon(_icon('moon' if _theme == 'light' else 'sun'))
+        self.theme_btn.setIcon(_icon('moon' if _theme == 'light' else 'sun', 15, _icc))
         self.theme_btn.setStyleSheet(
-            f'background: qlineargradient(x1:0,y1:0,x2:0,y2:1,'
-            f'stop:0 rgba({ar},{ag},{ab},28), stop:1 rgba({ar},{ag},{ab},14));'
-            f'color:{accent};border:1px solid rgba({ar},{ag},{ab},80);'
-            f'padding:3px 10px;border-radius:7px;font-size:10px;')
+            f'QPushButton{{border:none;background:transparent;color:{text};'
+            f'border-radius:8px;padding:3px 10px;font-size:11px;}}'
+            f'QPushButton:hover{{background:{_hov};}}')
+        # Calibration 버튼
+        self.calib_btn.setIcon(_icon('sliders', 15, _icc))
         self.calib_btn.setStyleSheet(
-            f'background: qlineargradient(x1:0,y1:0,x2:0,y2:1,'
-            f'stop:0 {cb_bg0}, stop:1 {cb_bg1});'
-            f'color:{text_dim};border:1px solid {cb_bd};'
-            f'padding:3px 10px;border-radius:7px;font-size:10px;')
-        self.calib_btn.setIcon(_icon('sliders'))
-        # 헤더 아이콘 전용 버튼 (언어/프리셋 저장·삭제) — calib_btn과 동일 토큰, 패딩 타이트
+            f'QPushButton{{border:none;background:transparent;color:{text};'
+            f'border-radius:8px;padding:3px 10px;font-size:11px;}}'
+            f'QPushButton:hover{{background:{_hov};}}')
+        # 헤더 아이콘 전용 버튼 (언어/프리셋 저장·삭제)
         _hdr_icon_ss = (
-            f'QPushButton{{background: qlineargradient(x1:0,y1:0,x2:0,y2:1,'
-            f'stop:0 {cb_bg0}, stop:1 {cb_bg1});'
-            f'color:{text_dim};border:1px solid {cb_bd};'
-            f'border-radius:7px;padding:0;font-size:10px;}}'
-            f'QPushButton:hover{{border:1px solid rgba({ar},{ag},{ab},160);color:{accent};}}')
-        if hasattr(self, 'lang_btn'): self.lang_btn.setStyleSheet(_hdr_icon_ss)
-        if hasattr(self, '_preset_save_btn'): self._preset_save_btn.setStyleSheet(_hdr_icon_ss)
-        if hasattr(self, '_preset_del_btn'): self._preset_del_btn.setStyleSheet(_hdr_icon_ss)
+            f'QPushButton{{border:none;background:transparent;border-radius:8px;padding:0;}}'
+            f'QPushButton:hover{{background:{_hov};}}')
+        if hasattr(self, 'lang_btn'):
+            self.lang_btn.setStyleSheet(_hdr_icon_ss); self.lang_btn.setIcon(_icon('globe', 16, _icc))
+        if hasattr(self, '_preset_save_btn'):
+            self._preset_save_btn.setStyleSheet(_hdr_icon_ss); self._preset_save_btn.setIcon(_icon('save', 15, _icc))
+        if hasattr(self, '_preset_del_btn'):
+            self._preset_del_btn.setStyleSheet(_hdr_icon_ss); self._preset_del_btn.setIcon(_icon('trash', 15, _icc))
+        # Preset 드롭다운 — 테두리리스 N2
+        if hasattr(self, '_preset_cb'):
+            self._preset_cb.setStyleSheet(
+                f'QComboBox{{border:none;background:transparent;color:{text};'
+                f'border-radius:8px;padding:2px 10px;font-size:11px;}}'
+                f'QComboBox:hover{{background:{_hov};}}'
+                f'QComboBox::drop-down{{width:0;border:none;}}'
+                f'QComboBox::down-arrow{{width:0;height:0;image:none;}}')
         # 오른쪽 사이드 패널 배경 + 왼쪽 경계선 (셀렉터 지정으로 자식 위젯 미영향)
         if hasattr(self, '_info_panel'):
             _frame_bd = '#3A3A42' if _theme == 'dark' else border    # 외곽 프레임 테두리(개별 박스 없음)
