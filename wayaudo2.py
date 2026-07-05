@@ -6807,29 +6807,27 @@ class _SpecCard(QFrame):
             f'QCheckBox::indicator:checked{{background:{color};image:none;}}')
         self._chk.stateChanged.connect(
             lambda st: self.visibility_toggled.emit(self._card_id, st == Qt.Checked))
-        dot = QLabel('●'); dot.setStyleSheet(f'color:{color};background:transparent;font-size:11px;'); dot.setFixedWidth(13)
+        # 색 점 = 카드별 Start 토글(측정 on/off) 겸 색 정체성. 측정 중=채움+글로우 / 꺼짐=흐린 링.
+        self._running = False
+        self._start_dot = QPushButton()
+        self._start_dot.setFixedSize(22, 22)
+        self._start_dot.setFocusPolicy(Qt.NoFocus)
+        self._start_dot.setCursor(Qt.PointingHandCursor)
+        self._start_dot.setToolTip(_tx('Start / stop measuring this source'))
+        self._start_dot.setIconSize(QSize(20, 20))
+        self._start_dot.setStyleSheet('QPushButton{border:none;background:transparent;padding:0;}')
+        self._start_dot.setIcon(QIcon(_led_power_pm(False, 20, color)))
+        self._start_dot.clicked.connect(lambda: self.start_toggled.emit(self._card_id))
         self._num_label = QLabel(self._default_name)
         self._num_label.setStyleSheet(f'color:{color};background:transparent;font-size:11px;font-weight:bold;')
         self._num_label.setToolTip(_tx('Double-click to rename'))
-        hdr.addWidget(self._chk); hdr.addWidget(dot); hdr.addWidget(self._num_label); hdr.addStretch()
+        hdr.addWidget(self._chk); hdr.addWidget(self._start_dot); hdr.addWidget(self._num_label); hdr.addStretch()
         # E안: dBFS 값을 헤더 우측에 크게·모노로 (라이브 레벨 강조)
         self._db_lbl = QLabel('—')
         self._db_lbl.setStyleSheet(f'color:{T("text")};background:transparent;')
         self._db_lbl.setFont(_n2_mono_font(14, QFont.Bold))
         self._db_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         hdr.addWidget(self._db_lbl)
-        # 카드별 Start — LED 파워 점(꺼짐=희미한 링 / 라이브=밝은 점+글로우). dB 값 옆.
-        self._running = False
-        self._start_btn = QPushButton()
-        self._start_btn.setFixedSize(22, 22)
-        self._start_btn.setFocusPolicy(Qt.NoFocus)
-        self._start_btn.setCursor(Qt.PointingHandCursor)
-        self._start_btn.setToolTip(_tx('Start / stop measuring this source'))
-        self._start_btn.setIconSize(QSize(16, 16))
-        self._start_btn.setStyleSheet('QPushButton{border:none;background:transparent;padding:0;}')
-        self._start_btn.setIcon(QIcon(_led_power_pm(False, 16)))
-        self._start_btn.clicked.connect(lambda: self.start_toggled.emit(self._card_id))
-        hdr.addSpacing(4); hdr.addWidget(self._start_btn)
         # 삭제는 인라인 ✕ 대신 우클릭 메뉴(contextMenuEvent)로 통일 — 모든 카드(1번·추가) 헤더가
         # 동일해지고, 되돌리기 힘든 삭제를 의도적 우클릭 뒤에 둠. TF 측정 카드와 동일 UX.
         self.setToolTip(_tx('Right-click: rename / delete'))
@@ -6887,9 +6885,9 @@ class _SpecCard(QFrame):
         self._is_selected = on; self._apply_border()
 
     def set_running(self, on):
-        """카드별 Start LED 갱신 (라이브=밝은 점+글로우 / 꺼짐=희미한 링)."""
+        """카드별 Start 점 갱신 (측정 중=카드색 채움+글로우 / 꺼짐=카드색 흐린 링)."""
         self._running = bool(on)
-        self._start_btn.setIcon(QIcon(_led_power_pm(self._running, 16)))
+        self._start_dot.setIcon(QIcon(_led_power_pm(self._running, 20, self._color)))
 
     def set_name(self, name):
         self._name = name or ''
@@ -7217,24 +7215,28 @@ def _cap_dot_pm(color, filled, size=11):
     return pm
 
 
-def _led_power_pm(live, size=16, color='#6E9BFF'):
-    """카드별 Start LED 파워 점 — 꺼짐=희미한 링 / 라이브=밝은 점+글로우(측정 중 강조).
-    안티앨리어싱 페인트 픽스맵."""
+def _led_power_pm(live, size=20, color='#6E9BFF'):
+    """카드별 Start 점(색 점 겸용) — 측정 중=카드색 채운 원+글로우 / 꺼짐=카드색 흐린 링.
+    항상 카드 색으로 정체성 유지. 안티앨리어싱 페인트 픽스맵."""
     dpr = 3
     pm = QPixmap(int(size * dpr), int(size * dpr)); pm.setDevicePixelRatio(dpr)
     pm.fill(Qt.transparent)
     p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing, True)
     cx = cy = size / 2.0
+    # 원 지름을 왼쪽 체크박스(13px 사각)와 맞춤 — 아이콘 캔버스 20px 기준 반지름 ~6.5px.
+    r_fill = size * 0.325
     if live:
-        g = QRadialGradient(QPointF(cx, cy), size * 0.46)
-        c0 = QColor(color); c0.setAlpha(155); c1 = QColor(color); c1.setAlpha(0)
+        g = QRadialGradient(QPointF(cx, cy), size * 0.50)
+        c0 = QColor(color); c0.setAlpha(150); c1 = QColor(color); c1.setAlpha(0)
         g.setColorAt(0.0, c0); g.setColorAt(1.0, c1)
-        p.setPen(Qt.NoPen); p.setBrush(g); p.drawEllipse(QPointF(cx, cy), size * 0.46, size * 0.46)
+        p.setPen(Qt.NoPen); p.setBrush(g); p.drawEllipse(QPointF(cx, cy), size * 0.50, size * 0.50)
         p.setBrush(QColor(color)); p.setPen(Qt.NoPen)
-        p.drawEllipse(QPointF(cx, cy), size * 0.21, size * 0.21)
+        p.drawEllipse(QPointF(cx, cy), r_fill, r_fill)
     else:
-        pen = QPen(QColor('#4A4A52')); pen.setWidthF(size * 0.13); p.setPen(pen); p.setBrush(Qt.NoBrush)
-        p.drawEllipse(QPointF(cx, cy), size * 0.21, size * 0.21)
+        pen = QPen(); pen.setWidthF(size * 0.12)
+        c = QColor(color); c.setAlpha(125); pen.setColor(c)
+        p.setPen(pen); p.setBrush(Qt.NoBrush)
+        p.drawEllipse(QPointF(cx, cy), r_fill - size * 0.06, r_fill - size * 0.06)
     p.end()
     return pm
 
