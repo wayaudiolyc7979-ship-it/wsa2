@@ -1258,6 +1258,43 @@ def _apply_native_titlebar_dark(win):
         except Exception: pass
 
 
+def _apply_app_dark_appearance():
+    """macOS: NSApplication 전체 외형을 앱 테마(다크=DarkAqua)로 강제.
+    창별 setAppearance(_apply_native_titlebar_dark)만으론 **별도 NSWindow로 뜨는
+    컨텍스트 메뉴(QMenu)·네이티브 팝업**이 커버 안 됨 → 시스템이 라이트 모드일 때
+    우클릭 메뉴가 흰색으로 떴다. NSApp.appearance를 지정하면 그 팝업들도 다크로 통일."""
+    if sys.platform != 'darwin':
+        return
+    try:
+        import ctypes
+        objc = ctypes.cdll.LoadLibrary('/usr/lib/libobjc.A.dylib')
+        objc.sel_registerName.restype = ctypes.c_void_p
+        objc.sel_registerName.argtypes = [ctypes.c_char_p]
+        objc.objc_getClass.restype = ctypes.c_void_p
+        objc.objc_getClass.argtypes = [ctypes.c_char_p]
+        def sel(n): return objc.sel_registerName(n.encode())
+        def msg(restype, obj, sel_name, *args):
+            f = objc.objc_msgSend
+            f.restype = restype
+            f.argtypes = [ctypes.c_void_p, ctypes.c_void_p] + [type(a) for a in args]
+            return f(obj, sel(sel_name), *args)
+        ns_app = msg(ctypes.c_void_p, objc.objc_getClass(b'NSApplication'), 'sharedApplication')
+        if not ns_app:
+            return
+        name = b'NSAppearanceNameDarkAqua' if _theme == 'dark' else b'NSAppearanceNameAqua'
+        ns_str = msg(ctypes.c_void_p, objc.objc_getClass(b'NSString'),
+                     'stringWithUTF8String:', ctypes.c_char_p(name))
+        appearance = msg(ctypes.c_void_p, objc.objc_getClass(b'NSAppearance'),
+                         'appearanceNamed:', ctypes.c_void_p(ns_str))
+        if appearance:
+            msg(None, ns_app, 'setAppearance:', ctypes.c_void_p(appearance))
+        try: _diag('app_appearance', theme=_theme, ok=bool(appearance))
+        except Exception: pass
+    except Exception as e:
+        try: _diag('app_appearance_fail', err=str(e))
+        except Exception: pass
+
+
 def _apply_windows_titlebar_dark(win):
     """Windows: 네이티브 타이틀바를 앱 테마에 맞춰 다크/라이트로(DWM immersive dark mode).
     맥의 통합 타이틀바처럼 본문과 완전히 합쳐지진 않지만, 어두운 앱 위에 흰 타이틀바가
@@ -7367,10 +7404,10 @@ class _CaptureDrawer(QWidget):
         self._scroll.setFrameShape(QFrame.NoFrame)
         self._scroll.setObjectName('capScroll')
         self._scroll.setStyleSheet(
-            f'#capScroll {{ background:transparent; border:none; }}'
+            f'#capScroll {{ background:{T("bg2")}; border:1px solid #2E2E34; border-radius:10px; }}'
             f'QScrollBar:vertical{{width:5px;background:transparent;}}'
             f'QScrollBar::handle:vertical{{background:{T("border")};border-radius:2px;}}')
-        self._scroll.viewport().setStyleSheet('background:transparent;')
+        self._scroll.viewport().setStyleSheet('background:transparent;border-radius:10px;')
 
         self._inner = QWidget()
         self._inner.setObjectName('capInner')
@@ -7384,7 +7421,11 @@ class _CaptureDrawer(QWidget):
         self._ilay.setContentsMargins(0, 0, 0, 0); self._ilay.setSpacing(0)
         self._ilay.addStretch()
         self._scroll.setWidget(self._inner)
-        pv.addWidget(self._scroll, 1)
+        # 리스트를 패널 안쪽으로 인셋 → 패널 외곽 둥근모서리 + 리스트 카드 4모서리 둥근 둘 다 보이게
+        _scroll_wrap = QWidget(); _sw = QVBoxLayout(_scroll_wrap)
+        _sw.setContentsMargins(8, 2, 8, 8); _sw.setSpacing(0)
+        _sw.addWidget(self._scroll)
+        pv.addWidget(_scroll_wrap, 1)
 
         outer.addWidget(self._panel, 1)
         self._restyle_chrome()   # 헤더 버튼 테마색 적용(다크/라이트)
@@ -18958,11 +18999,12 @@ class MainWindow(QMainWindow):
         for _ul in getattr(self._capture_drawer, '_dtab_uls', {}).values():
             _ul.setStyleSheet(f'background:{T("accent")};border:none;border-radius:1px;')
         # 리스트 영역 배경 = 툴바/패널과 통일(bg2), 순검정(bg) 제거
+        _sc_bd = '#2E2E34' if _theme == 'dark' else border
         self._capture_drawer._scroll.setStyleSheet(
-            f'#capScroll {{ background:transparent; border:none; }}'
+            f'#capScroll {{ background:{bg2}; border:1px solid {_sc_bd}; border-radius:10px; }}'
             f'QScrollBar:vertical{{width:5px;background:transparent;}}'
             f'QScrollBar::handle:vertical{{background:{scr_hdl};border-radius:2px;}}')
-        self._capture_drawer._scroll.viewport().setStyleSheet('background:transparent;')
+        self._capture_drawer._scroll.viewport().setStyleSheet('background:transparent;border-radius:10px;')
         self._capture_drawer._inner.setStyleSheet('#capInner { background:transparent; }')
         # 헤더 버튼 테마색 + 행/칩 재빌드 (라이트에서 검정 배경 잔재 제거)
         self._capture_drawer._restyle_chrome()
@@ -19221,6 +19263,9 @@ class MainWindow(QMainWindow):
         _app = QApplication.instance()
         if _app is not None:
             _app.setStyleSheet(_global_popup_qss())
+        # macOS: NSApp 전체 다크 외형 강제 — 시스템 라이트 모드에서 우클릭 컨텍스트 메뉴가
+        # 흰색으로 뜨던 것 해결(창별 setAppearance로는 별도 NSWindow인 팝업 메뉴 미커버).
+        _apply_app_dark_appearance()
 
     def _go_style(self, b):   _apply_txn(b, False)   # 시작=로고블루 틴트
     def _stop_style(self, b): _apply_txn(b, True)    # 정지=레드 틴트
