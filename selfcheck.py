@@ -189,6 +189,35 @@ def _spec_card_header():
 check('Spectrum INPUT 카드 헤더 통일(✕제거·우클릭삭제)', _spec_card_header)
 
 
+def _n2_toolbar():
+    """N2 툴바 리디자인(v1.9) — 테두리리스+아이콘+모노값+LED. 프리미티브 조립 렌더.
+    _N2Button/_N2Segmented/_N2Toggle/_N2Select/_N2IconBtn + Lucide 아이콘 육안 확인."""
+    from PyQt5.QtWidgets import QWidget, QHBoxLayout
+    host = QWidget(); host.setStyleSheet('background:#1C1C1E;')
+    l = QHBoxLayout(host); l.setContentsMargins(10, 0, 10, 0); l.setSpacing(0)
+    _H = 34
+    def dv(): l.addSpacing(4); l.addWidget(w._n2_divider()); l.addSpacing(4)
+    st = w._N2Button('play', 'Start (S)', accent_icon=True); st.setFixedHeight(_H); l.addWidget(st); dv()
+    seg = w._N2Segmented([('fft','FFT',42),('oct3','1/3',34),('oct12','1/12',42),('oct24','1/24',42)], icon_name='audio-lines', height=_H)
+    seg.set_active('oct24'); l.addWidget(seg)
+    sp = w._N2Toggle('rows-2', text='+Spectro'); sp.setFixedHeight(_H); l.addWidget(sp); dv()
+    scale = w._N2Segmented([('log','Log',36),('lin','Lin',36)], height=_H); scale.set_active('log'); l.addWidget(scale); dv()
+    db = w._N2Button('scale-v', 'Auto', label='dB'); db.setFixedHeight(_H); l.addWidget(db)
+    sr = w._N2Select('waves', 'SR', mono=True); sr.addItems(['48 kHz']); sr.setFixedHeight(_H); l.addWidget(sr); dv()
+    pk = w._N2Toggle('peak-up', text='ON', label='PEAK'); pk.setChecked(True); pk.setFixedHeight(_H); l.addWidget(pk)
+    l.addWidget(w._N2Button('refresh', 'Reset')); l.addWidget(w._N2Button('camera', 'Capture')); dv()
+    hd = w._N2Select('clock', 'HOLD', mono=True); hd.addItems(['1s']); l.addWidget(hd)
+    rg = w._N2Select('move-vertical', 'RANGE', mono=True); rg.addItems(['96 dB']); l.addWidget(rg)
+    sd = w._N2Select('gauge', 'SPEED'); sd.addItems(['Normal']); l.addWidget(sd)
+    l.addWidget(w._N2Button('palette', 'Color'))
+    l.addStretch()
+    l.addWidget(w._N2IconBtn('extlink'))
+    pn = w._N2IconBtn('panel-right', checkable=True); pn.setChecked(True); l.addWidget(pn)
+    host.resize(1480, 46); host.show(); _app.processEvents()
+    return _save(host, 'n2_toolbar.png')
+check('N2 툴바 리디자인(Spectrum, 테두리리스+아이콘+LED)', _n2_toolbar)
+
+
 def _titlebar_btns():
     """SPL 미터/알람 타이틀바 아이콘 — 기울인 압정(Pin, ON 액센트/OFF 회색) + 기어(설정).
     2026-06-28 자물쇠·슬라이더 → 압정·기어로 정제. 버튼 24px 안 클리핑 없는지 육안 확인."""
