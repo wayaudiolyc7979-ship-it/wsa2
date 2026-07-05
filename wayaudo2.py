@@ -10424,32 +10424,40 @@ class _MeasCard(QFrame):
         self._apply_card_style()
         self._lay = QVBoxLayout(self); self._lay.setContentsMargins(6, 5, 6, 6); self._lay.setSpacing(3)
 
-        # 헤더: [가시성 체크] 도트 + 번호 + dBFS + Start/Stop 버튼 + 삭제 버튼
-        hdr = QHBoxLayout(); hdr.setContentsMargins(0, 0, 0, 0); hdr.setSpacing(4)
+        # 헤더(B안): [가시성 체크(색 사각)] [색점=Start LED] [번호] ... [dBFS 모노]
+        hdr = QHBoxLayout(); hdr.setContentsMargins(0, 0, 0, 0); hdr.setSpacing(3)
         # 그래프 표시 ON/OFF 체크박스 — 분석(Start/Stop)과 무관, 곡선만 숨김/표시
-        self._vis_chk = QCheckBox(); self._vis_chk.setChecked(True); self._vis_chk.setFixedWidth(20)
+        self._vis_chk = QCheckBox(); self._vis_chk.setChecked(True); self._vis_chk.setFixedWidth(17)
+        self._vis_chk.setFocusPolicy(Qt.NoFocus)
         self._vis_chk.setToolTip(_tx('Show/hide graph (analysis continues)'))
         self._vis_chk.setStyleSheet(
             f'QCheckBox::indicator{{width:13px;height:13px;border:1.5px solid {color};'
             f'border-radius:3px;background:transparent;}}'
             f'QCheckBox::indicator:checked{{background:{color};image:none;}}')
         self._vis_chk.stateChanged.connect(lambda st: self.graph_toggled.emit(st == Qt.Checked))
-        dot = QLabel('●'); dot.setStyleSheet(f'color:{color};background:transparent;font-size:{FS_BODY}px;')
+        # 색점 = 측정 Start 토글(측정 중=카드색 채움+글로우 / 정지=흐린 링) — 스펙트럼 카드와 통일
+        self._start_dot = QPushButton()
+        self._start_dot.setFixedSize(20, 20); self._start_dot.setFocusPolicy(Qt.NoFocus)
+        self._start_dot.setCursor(Qt.PointingHandCursor)
+        self._start_dot.setToolTip(_tx('Start / stop measuring'))
+        self._start_dot.setIconSize(QSize(18, 18))
+        self._start_dot.setStyleSheet('QPushButton{border:none;background:transparent;padding:0;}')
+        self._start_dot.setIcon(QIcon(_led_power_pm(False, 18, color)))
+        self._start_dot.clicked.connect(self._on_start_stop)
         self._num_label = QLabel(self._default_name)
         self._num_label.setStyleSheet(f'color:{color};background:transparent;font-size:{FS_BODY}px;font-weight:bold;')
         self._num_label.setToolTip(_tx('Double-click to rename'))
         num_lbl = self._num_label
         self._db_lbl = QLabel('—')
-        self._db_lbl.setStyleSheet(f'color:{color};background:transparent;font-size:{FS_XS}px;font-weight:bold;')
+        self._db_lbl.setFont(_n2_mono_font(13, QFont.Bold))
+        self._db_lbl.setStyleSheet(f'color:{color};background:transparent;')
         self._db_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self._db_lbl_color = color   # 마지막 적용 색 캐시 — 매 프레임 setStyleSheet 재적용(테두리 깜빡임) 방지
-        self._start_btn = QPushButton('Start'); _apply_txn(self._start_btn, False)
-        self._start_btn.setFixedHeight(20)
-        self._start_btn.setFocusPolicy(Qt.NoFocus)   # macOS 파란 포커스 링 제거(간헐적 깜빡임)
-        self._start_btn.setStyleSheet(self._start_btn_ss())
+        self._db_lbl_color = color   # 마지막 적용 색 캐시
+        # 텍스트 Start 버튼은 상태보관용 숨김(set_running 호환)
+        self._start_btn = QPushButton('Start'); self._start_btn.hide()
         self._start_btn.clicked.connect(self._on_start_stop)
-        hdr.addWidget(self._vis_chk); hdr.addWidget(dot); hdr.addWidget(num_lbl); hdr.addStretch()
-        hdr.addWidget(self._db_lbl); hdr.addWidget(self._start_btn)
+        hdr.addWidget(self._vis_chk); hdr.addWidget(self._start_dot); hdr.addWidget(num_lbl); hdr.addStretch()
+        hdr.addWidget(self._db_lbl)
         # 삭제는 인라인 ✕ 대신 우클릭 메뉴(contextMenuEvent)로 통일 — 모든 카드(Reference·1번·
         # 추가) 헤더가 동일해지고, 되돌리기 힘든 삭제를 의도적 우클릭 뒤에 둠. deletable=삭제 항목 노출 여부.
         self._deletable = deletable
@@ -10477,25 +10485,29 @@ class _MeasCard(QFrame):
                 f'QPushButton:hover{{border-color:{T("accent")};}}')
 
     def _cb_style(self):
-        return (f'QComboBox{{background:{T("bg3")};color:{T("text")};border:1px solid {T("border")};'
-                f'border-radius:{RADIUS_SM}px;padding:1px 8px;font-size:{FS_SM}px;min-height:22px;}}'
-                f'QComboBox:hover{{border-color:{T("accent")};}}'
+        # B안 flat 셀 — Fusion 회색 배경 없이 투명+테두리(콤보 자체는 _flat_cell 페인트가 담당)
+        _bd = '#34343B' if _theme == 'dark' else T('border')
+        return (f'QComboBox{{background:transparent;color:{T("text")};border:1px solid {_bd};'
+                f'border-radius:8px;padding:1px 8px;font-size:{FS_SM}px;min-height:22px;}}'
                 f'QComboBox::drop-down{{width:0;border:none;}}'
                 f'QComboBox::down-arrow{{width:0;height:0;image:none;}}')
 
     def _delay_spin_ss(self):
-        return (f'QDoubleSpinBox{{background:{T("bg3")};color:{T("text")};border:1px solid {T("border")};'
-                f'border-radius:{RADIUS_SM}px;padding:{PAD_SM};font-size:{FS_SM}px;}}')
+        _bd = '#34343B' if _theme == 'dark' else T('border')
+        return (f'QDoubleSpinBox{{background:transparent;color:{T("text")};border:1px solid {_bd};'
+                f'border-radius:8px;padding:{PAD_SM};font-family:Menlo;font-size:{FS_SM}px;}}')
 
     def _auto_btn_ss(self):
+        _bd = '#34343B' if _theme == 'dark' else T('border')
         return (f'QPushButton{{background:transparent;color:{T("text_dim")};'
-                f'border:1px solid {T("border")};font-size:{FS_XS}px;padding:0 5px;border-radius:{RADIUS_SM}px;}}'
-                f'QPushButton:hover{{color:{T("text")};border-color:{T("accent")};}}')
+                f'border:1px solid {_bd};font-size:{FS_XS}px;padding:0 6px;border-radius:8px;}}'
+                f'QPushButton:hover{{color:{T("text")};border-color:#4A4A54;}}')
 
     def restyle(self):
         """테마 토글(다크↔라이트) 시 인라인-구운 색 재적용 — 카드 프레임/콤보/딜레이/버튼."""
         self._apply_card_style()
-        self._start_btn.setStyleSheet(self._start_btn_ss())
+        if hasattr(self, '_start_dot'):
+            self._start_dot.setIcon(QIcon(_led_power_pm(self._running, 18, self._color)))
         self._ml.setStyleSheet(ss_text(FS_XS))
         if self._del_btn is not None: self._del_btn.setStyleSheet(self._del_btn_ss())
         if self._meas_cb is not None:
@@ -10514,7 +10526,13 @@ class _MeasCard(QFrame):
         # 카드와 어울리는 불투명 배경으로 덮어쓴다. (restyle()로 테마 토글 시 재적용)
         self._meas_cb = meas_cb; self._meas_ch_cb = meas_ch_cb
         _cb_ss = self._cb_style()
-        meas_cb.setStyleSheet(_cb_ss); meas_ch_cb.setStyleSheet(_cb_ss)
+        _bd = '#34343B' if _theme == 'dark' else T('border')
+        for _cb in (meas_cb, meas_ch_cb):
+            _cb.setStyleSheet(_cb_ss)
+            if isinstance(_cb, RoundComboBox):
+                _cb._flat_cell = True; _cb._flat_border = _bd   # Fusion 회색배경 제거
+        meas_ch_cb._align_center = True
+        meas_cb._elide_to_width = True
         meas_cb.setMinimumWidth(100); meas_ch_cb.setMinimumWidth(44)
         row.addWidget(lbl); row.addWidget(meas_cb, 1); row.addWidget(meas_ch_cb)
         self._lay.addLayout(row)
@@ -10565,8 +10583,8 @@ class _MeasCard(QFrame):
     def set_meas(self, db, peak_db=None):
         self._m_bar.set_rms(db, peak_db)
         c = T('red') if db > METER_RED_DB else T('yellow') if db > METER_YELLOW_DB else self._color
-        if c != self._db_lbl_color:   # 존(색) 바뀔 때만 재적용 — 매 프레임 churn=테두리 깜빡임 방지
-            self._db_lbl.setStyleSheet(f'color:{c};background:transparent;font-size:{FS_XS}px;font-weight:bold;')
+        if c != self._db_lbl_color:   # 존(색) 바뀔 때만 재적용 (모노 폰트는 setFont로 유지)
+            self._db_lbl.setStyleSheet(f'color:{c};background:transparent;')
             self._db_lbl_color = c
         self._db_lbl.setText(f'{db:.0f}')
 
@@ -10576,7 +10594,7 @@ class _MeasCard(QFrame):
     def reset(self):
         self._m_bar.reset()
         if self._db_lbl_color != self._color:
-            self._db_lbl.setStyleSheet(f'color:{self._color};background:transparent;font-size:{FS_XS}px;font-weight:bold;')
+            self._db_lbl.setStyleSheet(f'color:{self._color};background:transparent;')
             self._db_lbl_color = self._color
         self._db_lbl.setText('—')
 
@@ -10587,18 +10605,19 @@ class _MeasCard(QFrame):
             self.start_clicked.emit()
 
     def _apply_card_style(self):
-        # 색 식별은 도트·번호·체크박스(카드색)가 담당. 테두리는 네온 프레임 대신 저알파·얇게(차분).
+        # B안 — 중립 테두리(색 식별은 스와치·색점·번호·미터). 선택=밝은 중립+색 틴트(스펙트럼 카드와 통일).
         _c = QColor(self._color); _r, _g, _b = _c.red(), _c.green(), _c.blue()
+        _bg  = '#1E1E22' if _theme == 'dark' else '#F3F5FA'
+        _bd  = '#34343B' if _theme == 'dark' else T('border')
+        _bd_s = '#4A4A54' if _theme == 'dark' else T('accent')
         if self._is_selected:
-            # 선택: 카드색 은은히 채움 + 선명하지만 네온 아닌 테두리 (굵기·padding은 동일 크기 유지)
             self.setStyleSheet(
-                f'QFrame#measCard{{border:2px solid rgba({_r},{_g},{_b},230);border-radius:{RADIUS_SM}px;'
-                f'background:rgba({_r},{_g},{_b},32);padding:1px;}}')
+                f'QFrame#measCard{{border:1px solid {_bd_s};border-radius:10px;'
+                f'background:rgba({_r},{_g},{_b},20);padding:2px;}}')
         else:
-            # 비선택: 차분한 저알파 색 프레임
             self.setStyleSheet(
-                f'QFrame#measCard{{border:1px solid rgba({_r},{_g},{_b},120);border-radius:{RADIUS_SM}px;'
-                f'background:{T("panel")};padding:2px;}}')
+                f'QFrame#measCard{{border:1px solid {_bd};border-radius:10px;'
+                f'background:{_bg};padding:2px;}}')
 
     def set_selected(self, on):
         on = bool(on)
@@ -10650,22 +10669,9 @@ class _MeasCard(QFrame):
     def set_running(self, running):
         self._running = running
         self._display_on = running  # backward-compat
-        if running:
-            self._start_btn.setText('Stop'); _apply_txn(self._start_btn, True)
-            _r = QColor(T('red')); rr, rg, rb = _r.red(), _r.green(), _r.blue()
-            self._start_btn.setStyleSheet(
-                f'QPushButton{{background:transparent;color:{T("red")};'
-                f'border:1px solid rgba({rr},{rg},{rb},140);'
-                f'font-size:{FS_XS}px;padding:0 5px;border-radius:{RADIUS_SM}px;font-weight:bold;}}'
-                f'QPushButton:hover{{border-color:{T("red")};}}')
-        else:
-            _g = QColor(T('accent')); gr, gg, gb = _g.red(), _g.green(), _g.blue()
-            self._start_btn.setText('Start'); _apply_txn(self._start_btn, False)
-            self._start_btn.setStyleSheet(
-                f'QPushButton{{background:transparent;color:{T("accent")};'
-                f'border:1px solid rgba({gr},{gg},{gb},120);'
-                f'font-size:{FS_XS}px;padding:0 5px;border-radius:{RADIUS_SM}px;font-weight:bold;}}'
-                f'QPushButton:hover{{border-color:{T("accent")};}}')
+        # 색점 = 측정 중이면 채움+글로우 / 정지면 흐린 링
+        self._start_dot.setIcon(QIcon(_led_power_pm(running, 18, self._color)))
+        self._start_btn.setText('Stop' if running else 'Start')   # 숨김 상태보관
 
 
 # backward-compat alias
@@ -12945,11 +12951,10 @@ class TransferFunctionWindow(QWidget):
         # ── 공유 Reference 섹션 ──
         # Reference도 측정 카드와 동일한 카드 박스로 — R/M 레벨 바가 동일 컨테이너·
         # 동일 내부여백에 놓여 구조적으로 좌우 정렬됨(가로폭·세로 위치 통일, v1.9 #4).
-        ref_sec = QFrame(); ref_sec.setObjectName('measCard')
-        _rc = QColor(T('accent')); _rcr, _rcg, _rcb = _rc.red(), _rc.green(), _rc.blue()
-        ref_sec.setStyleSheet(
-            f'QFrame#measCard{{border:1px solid rgba({_rcr},{_rcg},{_rcb},120);border-radius:{RADIUS_SM}px;'
-            f'background:{T("panel")};padding:2px;}}')
+        ref_sec = QFrame(); ref_sec.setObjectName('refCard')
+        _ref_bd = '#34343B' if _theme == 'dark' else T('border')
+        _ref_bg = '#1E1E22' if _theme == 'dark' else '#F3F5FA'
+        ref_sec.setStyleSheet(f'QFrame#refCard{{border:1px solid {_ref_bd};border-radius:10px;background:{_ref_bg};padding:2px;}}')
         ref_sl = QVBoxLayout(ref_sec); ref_sl.setContentsMargins(6,5,6,6); ref_sl.setSpacing(3)
         ref_hdr = QHBoxLayout(); ref_hdr.setContentsMargins(0,0,0,0); ref_hdr.setSpacing(4)
         _ref_dot = QLabel('●')
@@ -12958,7 +12963,8 @@ class TransferFunctionWindow(QWidget):
         _ref_name.setStyleSheet(f'color:{T("accent")};background:transparent;font-size:{FS_BODY}px;font-weight:bold;')
         ref_hdr.addWidget(_ref_dot); ref_hdr.addWidget(_ref_name); ref_hdr.addStretch()
         self._ref_db_lbl = QLabel('—')
-        self._ref_db_lbl.setStyleSheet(f'color:{T("accent")};background:transparent;font-size:{FS_XS}px;font-weight:bold;')
+        self._ref_db_lbl.setFont(_n2_mono_font(13, QFont.Bold))
+        self._ref_db_lbl.setStyleSheet(f'color:{T("accent")};background:transparent;')
         self._ref_db_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         ref_hdr.addWidget(self._ref_db_lbl)
         ref_sl.addLayout(ref_hdr)
@@ -12971,12 +12977,19 @@ class TransferFunctionWindow(QWidget):
         ref_sl.addLayout(ref_vu_row)
         # Ref 드롭다운
         self.ref_cb = RoundComboBox(); self.ref_ch_cb = RoundComboBox()
+        _ref_flat = (f'QComboBox{{background:transparent;color:{T("text")};border:1px solid {_ref_bd};'
+                     f'border-radius:8px;padding:1px 8px;font-size:{FS_SM}px;min-height:22px;}}'
+                     f'QComboBox::drop-down{{width:0;border:none;}}QComboBox::down-arrow{{width:0;height:0;image:none;}}')
+        for _cb in (self.ref_cb, self.ref_ch_cb):
+            _cb.setStyleSheet(_ref_flat); _cb.setFocusPolicy(Qt.NoFocus)
+            _cb._flat_cell = True; _cb._flat_border = _ref_bd
+        self.ref_cb._elide_to_width = True; self.ref_ch_cb._align_center = True; self.ref_ch_cb.setFixedWidth(48)
         self.ref_cb.currentIndexChanged.connect(self._ref_device_changed)
         self.ref_ch_cb.currentIndexChanged.connect(self._on_input_setting_changed)
         ref_row = QHBoxLayout(); ref_row.setContentsMargins(0,0,0,0); ref_row.setSpacing(3)
         _rl = QLabel('In'); _rl.setFixedWidth(14)
         _rl.setStyleSheet(ss_text(FS_XS))
-        self.ref_cb.setMinimumWidth(100); self.ref_ch_cb.setMinimumWidth(44)
+        self.ref_cb.setMinimumWidth(100)
         ref_row.addWidget(_rl); ref_row.addWidget(self.ref_cb, 1); ref_row.addWidget(self.ref_ch_cb)
         ref_sl.addLayout(ref_row)
         mpl.addWidget(ref_sec)
