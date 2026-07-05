@@ -9196,6 +9196,7 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
         self._cap_img_pending = None; self._cap_key_pending = None
         self._cap_built.connect(self._apply_cap_built)
         self._tf_extra_phase = {}  # {ch_idx: {'color', 'f', 'ph_wrap', 'ph_unwr', 'grp_ms'}}
+        self._tf_avg = None   # {'color','f','ph_wrap','ph_unwr','grp_ms'} — 라이브 멀티마이크 평균 오버레이
         # Reference/Delta 비교
         self._ref_f = None; self._ref_pw = None; self._ref_pu = None; self._ref_gm = None
         self._delta = False; self._abs_ph = None
@@ -9234,6 +9235,15 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
 
     def clear_all_tf_extra_phase(self):
         self._tf_extra_phase.clear(); self.update()
+
+    def set_tf_average(self, color, f, ph_wrap, ph_unwr, grp):
+        # grp_ms 키로 저장 — _draw_extra_phase_curve()가 참조하는 이름과 일치시켜 재사용
+        self._tf_avg = {'color': color, 'f': f, 'ph_wrap': ph_wrap,
+                        'ph_unwr': ph_unwr, 'grp_ms': grp}; self.update()
+
+    def clear_tf_average(self):
+        if getattr(self, '_tf_avg', None) is not None:
+            self._tf_avg = None; self.update()
 
     def _apply_cap_built(self):
         img, key = self._cap_img_pending, self._cap_key_pending
@@ -9622,6 +9632,9 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
                     p.setPen(QPen(QColor('#33FF66'),3.4)); p.setBrush(Qt.NoBrush); p.drawPath(path)
             elif fk in self._tf_extra_phase:
                 self._draw_extra_phase_curve(p, W, H, self._tf_extra_phase[fk], width=3.4)
+        # 멀티마이크 평균(AVG) — 항상 맨 위(front 재드로우 이후) 굵은 실선 오버레이 (extra 위상 곡선과 동일 좌표변환 재사용)
+        if self._tf_avg is not None:
+            self._draw_extra_phase_curve(p, W, H, self._tf_avg, width=2.8)
         p.setRenderHint(QPainter.Antialiasing, True)   # 라이브 곡선 후 AA 복원 [TF_LIVE_CURVE_PERF]
 
     def _draw_extra_phase_curve(self, p, W, H, ex, width=1.8, dim=False):
@@ -9795,6 +9808,7 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
         self._cap_img_pending = None; self._cap_key_pending = None
         self._cap_built.connect(self._apply_cap_built)
         self._tf_extra = {}  # {ch_idx: {'color', 'f', 'mag'}}
+        self._tf_avg = None   # {'color','f','mag','coh'} — 라이브 멀티마이크 평균 오버레이
         # Reference/Delta 비교
         self._ref_f = None; self._ref_mag = None
         self._delta = False; self._abs_db = None
@@ -9847,6 +9861,13 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
 
     def clear_all_tf_extra(self):
         self._tf_extra.clear(); self.update()
+
+    def set_tf_average(self, color, f, mag, coh=None):
+        self._tf_avg = {'color': color, 'f': f, 'mag': mag, 'coh': coh}; self.update()
+
+    def clear_tf_average(self):
+        if self._tf_avg is not None:
+            self._tf_avg = None; self.update()
 
     def _apply_cap_built(self):
         img, key = self._cap_img_pending, self._cap_key_pending
@@ -10254,6 +10275,23 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
                 if exf is not None and exm is not None:
                     if refmode: exm=exm-np.interp(exf,self._ref_f,self._ref_mag)
                     self._draw_mag_line(p,W,H, exf, exm, ex.get('color'), 3.4)
+        # 멀티마이크 평균(AVG) — 항상 맨 위(front 재드로우 이후) 굵은 실선 오버레이
+        if self._tf_avg is not None:
+            a = self._tf_avg
+            af = a.get('f'); am = a.get('mag')
+            if af is not None and am is not None and len(af) >= 2:
+                if refmode:
+                    am = am - np.interp(af, self._ref_f, self._ref_mag)
+                a_xs = self._fx(af, pl, uw).astype(float)
+                a_ys = (pt + np.clip((self.db_max - am) / rng * dh, 0, dh)).astype(float)
+                a_ys = _vis_smooth(a_ys, 7)
+                _ex_max_pts_a = max(int(uw), 200)
+                if len(a_xs) > _ex_max_pts_a:
+                    _ai = np.linspace(0, len(a_xs) - 1, _ex_max_pts_a, dtype=int)
+                    a_xs = a_xs[_ai]; a_ys = a_ys[_ai]
+                p.setRenderHint(QPainter.Antialiasing, True)
+                p.setPen(QPen(QColor(a['color']), 2.8)); p.setBrush(Qt.NoBrush)
+                p.drawPath(_catmull_seg(a_xs, a_ys))
         p.setRenderHint(QPainter.Antialiasing, True)   # 라이브 곡선 후 AA 복원(격자/라벨/커서 선명) [TF_LIVE_CURVE_PERF]
 
     def paintEvent(self,ev):
@@ -10875,6 +10913,7 @@ class TFIRCanvas(QWidget):
         self._cap_img_pending = None; self._cap_key_pending = None
         self._cap_built.connect(self._apply_cap_built)
         self._tf_extra = {}       # {ch_idx: {'color','t','h'}} — 카드별 라이브 IR
+        self._tf_avg = None       # {'color','t','h','etc_db'} — 라이브 멀티마이크 평균 오버레이
         self._front_extra = None  # None/-1=primary 맨앞, int=해당 pair idx 맨앞
 
     def _apply_cap_built(self):
@@ -11067,6 +11106,20 @@ class TFIRCanvas(QWidget):
 
     def clear_all_tf_extra(self):
         self._tf_extra.clear(); self.update()
+
+    def set_tf_average(self, color, t, h):
+        # etc_db 는 set_tf_extra 와 동일하게 계산 — Hilbert 포락선 + 피크정규화(0dB).
+        # (raw |h| dB 로 하면 ETC/Log 모드서 영점교차마다 -200 으로 튀어 개별곡선과 불일치)
+        if h is not None:
+            etc = _hilbert_env(h); pk = max(float(np.max(etc)), 1e-10)
+            etc_db = (20 * np.log10(np.maximum(etc / pk, 1e-10))).astype(np.float32)
+        else:
+            etc_db = None
+        self._tf_avg = {'color': color, 't': t, 'h': h, 'etc_db': etc_db}; self.update()
+
+    def clear_tf_average(self):
+        if getattr(self, '_tf_avg', None) is not None:
+            self._tf_avg = None; self.update()
 
     def set_front_curve(self, key):
         self._front_extra = key; self.update()
@@ -11351,6 +11404,11 @@ class TFIRCanvas(QWidget):
                     ex = self._tf_extra[fk]
                     self._draw_ir_curve(p, W, H, ex.get('t'), ex.get('h'),
                                         ex.get('color'), 2.8, ex.get('etc_db'))
+        # 멀티마이크 평균(AVG) — 개별 위 굵은 실선 오버레이 (extra IR 드로우 로직 재사용)
+        if self._tf_avg is not None:
+            a = self._tf_avg
+            self._draw_ir_curve(p, W, H, a.get('t'), a.get('h'),
+                                a.get('color'), 2.2, a.get('etc_db'))
 
     def paintEvent(self, ev):
         W = self.width(); H = self.height()
