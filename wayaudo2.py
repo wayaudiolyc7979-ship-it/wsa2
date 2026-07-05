@@ -8663,6 +8663,49 @@ def _tf_smooth(freqs, H_complex, bpo):
     grp_ms  = -np.gradient(ph_rad, 2 * np.pi * f_out) * 1000.0
     return f_out, mag_db, ph_wrap, ph_unwr, grp_ms
 
+def _multimic_average(H_list, gamma_list, delay_list, freqs, sr, bpo,
+                      mode='mag', align=True):
+    """참여 카드들의 복소 H(f)를 라이브 평균. 유효 카드<2면 None.
+
+    mode='mag'     : 파워 RMS 평균 → |H_avg|²=mean|H_i|². 위상/IR 없음(공간평균 표준).
+    mode='complex' : (align이면 카드 딜레이 delay_ms로 위상보정 후) 벡터 평균.
+                     위상·IR 포함(반복측정/정렬 시나리오).
+    coherence는 카드별 γ² 산술평균(커서 리드아웃 %용).
+    """
+    valid = [(np.asarray(h, dtype=complex),
+              (np.asarray(g, dtype=float) if g is not None else None), d)
+             for h, g, d in zip(H_list, gamma_list, delay_list) if h is not None]
+    if len(valid) < 2:
+        return None
+    Hs = [v[0] for v in valid]
+    delays = [v[2] for v in valid]
+    n = len(Hs)
+    gs = [v[1] for v in valid if v[1] is not None]
+    if len(gs) == n:
+        coh_avg = np.mean(np.stack(gs), axis=0)
+    else:
+        coh_avg = np.ones(len(freqs), dtype=float)
+    if mode == 'mag':
+        P_avg = np.mean(np.stack([np.abs(h) ** 2 for h in Hs]), axis=0)
+        H_mag = np.sqrt(np.maximum(P_avg, 1e-30)).astype(complex)   # 위상 0
+        f_a, mag_a, _pw, _pu, _grp = _tf_smooth(freqs, H_mag, bpo)
+        coh_a = np.interp(f_a, freqs, coh_avg).astype(np.float32)
+        return {'mode': 'mag', 'n': n, 'f': f_a, 'mag': mag_a, 'coh': coh_a,
+                'ph_wrap': None, 'ph_unwr': None, 'grp': None, 'h_ir': None}
+    # complex (vector) 평균
+    acc = np.zeros(len(freqs), dtype=complex)
+    for h, d in zip(Hs, delays):
+        if align and d:
+            h = h * np.exp(1j * 2 * np.pi * freqs * (float(d) / 1000.0))
+        acc = acc + h
+    H_avg = acc / n
+    f_a, mag_a, pw_a, pu_a, grp_a = _tf_smooth(freqs, H_avg, bpo)
+    coh_a = np.interp(f_a, freqs, coh_avg).astype(np.float32)
+    fft_size = (len(freqs) - 1) * 2
+    h_ir = np.fft.fftshift(np.fft.irfft(H_avg, n=fft_size)).astype(np.float32)
+    return {'mode': 'complex', 'n': n, 'f': f_a, 'mag': mag_a, 'coh': coh_a,
+            'ph_wrap': pw_a, 'ph_unwr': pu_a, 'grp': grp_a, 'h_ir': h_ir}
+
 def _gen_log_sweep(n, sr, f_lo=20.0, f_hi=20000.0):
     """20Hz→20kHz 로그 사인 스윕 신호 생성 (루프 재생용)."""
     t = np.arange(n, dtype=np.float64) / sr
