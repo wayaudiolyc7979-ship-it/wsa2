@@ -5261,7 +5261,7 @@ class _SplAlarmDisplay(QWidget):
         ch = h * 0.85 if self._show_timebar else h
 
         def pf(px, bold=True):
-            f = QFont(); f.setPixelSize(max(8, int(px))); f.setBold(bold); return f
+            f = QFont(FONT_FAMILY); f.setPixelSize(max(8, int(px))); f.setBold(bold); return f
 
         R = max(7, ch * 0.072); gap = R * 1.4; ly = y + ch * 0.15
         for i, c in enumerate((self.GREEN, self.YELLOW, self.RED)):
@@ -6656,6 +6656,7 @@ class ChannelCard(QFrame):
         # ── Row 1: [☑] [●] [device name] [×]
         row1 = QHBoxLayout(); row1.setSpacing(3)
         self._chk = QCheckBox(); self._chk.setChecked(True); self._chk.setFixedWidth(20)
+        self._chk.setFocusPolicy(Qt.NoFocus)   # macOS 파란 포커스 링 제거
         self._chk.setStyleSheet(f'''
             QCheckBox::indicator {{
                 width:13px; height:13px;
@@ -6798,6 +6799,7 @@ class _SpecCard(QFrame):
         # 헤더: [가시성 체크] [●] [번호] ... [삭제]  (모든 카드 동일 레이아웃)
         hdr = QHBoxLayout(); hdr.setContentsMargins(0,0,0,0); hdr.setSpacing(3)
         self._chk = QCheckBox(); self._chk.setChecked(True); self._chk.setFixedWidth(20)
+        self._chk.setFocusPolicy(Qt.NoFocus)   # macOS 파란 포커스 링 제거
         self._chk.setStyleSheet(
             f'QCheckBox::indicator{{width:13px;height:13px;border:1.5px solid {color};'
             f'border-radius:3px;background:transparent;}}'
@@ -6838,12 +6840,14 @@ class _SpecCard(QFrame):
         row = QHBoxLayout(); row.setContentsMargins(0,0,0,0); row.setSpacing(3)
         lbl = QLabel('In'); lbl.setFixedWidth(14); lbl.setStyleSheet(ss_text(FS_XS))
         self._dev_cb = RoundComboBox(); self._dev_cb.setStyleSheet(_cb_ss)
+        self._dev_cb.setFocusPolicy(Qt.NoFocus)        # macOS 파란 포커스 링 제거
         self._dev_cb.setMinimumWidth(40)               # stretch로 채워지고 긴 이름은 폭에 맞춰 … 로 생략
         self._dev_cb.setMinimumContentsLength(4)
         self._dev_cb._elide_to_width = True            # 'MacBo' 처럼 잘리지 않고 'MacB…' 로 깔끔히
         for name, idx in dev_items:
             self._dev_cb.addItem(name, idx)
         self._ch_cb = RoundComboBox(); self._ch_cb.setStyleSheet(_cb_ss)
+        self._ch_cb.setFocusPolicy(Qt.NoFocus)         # macOS 파란 포커스 링 제거
         self._ch_cb.setFixedWidth(46); self._ch_cb._align_center = True
         row.addWidget(lbl); row.addWidget(self._dev_cb, 1); row.addWidget(self._ch_cb)
         lay.addLayout(row)
@@ -6979,7 +6983,7 @@ class _SplMeterBtn(QPushButton):
 
         # Icon: "dB" — 기본 dim 회색 → hover/press 소프트블루(값 톤과 일치)
         col = QColor('#9DB7E0') if hot else QColor(T('text_dim'))
-        f = QFont(); f.setPixelSize(13); f.setBold(True); p.setFont(f)
+        f = QFont(FONT_FAMILY); f.setPixelSize(13); f.setBold(True); p.setFont(f)
         p.setPen(col)
         p.drawText(self.rect(), Qt.AlignCenter, 'dB')
         p.end()
@@ -7047,7 +7051,7 @@ class _ComplianceBadge(QWidget):
         p.setPen(Qt.NoPen); p.setBrush(fill); p.drawEllipse(rect)
         ring = QColor(c); ring.setAlpha(160)
         p.setBrush(Qt.NoBrush); p.setPen(QPen(ring, 2.0)); p.drawEllipse(rect)
-        f = QFont(); f.setPixelSize(30); f.setBold(True); p.setFont(f)
+        f = QFont(FONT_FAMILY); f.setPixelSize(30); f.setBold(True); p.setFont(f)
         p.setPen(c); p.drawText(self.rect(), Qt.AlignCenter, self.glyph)
         p.end()
 
@@ -7359,7 +7363,7 @@ class _CaptureDrawer(QWidget):
             'QPushButton:checked{color:#FFFFFF;}'
             'QPushButton:hover:!checked{color:#B0B0B8;}')
         # 글자 폭만큼의 일자 밑줄(2px) — border-bottom의 곡선 렌더 회피
-        _uw_font = QFont('Helvetica Neue'); _uw_font.setPixelSize(12); _uw_font.setWeight(QFont.DemiBold)
+        _uw_font = QFont(FONT_FAMILY); _uw_font.setPixelSize(12); _uw_font.setWeight(QFont.DemiBold)
         _uw_fm = QFontMetrics(_uw_font)
         self._dtab_uls = {}
         for btn, mode, txt in [(self._spec_tab_btn, 'spec', 'Spectrum'),
@@ -8052,11 +8056,13 @@ def _n2_mono_font(size=12, weight=QFont.DemiBold):
     f.setPixelSize(size); f.setWeight(weight); return f
 
 def _n2_caps_font(size=9):
-    f = QFont(); f.setPixelSize(size); f.setBold(True)
+    # 패밀리 명시 필수 — QFont()만으론 setFont 시 앱 폰트(Optima)가 아닌 시스템 기본(SF Pro)으로
+    # 떨어져 나머지 UI와 폰트가 어긋남. 앱 브랜드 폰트(FONT_FAMILY)로 통일.
+    f = QFont(FONT_FAMILY); f.setPixelSize(size); f.setBold(True)
     f.setLetterSpacing(QFont.AbsoluteSpacing, 0.5); f.setCapitalization(QFont.AllUppercase); return f
 
 def _n2_val_font(size=12, weight=QFont.DemiBold):
-    f = QFont(); f.setPixelSize(size); f.setWeight(weight); return f
+    f = QFont(FONT_FAMILY); f.setPixelSize(size); f.setWeight(weight); return f
 
 
 class _N2Select(QFrame):
@@ -8374,7 +8380,7 @@ class _N2Tab(QFrame):
         self._icl = QLabel(); self._icl.setFixedSize(15, 15); self._icl.setStyleSheet('background:transparent;')
         self._icl.setPixmap(_icon_pm(icon_name, 15, _n2_icon_color())); h.addWidget(self._icl)
         self._txt = QLabel(label)
-        _tf = QFont(); _tf.setPixelSize(13); _tf.setWeight(QFont.Medium); _tf.setLetterSpacing(QFont.AbsoluteSpacing, 0.6)
+        _tf = QFont(FONT_FAMILY); _tf.setPixelSize(13); _tf.setWeight(QFont.Medium); _tf.setLetterSpacing(QFont.AbsoluteSpacing, 0.6)
         self._txt.setFont(_tf); self._txt.setStyleSheet(f'color:{T("text_dim")};background:transparent;')
         h.addWidget(self._txt); h.addStretch()
 
