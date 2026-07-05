@@ -6783,6 +6783,7 @@ class _SpecCard(QFrame):
     remove_requested   = pyqtSignal(int)        # card_id
     selected           = pyqtSignal(int)        # card_id — 카드 클릭 → front
     renamed            = pyqtSignal(int, str)   # (card_id, new_name)
+    start_toggled      = pyqtSignal(int)        # card_id — 카드별 Start(측정 on/off)
 
     def __init__(self, card_id, color, dev_items, is_primary=False, parent=None):
         super().__init__(parent)
@@ -6817,6 +6818,18 @@ class _SpecCard(QFrame):
         self._db_lbl.setFont(_n2_mono_font(14, QFont.Bold))
         self._db_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         hdr.addWidget(self._db_lbl)
+        # 카드별 Start — LED 파워 점(꺼짐=희미한 링 / 라이브=밝은 점+글로우). dB 값 옆.
+        self._running = False
+        self._start_btn = QPushButton()
+        self._start_btn.setFixedSize(22, 22)
+        self._start_btn.setFocusPolicy(Qt.NoFocus)
+        self._start_btn.setCursor(Qt.PointingHandCursor)
+        self._start_btn.setToolTip(_tx('Start / stop measuring this source'))
+        self._start_btn.setIconSize(QSize(16, 16))
+        self._start_btn.setStyleSheet('QPushButton{border:none;background:transparent;padding:0;}')
+        self._start_btn.setIcon(QIcon(_led_power_pm(False, 16)))
+        self._start_btn.clicked.connect(lambda: self.start_toggled.emit(self._card_id))
+        hdr.addSpacing(4); hdr.addWidget(self._start_btn)
         # 삭제는 인라인 ✕ 대신 우클릭 메뉴(contextMenuEvent)로 통일 — 모든 카드(1번·추가) 헤더가
         # 동일해지고, 되돌리기 힘든 삭제를 의도적 우클릭 뒤에 둠. TF 측정 카드와 동일 UX.
         self.setToolTip(_tx('Right-click: rename / delete'))
@@ -6872,6 +6885,11 @@ class _SpecCard(QFrame):
         on = bool(on)
         if on == self._is_selected: return
         self._is_selected = on; self._apply_border()
+
+    def set_running(self, on):
+        """카드별 Start LED 갱신 (라이브=밝은 점+글로우 / 꺼짐=희미한 링)."""
+        self._running = bool(on)
+        self._start_btn.setIcon(QIcon(_led_power_pm(self._running, 16)))
 
     def set_name(self, name):
         self._name = name or ''
@@ -7195,6 +7213,28 @@ def _cap_dot_pm(color, filled, size=11):
         c.setAlphaF(0.35)   # 숨김 = 채운 원 흐리게 (이름 40% 딤과 통일)
     p.setPen(Qt.NoPen); p.setBrush(c)
     p.drawEllipse(QRectF(0.6, 0.6, size - 1.2, size - 1.2))
+    p.end()
+    return pm
+
+
+def _led_power_pm(live, size=16, color='#6E9BFF'):
+    """카드별 Start LED 파워 점 — 꺼짐=희미한 링 / 라이브=밝은 점+글로우(측정 중 강조).
+    안티앨리어싱 페인트 픽스맵."""
+    dpr = 3
+    pm = QPixmap(int(size * dpr), int(size * dpr)); pm.setDevicePixelRatio(dpr)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing, True)
+    cx = cy = size / 2.0
+    if live:
+        g = QRadialGradient(QPointF(cx, cy), size * 0.46)
+        c0 = QColor(color); c0.setAlpha(155); c1 = QColor(color); c1.setAlpha(0)
+        g.setColorAt(0.0, c0); g.setColorAt(1.0, c1)
+        p.setPen(Qt.NoPen); p.setBrush(g); p.drawEllipse(QPointF(cx, cy), size * 0.46, size * 0.46)
+        p.setBrush(QColor(color)); p.setPen(Qt.NoPen)
+        p.drawEllipse(QPointF(cx, cy), size * 0.21, size * 0.21)
+    else:
+        pen = QPen(QColor('#4A4A52')); pen.setWidthF(size * 0.13); p.setPen(pen); p.setBrush(Qt.NoBrush)
+        p.drawEllipse(QPointF(cx, cy), size * 0.21, size * 0.21)
     p.end()
     return pm
 
@@ -20419,20 +20459,73 @@ class MainWindow(QMainWindow):
         self._auto_range_for_calib()
 
     def _spec_running(self):
-        """Spectrum 입력(엔진 구독)이 활성인지."""
+        """Spectrum 입력 — primary 또는 추가 카드 중 하나라도 측정 중인지."""
+        return self._primary_sub is not None or any(s.get('sub') for s in self._spec_extra)
+
+    def _primary_running(self):
         return self._primary_sub is not None
 
     def _toggle(self):
+        # 툴바 Start = 전부 시작/정지 (카드별 개별 제어는 각 카드 LED 파워 점)
         if self._spec_running(): self._stop()
         else: self._start()
 
     def _start(self):
-        idx=self.dev_cb.currentData()
-        if idx is None or idx<0: return
-        # 브랜드 엠프티 스테이트 숨김 (분석 시작)
-        self.fft_cvs._idle_hint = False; self.oct_cvs._idle_hint = False
-        # USB 재연결 후 macOS가 device index를 재할당할 수 있으므로 이름으로 재조회
-        # (Windows: 같은 이름이 여러 호스트API로 중복 존재 → WASAPI 항목으로 한정해 MME 중복을 피함)
+        # Start All — primary + 모든 추가 카드 측정 시작
+        self._card_start(0)
+        for s in list(self._spec_extra):
+            if not s.get('sub'): self._card_start(s['id'])
+
+    def _stop(self):
+        # Stop All
+        for s in list(self._spec_extra):
+            if s.get('sub'): self._card_stop(s['id'])
+        if self._primary_running(): self._card_stop(0)
+
+    # ── 카드별 Start (측정 on/off) ─────────────────────────────
+    def _card_toggle(self, card_id):
+        if card_id == 0:
+            self._card_stop(0) if self._primary_running() else self._card_start(0)
+            return
+        s = next((x for x in self._spec_extra if x['id'] == card_id), None)
+        if s is None: return
+        self._card_stop(card_id) if s.get('sub') else self._card_start(card_id)
+
+    def _card_start(self, card_id):
+        first = not self._spec_running()
+        if card_id == 0:
+            if self._primary_running(): return
+            if not self._open_primary_sub(): return
+        else:
+            s = next((x for x in self._spec_extra if x['id'] == card_id), None)
+            if s is None or s.get('sub'): return
+            self._open_spec_sub(s)
+            if not s.get('sub'): return   # 열기 실패
+        if first:   # 첫 소스 시작 → 브랜드 엠프티 스테이트 숨김
+            self.fft_cvs._idle_hint = False; self.oct_cvs._idle_hint = False
+        _diag('spec_card_start', card=card_id, first=first, any_run=self._spec_running())
+        self._refresh_running_ui()
+
+    def _card_stop(self, card_id):
+        if card_id == 0:
+            self._close_primary_sub()
+            if self._primary_card is not None: self._primary_card.reset()
+        else:
+            s = next((x for x in self._spec_extra if x['id'] == card_id), None)
+            if s is None: return
+            self._close_spec_sub(s)
+            if s.get('card'): s['card'].reset()
+            self._clear_extra_curve(card_id)
+        if not self._spec_running():
+            self._spec_teardown()   # 마지막 소스 정지 → 전역 정리
+        _diag('spec_card_stop', card=card_id, any_run=self._spec_running())
+        self._refresh_running_ui()
+
+    def _open_primary_sub(self):
+        """primary 카드 측정 시작 — SR 자동맞춤 + 스무딩 리셋 + 엔진 구독. 성공 시 True."""
+        idx = self.dev_cb.currentData()
+        if idx is None or idx < 0: return False
+        # USB 재연결 후 macOS device index 재할당 대비 이름으로 재조회 (Windows=WASAPI 한정)
         dev_name = self.dev_cb.currentText()
         _pref = _win_preferred_hostapi()
         try:
@@ -20441,57 +20534,40 @@ class MainWindow(QMainWindow):
                 if d['name'] == dev_name and d['max_input_channels'] >= 1:
                     idx = i; break
         except Exception: pass
-        # 디바이스 네이티브 샘플레이트로 자동 맞춤
-        _SR_MAP={44100:0, 48000:1, 88200:2, 96000:3}
+        _SR_MAP = {44100:0, 48000:1, 88200:2, 96000:3}
         try:
-            native_sr=int(sd.query_devices(idx)['default_samplerate'])
-            if native_sr in _SR_MAP and native_sr!=self.sample_rate:
-                self.sample_rate=native_sr
-                self.sr_cb.blockSignals(True)
-                self.sr_cb.setCurrentIndex(_SR_MAP[native_sr])
-                self.sr_cb.blockSignals(False)
+            native_sr = int(sd.query_devices(idx)['default_samplerate'])
+            if native_sr in _SR_MAP and native_sr != self.sample_rate:
+                self.sample_rate = native_sr
+                self.sr_cb.blockSignals(True); self.sr_cb.setCurrentIndex(_SR_MAP[native_sr]); self.sr_cb.blockSignals(False)
                 _alog.info(f'SR 자동 조정  device_native={native_sr}')
             elif native_sr not in _SR_MAP:
-                # 176.4k/192k 등 비표준 → 가장 가까운 지원 레이트로 폴백
-                fallback=48000 if native_sr>=48000 else 44100
-                if fallback!=self.sample_rate:
-                    self.sample_rate=fallback
-                    self.sr_cb.blockSignals(True)
-                    self.sr_cb.setCurrentIndex(_SR_MAP[fallback])
-                    self.sr_cb.blockSignals(False)
+                fallback = 48000 if native_sr >= 48000 else 44100
+                if fallback != self.sample_rate:
+                    self.sample_rate = fallback
+                    self.sr_cb.blockSignals(True); self.sr_cb.setCurrentIndex(_SR_MAP[fallback]); self.sr_cb.blockSignals(False)
                 _alog.info(f'SR 폴백  device_native={native_sr} → app_sr={self.sample_rate}')
         except Exception: pass
         with QMutexLocker(self._mutex):
             self._avg_buf.clear(); self._fft_smooth=None; self._pow_smooth=None
             self._spl_smooth=-100.0; self._pending=None
-            self._raw_spl_smooth  = -100.0
-            self._raw_peak_smooth = -100.0
-            self._dba_smooth      = -100.0
-            self._dbc_smooth      = -100.0
+            self._raw_spl_smooth=-100.0; self._raw_peak_smooth=-100.0
+            self._dba_smooth=-100.0; self._dbc_smooth=-100.0
         ch = self.in_ch_cb.currentData() or 0
-        # AudioEngine 구독 — primary 는 단일 채널. 같은 장치의 추가 소스는 엔진이 스트림 공유.
         try:
             self._primary_sub = self.audio_engine.subscribe(idx, [ch], self.sample_rate)
         except Exception as e:
             self._primary_sub = None
-            self._on_audio_error(str(e)); return
+            self._on_audio_error(str(e)); return False
         self._primary_sub.chunk_ready.connect(self._process_audio_multi, Qt.QueuedConnection)
         self._primary_sub.error.connect(self._on_audio_error, Qt.QueuedConnection)
         self._primary_sub.disconnected.connect(self._on_device_disconnected, Qt.QueuedConnection)
-        self._start_spec_extra_subs()   # 추가 장치/채널 카드들 구독 시작
-        self.start_btn.setText('Stop (S)'); self._stop_style(self.start_btn)
-        self.status_lbl.setText('● Running')
-        self.status_lbl.setStyleSheet(f'color:{T("green")};font-size:11px;')
-        self.mic_st.setText('Connected')
-        self.mic_st.setStyleSheet(f'color:{T("green")};font-size:10px;')
-        self.i_sr.setText(f'{self.sample_rate/1000:.1f} kHz')
-        self.i_fft.setText(str(self.fft_size))
-        self.i_res.setText(f'{self.sample_rate/self.fft_size:.1f} Hz')
-        freqs=np.fft.rfftfreq(self.fft_size,1.0/self.sample_rate)
-        self._aw_table=np.array([a_weight_db(f) for f in freqs])
-        self._cw_table=np.array([c_weight_db(f) for f in freqs])
+        freqs = np.fft.rfftfreq(self.fft_size, 1.0/self.sample_rate)
+        self._aw_table = np.array([a_weight_db(f) for f in freqs])
+        self._cw_table = np.array([c_weight_db(f) for f in freqs])
+        return True
 
-    def _stop(self):
+    def _close_primary_sub(self):
         if self._primary_sub is not None:
             try:
                 self._primary_sub.chunk_ready.disconnect()
@@ -20501,24 +20577,39 @@ class MainWindow(QMainWindow):
             try: self._primary_sub.close()
             except Exception: pass
             self._primary_sub = None
-        self._stop_spec_extra_subs()
         with QMutexLocker(self._mutex):
-            self._pending=None
             self._avg_buf.clear(); self._fft_smooth=None; self._pow_smooth=None
             self._raw_spl_smooth=-100.0; self._raw_peak_smooth=-100.0
             self._dba_smooth=-100.0; self._dbc_smooth=-100.0
-        self.start_btn.setText('Start (S)'); self._go_style(self.start_btn)
-        self.status_lbl.setText('● Standby')
-        self.status_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:11px;')
-        self.mic_st.setText('Disconnected')
-        self.mic_st.setStyleSheet(f'color:{T("text_dim")};font-size:10px;')
+
+    def _refresh_running_ui(self):
+        """전역 상태(툴바 버튼·상태라벨·INFO)와 카드별 LED를 현재 실행상태로 동기화."""
+        running = self._spec_running()
+        self.start_btn.setText('Stop (S)' if running else 'Start (S)')
+        (self._stop_style if running else self._go_style)(self.start_btn)
+        if running:
+            self.status_lbl.setText('● Running'); self.status_lbl.setStyleSheet(f'color:{T("green")};font-size:11px;')
+            self.mic_st.setText('Connected'); self.mic_st.setStyleSheet(f'color:{T("green")};font-size:10px;')
+            self.i_sr.setText(f'{self.sample_rate/1000:.1f} kHz')
+            self.i_fft.setText(str(self.fft_size))
+            self.i_res.setText(f'{self.sample_rate/self.fft_size:.1f} Hz')
+        else:
+            self.status_lbl.setText('● Standby'); self.status_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:11px;')
+            self.mic_st.setText('Disconnected'); self.mic_st.setStyleSheet(f'color:{T("text_dim")};font-size:10px;')
+        if self._primary_card is not None:
+            self._primary_card.set_running(self._primary_running())
+        for s in self._spec_extra:
+            if s.get('card'): s['card'].set_running(bool(s.get('sub')))
+
+    def _spec_teardown(self):
+        """마지막 소스 정지 시 전역 정리 — 캔버스/버퍼/라벨 리셋 + 엠프티 스테이트 복귀."""
+        with QMutexLocker(self._mutex):
+            self._pending=None
         self.fft_cvs.clear(); self.oct_cvs.clear(); self.spectro_cvs.clear()
         self.fft_cvs.clear_all_channels(); self.oct_cvs.clear_all_channels()
-        # 정지 시 브랜드 엠프티 스테이트 복귀 (Start 전과 동일하게)
         self.fft_cvs._idle_hint = True; self.oct_cvs._idle_hint = True
         with QMutexLocker(self._mutex):
             self._ch_state.clear(); self._ch_pending_extra.clear()
-        if self._primary_card is not None: self._primary_card.reset()
         self.vu_a.update_level(-100,-100,-100,-100)
         self.i_spl.setText('—'); self.i_pk.setText('—'); self.i_dom.setText('—')
         self.i_dba.setText('—'); self.i_dbc.setText('—')
@@ -20959,6 +21050,8 @@ class MainWindow(QMainWindow):
         pc.visibility_toggled.connect(lambda _cid, vis: self._on_card_visibility(vis))
         pc.selected.connect(self._on_spec_card_select)
         pc.renamed.connect(self._on_spec_renamed)
+        pc.start_toggled.connect(self._card_toggle)
+        pc.set_running(self._primary_running())
         self._primary_card = pc
         self._ch_cards_layout.addWidget(pc)
 
@@ -20977,6 +21070,8 @@ class MainWindow(QMainWindow):
             sc.remove_requested.connect(self._spec_remove_source)
             sc.selected.connect(self._on_spec_card_select)
             sc.renamed.connect(self._on_spec_renamed)
+            sc.start_toggled.connect(self._card_toggle)
+            sc.set_running(bool(src.get('sub')))
             src['card'] = sc
             # 첫 실행/재구성 시 저장된 가시성을 캔버스 채널에 동기화 (데이터 도착 전이라도)
             _vis = src.get('visible', True)
@@ -21047,8 +21142,7 @@ class MainWindow(QMainWindow):
             'sr': self.sample_rate, 'color': color,
             'visible': True, 'name': '', 'sub': None, 'card': None, 'state': None})
         self._rebuild_ch_cards()
-        if self._spec_running():
-            self._open_spec_sub(self._spec_extra[-1])
+        # 새 카드는 정지 상태로 추가 — 카드별 Start(LED)로 사용자가 직접 켬(카드별 제어 일관).
         self._save_spec_sources()
 
     def _spec_remove_source(self, card_id):
@@ -21073,7 +21167,7 @@ class MainWindow(QMainWindow):
         card.set_channel_list(self._dev_input_channels(src['dev_idx']))
         src['ch'] = card.channel()
         self._clear_extra_curve(card_id)
-        if self._spec_running(): self._open_spec_sub(src)
+        if src.get('sub'): self._open_spec_sub(src)   # 그 카드가 측정 중일 때만 재구독
         self._save_spec_sources()
 
     def _on_spec_ch_changed(self, card_id):
@@ -21081,7 +21175,7 @@ class MainWindow(QMainWindow):
         if src is None or src.get('card') is None: return
         src['ch'] = src['card'].channel()
         self._clear_extra_curve(card_id)
-        if self._spec_running(): self._open_spec_sub(src)
+        if src.get('sub'): self._open_spec_sub(src)   # 그 카드가 측정 중일 때만 재구독
         self._save_spec_sources()
 
     def _on_spec_visibility(self, card_id, visible):
