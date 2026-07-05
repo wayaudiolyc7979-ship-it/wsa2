@@ -6224,19 +6224,25 @@ class DropdownPopup(QFrame):
 
     def __init__(self, combo):
         super().__init__(None, Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
-        # Opaque background — no bleed-through from behind
         self.setAutoFillBackground(True)
         pal = self.palette()
         pal.setColor(self.backgroundRole(), QColor(T('bg2')))
         self.setPalette(pal)
-
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(8, 8, 8, 8)
-        lay.setSpacing(0)
+        self.setObjectName('popup')
         self.setStyleSheet(
             f'QFrame#popup {{ background:{T("bg2")}; border:1px solid {T("accent")}; border-radius:12px; }}'
         )
-        self.setObjectName('popup')
+        from PyQt5.QtWidgets import QScrollArea
+        outer = QVBoxLayout(self); outer.setContentsMargins(6, 6, 6, 6); outer.setSpacing(0)
+        self._scroll = QScrollArea(); self._scroll.setWidgetResizable(True); self._scroll.setFrameShape(QFrame.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll.setStyleSheet(
+            'QScrollArea{background:transparent;border:none;}'
+            'QScrollBar:vertical{width:6px;background:transparent;margin:2px;}'
+            f'QScrollBar::handle:vertical{{background:{T("border")};border-radius:3px;min-height:24px;}}'
+            'QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}')
+        inner = QWidget(); inner.setStyleSheet('background:transparent;')
+        lay = QVBoxLayout(inner); lay.setContentsMargins(2, 2, 2, 2); lay.setSpacing(0)
 
         n = combo.count()
         for i in range(n):
@@ -6254,17 +6260,73 @@ class DropdownPopup(QFrame):
                 f'}}'
                 f'QPushButton:hover {{ background:rgba(78,125,240,30); color:{T("text")}; }}'
             )
-            # clicked 대신 mousePressEvent — macOS Popup이 mouseRelease 전에 닫혀
-            # clicked 시그널이 도달하지 못하는 Intel Mac 버그 우회
             btn.mousePressEvent = lambda e, idx=i: self._pick(idx)
             lay.addWidget(btn)
-            # Separator between items (not after the last)
             if i < n - 1:
-                sep = QFrame()
-                sep.setFrameShape(QFrame.HLine)
-                sep.setFixedHeight(1)
+                sep = QFrame(); sep.setFrameShape(QFrame.HLine); sep.setFixedHeight(1)
                 sep.setStyleSheet(f'background:{T("border")}; border:none;')
                 lay.addWidget(sep)
+        self._scroll.setWidget(inner); outer.addWidget(self._scroll)
+        self._content = inner
+
+    def sizeHint(self):
+        s = self._content.sizeHint()
+        from PyQt5.QtCore import QSize
+        return QSize(s.width() + 20, s.height() + 14)
+
+    def _pick(self, idx):
+        self.item_selected.emit(idx)
+        self.close()
+
+
+class _ChannelGridPopup(QFrame):
+    """채널 그리드 피커 — 긴 세로 목록 대신 번호를 격자(기본 8열)로. 항목 많은
+    인터페이스(예: 64ch)도 한 화면에 보고 클릭 한 번에 선택. 스크롤/드래그 불필요."""
+    item_selected = pyqtSignal(int)
+
+    def __init__(self, combo, cols=8):
+        super().__init__(None, Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        self.setAutoFillBackground(True)
+        pal = self.palette(); pal.setColor(self.backgroundRole(), QColor(T('bg2'))); self.setPalette(pal)
+        self.setObjectName('gridpop')
+        self.setStyleSheet(f'QFrame#gridpop{{background:{T("bg2")};border:1px solid {T("accent")};border-radius:12px;}}')
+        from PyQt5.QtWidgets import QScrollArea, QGridLayout
+        outer = QVBoxLayout(self); outer.setContentsMargins(8, 7, 8, 8); outer.setSpacing(7)
+        hdr = QLabel(_tx('Select channel')); hdr.setFont(_n2_caps_font(9))
+        hdr.setStyleSheet(f'color:{T("text_dim")};background:transparent;'); outer.addWidget(hdr)
+        self._scroll = QScrollArea(); self._scroll.setWidgetResizable(True); self._scroll.setFrameShape(QFrame.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll.setStyleSheet(
+            'QScrollArea{background:transparent;border:none;}'
+            'QScrollBar:vertical{width:6px;background:transparent;margin:2px;}'
+            f'QScrollBar::handle:vertical{{background:{T("border")};border-radius:3px;min-height:24px;}}'
+            'QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}')
+        inner = QWidget(); inner.setStyleSheet('background:transparent;')
+        g = QGridLayout(inner); g.setContentsMargins(2, 2, 2, 2); g.setSpacing(4)
+        cur = combo.currentIndex()
+        _acc = QColor(T('accent')); _ar, _ag, _ab = _acc.red(), _acc.green(), _acc.blue()
+        n = combo.count()
+        for i in range(n):
+            on = (i == cur)
+            _lbl = combo.itemText(i)
+            if _lbl.startswith('Ch '): _lbl = _lbl[3:]   # 격자엔 번호만(중복 'Ch' 제거)
+            b = QPushButton(_lbl); b.setFlat(True); b.setFixedSize(46, 30)
+            b.setFocusPolicy(Qt.NoFocus); b.setCursor(Qt.PointingHandCursor)
+            b.setFont(_n2_mono_font(12, QFont.DemiBold if on else QFont.Medium))
+            if on:
+                b.setStyleSheet(f'QPushButton{{background:{T("accent")};color:#fff;border:none;border-radius:7px;}}')
+            else:
+                b.setStyleSheet(f'QPushButton{{background:transparent;color:{T("text")};border:1px solid {T("border")};border-radius:7px;}}'
+                                f'QPushButton:hover{{background:rgba({_ar},{_ag},{_ab},45);border-color:{T("accent")};}}')
+            b.mousePressEvent = lambda e, idx=i: self._pick(idx)
+            g.addWidget(b, i // cols, i % cols)
+        self._scroll.setWidget(inner); outer.addWidget(self._scroll)
+        self._content = inner
+
+    def sizeHint(self):
+        s = self._content.sizeHint()
+        from PyQt5.QtCore import QSize
+        return QSize(s.width() + 20, s.height() + 40)
 
     def _pick(self, idx):
         self.item_selected.emit(idx)
@@ -6859,7 +6921,7 @@ class _SpecCard(QFrame):
         self._dev_cb._elide_to_width = True            # 'MacBo' 처럼 잘리지 않고 'MacB…' 로 깔끔히
         for name, idx in dev_items:
             self._dev_cb.addItem(name, idx)
-        self._ch_cb = RoundComboBox(); self._ch_cb.setStyleSheet(_cb_ss)
+        self._ch_cb = RoundComboBox(); self._ch_cb.setStyleSheet(_cb_ss); self._ch_cb._grid_popup = True
         self._ch_cb.setFocusPolicy(Qt.NoFocus)         # macOS 파란 포커스 링 제거
         self._ch_cb.setFixedWidth(46); self._ch_cb._align_center = True
         row.addWidget(lbl); row.addWidget(self._dev_cb, 1); row.addWidget(self._ch_cb)
@@ -8050,20 +8112,27 @@ class RoundComboBox(QComboBox):
             painter.drawControl(QStyle.CE_ComboBoxLabel, opt)
         painter.end()
 
+    _grid_popup = False   # True면 채널 그리드 피커 사용(항목 많은 채널 선택용)
+
     def showPopup(self):
-        popup = DropdownPopup(self)
-        popup.item_selected.connect(self.setCurrentIndex)
-        popup.adjustSize()
-        w = max(self.width(), popup.sizeHint().width())
-        ph = popup.sizeHint().height()
-        popup.resize(w, ph)
         global_top = self.mapToGlobal(QPoint(0, 0))
         scr = (QApplication.screenAt(global_top) if hasattr(QApplication, 'screenAt') else None) \
               or QApplication.primaryScreen()
         avail = scr.availableGeometry()
+        # 채널 콤보(항목 5개 초과)면 그리드 피커, 아니면 세로 목록
+        if self._grid_popup and self.count() > 5:
+            popup = _ChannelGridPopup(self)
+        else:
+            popup = DropdownPopup(self)
+        popup.item_selected.connect(self.setCurrentIndex)
+        popup.adjustSize()
+        w = max(self.width(), popup.sizeHint().width())
+        # 세로 높이 = 내용 vs 화면 60% 중 작은 값 (넘치면 내부 스크롤)
+        ph = min(popup.sizeHint().height(), int(avail.height() * 0.6))
+        popup.resize(w, ph)
         # 세로: 아래 공간 부족하면 위로, 충분하면 아래로
         if global_top.y() + self.height() + ph + 4 > avail.bottom():
-            y = global_top.y() - ph - 2
+            y = max(avail.y() + 4, global_top.y() - ph - 2)
         else:
             y = global_top.y() + self.height() + 2
         # 가로: 콤보 왼쪽 정렬이 기본이나, 팝업이 화면 밖으로 넘치면 안쪽으로 당겨 잘림 방지
@@ -10531,7 +10600,7 @@ class _MeasCard(QFrame):
             _cb.setStyleSheet(_cb_ss)
             if isinstance(_cb, RoundComboBox):
                 _cb._flat_cell = True; _cb._flat_border = _bd   # Fusion 회색배경 제거
-        meas_ch_cb._align_center = True
+        meas_ch_cb._align_center = True; meas_ch_cb._grid_popup = True
         meas_cb._elide_to_width = True
         meas_cb.setMinimumWidth(100); meas_ch_cb.setMinimumWidth(44)
         row.addWidget(lbl); row.addWidget(meas_cb, 1); row.addWidget(meas_ch_cb)
@@ -12921,9 +12990,9 @@ class TransferFunctionWindow(QWidget):
         self.sig_out_cb._max_display_chars = 3; self.sig_out_cb.setFocusPolicy(Qt.NoFocus)
         self.sig_out_cb._flat_cell = True; self.sig_out_cb._flat_border = _tk_bd
         self.sig_out_ch_cb  = RoundComboBox(); self.sig_out_ch_cb.setFixedWidth(56); self.sig_out_ch_cb.setFixedHeight(30); self.sig_out_ch_cb.setFocusPolicy(Qt.NoFocus); self.sig_out_ch_cb._align_center = True
-        self.sig_out_ch_cb._flat_cell = True; self.sig_out_ch_cb._flat_border = _tk_bd
+        self.sig_out_ch_cb._flat_cell = True; self.sig_out_ch_cb._flat_border = _tk_bd; self.sig_out_ch_cb._grid_popup = True
         self.sig_out_ch2_cb = RoundComboBox(); self.sig_out_ch2_cb.setFixedWidth(56); self.sig_out_ch2_cb.setFixedHeight(30); self.sig_out_ch2_cb.setFocusPolicy(Qt.NoFocus); self.sig_out_ch2_cb._align_center = True
-        self.sig_out_ch2_cb._flat_cell = True; self.sig_out_ch2_cb._flat_border = _tk_bd
+        self.sig_out_ch2_cb._flat_cell = True; self.sig_out_ch2_cb._flat_border = _tk_bd; self.sig_out_ch2_cb._grid_popup = True
         self.sig_out_ch2_cb.setToolTip(_tx('Second output channel (Off = single channel)'))
         or_.addWidget(self.sig_out_cb, 2)
         or_.addWidget(self.sig_out_ch_cb, 1)
@@ -12983,7 +13052,7 @@ class TransferFunctionWindow(QWidget):
         for _cb in (self.ref_cb, self.ref_ch_cb):
             _cb.setStyleSheet(_ref_flat); _cb.setFocusPolicy(Qt.NoFocus)
             _cb._flat_cell = True; _cb._flat_border = _ref_bd
-        self.ref_cb._elide_to_width = True; self.ref_ch_cb._align_center = True; self.ref_ch_cb.setFixedWidth(48)
+        self.ref_cb._elide_to_width = True; self.ref_ch_cb._align_center = True; self.ref_ch_cb.setFixedWidth(48); self.ref_ch_cb._grid_popup = True
         self.ref_cb.currentIndexChanged.connect(self._ref_device_changed)
         self.ref_ch_cb.currentIndexChanged.connect(self._on_input_setting_changed)
         ref_row = QHBoxLayout(); ref_row.setContentsMargins(0,0,0,0); ref_row.setSpacing(3)
@@ -18420,7 +18489,7 @@ class MainWindow(QMainWindow):
         self.dev_btn=QPushButton('Select Device')
         self.dev_btn.setMinimumWidth(100); self.dev_btn.setMaximumWidth(280); self.dev_btn.setFixedHeight(26)
         self.dev_btn.clicked.connect(self._show_device_popup)
-        self.in_ch_cb=RoundComboBox(); self.in_ch_cb._align_center=True
+        self.in_ch_cb=RoundComboBox(); self.in_ch_cb._align_center=True; self.in_ch_cb._grid_popup=True
         self.in_ch_cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.in_ch_cb.setMinimumWidth(50); self.in_ch_cb.setFixedHeight(26)
         self.in_ch_cb.addItem('Ch 1', 0)
