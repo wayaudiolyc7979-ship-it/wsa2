@@ -170,6 +170,25 @@ def _spl_meter_btn():
 check('SPL 미터 버튼 아이콘(dB 텍스트)', _spl_meter_btn)
 
 
+def _spec_card_header():
+    """Spectrum INPUT 카드 헤더 통일 — 인라인 ✕ 제거, 삭제는 우클릭 메뉴로만(TF 측정 카드와 동일).
+    primary/추가 카드 헤더가 동일해야 하고, 삭제 항목은 primary가 아닐 때만 노출(2026-07-05)."""
+    from PyQt5.QtWidgets import QWidget, QHBoxLayout, QPushButton
+    devs = [('MacBook Pro 마이크', 1), ('iPhone 마이크', 0)]
+    c1 = w._SpecCard(0, '#3DDC84', devs, is_primary=True)
+    c2 = w._SpecCard(1, '#38BDF8', devs, is_primary=False)
+    # 어느 카드에도 인라인 ✕ 버튼이 남아있으면 안 됨 (삭제는 우클릭 메뉴로만)
+    for c in (c1, c2):
+        assert not any(b.text() == '✕' for b in c.findChildren(QPushButton)), 'inline ✕ still present'
+    # 삭제 노출 게이팅: primary는 삭제 불가, 추가 카드만 삭제 가능
+    assert c1._is_primary and not c2._is_primary
+    host = QWidget(); host.setStyleSheet('background:#1a1a1a;')
+    lay = QHBoxLayout(host); lay.addWidget(c1); lay.addWidget(c2)
+    host.resize(440, 130); host.show(); _app.processEvents()
+    return _save(host, 'spec_card_header.png')
+check('Spectrum INPUT 카드 헤더 통일(✕제거·우클릭삭제)', _spec_card_header)
+
+
 def _titlebar_btns():
     """SPL 미터/알람 타이틀바 아이콘 — 기울인 압정(Pin, ON 액센트/OFF 회색) + 기어(설정).
     2026-06-28 자물쇠·슬라이더 → 압정·기어로 정제. 버튼 24px 안 클리핑 없는지 육안 확인."""

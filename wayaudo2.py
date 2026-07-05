@@ -6735,13 +6735,9 @@ class _SpecCard(QFrame):
         self._db_lbl.setStyleSheet(f'color:{T("text_dim")};background:transparent;font-size:10px;')
         self._db_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         hdr.addWidget(self._db_lbl)
-        if not is_primary:
-            rm = QPushButton('✕'); rm.setFixedSize(16,16)
-            rm.setStyleSheet(f'QPushButton{{background:transparent;color:{T("text_dim")};border:none;'
-                             f'font-size:12px;padding:0;}}'
-                             f'QPushButton:hover{{color:{T("red")};}}')
-            rm.clicked.connect(lambda: self.remove_requested.emit(self._card_id))
-            hdr.addWidget(rm)
+        # 삭제는 인라인 ✕ 대신 우클릭 메뉴(contextMenuEvent)로 통일 — 모든 카드(1번·추가) 헤더가
+        # 동일해지고, 되돌리기 힘든 삭제를 의도적 우클릭 뒤에 둠. TF 측정 카드와 동일 UX.
+        self.setToolTip(_tx('Right-click: rename / delete'))
         lay.addLayout(hdr)
 
         # 미터 행: 레벨바가 카드 폭 끝까지 꽉 차게 (TF M바와 동일)
@@ -6815,6 +6811,19 @@ class _SpecCard(QFrame):
         # 카드 본문 더블클릭 → 이름 편집 (자식 콤보/체크박스는 자체 처리)
         self._begin_rename()
         super().mouseDoubleClickEvent(e)
+
+    def contextMenuEvent(self, e):
+        # 우클릭 → 카드 액션 메뉴(인라인 ✕ 대체). 이름 변경은 항상, 삭제는 primary가 아닐 때만.
+        from PyQt5.QtWidgets import QMenu
+        self.selected.emit(self._card_id)
+        m = QMenu(self)
+        a_rename = m.addAction(_tx('Rename'))
+        a_rename.triggered.connect(self._begin_rename)
+        if not self._is_primary:
+            m.addSeparator()
+            a_del = m.addAction(_tx('Delete'))
+            a_del.triggered.connect(lambda: self.remove_requested.emit(self._card_id))
+        m.exec_(e.globalPos())
 
     def device_idx(self):  return self._dev_cb.currentData()
     def device_name(self): return self._dev_cb.currentText()
