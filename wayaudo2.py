@@ -1027,6 +1027,9 @@ _LUCIDE_ICONS = {
     'ruler':('<path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/>', False),  # TF Units
     'target':('<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>', False),  # Stereo Target
     'panel-right':('<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>', False),            # 우측 패널 토글
+    # 탭 아이콘 (겹침 회피) — TF=비교(기준↔측정), Stereo=음량(스피커)
+    'git-compare':('<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M11 18H8a2 2 0 0 1-2-2V9"/>', False),  # Transfer Function 탭
+    'volume2':('<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>', False),  # Stereo Loudness 탭
 }
 
 def _svg_render(p, inner, color, size, filled=False):
@@ -8222,6 +8225,60 @@ def _n2_divider():
     hair = '#232329' if _theme == 'dark' else T('border')
     f.setStyleSheet(f'color:{hair};background:{hair};border:none;')
     return f
+
+
+def _n2_tab_ss():
+    hov = 'rgba(255,255,255,0.05)' if _theme == 'dark' else 'rgba(0,0,0,0.05)'
+    return (f'#n2tab{{background:transparent;border-radius:7px;}}'
+            f'#n2tab:hover{{background:{hov};}}')
+
+
+class _N2Tab(QFrame):
+    """N2 상단 탭 — [아이콘][이름], 활성=액센트 밑줄+흰글씨/액센트아이콘. 트랙 없음.
+    _CheckBtn 호환: setChecked/isChecked/clicked."""
+    clicked = pyqtSignal()
+
+    def __init__(self, icon_name, label, parent=None):
+        super().__init__(parent)
+        from PyQt5.QtGui import QFontMetrics
+        self._icon_name = icon_name; self._checked = False
+        self.setObjectName('n2tab'); self.setStyleSheet(_n2_tab_ss())
+        self.setCursor(Qt.PointingHandCursor); self.setAttribute(Qt.WA_Hover, True)
+        v = QVBoxLayout(self); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(3)
+        inner = QWidget(); inner.setStyleSheet('background:transparent;')
+        h = QHBoxLayout(inner); h.setContentsMargins(0, 0, 0, 0); h.setSpacing(8); h.addStretch()
+        self._icl = QLabel(); self._icl.setFixedSize(15, 15); self._icl.setStyleSheet('background:transparent;')
+        self._icl.setPixmap(_icon_pm(icon_name, 15, _n2_icon_color())); h.addWidget(self._icl)
+        self._txt = QLabel(label)
+        _tf = QFont(); _tf.setPixelSize(13); _tf.setWeight(QFont.Medium); _tf.setLetterSpacing(QFont.AbsoluteSpacing, 0.6)
+        self._txt.setFont(_tf); self._txt.setStyleSheet(f'color:{T("text_dim")};background:transparent;')
+        h.addWidget(self._txt); h.addStretch()
+        v.addWidget(inner, 1)
+        # 밑줄 — 글자+아이콘 폭에 맞춰 중앙에만 (활성 시). B안: 정밀·에디토리얼
+        _bf = QFont(_tf); _bf.setWeight(QFont.DemiBold)
+        ul_w = 15 + 8 + QFontMetrics(_bf).horizontalAdvance(label)
+        indr = QWidget(); indr.setFixedHeight(2); indr.setStyleSheet('background:transparent;')
+        ih = QHBoxLayout(indr); ih.setContentsMargins(0, 0, 0, 0); ih.setSpacing(0); ih.addStretch()
+        self._ul = QFrame(); self._ul.setFixedSize(int(ul_w), 2); self._ul.setStyleSheet('background:transparent;border-radius:1px;')
+        ih.addWidget(self._ul); ih.addStretch()
+        v.addWidget(indr)
+
+    def isChecked(self): return self._checked
+    def setChecked(self, on):
+        self._checked = bool(on); self._sync()
+    def _sync(self):
+        on = self._checked
+        self._icl.setPixmap(_icon_pm(self._icon_name, 15, T('accent') if on else _n2_icon_color()))
+        self._txt.setStyleSheet(f'color:{T("text") if on else T("text_dim")};background:transparent;')
+        f = self._txt.font(); f.setWeight(QFont.DemiBold if on else QFont.Medium); self._txt.setFont(f)
+        self._ul.setStyleSheet(f'background:{T("accent")};border-radius:1px;' if on else 'background:transparent;border-radius:1px;')
+    def mousePressEvent(self, e):
+        e.accept()
+    def mouseReleaseEvent(self, e):
+        if self.rect().contains(e.pos()): self.clicked.emit()
+        super().mouseReleaseEvent(e)
+    def restyle(self):
+        self.setStyleSheet(_n2_tab_ss()); self._sync()
 
 
 # ───────────────────────────────────────────
@@ -18033,22 +18090,17 @@ class MainWindow(QMainWindow):
         self.tab_bar.setObjectName('mainTabBar')
         tbl_outer=QHBoxLayout(self.tab_bar); tbl_outer.setContentsMargins(10,5,10,5); tbl_outer.setSpacing(0)
 
+        # N2 탭 — 트랙 없이 아이콘+이름, 활성=액센트 밑줄(툴바 언어와 통일)
         self._main_seg_pill = QWidget(); self._main_seg_pill.setObjectName('mainSegPill')
-        self._main_seg_pill.setStyleSheet('#mainSegPill{background:#3A3A3C;border-radius:8px;}')
-        tbl=QHBoxLayout(self._main_seg_pill); tbl.setContentsMargins(2,2,2,2); tbl.setSpacing(2)
+        self._main_seg_pill.setStyleSheet('#mainSegPill{background:transparent;}')
+        tbl=QHBoxLayout(self._main_seg_pill); tbl.setContentsMargins(0,0,0,0); tbl.setSpacing(2)
         self._tab_btns={}
-        _tab_ss=(
-            'QPushButton{font-size:11px;font-weight:600;border:none;'
-            'background:transparent;color:#8E8E93;padding:0 4px;border-radius:6px;}'
-            'QPushButton:checked{background:transparent;color:#FFFFFF;}'
-            'QPushButton:hover:!checked{background:rgba(255,255,255,12);}')
-        _tab_defs=[('spectrum','Spectrum'),('transfer','Transfer Function'),('stereo','Stereo Loudness')]
-        for idx,(key,label) in enumerate(_tab_defs):
-            b=_CheckBtn(label); b.setChecked(idx==0)
-            b.setFixedHeight(30); b.setStyleSheet(_tab_ss)
-            b.setFocusPolicy(Qt.NoFocus)                 # 클릭 시 포커스 링(이중 네모) 방지
-            b.setAttribute(Qt.WA_MacShowFocusRect, False)  # macOS 포커스 사각형 숨김
-            b.clicked.connect(lambda _,i=idx: self._switch_tab(i))
+        _tab_defs=[('spectrum','audio-lines','Spectrum'),
+                   ('transfer','git-compare','Transfer Function'),  # 기준↔측정 비교 — Smooth(곡선)과 겹침 회피
+                   ('stereo','volume2','Stereo Loudness')]              # 음량 — Speed/Response(gauge)와 겹침 회피
+        for idx,(key,icn,label) in enumerate(_tab_defs):
+            b=_N2Tab(icn, label); b.setChecked(idx==0)
+            b.clicked.connect(lambda i=idx: self._switch_tab(i))
             tbl.addWidget(b, 1); self._tab_btns[key]=b
         tbl_outer.addWidget(self._main_seg_pill, 1)
         # 툴바 접기/펴기 토글 — 탭바 우측(툴바를 숨겨도 항상 보이게)
@@ -18390,6 +18442,8 @@ class MainWindow(QMainWindow):
         accent=T('accent'); text=T('text'); text_dim=T('text_dim')
         ac = QColor(accent); ar, ag, ab = ac.red(), ac.green(), ac.blue()
         for b in self._tab_btns.values():
+            if isinstance(b, _N2Tab):
+                b.restyle(); continue     # N2 탭은 setChecked/_sync가 스타일 관리
             if b.isChecked():
                 b.setStyleSheet(
                     f'border: 1px solid rgba({ar},{ag},{ab},65);'
@@ -18824,17 +18878,17 @@ class MainWindow(QMainWindow):
         self.hdr.setStyleSheet(f'#mainHdr {{ background: {bg2}; border: none; }}')
         self.hdr_sep.setStyleSheet(f'#hdrSep {{ background: {_SPECTRA_GRAD_QSS}; border: none; }}')
         self.tab_bar.setStyleSheet(
-            f'#mainTabBar {{ background: {bg2}; border-bottom: 1px solid {sep_line}; }}')
-        self._main_seg_pill.setStyleSheet(
-            f'#mainSegPill{{background:{seg_pill_bg};border-radius:8px;}}')
+            f'#mainTabBar {{ background: {bg2}; border: none; }}')   # N2: 하단 보더 제거(가로줄 최소화)
+        self._main_seg_pill.setStyleSheet('#mainSegPill{background:transparent;}')
         for b in self._tab_btns.values():
-            b.setStyleSheet(_dtab_ss)
+            if isinstance(b, _N2Tab): b.restyle()
+            else: b.setStyleSheet(_dtab_ss)
         # toolbar_wrapper: ID selector로 cascade 방지 (자식 위젯 border 미영향)
         self.toolbar_wrapper.setStyleSheet(
             f'#toolbarWrapper {{ background: {bg2}; }}')
-        # 툴바 하단 시그니처 라인 = 로고블루 2px (별도 위젯 — 3탭 공통 확실 표시, 테마 적응)
+        # 툴바 하단 라인 제거 — N2 탭 밑줄과 겹쳐 가로줄이 과했음. 투명 2px 스페이서로 유지.
         self.toolbar_underline.setStyleSheet(
-            f'#toolbarUnderline {{ background: {accent}; border: none; }}')
+            '#toolbarUnderline { background: transparent; border: none; }')
         if hasattr(self, '_view_seg'):
             self._view_seg.apply_theme(); self._scale_seg.apply_theme()
             # N2 툴바 위젯 인라인 색 재적용 (테마 토글) — start_btn은 실행상태가 관리하므로 제외

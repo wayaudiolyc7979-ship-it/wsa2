@@ -218,6 +218,24 @@ def _n2_toolbar():
 check('N2 툴바 리디자인(Spectrum, 테두리리스+아이콘+LED)', _n2_toolbar)
 
 
+def _n2_tabbar():
+    """N2 탭 바(v1.9) — 트랙 없이 아이콘+이름, 활성=글자폭 중앙 밑줄(B). 아이콘 겹침 회피
+    (Spectrum=막대·TF=비교·Stereo=스피커). 활성 밑줄이 각 이름 폭에 맞는지 육안 확인."""
+    from PyQt5.QtWidgets import QWidget, QHBoxLayout
+    host = QWidget(); host.setStyleSheet('background:#1C1C1E;')
+    l = QHBoxLayout(host); l.setContentsMargins(10, 5, 10, 5); l.setSpacing(3)
+    defs = [('audio-lines','Spectrum'),('git-compare','Transfer Function'),('volume2','Stereo Loudness')]
+    tabs = []
+    for i,(icn,lab) in enumerate(defs):
+        t = w._N2Tab(icn, lab); t.setChecked(i==1)   # TF 활성 예시
+        l.addWidget(t, 1); tabs.append(t)
+    host.resize(1200, 40); host.show(); _app.processEvents()
+    # 겹침 회피 아이콘이 실제로 등록됐는지
+    assert 'git-compare' in w._LUCIDE_ICONS and 'volume2' in w._LUCIDE_ICONS
+    return _save(host, 'n2_tabbar.png')
+check('N2 탭 바(밑줄+아이콘 겹침회피)', _n2_tabbar)
+
+
 def _titlebar_btns():
     """SPL 미터/알람 타이틀바 아이콘 — 기울인 압정(Pin, ON 액센트/OFF 회색) + 기어(설정).
     2026-06-28 자물쇠·슬라이더 → 압정·기어로 정제. 버튼 24px 안 클리핑 없는지 육안 확인."""
