@@ -8668,8 +8668,8 @@ def _multimic_average(H_list, gamma_list, delay_list, freqs, sr, bpo,
     """참여 카드들의 복소 H(f)를 라이브 평균. 유효 카드<2면 None.
 
     mode='mag'     : 파워 RMS 평균 → |H_avg|²=mean|H_i|². 위상/IR 없음(공간평균 표준).
-    mode='complex' : (align이면 카드 딜레이 delay_ms로 위상보정 후) 벡터 평균.
-                     위상·IR 포함(반복측정/정렬 시나리오).
+    mode='complex' : 표시(정렬)된 복소 H를 벡터 평균. align=True는 정렬 그대로,
+                     align=False는 카드 딜레이를 되살려 콤필터를 드러냄. 위상·IR 포함.
     coherence는 카드별 γ² 산술평균(커서 리드아웃 %용).
     """
     valid = [(np.asarray(h, dtype=complex),
@@ -8692,11 +8692,14 @@ def _multimic_average(H_list, gamma_list, delay_list, freqs, sr, bpo,
         coh_a = np.interp(f_a, freqs, coh_avg).astype(np.float32)
         return {'mode': 'mag', 'n': n, 'f': f_a, 'mag': mag_a, 'coh': coh_a,
                 'ph_wrap': None, 'ph_unwr': None, 'grp': None, 'h_ir': None}
-    # complex (vector) 평균
+    # complex (vector) 평균.
+    # 입력 H는 각 카드가 표시하는 **정렬된(딜레이 제거)** 복소값이다(캡쳐 평균과 동일 전제).
+    # align=True(기본): 정렬 상태 그대로 평균 → 응답 모양만, 콤필터 없음.
+    # align=False: 카드 딜레이를 되살려(exp(-jωτ)) 실제 도착차 복원 → 콤필터 그대로 보임.
     acc = np.zeros(len(freqs), dtype=complex)
     for h, d in zip(Hs, delays):
-        if align and d:
-            h = h * np.exp(1j * 2 * np.pi * freqs * (float(d) / 1000.0))
+        if (not align) and d:
+            h = h * np.exp(-1j * 2 * np.pi * freqs * (float(d) / 1000.0))
         acc = acc + h
     H_avg = acc / n
     f_a, mag_a, pw_a, pu_a, grp_a = _tf_smooth(freqs, H_avg, bpo)
@@ -9197,6 +9200,7 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
         self._cap_built.connect(self._apply_cap_built)
         self._tf_extra_phase = {}  # {ch_idx: {'color', 'f', 'ph_wrap', 'ph_unwr', 'grp_ms'}}
         self._tf_avg = None   # {'color','f','ph_wrap','ph_unwr','grp_ms'} — 라이브 멀티마이크 평균 오버레이
+        self._hide_individual = False   # '평균만' — 개별 라이브 곡선 숨김(AVG는 계속 그림)
         # Reference/Delta 비교
         self._ref_f = None; self._ref_pw = None; self._ref_pu = None; self._ref_gm = None
         self._delta = False; self._abs_ph = None
@@ -9568,6 +9572,7 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
         if delta_no_ref:
             return
         p.setRenderHint(QPainter.Antialiasing, False)   # [TF_LIVE_CURVE_PERF] 라이브 위상 곡선 AA off (뒤에서 복원)
+        _hide = getattr(self, '_hide_individual', False)   # '평균만' — 개별 라이브 곡선 숨김(AVG는 아래서 항상 그림)
         # E 포커스: 포커스된 하나만 밝게, 나머지 라이브 곡선은 흐리게(alpha 140)
         _capf = _focused_capture_visible(self)
         _fk2 = self._front_extra
@@ -9589,7 +9594,7 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
                     data = None
                 else:
                     data = data - np.interp(self.freqs, self._ref_f, ref_data)
-        if data is not None:
+        if data is not None and not _hide:
             pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
             dh=H-pt-pb; uw=W-pl-pr; ny=20000
             rng=self.ph_max-self.ph_min if self.ph_max!=self.ph_min else 1.0
@@ -9622,11 +9627,12 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
             p.setPen(QPen(_col('#33FF66', None),2.0)); p.setBrush(Qt.NoBrush); p.drawPath(path)
         # ── 추가 채널 곡선 (primary 유무와 무관하게 그림; front 는 마지막에 굵게) ──
         fk=self._front_extra
-        for key, ex in self._tf_extra_phase.items():
-            if key==fk: continue
-            self._draw_extra_phase_curve(p, W, H, ex, dim=not _is_focus(key))
+        if not _hide:
+            for key, ex in self._tf_extra_phase.items():
+                if key==fk: continue
+                self._draw_extra_phase_curve(p, W, H, ex, dim=not _is_focus(key))
         # front(포커스) 맨 앞 굵게 재드로우 — 캡쳐 포커스 시엔 생략
-        if self._tf_extra_phase and not _capf:
+        if self._tf_extra_phase and not _capf and not _hide:
             if fk is None or fk==-1:
                 if path is not None:
                     p.setPen(QPen(QColor('#33FF66'),3.4)); p.setBrush(Qt.NoBrush); p.drawPath(path)
@@ -9809,6 +9815,7 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
         self._cap_built.connect(self._apply_cap_built)
         self._tf_extra = {}  # {ch_idx: {'color', 'f', 'mag'}}
         self._tf_avg = None   # {'color','f','mag','coh'} — 라이브 멀티마이크 평균 오버레이
+        self._hide_individual = False   # '평균만' — 개별 라이브 곡선 숨김(AVG는 계속 그림)
         # Reference/Delta 비교
         self._ref_f = None; self._ref_mag = None
         self._delta = False; self._abs_db = None
@@ -10194,6 +10201,7 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
         refmode = self._delta and self._ref_f is not None and self._ref_mag is not None
         if self._delta and not refmode:
             return  # 델타 모드인데 기준 없음 — 절대값을 델타 축에 그리지 않음
+        _hide = getattr(self, '_hide_individual', False)   # '평균만' — 개별 라이브 곡선 숨김(AVG는 아래서 항상 그림)
         # E 포커스: 포커스된 하나(라이브 카드 또는 캡쳐)만 밝게, 나머지 라이브 곡선은 흐리게.
         _capf = _focused_capture_visible(self)   # 캡쳐 포커스 → 모든 라이브 dim
         _fk = self._front_extra
@@ -10209,7 +10217,7 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
             if len(arr) < k: return arr
             kernel = np.ones(k, dtype=float) / k
             return np.convolve(np.pad(arr, k//2, mode='edge'), kernel, mode='valid').astype(float)
-        if self.freqs is not None and self.mag is not None and len(self.freqs)>=2:
+        if self.freqs is not None and self.mag is not None and len(self.freqs)>=2 and not _hide:
             f_arr=self.freqs
             m_arr=self.mag - np.interp(f_arr, self._ref_f, self._ref_mag) if refmode else self.mag
             xs=self._fx(f_arr,pl,uw).astype(float)
@@ -10245,7 +10253,7 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
                 p.setFont(_qfont(CF_ANNO, True)); p.setPen(QColor(cr,cg,cb_,200))
                 p.drawText(pl+4,int(pt+coh_h+5),'γ²')
         # 추가 채널 magnitude 곡선
-        if self._tf_extra:
+        if self._tf_extra and not _hide:
             _ex_max_pts=max(int(uw),200)
             for _exk, ex in self._tf_extra.items():
                 ex_f=ex.get('f'); ex_m=ex.get('mag')
@@ -10264,7 +10272,7 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
                 p.setPen(QPen(_col(ex['color'], _exk),2.0)); p.setBrush(Qt.NoBrush)
                 p.drawPath(_catmull_seg(ex_xs_d, ex_ys_s))
         # front(포커스) 라이브 곡선 맨 앞 굵게 재드로우 — 캡쳐 포커스 시엔 생략
-        if self._tf_extra and not _capf:
+        if self._tf_extra and not _capf and not _hide:
             fk=self._front_extra
             if fk is None or fk==-1:
                 if self.freqs is not None and self.mag is not None:
@@ -10940,6 +10948,7 @@ class TFIRCanvas(QWidget):
         self._cap_built.connect(self._apply_cap_built)
         self._tf_extra = {}       # {ch_idx: {'color','t','h'}} — 카드별 라이브 IR
         self._tf_avg = None       # {'color','t','h','etc_db'} — 라이브 멀티마이크 평균 오버레이
+        self._hide_individual = False   # '평균만' — 개별 라이브 IR 숨김(AVG는 계속 그림)
         self._front_extra = None  # None/-1=primary 맨앞, int=해당 pair idx 맨앞
 
     def _apply_cap_built(self):
@@ -11350,6 +11359,7 @@ class TFIRCanvas(QWidget):
         dh = H - pt - pb; uw = W - pl - pr
         t_range = max(self.t_max - self.t_min, 1.0)
         p.setRenderHint(QPainter.Antialiasing, False)   # 라이브 곡선 AA OFF — Retina 전체화면 AA 래스터화 10배 비쌈
+        _hide = getattr(self, '_hide_individual', False)   # '평균만' — 개별 라이브 IR 숨김(AVG는 아래서 항상 그림)
         # E 포커스: 포커스된 하나만 밝게, 나머지 라이브는 흐리게(alpha 140)
         _capf = _focused_capture_visible(self)
         _fk = self._front_extra
@@ -11360,7 +11370,7 @@ class TFIRCanvas(QWidget):
         _pdim = not _is_focus(None)        # primary 흐림 여부
         _LA = 140 if _pdim else 230        # primary 라이브 라인 알파
         if self.ir_mode == 0:
-            if self.t_ms is not None and self.h_raw is not None and len(self.t_ms) >= 2:
+            if self.t_ms is not None and self.h_raw is not None and len(self.t_ms) >= 2 and not _hide:
                 peak_lin = max(float(np.max(np.abs(self.h_raw))), 1e-10)
                 t_arr = self.t_ms; h_norm = self.h_raw / peak_lin
                 mask = (t_arr >= self.t_min) & (t_arr <= self.t_max)
@@ -11377,7 +11387,7 @@ class TFIRCanvas(QWidget):
                     p.drawPolyline(QPolygonF([QPointF(x,y) for x,y in zip(xs.tolist(),ys.tolist())]))
         else:
             db_range = max(self.db_max - self.db_min, 1.0)
-            if self.t_ms is not None and len(self.t_ms) >= 2:
+            if self.t_ms is not None and len(self.t_ms) >= 2 and not _hide:
                 if self.ir_mode == 1:
                     db_arr = self.etc_db
                 else:
@@ -11417,7 +11427,7 @@ class TFIRCanvas(QWidget):
                             p.drawPolyline(QPolygonF(_poly_pts))
 
         # 카드별 추가 IR 곡선 + front(포커스) 맨앞 굵게 재드로우. 비포커스는 흐리게(alpha 140).
-        if self._tf_extra:
+        if self._tf_extra and not _hide:
             for key, ex in self._tf_extra.items():
                 if key == self._front_extra and not _capf: continue   # front는 아래서 굵게(라이브 포커스 시)
                 self._draw_ir_curve(p, W, H, ex.get('t'), ex.get('h'),
@@ -12832,6 +12842,7 @@ class TransferFunctionWindow(QWidget):
         self._front_pair = None       # 분석 화면 맨 앞 곡선: None=primary, int=pair idx
         self._extra_pair_threads = [] # 쌍마다 (sync_thread, ref_thread, meas_thread)
         self._extra_pair_acc = []     # 쌍마다 {cross, auto_x, auto_y, n} or None
+        self._last_primary_H = None; self._last_primary_coh = None  # 라이브 평균 수집용(프레임별 갱신)
         self._mc_threads = {}         # {device_idx: (thread, routing_list)}
         self._last_ref_fft = None; self._last_meas_fft = None
         self._last_ref_rms = 0.0; self._last_meas_rms = 0.0
@@ -15059,6 +15070,7 @@ class TransferFunctionWindow(QWidget):
         # primary 표시 여부: 분석중(_display_on)이고 그래프 표시 체크(is_graph_visible)일 때만
         _pc = self._level_cards[0] if (hasattr(self, '_level_cards') and self._level_cards) else None
         _primary_show = (_pc is None) or (_pc._display_on and _pc.is_graph_visible())
+        self._last_primary_H = None; self._last_primary_coh = None
 
         # ── MTW 라이브 엔진 경로 (primary 전용, v1.7) — 시간영역 버퍼를 멀티레이트 분석 ──
         if self._tf_engine_mtw and self._mtw is not None:
@@ -15148,6 +15160,67 @@ class TransferFunctionWindow(QWidget):
             if D_ex != 0:
                 h_ex = np.roll(h_ex, D_ex)
             self.ir_cvs.set_tf_extra(i, color, t_ms, h_ex, delay=pair_delay)
+        self._render_average(freqs, t_ms)
+
+    def _avg_curve_color(self):
+        # 다색 개별 곡선 위에서 도드라지는 테마 대응 고대비
+        return '#FFFFFF' if _theme == 'dark' else '#1A1A1A'
+
+    def _render_average(self, freqs, t_ms):
+        """참여 카드(정렬된 표시 H) 수집 → _multimic_average → 3캔버스 AVG 슬롯.
+        primary·extra 모두 딜레이 제거된 H_disp를 넘긴다(캡쳐 평균과 동일 전제)."""
+        if not getattr(self, '_avg_on', False):
+            self.mag_cvs.clear_tf_average(); self.phase_cvs.clear_tf_average()
+            self.ir_cvs.clear_tf_average()
+            self._apply_avg_only(False)
+            return
+        H_list, g_list, d_list = [], [], []
+        # primary(카드1) — in_average이고 분석 중이며 이번 프레임 H 저장됐을 때
+        pc = self._level_cards[0] if getattr(self, '_level_cards', None) else None
+        if (pc is not None and getattr(pc, 'in_average', False)
+                and getattr(pc, '_display_on', False)
+                and getattr(self, '_last_primary_H', None) is not None):
+            H_list.append(self._last_primary_H)
+            g_list.append(getattr(self, '_last_primary_coh', None))
+            d_list.append(self.delay_ms)
+        # extra 카드 — 정렬된 표시 H(H_disp)를 재구성해서 넣는다(_render_extra_pairs와 동일 식)
+        for i, acc in enumerate(self._extra_pair_acc):
+            if acc is None or acc['n'] < 3: continue
+            pair = self._extra_pairs[i] if i < len(self._extra_pairs) else None
+            if not pair or not pair.get('display', True): continue
+            card = pair.get('card')
+            if card is None or not getattr(card, 'in_average', False): continue
+            H_raw = acc['cross'] / np.maximum(acc['auto_x'], 1e-30)
+            g = np.clip(np.abs(acc['cross']) ** 2 /
+                        np.maximum(acc['auto_x'] * acc['auto_y'], 1e-30), 0.0, 1.0)
+            pd = pair.get('delay_ms', 0.0)
+            D_ex = int(round(pd / 1000.0 * self.sample_rate)) if pd else 0
+            _resid = pd / 1000.0 - D_ex / self.sample_rate
+            H_disp = H_raw * np.exp(1j * 2 * np.pi * freqs * _resid) if _resid else H_raw
+            H_list.append(H_disp); g_list.append(g); d_list.append(pd)
+        r = _multimic_average(H_list, g_list, d_list, freqs, self.sample_rate,
+                              self.smooth_bpo, mode=self._avg_mode, align=self._avg_align)
+        _diag('tf_avg_render', on=True, mode=self._avg_mode,
+              n=(r['n'] if r else 0), aligned=self._avg_align, only=self._avg_only)
+        if r is None:
+            self.mag_cvs.clear_tf_average(); self.phase_cvs.clear_tf_average()
+            self.ir_cvs.clear_tf_average(); self._apply_avg_only(False)
+            return
+        col = self._avg_curve_color()
+        self.mag_cvs.set_tf_average(col, r['f'], r['mag'], coh=r['coh'])
+        if r['mode'] == 'complex':
+            self.phase_cvs.set_tf_average(col, r['f'], r['ph_wrap'], r['ph_unwr'], r['grp'])
+            if r['h_ir'] is not None:
+                self.ir_cvs.set_tf_average(col, t_ms, r['h_ir'])
+        else:
+            self.phase_cvs.clear_tf_average(); self.ir_cvs.clear_tf_average()
+        self._apply_avg_only(self._avg_only)
+
+    def _apply_avg_only(self, only):
+        """'평균만' ON → 개별 라이브 곡선 숨김(캔버스 _hide_individual 플래그)."""
+        for cvs in (self.mag_cvs, self.phase_cvs, self.ir_cvs):
+            if getattr(cvs, '_hide_individual', False) != bool(only):
+                cvs._hide_individual = bool(only); cvs.update()
 
     # ── 딜레이 자동 탐지 (2단계: 2초 측정 후 계산) ──────────────────────
     def _on_sweep_captured(self, ref_arr, meas_arr, start_pos=0):
@@ -15932,6 +16005,8 @@ class TransferFunctionWindow(QWidget):
             H_disp = H_raw * np.exp(1j * 2 * np.pi * freqs * _resid)
         else:
             H_disp = H_raw
+        self._last_primary_H = H_disp        # 정렬된 표시 H (라이브 평균 수집용)
+        self._last_primary_coh = gamma2
         f_out, mag_out, ph_wrap, ph_unwr, grp_ms = _tf_smooth(freqs, H_disp, self.smooth_bpo)
         # 코히런스 1/3 oct 스무딩 (Single과 동일)
         mask = (freqs >= 18) & (freqs <= 22000)
