@@ -6784,6 +6784,7 @@ class _SpecCard(QFrame):
     selected           = pyqtSignal(int)        # card_id — 카드 클릭 → front
     renamed            = pyqtSignal(int, str)   # (card_id, new_name)
     start_toggled      = pyqtSignal(int)        # card_id — 카드별 Start(측정 on/off)
+    color_requested    = pyqtSignal(int)        # card_id — 우클릭 색 변경
 
     def __init__(self, card_id, color, dev_items, is_primary=False, parent=None):
         super().__init__(parent)
@@ -6795,11 +6796,12 @@ class _SpecCard(QFrame):
         self._name = ''
         self.setObjectName('specCard')
         self._apply_border()
-        lay = QVBoxLayout(self); lay.setContentsMargins(6,5,6,6); lay.setSpacing(3)
+        lay = QVBoxLayout(self); lay.setContentsMargins(9,5,6,6); lay.setSpacing(3)
 
-        # 헤더: [가시성 체크] [●] [번호] ... [삭제]  (모든 카드 동일 레이아웃)
+        # 헤더: [가시성 체크] [●=Start] [번호] ... [삭제]  (모든 카드 동일 레이아웃)
+        # 체크박스 폭 ≥ 인디케이터(13+테두리 3=16px)라야 네모가 안 잘림.
         hdr = QHBoxLayout(); hdr.setContentsMargins(0,0,0,0); hdr.setSpacing(3)
-        self._chk = QCheckBox(); self._chk.setChecked(True); self._chk.setFixedWidth(20)
+        self._chk = QCheckBox(); self._chk.setChecked(True); self._chk.setFixedWidth(17)
         self._chk.setFocusPolicy(Qt.NoFocus)   # macOS 파란 포커스 링 제거
         self._chk.setStyleSheet(
             f'QCheckBox::indicator{{width:13px;height:13px;border:1.5px solid {color};'
@@ -6810,7 +6812,7 @@ class _SpecCard(QFrame):
         # 색 점 = 카드별 Start 토글(측정 on/off) 겸 색 정체성. 측정 중=채움+글로우 / 꺼짐=흐린 링.
         self._running = False
         self._start_dot = QPushButton()
-        self._start_dot.setFixedSize(22, 22)
+        self._start_dot.setFixedSize(18, 22)
         self._start_dot.setFocusPolicy(Qt.NoFocus)
         self._start_dot.setCursor(Qt.PointingHandCursor)
         self._start_dot.setToolTip(_tx('Start / stop measuring this source'))
@@ -6889,6 +6891,17 @@ class _SpecCard(QFrame):
         self._running = bool(on)
         self._start_dot.setIcon(QIcon(_led_power_pm(self._running, 20, self._color)))
 
+    def set_color(self, color):
+        """카드 색 변경 — 체크박스·Start 점·번호 라벨·선택 틴트 모두 갱신 (곡선색과 동기)."""
+        self._color = color
+        self._chk.setStyleSheet(
+            f'QCheckBox::indicator{{width:13px;height:13px;border:1.5px solid {color};'
+            f'border-radius:3px;background:transparent;}}'
+            f'QCheckBox::indicator:checked{{background:{color};image:none;}}')
+        self._num_label.setStyleSheet(f'color:{color};background:transparent;font-size:11px;font-weight:bold;')
+        self._start_dot.setIcon(QIcon(_led_power_pm(self._running, 20, color)))
+        self._apply_border()
+
     def set_name(self, name):
         self._name = name or ''
         self._num_label.setText(self._name or self._default_name)
@@ -6923,6 +6936,8 @@ class _SpecCard(QFrame):
         m = QMenu(self)
         a_rename = m.addAction(_tx('Rename'))
         a_rename.triggered.connect(self._begin_rename)
+        a_color = m.addAction(_tx('Change color…'))
+        a_color.triggered.connect(lambda: self.color_requested.emit(self._card_id))
         if not self._is_primary:
             m.addSeparator()
             a_del = m.addAction(_tx('Delete'))
@@ -18385,6 +18400,7 @@ class MainWindow(QMainWindow):
         sl0.addWidget(self.spec_cap_btn); _dv0()
         # ── 외형: Color ──
         self.color_btn=_N2Button('palette','Color'); self.color_btn.setFixedHeight(_H)
+        self.color_btn.setToolTip(_tx('Change color of the selected source (click a card to select)'))
         self.color_btn.clicked.connect(self._open_color_picker)
         sl0.addWidget(self.color_btn)
         sl0.addStretch()
@@ -21038,7 +21054,7 @@ class MainWindow(QMainWindow):
 
         dev_items = self._input_device_items()
         primary_ch = self.in_ch_cb.currentData() or 0
-        primary_color = T('spec_line')   # 브랜드 spec_line(라이트 #1670cc) 통일
+        primary_color = QColor(*bar_top()[:3]).name()   # 현재 그래프 색(사용자 Color 반영)
         # primary 도 _SpecCard 로 통일 (장치+채널 드롭다운). 삭제버튼만 숨김.
         pc = _SpecCard(0, primary_color, dev_items, is_primary=True)
         if self.dev_cb.currentData() is not None: pc.set_device(self.dev_cb.currentData())
@@ -21053,6 +21069,7 @@ class MainWindow(QMainWindow):
         pc.selected.connect(self._on_spec_card_select)
         pc.renamed.connect(self._on_spec_renamed)
         pc.start_toggled.connect(self._card_toggle)
+        pc.color_requested.connect(self._open_color_picker)
         pc.set_running(self._primary_running())
         self._primary_card = pc
         self._ch_cards_layout.addWidget(pc)
@@ -21073,6 +21090,7 @@ class MainWindow(QMainWindow):
             sc.selected.connect(self._on_spec_card_select)
             sc.renamed.connect(self._on_spec_renamed)
             sc.start_toggled.connect(self._card_toggle)
+            sc.color_requested.connect(self._open_color_picker)
             sc.set_running(bool(src.get('sub')))
             src['card'] = sc
             # 첫 실행/재구성 시 저장된 가시성을 캔버스 채널에 동기화 (데이터 도착 전이라도)
@@ -21232,7 +21250,7 @@ class MainWindow(QMainWindow):
         self._settings['spec_sources'] = [
             {'dev_name': s.get('dev_name', ''), 'ch': s.get('ch', 0),
              'visible': s.get('visible', True), 'name': s.get('name', ''),
-             'num': s.get('num', 2)}
+             'num': s.get('num', 2), 'color': s.get('color', '')}
             for s in self._spec_extra]
         self._settings['spec_primary_name'] = getattr(self, '_spec_primary_name', '')
         _save_settings(self._settings)
@@ -21249,7 +21267,7 @@ class MainWindow(QMainWindow):
             for entry in saved:
                 cid = self._spec_next_id; self._spec_next_id += 1
                 num = entry.get('num') or self._spec_smallest_unused_num()
-                color = _MC_COLORS[(num - 2) % len(_MC_COLORS)]
+                color = entry.get('color') or _MC_COLORS[(num - 2) % len(_MC_COLORS)]
                 dev_idx = None
                 for i in range(self.dev_cb.count()):
                     if self.dev_cb.itemText(i) == entry.get('dev_name', ''):
@@ -21414,7 +21432,7 @@ class MainWindow(QMainWindow):
             for entry in (entries or []):        # entries 만큼 재생성 (_restore_spec_sources 와 동일 형식)
                 cid = self._spec_next_id; self._spec_next_id += 1
                 num = entry.get('num') or self._spec_smallest_unused_num()
-                color = _MC_COLORS[(num - 2) % len(_MC_COLORS)]
+                color = entry.get('color') or _MC_COLORS[(num - 2) % len(_MC_COLORS)]
                 dev_idx = None
                 for i in range(self.dev_cb.count()):
                     if self.dev_cb.itemText(i) == entry.get('dev_name', ''):
@@ -21976,15 +21994,33 @@ class MainWindow(QMainWindow):
         else:
             super().keyPressEvent(e)
 
-    def _open_color_picker(self):
+    def _open_color_picker(self, card_id=None):
+        # 카드 색을 바꾼다 — primary는 그래프 그라디언트+카드, 추가 카드는 그 소스 곡선+카드.
+        # card_id 지정(우클릭 메뉴)이면 그 카드, 아니면 선택(front) 카드(툴바 Color).
         global _custom_color, _bar_preset_idx
-        init = QColor(*_custom_color) if _custom_color else QColor(*bar_top()[:3])
-        color = QColorDialog.getColor(init, self, 'Select Graph Color')
-        if color.isValid():
+        fid = card_id if card_id is not None else getattr(self, '_spec_front_id', 0)
+        if fid == 0:
+            init = QColor(*_custom_color) if _custom_color else QColor(*bar_top()[:3])
+            color = QColorDialog.getColor(init, self, 'Select color — Source 1')
+            if not color.isValid(): return
             _custom_color = (color.red(), color.green(), color.blue())
             _bar_preset_idx = 0
             self.fft_cvs._cache = None; self.oct_cvs._cache = None
             self.fft_cvs.update(); self.oct_cvs.update()
+            if self._primary_card is not None:
+                self._primary_card.set_color(color.name())
+        else:
+            src = next((s for s in self._spec_extra if s['id'] == fid), None)
+            if src is None: return
+            init = QColor(src.get('color', '#00D4FF'))
+            color = QColorDialog.getColor(init, self, 'Select color — this source')
+            if not color.isValid(): return
+            src['color'] = color.name()
+            if src.get('card'): src['card'].set_color(color.name())
+            self._clear_extra_curve(fid)   # 새 색으로 다시 그려짐
+            self.fft_cvs.set_channel_visible(fid, src.get('visible', True))
+            self.oct_cvs.set_channel_visible(fid, src.get('visible', True))
+            self._save_spec_sources()
 
     def _build_menubar(self):
         """macOS 네이티브 메뉴바. About/Quit은 role로 macOS '앱 메뉴'에 자동 배치되고
