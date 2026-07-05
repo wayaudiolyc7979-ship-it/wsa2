@@ -17845,7 +17845,7 @@ class StereoLoudnessPage(QWidget):
         getattr(self, '_card_frames', self.__dict__.setdefault('_card_frames', [])).append((f, 'stCard', 14))
         self._comp_card=f
         v=QVBoxLayout(f); v.setContentsMargins(18,13,18,16); v.setSpacing(11)
-        title=QLabel('COMPLIANCE'); title.setAlignment(Qt.AlignHCenter)
+        title=QLabel('COMPLIANCE'); title.setAlignment(Qt.AlignHCenter); self._compliance_title = title
         title.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};letter-spacing:1px;background:transparent;')
         v.addWidget(title)
         v.addStretch()
@@ -17955,7 +17955,7 @@ class StereoLoudnessPage(QWidget):
         w.setStyleSheet(self._card_bg_ss('stMc', 12))
         getattr(self, '_card_frames', self.__dict__.setdefault('_card_frames', [])).append((w, 'stMc', 12))
         vl = QVBoxLayout(w); vl.setContentsMargins(6, 8, 6, 8); vl.setSpacing(4)
-        tl = QLabel('UNITS')
+        tl = QLabel('UNITS'); self._units_lbl = tl
         tl.setStyleSheet(f'font-size:{FS_SM}px;color:{self._metric_lbl_col()};'
                          f'letter-spacing:0.5px;background:transparent;')
         tl.setAlignment(Qt.AlignHCenter)
@@ -18013,6 +18013,12 @@ class StereoLoudnessPage(QWidget):
         if hasattr(self, '_lbl_hero_title'):
             self._lbl_hero_title.setStyleSheet(f'font-size:{FS_BODY}px;color:{_lc};'
                               f'letter-spacing:2px;background:transparent;')
+        if hasattr(self, '_compliance_title'):
+            self._compliance_title.setStyleSheet(f'font-size:{FS_SM}px;color:{_lc};letter-spacing:1px;background:transparent;')
+        if hasattr(self, '_units_lbl'):
+            self._units_lbl.setStyleSheet(f'font-size:{FS_SM}px;color:{_lc};letter-spacing:0.5px;background:transparent;')
+        if hasattr(self, '_lu_btn'):
+            self._lu_btn.setStyleSheet(self._lu_btn_ss())
         for _s in (getattr(self, '_sub_avg', None), getattr(self, '_sub_live', None)):
             if _s is not None:
                 _s.setStyleSheet(f'font-size:{FS_LG}px;color:{T("text_dim")};background:transparent;')
@@ -19317,6 +19323,21 @@ class MainWindow(QMainWindow):
                     except Exception: pass
             if isinstance(getattr(self, 'spec_db_btn', None), _N2Button):
                 self._update_spec_db_btn()
+        # 모든 N2 툴바/컨트롤 위젯 전수 재스타일(개별 나열 누락 방지) — 3탭 툴바.
+        # restyle()은 실행상태(play/stop 아이콘)를 보존하므로 트랜스포트 버튼도 안전.
+        _n2_conts = []
+        for _wn in ('_spec_tb_wrap', '_st_tb_wrap'):
+            _wr = getattr(self, _wn, None)
+            if _wr is not None and _wr.widget() is not None:
+                _n2_conts.append(_wr.widget())
+        if getattr(self, 'tf_win', None) is not None and hasattr(self.tf_win, 'tb'):
+            _n2_conts.append(self.tf_win.tb)
+        for _cont in _n2_conts:
+            for _T in (_N2Select, _N2Button, _N2Toggle, _N2IconBtn, _N2Segmented, _N2Tab):
+                for _w in _cont.findChildren(_T):
+                    if hasattr(_w, 'restyle'):
+                        try: _w.restyle()
+                        except Exception: pass
         if hasattr(self, '_toolbar_btn'):
             self._toolbar_btn.update()
         self.sub_stack.setStyleSheet(
