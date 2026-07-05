@@ -18319,12 +18319,12 @@ class MainWindow(QMainWindow):
         self._drawer_btn.setChecked(False)
         self._drawer_btn.setToolTip(_tx('Capture drawer'))
         self._drawer_btn.clicked.connect(self._toggle_capture_drawer)
-        sl0.addWidget(self._drawer_btn); sl0.addSpacing(4)
-        # Start
+        sl0.addWidget(self._drawer_btn); _dv0()
+        # 전역 Start 버튼 폐지 — 카드별 LED 파워 점(측정 on/off)으로 대체. 버튼 객체는
+        # 상태갱신(_refresh_running_ui)·테마·S키 토글 참조용으로만 유지(레이아웃 미추가·숨김).
         self.start_btn=_N2Button('play','Start (S)',accent_icon=True); self.start_btn.setFixedHeight(_H)
-        self.start_btn.setToolTip(_tx('Start / Stop  (S)'))
         self.start_btn.clicked.connect(self._toggle)
-        sl0.addWidget(self.start_btn); _dv0()
+        sl0.addWidget(self.start_btn); self.start_btn.hide()
         # ── 분석/신호: View · +Spectro · Scale(FFT 전용) · SR ──
         self._view_seg = _N2Segmented(
             [('fft','FFT',42),('oct3','1/3',34),('oct12','1/12',42),('oct24','1/24',42)],
