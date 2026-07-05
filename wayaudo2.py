@@ -7094,19 +7094,8 @@ class _CheckBtn(QPushButton):
         super().__init__(text, parent)
         self.setCheckable(True)
 
-    def paintEvent(self, e):
-        super().paintEvent(e)
-        if self.isChecked():
-            p = QPainter(self)
-            p.setRenderHint(QPainter.Antialiasing)
-            ac = QColor(T('accent'))
-            # 네온 글로우(밝은 테두리) → 차분한 "채워진 선택" 스타일: 채움 ↑, 테두리 톤다운·얇게
-            fill = QColor(ac); fill.setAlpha(64)
-            p.setBrush(fill)
-            glow = QColor(ac); glow.setAlpha(135)
-            p.setPen(QPen(glow, 1.0))
-            p.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 6, 6)
-            p.end()
+    # 활성 필은 스타일시트 :checked{background}로 처리(셀 폭 꽉 채움) — 네이티브 체크
+    # 렌더가 텍스트를 좁게 감싸던 문제 회피. paintEvent 커스텀 드로잉 없음.
 
 
 class _SegBtn(QPushButton):
@@ -8004,8 +7993,31 @@ class RoundComboBox(QComboBox):
     _max_display_chars = None  # int으로 설정 시 해당 글자수+'..'로 표기 트런케이션
     _align_center = False      # True면 텍스트 가운데 정렬
     _elide_to_width = False    # True면 필드 폭에 맞춰 '…'로 생략 (긴 장치명 깔끔히)
+    _flat_cell = False         # True면 Fusion 회색 배경 없이 투명+테두리만(N2 셀 룩)
+    _flat_border = '#34343B'
+
+    def _paint_flat(self):
+        """N2 flat 셀 — Fusion 콤보 크롬(회색 채움/화살표) 대신 투명 배경+둥근 테두리+텍스트."""
+        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
+        opt = QStyleOptionComboBox(); self.initStyleOption(opt)
+        text = opt.currentText
+        if self._max_display_chars is not None and len(text) > self._max_display_chars:
+            text = text[:self._max_display_chars] + '..'
+        pen = QPen(QColor(self._flat_border)); pen.setWidthF(1.0)
+        p.setPen(pen); p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 8, 8)
+        p.setPen(QColor(T('text'))); p.setFont(self.font())
+        if self._align_center:
+            p.drawText(self.rect(), Qt.AlignCenter, text)
+        else:
+            r = self.rect().adjusted(9, 0, -9, 0)
+            text = self.fontMetrics().elidedText(text, Qt.ElideRight, max(8, r.width()))
+            p.drawText(r, Qt.AlignLeft | Qt.AlignVCenter, text)
+        p.end()
 
     def paintEvent(self, event):
+        if self._flat_cell:
+            self._paint_flat(); return
         if not self._align_center and self._max_display_chars is None and not self._elide_to_width:
             super().paintEvent(event)
             return
@@ -8122,6 +8134,22 @@ def _n2_caps_font(size=9):
 
 def _n2_val_font(size=12, weight=QFont.DemiBold):
     f = QFont(FONT_FAMILY); f.setPixelSize(size); f.setWeight(weight); return f
+
+
+def _n2_group_header(text):
+    """N2 섹션 헤더 — 파란 액센트 바 + 대문자 라벨 + 하단 하어라인. 목업의 그룹 헤더 룩.
+    반환: 헤더+하어라인을 담은 QWidget (그룹 레이아웃 맨 위에 삽입)."""
+    w_ = QWidget(); w_.setStyleSheet('background:transparent;')
+    v = QVBoxLayout(w_); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(6)
+    row = QHBoxLayout(); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(7)
+    bar = QFrame(); bar.setFixedSize(3, 12); bar.setStyleSheet(f'background:{T("accent")};border-radius:1px;')
+    lbl = QLabel(text); lbl.setFont(_n2_caps_font(11)); lbl.setStyleSheet(f'color:{T("text")};background:transparent;')
+    row.addWidget(bar); row.addWidget(lbl); row.addStretch()
+    v.addLayout(row)
+    hair = QFrame(); hair.setFixedHeight(1)
+    hair.setStyleSheet(f'background:{"#2C2C32" if _theme == "dark" else T("border")};')
+    v.addWidget(hair)
+    return w_
 
 
 class _N2Select(QFrame):
@@ -12746,13 +12774,18 @@ class TransferFunctionWindow(QWidget):
         rl = QVBoxLayout(self.rp); rl.setContentsMargins(10,10,10,10); rl.setSpacing(8)
 
         # 신호 발생기
-        sg = QGroupBox('Signal Generator')
-        sgl = QVBoxLayout(sg); sgl.setSpacing(5); sgl.setContentsMargins(8,14,8,8)
-        tr = QHBoxLayout(); tr.setSpacing(4); tr.setContentsMargins(2,0,0,0)
+        sg = QGroupBox(); sg.setObjectName('sigGenGrp')
+        sgl = QVBoxLayout(sg); sgl.setSpacing(7); sgl.setContentsMargins(3,3,3,5)
+        sgl.addWidget(_n2_group_header('SIGNAL GENERATOR'))
+        # 신호 타입 = 드롭다운으로 통합. 아래 버튼들은 상태 보관용(숨김) — 다운스트림
+        # isChecked() 로직(어느 타입인지 판별)을 그대로 보존.
+        _tk_bg, _tk_bd = ('#141416', '#34343B') if _theme == 'dark' else (T('bg3'), T('border'))
         self.sig_pink_btn  = _CheckBtn('Pink');  self.sig_pink_btn.setChecked(True)
         self.sig_white_btn = _CheckBtn('White')
         self.sig_sine_btn  = _CheckBtn('Sine')
         self.sig_sweep_btn = _CheckBtn('Sweep')
+        for _b in (self.sig_pink_btn, self.sig_white_btn, self.sig_sine_btn, self.sig_sweep_btn):
+            _b.hide()
         def _sig_gen_active():
             """제네레이터 스트림이 열려 있으면 True (재생/뮤트 무관)."""
             return (self._duplex_thread is not None and self._duplex_thread.isRunning()) or \
@@ -12763,7 +12796,7 @@ class TransferFunctionWindow(QWidget):
             if _sig_gen_active():
                 self._stop_sig_gen()
                 self.sig_on_btn.setChecked(False)
-                self.sig_on_btn.setText('Play'); _apply_txn(self.sig_on_btn, False)
+                self.sig_on_btn.setText('Play'); self._style_sig_play(False)
 
         def _sel_pink():
             _stop_if_playing()
@@ -12827,59 +12860,85 @@ class TransferFunctionWindow(QWidget):
         self.sig_white_btn.clicked.connect(_sel_white)
         self.sig_sine_btn.clicked.connect(_sel_sine)
         self.sig_sweep_btn.clicked.connect(_sel_sweep)
-        tr.addWidget(self.sig_pink_btn); tr.addWidget(self.sig_white_btn)
-        tr.addWidget(self.sig_sine_btn); tr.addWidget(self.sig_sweep_btn); tr.addStretch()
-        sgl.addLayout(tr)
-        # 오디오 파일 재생 버튼 (클릭 → 파일 선택)
-        self.sig_file_btn = _CheckBtn('File…'); self.sig_file_btn.setIcon(_icon('folder'))
+        # direction C 컨트롤 셀 스타일 (서브틀 보더)
+        _c_cell = (f'border:1px solid {_tk_bd};background:transparent;color:{T("text")};border-radius:8px;')
+        _c_hover = f'QPushButton:hover{{color:{T("text")};border-color:#4A4A54;}}'
+        # File 버튼 — 드롭다운 항목으로 통합, 상태 보관용(숨김)
+        self.sig_file_btn = _CheckBtn('File…'); self.sig_file_btn.hide()
         self.sig_file_btn.clicked.connect(self._pick_audio_file)
-        sgl.addWidget(self.sig_file_btn)
-        lr = QHBoxLayout(); lr.setSpacing(4)
-        lr.addWidget(QLabel('Level:'))
-        self.sig_lvl_btn_m = QPushButton('−'); self.sig_lvl_btn_m.setFixedSize(28, 28)
+        # ── 통합 행: [타입 드롭다운]  [− 값 +] (LEVEL) ──
+        row1 = QHBoxLayout(); row1.setSpacing(4)
+        _tcell = QFrame(); _tcell.setObjectName('sigTypeCell'); _tcell.setFixedHeight(30); _tcell.setMinimumWidth(70)
+        _tcell.setStyleSheet(f'#sigTypeCell{{border:1px solid {_tk_bd};background:transparent;border-radius:8px;}}'
+                             f'#sigTypeCell:hover{{border-color:#4A4A54;}}')
+        _tcell.setCursor(Qt.PointingHandCursor)
+        _th = QHBoxLayout(_tcell); _th.setContentsMargins(9,0,8,0); _th.setSpacing(6)
+        self._sig_type_ic = QLabel(); self._sig_type_ic.setFixedSize(15,15); self._sig_type_ic.setStyleSheet('background:transparent;')
+        self._sig_type_txt = QLabel('Pink'); self._sig_type_txt.setFont(_n2_val_font(12, QFont.DemiBold)); self._sig_type_txt.setStyleSheet(f'color:{T("text")};background:transparent;')
+        _tchev = QLabel('▾'); _tchev.setStyleSheet(f'color:{T("text_dim")};background:transparent;')
+        _th.addWidget(self._sig_type_ic); _th.addWidget(self._sig_type_txt); _th.addStretch(); _th.addWidget(_tchev)
+        from PyQt5.QtWidgets import QMenu as _QMenu
+        _tmenu = _QMenu(_tcell)
+        _tmenu.addAction(_icon('waves',15,_n2_icon_color()),    'Pink',   lambda: (_sel_pink(),  self._update_sig_type_label()))
+        _tmenu.addAction(_icon('waves',15,_n2_icon_color()),    'White',  lambda: (_sel_white(), self._update_sig_type_label()))
+        _tmenu.addAction(_icon('activity',15,_n2_icon_color()), 'Sine…',  lambda: (_sel_sine(),  self._update_sig_type_label()))
+        _tmenu.addAction(_icon('spline',15,_n2_icon_color()),   'Sweep…', lambda: (_sel_sweep(), self._update_sig_type_label()))
+        _tmenu.addAction(_icon('folder',15,_n2_icon_color()),   'File…',  lambda: (self._pick_audio_file(), self._update_sig_type_label()))
+        self._sig_type_menu = _tmenu
+        _tcell.mousePressEvent = lambda e: self._sig_type_menu.exec_(_tcell.mapToGlobal(QPoint(0, _tcell.height()+2)))
+        row1.addWidget(_tcell, 5)
+        _step_ss = (f'QPushButton{{{_c_cell}font-size:16px;font-weight:600;color:{T("text_dim")};}}' + _c_hover)
+        self.sig_lvl_btn_m = QPushButton('−'); self.sig_lvl_btn_m.setFixedSize(28, 30); self.sig_lvl_btn_m.setFocusPolicy(Qt.NoFocus); self.sig_lvl_btn_m.setStyleSheet(_step_ss)
         self.sig_lvl_sp = QDoubleSpinBox()
         self.sig_lvl_sp.setRange(-99.0, 0.0); self.sig_lvl_sp.setSingleStep(1.0)
         self.sig_lvl_sp.setValue(-20.0); self.sig_lvl_sp.setSuffix(' dB')
-        self.sig_lvl_sp.setDecimals(1); self.sig_lvl_sp.setFixedWidth(88)
+        self.sig_lvl_sp.setDecimals(1); self.sig_lvl_sp.setFixedHeight(30); self.sig_lvl_sp.setMinimumWidth(60)
+        self.sig_lvl_sp.setAlignment(Qt.AlignCenter); self.sig_lvl_sp.setButtonSymbols(QDoubleSpinBox.NoButtons)
         self.sig_lvl_sp.setKeyboardTracking(False)   # 타이핑 중 즉시 적용 방지
+        self.sig_lvl_sp.setStyleSheet(
+            f'QDoubleSpinBox{{{_c_cell}padding:2px 4px;font-family:Menlo;font-size:12px;font-weight:600;}}')
         self.sig_lvl_sp.valueChanged.connect(self._sig_level_changed)
-        self.sig_lvl_btn_p = QPushButton('+'); self.sig_lvl_btn_p.setFixedSize(28, 28)
+        self.sig_lvl_btn_p = QPushButton('+'); self.sig_lvl_btn_p.setFixedSize(28, 30); self.sig_lvl_btn_p.setFocusPolicy(Qt.NoFocus); self.sig_lvl_btn_p.setStyleSheet(_step_ss)
         self.sig_lvl_btn_m.clicked.connect(self.sig_lvl_sp.stepDown)
         self.sig_lvl_btn_p.clicked.connect(self.sig_lvl_sp.stepUp)
-        lr.addWidget(self.sig_lvl_btn_m); lr.addWidget(self.sig_lvl_sp); lr.addWidget(self.sig_lvl_btn_p)
-        sgl.addLayout(lr)
-        or_ = QHBoxLayout(); or_.setSpacing(0); or_.setContentsMargins(0,0,0,0)
-        _out_lbl = QLabel('Out:'); _out_lbl.setAlignment(Qt.AlignVCenter | Qt.AlignLeft); _out_lbl.setFixedWidth(28)
+        row1.addWidget(self.sig_lvl_btn_m); row1.addWidget(self.sig_lvl_sp, 4); row1.addWidget(self.sig_lvl_btn_p)
+        sgl.addLayout(row1)
+        self._update_sig_type_label()
+        or_ = QHBoxLayout(); or_.setSpacing(5); or_.setContentsMargins(0,0,0,0)
+        _out_lbl = QLabel('OUT'); _out_lbl.setFont(_n2_caps_font()); _out_lbl.setStyleSheet(f'color:{T("text_dim")};background:transparent;'); _out_lbl.setFixedWidth(40)
         or_.addWidget(_out_lbl)
-        or_.addSpacing(2)
-        self.sig_out_cb = RoundComboBox(); self.sig_out_cb.setFixedWidth(62); self.sig_out_cb.setFixedHeight(28)
-        self.sig_out_cb._max_display_chars = 3
-        self.sig_out_ch_cb  = RoundComboBox(); self.sig_out_ch_cb.setFixedWidth(52); self.sig_out_ch_cb.setFixedHeight(28)
-        self.sig_out_ch2_cb = RoundComboBox(); self.sig_out_ch2_cb.setFixedWidth(52); self.sig_out_ch2_cb.setFixedHeight(28)
+        _c_combo = (f'QComboBox{{{_c_cell}padding:2px 8px;font-size:12px;}}'
+                    f'QComboBox:hover{{border-color:#4A4A54;}}'
+                    f'QComboBox::drop-down{{width:0;border:none;}}'
+                    f'QComboBox::down-arrow{{width:0;height:0;image:none;}}')
+        self.sig_out_cb = RoundComboBox(); self.sig_out_cb.setFixedHeight(30)
+        self.sig_out_cb._max_display_chars = 3; self.sig_out_cb.setFocusPolicy(Qt.NoFocus)
+        self.sig_out_cb._flat_cell = True; self.sig_out_cb._flat_border = _tk_bd
+        self.sig_out_ch_cb  = RoundComboBox(); self.sig_out_ch_cb.setFixedWidth(56); self.sig_out_ch_cb.setFixedHeight(30); self.sig_out_ch_cb.setFocusPolicy(Qt.NoFocus); self.sig_out_ch_cb._align_center = True
+        self.sig_out_ch_cb._flat_cell = True; self.sig_out_ch_cb._flat_border = _tk_bd
+        self.sig_out_ch2_cb = RoundComboBox(); self.sig_out_ch2_cb.setFixedWidth(56); self.sig_out_ch2_cb.setFixedHeight(30); self.sig_out_ch2_cb.setFocusPolicy(Qt.NoFocus); self.sig_out_ch2_cb._align_center = True
+        self.sig_out_ch2_cb._flat_cell = True; self.sig_out_ch2_cb._flat_border = _tk_bd
         self.sig_out_ch2_cb.setToolTip(_tx('Second output channel (Off = single channel)'))
-        or_.addWidget(self.sig_out_cb)
-        or_.addSpacing(4)
-        or_.addWidget(self.sig_out_ch_cb)
-        _plus_lbl = QLabel('+'); _plus_lbl.setAlignment(Qt.AlignVCenter | Qt.AlignHCenter); _plus_lbl.setFixedWidth(14)
-        or_.addSpacing(2)
+        or_.addWidget(self.sig_out_cb, 2)
+        or_.addWidget(self.sig_out_ch_cb, 1)
+        _plus_lbl = QLabel('+'); _plus_lbl.setAlignment(Qt.AlignVCenter | Qt.AlignHCenter); _plus_lbl.setFixedWidth(12); _plus_lbl.setStyleSheet(f'color:{T("text_dim")};background:transparent;')
         or_.addWidget(_plus_lbl)
-        or_.addSpacing(2)
-        or_.addWidget(self.sig_out_ch2_cb)
-        or_.addStretch()
+        or_.addWidget(self.sig_out_ch2_cb, 1)
         sgl.addLayout(or_)
         self.sig_out_cb.currentIndexChanged.connect(self._sig_out_device_changed)
         self.sig_out_ch2_cb.currentIndexChanged.connect(self._sig_out_ch_changed)
-        self.sig_on_btn = QPushButton('Play  [G]'); _apply_txn(self.sig_on_btn, False); self.sig_on_btn.setCheckable(True)
-        self.sig_on_btn.setFocusPolicy(Qt.NoFocus)   # macOS 파란 포커스 링 제거
-        self.sig_on_btn.setStyleSheet(f'background:{T("panel")};color:{T("text_dim")};'
-                                       f'border:1px solid {T("border")};padding:4px;border-radius:{RADIUS_CTRL}px;font-weight:bold;')
+        # Play — direction C: 회색 채움 필 + 재생/정지 아이콘(전용 스타일러, _apply_txn 대체)
+        self.sig_on_btn = QPushButton('Play  [G]'); self.sig_on_btn.setCheckable(True)
+        self.sig_on_btn.setFixedHeight(34); self.sig_on_btn.setFocusPolicy(Qt.NoFocus); self.sig_on_btn.setCursor(Qt.PointingHandCursor)
+        self._style_sig_play(False)
         self.sig_on_btn.clicked.connect(self._toggle_sig_gen); sgl.addWidget(self.sig_on_btn)
         rl.addWidget(sg)
 
         # 입력 장치
         # ── Measurement 패널: 공유 Ref 섹션 + N개 Meas 채널 카드 ──
-        mp = QGroupBox('Measurement')
-        mpl = QVBoxLayout(mp); mpl.setContentsMargins(8,14,8,8); mpl.setSpacing(6)
+        mp = QGroupBox(); mp.setObjectName('measGrp')
+        mpl = QVBoxLayout(mp); mpl.setContentsMargins(3,3,3,8); mpl.setSpacing(7)
+        mpl.addWidget(_n2_group_header('MEASUREMENT'))
 
         self._mon_btn = None
 
@@ -13999,7 +14058,7 @@ class TransferFunctionWindow(QWidget):
                 if self._duplex_thread._muted:
                     self._duplex_thread.unmute()   # Stop 후 재시작 시 무음 해제
                     # Play 버튼도 함께 활성화 (muted→unmuted 시 UI 동기화)
-                    self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); _apply_txn(self.sig_on_btn, True)
+                    self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); self._style_sig_play(True)
                 _alog.debug('  TFDuplexThread running → zero gap Start')
             elif self._sig_stream is not None:
                 # 다른 장치 standalone OutputStream 실행 중 → meas InputStream만 추가
@@ -14932,7 +14991,7 @@ class TransferFunctionWindow(QWidget):
         # 자동 Stop
         self._stop_sig_gen()
         self.sig_on_btn.setChecked(False)
-        self.sig_on_btn.setText('Play'); _apply_txn(self.sig_on_btn, False)
+        self.sig_on_btn.setText('Play'); self._style_sig_play(False)
         _alog.debug(f'_on_sweep_captured: n={n} farina={use_farina}')
         if result_msg:
             _BrandBox.information(self, _tx('Sweep Complete'), result_msg)
@@ -16110,6 +16169,39 @@ class TransferFunctionWindow(QWidget):
         if self._running and not self.sig_on_btn.isChecked():
             self._stop()
 
+    def _style_sig_play(self, playing):
+        """Play/Stop 버튼 — direction C 회색 채움 필 + 재생=액센트▶ / 정지중=레드■ 아이콘.
+        (기존 _apply_txn 틴트 대체 — N2 결 유지)."""
+        _b = getattr(self, 'sig_on_btn', None)
+        if _b is None: return
+        if playing:
+            _bg, _bg_h = '#3A2A2C', '#453032'
+            _b.setIcon(_icon('stop', 14, color=T('red')))
+        else:
+            _bg, _bg_h = ('#3A3A42', '#44444C') if _theme == 'dark' else (T('bg3'), T('panel'))
+            _b.setIcon(_icon('play', 14, color=T('accent')))
+        _b.setStyleSheet(
+            f'QPushButton{{background:{_bg};color:{T("text")};border:none;border-radius:8px;'
+            f'padding:5px;font-size:12px;font-weight:bold;}}'
+            f'QPushButton:hover{{background:{_bg_h};}}')
+
+    def _update_sig_type_label(self):
+        """타입 드롭다운 셀의 아이콘+이름을 현재 선택된 신호 타입으로 갱신."""
+        if not hasattr(self, '_sig_type_txt'): return
+        if self.sig_sine_btn.isChecked():
+            ic, txt = 'activity', self.sig_sine_btn.text()          # 'Sine 1k'
+        elif self.sig_sweep_btn.isChecked():
+            ic, txt = 'spline', 'Sweep'
+        elif self.sig_file_btn.isChecked():
+            _ft = self.sig_file_btn.text().strip()
+            ic, txt = 'folder', (_ft if _ft and _ft != 'File…' else 'File')
+        elif self.sig_white_btn.isChecked():
+            ic, txt = 'waves', 'White'
+        else:
+            ic, txt = 'waves', 'Pink'
+        self._sig_type_ic.setPixmap(_icon_pm(ic, 15, _n2_icon_color()))
+        self._sig_type_txt.setText(txt)
+
     def _toggle_sig_gen(self, checked):
         if checked:
             self._on_gen_started()
@@ -16139,7 +16231,7 @@ class TransferFunctionWindow(QWidget):
                 # ref 버퍼 리셋: stale ref + ambient 마이크로 EMA 오염 방지
                 self._int_ref_buf[:] = 0; self._int_ref_pos[0] = 0; self._int_ref_filled = False
                 self._standalone_muted[0] = True   # 콜백이 즉시 outdata[:]=0 반환
-                self.sig_on_btn.setText('Play'); _apply_txn(self.sig_on_btn, False);
+                self.sig_on_btn.setText('Play'); self._style_sig_play(False);
                 _alog.debug('_toggle_sig_gen → standalone muted instantly (streams kept alive)')
             else:
                 # 스트림 없음: 완전 정지
@@ -16159,7 +16251,7 @@ class TransferFunctionWindow(QWidget):
                 (self._sig_stream is not None):
             self._stop_sig_gen()
             self.sig_on_btn.setChecked(False)
-            self.sig_on_btn.setText('Play'); _apply_txn(self.sig_on_btn, False)
+            self.sig_on_btn.setText('Play'); self._style_sig_play(False)
         from PyQt5.QtWidgets import QFileDialog, QMessageBox
         path, _ = QFileDialog.getOpenFileName(
             self, 'Select Audio File', '',
@@ -16217,6 +16309,7 @@ class TransferFunctionWindow(QWidget):
         self.sig_file_btn.setChecked(True)
         self.sig_pink_btn.setChecked(False); self.sig_white_btn.setChecked(False)
         self.sig_sine_btn.setChecked(False); self.sig_sweep_btn.setChecked(False)
+        self._update_sig_type_label()
         return True
 
     # ── 드래그&드롭: 오디오 파일을 창에 떨궈서 File 측정 신호로 로드 ──
@@ -16258,7 +16351,7 @@ class TransferFunctionWindow(QWidget):
                 (self._sig_stream is not None):
             self._stop_sig_gen()
             self.sig_on_btn.setChecked(False)
-            self.sig_on_btn.setText('Play'); _apply_txn(self.sig_on_btn, False)
+            self.sig_on_btn.setText('Play'); self._style_sig_play(False)
         if self._load_audio_file(path):
             # sig_file_btn 텍스트가 파일명으로 바뀌어 피드백됨. 상태줄에도 잠깐 표기.
             if hasattr(self, 'status_lbl'):
@@ -16306,7 +16399,7 @@ class TransferFunctionWindow(QWidget):
             self._duplex_thread.swap_buf(self._pink_buf)
             self._duplex_thread.unmute()
             _alog.debug('_start_sig_gen() → duplex unmuted (stream already alive)')
-            self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); _apply_txn(self.sig_on_btn, True)
+            self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); self._style_sig_play(True)
             return
 
         meas_idx = self.meas_cb.currentData()
@@ -16394,7 +16487,7 @@ class TransferFunctionWindow(QWidget):
                 self._int_ref_buf[:] = 0; self._int_ref_pos[0] = 0; self._int_ref_filled = False
                 self._reset_avg()
                 _alog.debug('_start_sig_gen() → standalone unmuted (stream kept alive)')
-                self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); _apply_txn(self.sig_on_btn, True)
+                self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); self._style_sig_play(True)
                 return
 
             self._stop_sig_gen()  # 기존 sig gen만 정리
@@ -16508,7 +16601,7 @@ class TransferFunctionWindow(QWidget):
                 self._meas_thread.start()
                 self._reset_avg()
 
-        self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); _apply_txn(self.sig_on_btn, True)
+        self.sig_on_btn.setChecked(True); self.sig_on_btn.setText('Stop'); self._style_sig_play(True)
         # 제너레이터 재생 시작 → 분석 미실행이면 입력 레벨 모니터 시작 (정지 카드도 레벨 표시)
         if not self._running:
             QTimer.singleShot(150, self._refresh_input_monitor)
@@ -16522,7 +16615,7 @@ class TransferFunctionWindow(QWidget):
             try: self._sig_stream.stop(); self._sig_stream.close()
             except Exception: pass
             self._sig_stream = None; self._sig_lvl_ref = None
-        self.sig_on_btn.setText('Play'); _apply_txn(self.sig_on_btn, False); self.sig_on_btn.setChecked(False)
+        self.sig_on_btn.setText('Play'); self._style_sig_play(False); self.sig_on_btn.setChecked(False)
         self.sig_on_btn.setStyleSheet(f'background:{T("panel")};color:{T("text_dim")};'
                                        f'border:1px solid {T("border")};padding:4px;border-radius:{RADIUS_CTRL}px;font-weight:bold;')
 
@@ -16540,7 +16633,7 @@ class TransferFunctionWindow(QWidget):
             except Exception: pass
             self._duplex_thread.stop(); self._duplex_thread = None
             _alog.debug('  TFDuplexThread closed')
-        self.sig_on_btn.setText('Play'); _apply_txn(self.sig_on_btn, False); self.sig_on_btn.setChecked(False)
+        self.sig_on_btn.setText('Play'); self._style_sig_play(False); self.sig_on_btn.setChecked(False)
         self.sig_on_btn.setStyleSheet(f'background:{T("panel")};color:{T("text_dim")};'
                                        f'border:1px solid {T("border")};padding:4px;border-radius:{RADIUS_CTRL}px;font-weight:bold;')
         self._stop_input_monitor()   # 제너레이터 정지 → 입력 모니터도 정지 (카드 레벨미터는 분석 시에만)
@@ -19279,42 +19372,27 @@ class MainWindow(QMainWindow):
         # 푸터 경계선
         self.ft.setStyleSheet(
             f'background:{bg2};border-top:1px solid {sep_line};')
-        # Level 스핀박스 + ±버튼 (tf_win 소속)
+        # Level 스핀박스 + ±버튼 + Play + 그룹박스 (tf_win 소속) — direction C(서브틀 보더)
         if self.tf_win is not None:
-            self.tf_win.sig_lvl_sp.setStyleSheet(f"""
-                QDoubleSpinBox {{
-                    background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
-                        stop:0 rgba({ar},{ag},{ab},30), stop:1 rgba({ar},{ag},{ab},14));
-                    color: {accent};
-                    border: 1px solid rgba({ar},{ag},{ab},100);
-                    border-radius: 7px;
-                    padding: 3px 8px;
-                    font-size: 12px;
-                    font-weight: bold;
-                    min-height: 26px;
-                    selection-background-color: rgba({ar},{ag},{ab},60);
-                }}
-                QDoubleSpinBox::up-button   {{ width:0; border:none; }}
-                QDoubleSpinBox::down-button {{ width:0; border:none; }}
-            """)
+            _c_bd = '#34343B' if _theme == 'dark' else border
+            self.tf_win.sig_lvl_sp.setStyleSheet(
+                f'QDoubleSpinBox{{border:1px solid {_c_bd};background:transparent;color:{text};'
+                f'border-radius:8px;padding:2px 6px;font-family:Menlo;font-size:12px;font-weight:600;}}'
+                f'QDoubleSpinBox::up-button,QDoubleSpinBox::down-button{{width:0;border:none;}}')
             _btn_s = (
-                f'background: qlineargradient(x1:0,y1:0,x2:0,y2:1,'
-                f'stop:0 {btn_bg0}, stop:1 {btn_bg1});'
-                f'color:{text};border:1px solid {btn_bd};'
-                f'border-radius:7px;padding:0px;font-size:15px;font-weight:bold;')
+                f'QPushButton{{border:1px solid {_c_bd};background:transparent;color:{text_dim};'
+                f'border-radius:8px;font-size:16px;font-weight:600;}}'
+                f'QPushButton:hover{{color:{text};border-color:#4A4A54;}}')
             self.tf_win.sig_lvl_btn_m.setStyleSheet(_btn_s)
             self.tf_win.sig_lvl_btn_p.setStyleSheet(_btn_s)
-            # TF 오른쪽 패널 배경 + 그룹박스 타이틀 색상 업데이트
+            # TF 오른쪽 패널 배경 + 그룹박스 타이틀
             self.tf_win.rp.setStyleSheet(f'background:{bg2};')
-            _bss = (f'QGroupBox{{border:1px solid {border};border-radius:6px;margin-top:14px;'
-                    f'font-size:11px;color:{text_dim};padding-top:4px;}}'
-                    f'QGroupBox::title{{subcontrol-origin:margin;left:6px;padding:0 4px;}}')
+            # 그룹박스 테두리 제거 — 캡스 헤더+하어라인(_n2_group_header)이 구분 담당(목업 룩)
+            _bss = 'QGroupBox{border:none;margin-top:0;padding:0;background:transparent;}'
             for grp in self.tf_win.rp.findChildren(QGroupBox):
                 grp.setStyleSheet(_bss)
-            # Play 버튼 재스타일
-            self.tf_win.sig_on_btn.setStyleSheet(
-                f'background:{panel};color:{text_dim};'
-                f'border:1px solid {border};padding:4px;border-radius:6px;font-weight:bold;')
+            # Play — C 스타일러 (재생상태 유지)
+            self.tf_win._style_sig_play(self.tf_win.sig_on_btn.isChecked())
             # VU 레이블 → 카드 방식으로 교체됨, 별도 테마 갱신 불필요
             # TF 캔버스 캐시 무효화
             for cvs in [self.tf_win.mag_cvs, self.tf_win.phase_cvs, self.tf_win.ir_cvs]:
