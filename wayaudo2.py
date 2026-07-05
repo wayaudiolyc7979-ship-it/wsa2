@@ -12797,6 +12797,11 @@ class TransferFunctionWindow(QWidget):
         self._mutex = QMutex()
         self._engine = None   # 공유 오디오 엔진 (MainWindow가 주입) — TF 측정입력을 장치당 단일 스트림으로
         self._ref_thread = None; self._meas_thread = None; self._sync_thread = None
+        # 라이브 멀티마이크 평균 상태
+        self._avg_on = False
+        self._avg_mode = 'mag'      # 'mag'(파워RMS) | 'complex'(벡터)
+        self._avg_only = False      # True면 개별 곡선 숨기고 AVG만
+        self._avg_align = True      # 복소 모드 딜레이 자동정렬
         self._extra_pairs = []        # Smaart 방식: 추가 Ref+Meas 쌍 목록
         self._front_pair = None       # 분석 화면 맨 앞 곡선: None=primary, int=pair idx
         self._extra_pair_threads = [] # 쌍마다 (sync_thread, ref_thread, meas_thread)
@@ -13110,6 +13115,33 @@ class TransferFunctionWindow(QWidget):
         self._style_sig_play(False)
         self.sig_on_btn.clicked.connect(self._toggle_sig_gen); sgl.addWidget(self.sig_on_btn)
         rl.addWidget(sg)
+
+        # 라이브 멀티마이크 평균
+        avg_box = QGroupBox(); avg_box.setStyleSheet('QGroupBox{border:none;margin:0;padding:0;}')
+        avg_l = QVBoxLayout(avg_box); avg_l.setContentsMargins(0, 8, 0, 0); avg_l.setSpacing(6)
+        avg_l.addWidget(_n2_group_header('AVERAGE'))
+        # 1행: 마스터 AVG 토글 + 모드 세그먼트
+        row1 = QHBoxLayout(); row1.setSpacing(8)
+        self._avg_master_btn = _N2Toggle(text='AVG')
+        self._avg_master_btn.setChecked(False)
+        self._avg_master_btn.toggled.connect(self._on_avg_master)
+        self._avg_mode_seg = _N2Segmented([('mag', '크기'), ('complex', '복소')])
+        self._avg_mode_seg.set_active(self._avg_mode)
+        self._avg_mode_seg.changed.connect(self._on_avg_mode)
+        row1.addWidget(self._avg_master_btn); row1.addWidget(self._avg_mode_seg, 1)
+        avg_l.addLayout(row1)
+        # 2행: 평균만 + 딜레이정렬
+        row2 = QHBoxLayout(); row2.setSpacing(8)
+        self._avg_only_btn = _N2Toggle(text='평균만')
+        self._avg_only_btn.toggled.connect(self._on_avg_only)
+        self._avg_align_btn = _N2Toggle(text='딜레이정렬')
+        self._avg_align_btn.setChecked(True)
+        self._avg_align_btn.toggled.connect(self._on_avg_align)
+        row2.addWidget(self._avg_only_btn); row2.addWidget(self._avg_align_btn)
+        avg_l.addLayout(row2)
+        rl.addWidget(avg_box)
+        self._avg_group_box = avg_box
+        self._update_avg_align_enabled()
 
         # 입력 장치
         # ── Measurement 패널: 공유 Ref 섹션 + N개 Meas 채널 카드 ──
@@ -13607,6 +13639,33 @@ class TransferFunctionWindow(QWidget):
         self._save_tf_devices()
         if sig_was_playing and not getattr(self, '_restoring_devices', False):
             self._start_sig_gen()
+
+    def _on_avg_master(self, on):
+        self._avg_on = bool(on)
+        _diag('tf_avg_toggle', on=self._avg_on, mode=self._avg_mode)
+        self._request_avg_render()
+
+    def _on_avg_mode(self, key):
+        self._avg_mode = key
+        self._update_avg_align_enabled()
+        self._request_avg_render()
+
+    def _on_avg_only(self, on):
+        self._avg_only = bool(on); self._request_avg_render()
+
+    def _on_avg_align(self, on):
+        self._avg_align = bool(on); self._request_avg_render()
+
+    def _update_avg_align_enabled(self):
+        # 딜레이정렬은 복소 모드에서만 의미
+        if hasattr(self, '_avg_align_btn'):
+            self._avg_align_btn.setEnabled(self._avg_mode == 'complex')
+
+    def _request_avg_render(self):
+        # 다음 렌더 틱에서 Task5 훅이 반영. 즉시 캔버스 갱신도 트리거.
+        for cvs in (getattr(self, 'mag_cvs', None), getattr(self, 'phase_cvs', None),
+                    getattr(self, 'ir_cvs', None)):
+            if cvs is not None: cvs.update()
 
     def _sig_out_ch_changed(self, _=None):
         """출력 채널 콤보 변경: 저장 + 재생 중이면 반영.
