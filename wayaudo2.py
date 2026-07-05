@@ -6164,6 +6164,24 @@ class SplLayoutDialog(QDialog):
 # ───────────────────────────────────────────
 #  Custom floating dropdown popup
 # ───────────────────────────────────────────
+def _global_popup_qss():
+    """앱 전역(모든 top-level 창) QMenu·QToolTip 다크 스타일. Fusion 기본 밝은색으로
+    뜨던 우클릭 컨텍스트 메뉴/툴팁을 테마색으로 통일 — 팝아웃·다이얼로그까지 커버.
+    QMenu/QToolTip 셀렉터만 지정해 다른 위젯엔 영향 없음."""
+    a = QColor(T('accent')); ar, ag, ab = a.red(), a.green(), a.blue()
+    bg2, txt, dim, bd = T('bg2'), T('text'), T('text_dim'), T('border')
+    return (
+        f'QMenu{{background:{bg2};color:{txt};border:1px solid {bd};border-radius:8px;padding:4px;}}'
+        f'QMenu::item{{background:transparent;color:{txt};padding:5px 20px 5px 14px;border-radius:5px;}}'
+        f'QMenu::item:selected{{background:rgba({ar},{ag},{ab},55);color:{txt};}}'
+        f'QMenu::item:disabled{{color:{dim};}}'
+        f'QMenu::separator{{height:1px;background:{bd};margin:4px 8px;}}'
+        f'QMenu::icon{{padding-left:6px;}}'
+        f'QToolTip{{background:{bg2};color:{txt};border:1px solid rgba({ar},{ag},{ab},120);'
+        f'border-radius:5px;padding:4px 8px;font-size:11px;}}'
+    )
+
+
 class DropdownPopup(QFrame):
     item_selected = pyqtSignal(int)
 
@@ -19198,6 +19216,11 @@ class MainWindow(QMainWindow):
                      getattr(self, '_st_popout_btn', None)):
             if _btn is not None:
                 _btn.setStyleSheet(_popout_toggle_ss())
+        # 전역 QMenu·QToolTip 다크 스타일(모든 top-level 창) — 우클릭 컨텍스트 메뉴/툴팁이
+        # Fusion 기본 밝은색으로 뜨던 것 통일. 팝아웃·다이얼로그까지 커버.
+        _app = QApplication.instance()
+        if _app is not None:
+            _app.setStyleSheet(_global_popup_qss())
 
     def _go_style(self, b):   _apply_txn(b, False)   # 시작=로고블루 틴트
     def _stop_style(self, b): _apply_txn(b, True)    # 정지=레드 틴트
