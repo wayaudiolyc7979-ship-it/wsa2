@@ -7402,6 +7402,7 @@ class _CaptureDrawer(QWidget):
         # 스크롤 영역
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
+        self._scroll.setFocusPolicy(Qt.NoFocus)   # macOS 파란 포커스 링(둥근 "(") 제거
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self._scroll.setFrameShape(QFrame.NoFrame)
@@ -7414,6 +7415,7 @@ class _CaptureDrawer(QWidget):
 
         self._inner = QWidget()
         self._inner.setObjectName('capInner')
+        self._inner.setFocusPolicy(Qt.NoFocus)   # macOS 파란 포커스 링 제거
         self._inner.setMouseTracking(True)
         self._inner.setStyleSheet('#capInner { background:transparent; }')
         # 빈 공간 우클릭 → 전체삭제 메뉴
