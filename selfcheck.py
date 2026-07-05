@@ -696,8 +696,8 @@ def _tf_avg_group_render():
         tf = w.TransferFunctionWindow(None, settings={}, embedded=True)
     except Exception as e:
         return f'SKIP (TF 창 offscreen 인스턴스화 불가: {type(e).__name__})'
-    tf._avg_group_box.resize(240, 110); _app.processEvents()
-    out = _save(tf._avg_group_box, 'tf_average_group.png')
+    tf._avg_popup.adjustSize(); _app.processEvents()
+    out = _save(tf._avg_popup, 'tf_average_group.png')
     c = w._MeasCard(2, w.T('green'), deletable=True)
     c._avg_chk.setChecked(True)
     c.resize(240, 100); _app.processEvents()

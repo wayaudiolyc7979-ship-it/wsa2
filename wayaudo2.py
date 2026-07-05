@@ -990,6 +990,7 @@ def _qfont(pt, bold=False):
 # Lucide(MIT) 아이콘 — 24x24 viewBox inner SVG + filled 여부. 손그림 대비 일관·세련.
 _LUCIDE_ICONS = {
     'search':   ('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>', False),
+    'sigma':    ('<path d="M18 7V4H6l6 8-6 8h12v-3"/>', False),
     'folder':   ('<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>', False),
     'hourglass':('<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>', False),
     'download': ('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>', False),
@@ -13154,9 +13155,10 @@ class TransferFunctionWindow(QWidget):
         self.sig_on_btn.clicked.connect(self._toggle_sig_gen); sgl.addWidget(self.sig_on_btn)
         rl.addWidget(sg)
 
-        # 라이브 멀티마이크 평균
-        avg_box = QGroupBox(); avg_box.setStyleSheet('QGroupBox{border:none;margin:0;padding:0;}')
-        avg_l = QVBoxLayout(avg_box); avg_l.setContentsMargins(0, 8, 0, 0); avg_l.setSpacing(6)
+        # 라이브 멀티마이크 평균 — 상시 노출 대신 툴바 Avg(Σ) 버튼으로 여는 플로팅 팝업
+        pop = QFrame(); pop.setObjectName('avgPop')
+        pop.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
+        avg_l = QVBoxLayout(pop); avg_l.setContentsMargins(12, 10, 12, 12); avg_l.setSpacing(8)
         avg_l.addWidget(_n2_group_header('AVERAGE'))
         # 1행: 마스터 AVG 토글 + 모드 세그먼트
         row1 = QHBoxLayout(); row1.setSpacing(8)
@@ -13177,8 +13179,8 @@ class TransferFunctionWindow(QWidget):
         self._avg_align_btn.toggled.connect(self._on_avg_align)
         row2.addWidget(self._avg_only_btn); row2.addWidget(self._avg_align_btn)
         avg_l.addLayout(row2)
-        rl.addWidget(avg_box)
-        self._avg_group_box = avg_box
+        self._avg_popup = pop
+        self._style_avg_popup()
         self._update_avg_align_enabled()
 
         # 입력 장치
@@ -13401,6 +13403,11 @@ class TransferFunctionWindow(QWidget):
         self.auralize_btn.setToolTip(_tx('Auralization — hear music through the measured space (headphones)'))
         self.auralize_btn.clicked.connect(self._open_auralize)
         tl.addWidget(self.auralize_btn)
+        # 라이브 멀티마이크 평균 — 클릭 시 팝업(크기/복소·평균만·딜레이정렬). LED=on/off
+        self._avg_tb_btn = _N2IconBtn('sigma'); self._avg_tb_btn.setFixedHeight(_H)
+        self._avg_tb_btn.setToolTip(_tx('Live multi-mic average — combine running mics into one averaged curve'))
+        self._avg_tb_btn.clicked.connect(self._open_avg_popup)
+        tl.addWidget(self._avg_tb_btn)
         tl.addStretch()
         # 별도 창 팝아웃 토글 (멀티모니터) — 클릭 연결은 MainWindow가 함
         self._popout_btn = _N2IconBtn('extlink', checkable=True); self._popout_btn.setFixedHeight(_H)
@@ -13680,8 +13687,32 @@ class TransferFunctionWindow(QWidget):
 
     def _on_avg_master(self, on):
         self._avg_on = bool(on)
+        if hasattr(self, '_avg_tb_btn'):
+            self._avg_tb_btn.setChecked(self._avg_on)   # 툴바 Σ 아이콘 = on/off 표시
         _diag('tf_avg_toggle', on=self._avg_on, mode=self._avg_mode)
         self._request_avg_render()
+
+    def _style_avg_popup(self):
+        if not hasattr(self, '_avg_popup'): return
+        self._avg_popup.setStyleSheet(
+            f'#avgPop{{background:{T("bg2")};border:1px solid {T("border")};border-radius:12px;}}')
+
+    def _open_avg_popup(self):
+        """툴바 Σ 버튼 아래로 라이브 평균 팝업 표시(평소 숨김 → 찾아서 켜기)."""
+        if not hasattr(self, '_avg_popup'): return
+        pop = self._avg_popup; pop.adjustSize()
+        btn = self._avg_tb_btn
+        gp = btn.mapToGlobal(QPoint(0, btn.height() + 5))
+        # 오른쪽 화면 밖으로 안 나가게 클램프
+        try:
+            scr = QApplication.screenAt(gp) or QApplication.primaryScreen()
+            avail = scr.availableGeometry()
+            x = min(gp.x(), avail.right() - pop.width() - 8)
+            x = max(x, avail.left() + 8)
+            gp.setX(x)
+        except Exception:
+            pass
+        pop.move(gp); pop.show(); pop.raise_()
 
     def _on_avg_mode(self, key):
         self._avg_mode = key
@@ -16587,12 +16618,15 @@ class TransferFunctionWindow(QWidget):
         if hasattr(self, 'rp'):
             for _hl in self.rp.findChildren(QLabel, 'n2GroupHdr'):
                 _hl.setStyleSheet(f'color:{T("text")};background:transparent;')
-        # AVERAGE 그룹 N2 컨트롤(토글/세그먼트) 재스타일 + 카드별 avg 토글(레벨카드+추가카드) 재적용
-        if hasattr(self, '_avg_group_box'):
-            for _b in self._avg_group_box.findChildren(QWidget):
-                if hasattr(_b, 'restyle') and _b is not self._avg_group_box:
+        # AVERAGE 팝업 N2 컨트롤(토글/세그먼트) 재스타일 + 카드별 avg 토글(레벨카드+추가카드) 재적용
+        if hasattr(self, '_avg_popup'):
+            self._style_avg_popup()
+            for _b in self._avg_popup.findChildren(QWidget):
+                if hasattr(_b, 'restyle') and _b is not self._avg_popup:
                     try: _b.restyle()
                     except Exception: pass
+            for _hl in self._avg_popup.findChildren(QLabel, 'n2GroupHdr'):
+                _hl.setStyleSheet(f'color:{T("text")};background:transparent;')
         for c in (self._level_cards + [p.get('card') for p in getattr(self, '_extra_pairs', []) if p.get('card')]):
             if hasattr(c, '_avg_chk'):
                 c._avg_chk.setStyleSheet(c._avg_chk_ss())
