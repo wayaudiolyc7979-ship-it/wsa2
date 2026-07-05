@@ -18603,7 +18603,7 @@ class MainWindow(QMainWindow):
         self.spd_cb.currentIndexChanged.connect(self._set_speed)
         sl0.addWidget(self.spd_cb); _dv0()
         # ── 동작: Reset · Capture ──
-        rst=_N2Button('refresh','Reset'); rst.setFixedHeight(_H)
+        rst=_N2Button('refresh','Reset'); rst.setFixedHeight(_H); self._reset_btn = rst
         rst.clicked.connect(self._reset_peak)
         sl0.addWidget(rst)
         self.spec_cap_btn = _N2Button('camera','Capture'); self.spec_cap_btn.setFixedHeight(_H)
@@ -19310,7 +19310,7 @@ class MainWindow(QMainWindow):
             self._view_seg.apply_theme(); self._scale_seg.apply_theme()
             # N2 툴바 위젯 인라인 색 재적용 (테마 토글) — start_btn은 실행상태가 관리하므로 제외
             for _wn in ('spectro_btn','peak_btn','sr_cb','hold_cb','db_cb','spd_cb',
-                        'spec_cap_btn','color_btn','spec_db_btn','_spec_popout_btn','_spec_panel_btn'):
+                        '_reset_btn','spec_cap_btn','color_btn','spec_db_btn','_spec_popout_btn','_spec_panel_btn'):
                 _wr = getattr(self, _wn, None)
                 if _wr is not None and hasattr(_wr, 'restyle'):
                     try: _wr.restyle()
@@ -19479,6 +19479,19 @@ class MainWindow(QMainWindow):
                 f'#levelBox QLabel {{ background:transparent; border:none; }}'
                 f'#infoBox  {{ background:transparent; border:none; }}'
                 f'#infoBox QLabel {{ background:transparent; border:none; }}')
+            # INFO/LEVEL 값 라벨 색 재적용 — 생성 시 T('text')(다크=흰색)로 굳어 라이트서 안 보이던 문제
+            if hasattr(self, 'i_spl'):
+                _bcol = T('text')
+                for _v in (self.i_spl, self.i_pk, self.i_dom):
+                    _v.setStyleSheet(f'color:{_bcol};background:transparent;font-size:{FS_BODY}px;font-weight:bold;')
+                for _v in (self.i_sr, self.i_fft, self.i_res, self.i_calib, self.i_spd):
+                    _v.setStyleSheet(f'color:{_bcol};background:transparent;')   # 모노 폰트는 setFont로 유지
+                self._i_dba_base = '#9DB7E0' if _theme != 'light' else '#5A78B0'
+                self._i_dbc_base = '#C98B96' if _theme != 'light' else '#9A5E6A'
+                self._i_laeq_base = self._i_dba_base; self._i_lceq_base = self._i_dbc_base
+                for _v, _b, _fs in ((self.i_dba, self._i_dba_base, FS_DISP), (self.i_dbc, self._i_dbc_base, FS_DISP),
+                                    (self.i_laeq, self._i_laeq_base, FS_VAL), (self.i_lceq, self._i_lceq_base, FS_VAL)):
+                    _v.setStyleSheet(f'color:{_b};background:transparent;font-size:{_fs}px;font-weight:bold;')
         # 캡처 드로어 오른쪽 경계선 (셀렉터 지정으로 자식 위젯 미영향)
         self._capture_drawer._panel.setStyleSheet(
             f'#capturePanel {{ background:{bg2}; border: 1px solid {border}; border-radius: 8px; }}')
