@@ -7877,12 +7877,13 @@ class _CaptureDrawer(QWidget):
 
         row.setObjectName(f'capRow')
         # C안 — 완전 플랫: 행 테두리/구분선 없이 배경 위 글씨.
-        # 선택행 = 폭 전체 은은한 틴트 + 좌측 액센트 바 (떠있는 박스처럼 안 보이게 라운드/인셋 없음).
+        # 선택행 = 폭 전체 틴트 + 흰 볼드 이름으로 표시. (좌측 액센트 바는 둥근 리스트 카드
+        # 모서리를 따라 "(" 곡선처럼 휘어 보여 제거 — border-left는 투명으로 남겨 정렬만 유지.)
         if is_front:
-            _sel_bg = 'rgba(78,125,240,24)' if _theme == 'dark' else 'rgba(78,125,240,20)'
-            _sel_hv = 'rgba(78,125,240,38)' if _theme == 'dark' else 'rgba(78,125,240,32)'
+            _sel_bg = 'rgba(78,125,240,34)' if _theme == 'dark' else 'rgba(78,125,240,26)'
+            _sel_hv = 'rgba(78,125,240,48)' if _theme == 'dark' else 'rgba(78,125,240,38)'
             row.setStyleSheet(
-                f'#capRow{{background:{_sel_bg};border-left:2px solid {T("accent")};}}'
+                f'#capRow{{background:{_sel_bg};border-left:2px solid transparent;}}'
                 f'#capRow:hover{{background:{_sel_hv};}}')
         else:
             row.setStyleSheet(
