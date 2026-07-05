@@ -7183,19 +7183,18 @@ class _CaptureBar(QWidget):
 
 
 def _cap_dot_pm(color, filled, size=11):
-    """캡쳐 표시 점 — 안티앨리어싱 원(채움=표시 / 링=숨김). CSS border-radius의
-    레티나 계단현상(외곽 안 칠해짐) 회피용 페인트 픽스맵."""
+    """캡쳐 표시 점 — 항상 채운 안티앨리어싱 원. 표시=진한 색 / 숨김=같은 원을 흐리게
+    (빈 원/링 폐지 — 파란 캡처에서 링이 도드라져 오해를 부름, 이름 딤과 톤 일치).
+    CSS border-radius의 레티나 계단현상 회피용 페인트 픽스맵."""
     dpr = 3
     pm = QPixmap(int(size * dpr), int(size * dpr)); pm.setDevicePixelRatio(dpr)
     pm.fill(Qt.transparent)
     p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing, True)
     c = QColor(color)
-    if filled:
-        p.setPen(Qt.NoPen); p.setBrush(c)
-        p.drawEllipse(QRectF(0.6, 0.6, size - 1.2, size - 1.2))
-    else:
-        pen = QPen(c); pen.setWidthF(1.7); p.setPen(pen); p.setBrush(Qt.NoBrush)
-        p.drawEllipse(QRectF(1.3, 1.3, size - 2.6, size - 2.6))
+    if not filled:
+        c.setAlphaF(0.35)   # 숨김 = 채운 원 흐리게 (이름 40% 딤과 통일)
+    p.setPen(Qt.NoPen); p.setBrush(c)
+    p.drawEllipse(QRectF(0.6, 0.6, size - 1.2, size - 1.2))
     p.end()
     return pm
 
