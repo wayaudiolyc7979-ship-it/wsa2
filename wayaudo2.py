@@ -13168,6 +13168,15 @@ class TransferFunctionWindow(QWidget):
         self._avg_only_btn.toggled.connect(self._on_avg_only)
         row1.addWidget(self._avg_master_btn); row1.addWidget(self._avg_only_btn); row1.addStretch()
         avg_l.addLayout(row1)
+        # 마이크 체크리스트 (팝업 열 때 현재 카드로 재구성; 카드 avg 토글과 동기)
+        avg_l.addWidget(hsep())
+        _mhdr = QLabel('평균에 포함')
+        _mhdr.setStyleSheet(f'color:{T("text_dim")};background:transparent;font-size:{FS_SM}px;letter-spacing:0.5px;')
+        avg_l.addWidget(_mhdr)
+        self._avg_mic_box = QWidget()
+        self._avg_mic_lay = QVBoxLayout(self._avg_mic_box)
+        self._avg_mic_lay.setContentsMargins(0, 2, 0, 0); self._avg_mic_lay.setSpacing(5)
+        avg_l.addWidget(self._avg_mic_box)
         self._avg_popup = pop
         self._style_avg_popup()
 
@@ -13685,9 +13694,58 @@ class TransferFunctionWindow(QWidget):
         self._avg_popup.setStyleSheet(
             f'#avgPop{{background:{T("bg2")};border:1px solid {T("border")};border-radius:12px;}}')
 
+    def _rebuild_avg_mic_list(self):
+        """팝업 열 때 현재 측정 카드로 마이크 체크리스트 재구성(카드 avg 상태 반영·동기)."""
+        if not hasattr(self, '_avg_mic_lay'): return
+        lay = self._avg_mic_lay
+        while lay.count():
+            it = lay.takeAt(0); wdg = it.widget()
+            if wdg is not None: wdg.setParent(None)
+        acc = T('accent')
+        chk_ss = (f'QCheckBox::indicator{{width:13px;height:13px;border:1.5px solid {acc};'
+                  f'border-radius:3px;background:transparent;}}'
+                  f'QCheckBox::indicator:checked{{background:{acc};image:none;}}'
+                  f'QCheckBox{{spacing:0px;}}')
+        entries = []   # (card, num, dev, ch)
+        if getattr(self, '_level_cards', None):
+            pc = self._level_cards[0]
+            dev = self._strip_star(self.meas_cb.currentText()) if hasattr(self, 'meas_cb') else ''
+            ch = self.meas_ch_cb.currentText() if hasattr(self, 'meas_ch_cb') else ''
+            num = pc._num_label.text() if hasattr(pc, '_num_label') else '1'
+            entries.append((pc, num, dev, ch))
+        for p in getattr(self, '_extra_pairs', []):
+            card = p.get('card')
+            if card is None: continue
+            dev = self._strip_star(p['meas_cb'].currentText()) if p.get('meas_cb') else ''
+            ch = p['meas_ch_cb'].currentText() if p.get('meas_ch_cb') else ''
+            num = card._num_label.text() if hasattr(card, '_num_label') else str(p.get('num', ''))
+            entries.append((card, num, dev, ch))
+        if not entries:
+            hint = QLabel('측정 카드 없음')
+            hint.setStyleSheet(f'color:{T("text_dim")};background:transparent;font-size:{FS_SM}px;')
+            lay.addWidget(hint); return
+        for card, num, dev, ch in entries:
+            row = QWidget(); rl = QHBoxLayout(row)
+            rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(8)
+            cb = QCheckBox(); cb.setChecked(bool(getattr(card, 'in_average', False)))
+            cb.setStyleSheet(chk_ss); cb.setFixedWidth(18); cb.setFocusPolicy(Qt.NoFocus)
+            txt = f'{num}   {dev}' + (f'  {ch}' if ch else '')
+            lbl = QLabel(txt.strip())
+            lbl.setStyleSheet(f'color:{T("text")};background:transparent;font-size:{FS_SM}px;')
+            cb.toggled.connect(lambda on, c=card: self._avg_pick_mic(c, on))
+            rl.addWidget(cb); rl.addWidget(lbl, 1)
+            lay.addWidget(row)
+
+    def _avg_pick_mic(self, card, on):
+        card.in_average = bool(on)
+        if hasattr(card, '_avg_chk'):
+            card._avg_chk.setChecked(bool(on))   # 카드 헤더 avg 토글과 동기
+        self._request_avg_render()
+
     def _open_avg_popup(self):
         """툴바 Σ 버튼 아래로 라이브 평균 팝업 표시(평소 숨김 → 찾아서 켜기)."""
         if not hasattr(self, '_avg_popup'): return
+        self._rebuild_avg_mic_list()
         pop = self._avg_popup; pop.adjustSize()
         btn = self._avg_tb_btn
         gp = btn.mapToGlobal(QPoint(0, btn.height() + 5))
