@@ -12839,6 +12839,7 @@ class TransferFunctionWindow(QWidget):
         self._avg_mode = 'mag'      # 'mag'(파워RMS) | 'complex'(벡터)
         self._avg_only = False      # True면 개별 곡선 숨기고 AVG만
         self._avg_align = True      # 복소 모드 딜레이 자동정렬
+        self._avg_show = True       # AVG 카드 ✓ = 평균 곡선 표시/숨김
         self._last_avg_diag = None  # tf_avg_render 로그 스팸 방지용 마지막 상태 시그니처
         self._extra_pairs = []        # Smaart 방식: 추가 Ref+Meas 쌍 목록
         self._front_pair = None       # 분석 화면 맨 앞 곡선: None=primary, int=pair idx
@@ -13298,6 +13299,21 @@ class TransferFunctionWindow(QWidget):
         self._add_pair_btn.setCursor(Qt.PointingHandCursor)
         self._add_pair_btn.clicked.connect(self._tf_add_pair)
         mpl.addWidget(self._add_pair_btn)
+        # 평균(AVG) 카드 — Σ로 평균 켜면 카드 목록 아래 등장. 흰 스와치 + AVG(n) + 표시토글
+        self._avg_card = QFrame(); self._avg_card.setObjectName('measCard')
+        _ac = QHBoxLayout(self._avg_card); _ac.setContentsMargins(10, 7, 10, 7); _ac.setSpacing(8)
+        self._avg_card_chk = QCheckBox(); self._avg_card_chk.setChecked(True); self._avg_card_chk.setFixedWidth(17)
+        self._avg_card_chk.setFocusPolicy(Qt.NoFocus)
+        self._avg_card_chk.setToolTip('평균 곡선 표시 / 숨김')
+        self._avg_card_chk.toggled.connect(self._on_avg_show_toggle)
+        self._avg_card_sw = QLabel('■'); self._avg_card_sw.setFixedWidth(15)
+        self._avg_card_name = QLabel('AVG')
+        self._avg_card_cnt = QLabel('')
+        _ac.addWidget(self._avg_card_chk); _ac.addWidget(self._avg_card_sw)
+        _ac.addWidget(self._avg_card_name); _ac.addWidget(self._avg_card_cnt); _ac.addStretch()
+        self._avg_card.hide()
+        self._style_avg_card()
+        mpl.addWidget(self._avg_card)
         self.sig_out_ch_cb.currentIndexChanged.connect(self._sig_out_ch_changed)
         rl.addWidget(mp, 1)          # 그룹박스가 Signal Generator 아래 남은 세로 공간을 모두 차지
         # 그래프↔우측패널 구분선 — Spectrum infoPanel border-left와 통일(1px)
@@ -13686,8 +13702,34 @@ class TransferFunctionWindow(QWidget):
         self._avg_on = bool(on)
         if hasattr(self, '_avg_tb_btn'):
             self._avg_tb_btn.setChecked(self._avg_on)   # 툴바 Σ 아이콘 = on/off 표시
+        self._update_avg_card()
         _diag('tf_avg_toggle', on=self._avg_on, mode=self._avg_mode)
         self._request_avg_render()
+
+    def _style_avg_card(self):
+        if not hasattr(self, '_avg_card'): return
+        _bg = '#1E1E22' if _theme == 'dark' else '#F3F5FA'
+        _bd = '#34343B' if _theme == 'dark' else T('border')
+        col = self._avg_curve_color()
+        self._avg_card.setStyleSheet(
+            f'QFrame#measCard{{border:1px solid {_bd};border-radius:10px;background:{_bg};padding:2px;}}')
+        self._avg_card_sw.setStyleSheet(f'color:{col};font-size:15px;background:transparent;')
+        self._avg_card_name.setStyleSheet(
+            f'color:{T("text")};background:transparent;font-size:{FS_BODY}px;font-weight:bold;')
+        self._avg_card_cnt.setStyleSheet(
+            f'color:{T("text_dim")};background:transparent;font-size:{FS_SM}px;')
+        self._avg_card_chk.setStyleSheet(
+            f'QCheckBox::indicator{{width:13px;height:13px;border:1.5px solid {col};'
+            f'border-radius:3px;background:transparent;}}'
+            f'QCheckBox::indicator:checked{{background:{col};image:none;}}')
+
+    def _on_avg_show_toggle(self, on):
+        self._avg_show = bool(on)
+        self._request_avg_render()
+
+    def _update_avg_card(self):
+        if hasattr(self, '_avg_card'):
+            self._avg_card.setVisible(bool(self._avg_on))
 
     def _style_avg_popup(self):
         if not hasattr(self, '_avg_popup'): return
@@ -15284,7 +15326,13 @@ class TransferFunctionWindow(QWidget):
             _diag('tf_avg_render', on=True, mode=self._avg_mode,
                   n=(r['n'] if r else 0), aligned=self._avg_align, only=self._avg_only)
             self._last_avg_diag = _sig
-        if r is None:
+        _n = r['n'] if r else 0
+        if hasattr(self, '_avg_card_cnt'):   # AVG 카드 (n) 갱신
+            _ct = f'({_n})' if _n else ''
+            if self._avg_card_cnt.text() != _ct:
+                self._avg_card_cnt.setText(_ct)
+        # 유효<2(None)이거나 AVG 카드 ✓ 꺼짐 → 곡선 숨김(카드는 유지)
+        if r is None or not getattr(self, '_avg_show', True):
             self.mag_cvs.clear_tf_average(); self.phase_cvs.clear_tf_average()
             self.ir_cvs.clear_tf_average(); self._apply_avg_only(False)
             return
@@ -16646,6 +16694,8 @@ class TransferFunctionWindow(QWidget):
             for _hl in self.rp.findChildren(QLabel, 'n2GroupHdr'):
                 _hl.setStyleSheet(f'color:{T("text")};background:transparent;')
         # AVERAGE 팝업 N2 컨트롤(토글/세그먼트) 재스타일 + 카드별 avg 토글(레벨카드+추가카드) 재적용
+        if hasattr(self, '_avg_card'):
+            self._style_avg_card()
         if hasattr(self, '_avg_popup'):
             self._style_avg_popup()
             for _b in self._avg_popup.findChildren(QWidget):

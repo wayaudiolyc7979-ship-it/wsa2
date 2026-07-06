@@ -698,6 +698,9 @@ def _tf_avg_group_render():
         return f'SKIP (TF 창 offscreen 인스턴스화 불가: {type(e).__name__})'
     tf._rebuild_avg_mic_list(); tf._avg_popup.adjustSize(); _app.processEvents()
     out = _save(tf._avg_popup, 'tf_average_group.png')
+    tf._avg_on = True; tf._update_avg_card(); tf._avg_card_cnt.setText('(2)')
+    tf._avg_card.setVisible(True); tf._avg_card.resize(240, 40); _app.processEvents()
+    out += '  ' + _save(tf._avg_card, 'tf_avg_card.png')
     c = w._MeasCard(2, w.T('green'), deletable=True)
     c._avg_chk.setChecked(True)
     c.resize(240, 100); _app.processEvents()
