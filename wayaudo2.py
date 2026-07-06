@@ -10633,8 +10633,8 @@ class _MeasCard(QFrame):
         self._update_avg_chk_icon()
         self._avg_chk.toggled.connect(self._on_avg_include)
         hdr.addWidget(self._vis_chk); hdr.addWidget(self._start_dot); hdr.addWidget(num_lbl)
-        hdr.addWidget(self._avg_chk)
         hdr.addStretch()
+        hdr.addWidget(self._avg_chk)   # Σ 토글 = 오른쪽 레벨(−) 바로 앞
         hdr.addWidget(self._db_lbl)
         # 삭제는 인라인 ✕ 대신 우클릭 메뉴(contextMenuEvent)로 통일 — 모든 카드(Reference·1번·
         # 추가) 헤더가 동일해지고, 되돌리기 힘든 삭제를 의도적 우클릭 뒤에 둠. deletable=삭제 항목 노출 여부.
