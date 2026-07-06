@@ -706,6 +706,11 @@ _TR_KO = {        # {english_ui_string: 쉬운_한국어}
     'Start (S)': '시작 (S)',
     'Start / Stop  (S)': '시작 / 정지  (S)',
     'Color': '색상',
+    'Change color…': '색상 변경…',
+    'Average curve color': '평균 곡선 색상',
+    'Show / hide the average curve': '평균 곡선 표시 / 숨김',
+    'Click: select (bring to front) · Right-click: change color': '클릭: 선택(맨앞) · 우클릭: 색상 변경',
+    'No measurement cards': '측정 카드 없음',
     'LEVEL': '레벨',
     'INFO': '정보',
     'INPUT': '입력',
@@ -13292,7 +13297,7 @@ class TransferFunctionWindow(QWidget):
         _ac = QHBoxLayout(self._avg_card); _ac.setContentsMargins(10, 7, 10, 7); _ac.setSpacing(8)
         self._avg_card_chk = QCheckBox(); self._avg_card_chk.setChecked(True); self._avg_card_chk.setFixedWidth(17)
         self._avg_card_chk.setFocusPolicy(Qt.NoFocus)
-        self._avg_card_chk.setToolTip('평균 곡선 표시 / 숨김')
+        self._avg_card_chk.setToolTip(_tx('Show / hide the average curve'))
         self._avg_card_chk.toggled.connect(self._on_avg_show_toggle)
         self._avg_card_name = QLabel('AVG')
         self._avg_card_cnt = QLabel('')
@@ -13300,7 +13305,7 @@ class TransferFunctionWindow(QWidget):
         _ac.addWidget(self._avg_card_name); _ac.addWidget(self._avg_card_cnt); _ac.addStretch()
         self._avg_card.hide()
         self._avg_card.setCursor(Qt.PointingHandCursor)
-        self._avg_card.setToolTip('클릭: 선택(분석 맨앞) · 우클릭: 색상 변경')
+        self._avg_card.setToolTip(_tx('Click: select (bring to front) · Right-click: change color'))
         self._avg_card.mousePressEvent = self._avg_card_mouse_press
         self._avg_card.contextMenuEvent = self._avg_card_context
         self._style_avg_card()
@@ -13737,7 +13742,7 @@ class TransferFunctionWindow(QWidget):
     def _avg_card_context(self, e):
         from PyQt5.QtWidgets import QMenu
         m = QMenu(self)   # 앱 전역 QMenu 다크 스타일 상속(_global_popup_qss)
-        m.addAction('색상 변경…', self._pick_avg_color)
+        m.addAction(_tx('Change color…'), self._pick_avg_color)
         m.exec_(e.globalPos())
 
     def _select_avg_card(self):
@@ -13753,7 +13758,7 @@ class TransferFunctionWindow(QWidget):
 
     def _pick_avg_color(self):
         init = QColor(self._avg_curve_color())
-        c = QColorDialog.getColor(init, self, '평균 곡선 색상')
+        c = QColorDialog.getColor(init, self, _tx('Average curve color'))
         if c.isValid():
             self._avg_color = c.name()
             self._style_avg_card(); self._request_avg_render()
@@ -13785,7 +13790,7 @@ class TransferFunctionWindow(QWidget):
             num = card._num_label.text() if hasattr(card, '_num_label') else str(p.get('num', ''))
             entries.append((card, num, dev, ch))
         if not entries:
-            hint = QLabel('측정 카드 없음')
+            hint = QLabel(_tx('No measurement cards'))
             hint.setStyleSheet(f'color:{T("text_dim")};background:transparent;font-size:{FS_SM}px;')
             lay.addWidget(hint); return
         for card, num, dev, ch in entries:
