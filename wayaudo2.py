@@ -10619,11 +10619,13 @@ class _MeasCard(QFrame):
         self._start_btn.clicked.connect(self._on_start_stop)
         # 평균 참여 토글 — 카드가 라이브 평균 계산에 포함되는지 선택 (기본 OFF)
         self.in_average = False
-        self._avg_chk = QPushButton('avg'); self._avg_chk.setCheckable(True)
+        self._avg_chk = QPushButton(); self._avg_chk.setCheckable(True)
         self._avg_chk.setChecked(False); self._avg_chk.setFocusPolicy(Qt.NoFocus)
         self._avg_chk.setCursor(Qt.PointingHandCursor)
         self._avg_chk.setToolTip(_tx('Include this source in the live average'))
-        self._avg_chk.setStyleSheet(self._avg_chk_ss())
+        self._avg_chk.setFixedSize(22, 22); self._avg_chk.setIconSize(QSize(16, 16))
+        self._avg_chk.setStyleSheet('QPushButton{border:none;background:transparent;padding:0;}')
+        self._update_avg_chk_icon()
         self._avg_chk.toggled.connect(self._on_avg_include)
         hdr.addWidget(self._vis_chk); hdr.addWidget(self._start_dot); hdr.addWidget(num_lbl)
         hdr.addWidget(self._avg_chk)
@@ -10643,17 +10645,14 @@ class _MeasCard(QFrame):
         mr.addWidget(self._ml); mr.addWidget(self._m_bar, 1)
         self._lay.addLayout(mr)
 
-    def _avg_chk_ss(self):
-        acc = T('accent'); dim = T('text_dim')
-        _a = QColor(acc); _tint = f'rgba({_a.red()},{_a.green()},{_a.blue()},0.14)'
-        return (f'QPushButton{{font-size:{FS_SM}px;border:1px solid {T("border")};'
-                f'border-radius:5px;padding:1px 6px;background:transparent;color:{dim};}}'
-                f'QPushButton:checked{{border-color:{acc};color:{acc};'
-                f'background:{_tint};}}')
+    def _update_avg_chk_icon(self):
+        # 평균 포함=카드색 Σ, 제외=흐린 Σ
+        col = self._color if self._avg_chk.isChecked() else T('text_dim')
+        self._avg_chk.setIcon(QIcon(_icon_pm('sigma', 16, col)))
 
     def _on_avg_include(self, on):
         self.in_average = bool(on)
-        self._avg_chk.setStyleSheet(self._avg_chk_ss())
+        self._update_avg_chk_icon()
         self.avg_include_toggled.emit(self._card_id, self.in_average)
 
     def _del_btn_ss(self):
@@ -10698,7 +10697,7 @@ class _MeasCard(QFrame):
             _ss = self._cb_style(); self._meas_cb.setStyleSheet(_ss); self._meas_ch_cb.setStyleSheet(_ss)
         if hasattr(self, '_delay_spin'): self._delay_spin.setStyleSheet(self._delay_spin_ss())
         if self._auto_btn is not None: self._auto_btn.setStyleSheet(self._auto_btn_ss())
-        if hasattr(self, '_avg_chk'): self._avg_chk.setStyleSheet(self._avg_chk_ss())
+        if hasattr(self, '_avg_chk'): self._update_avg_chk_icon()
 
     def add_device_row(self, meas_cb, meas_ch_cb):
         """Meas 장치 선택 드롭다운 + 딜레이 행을 카드 내부로 임베드."""
@@ -13296,10 +13295,9 @@ class TransferFunctionWindow(QWidget):
         self._avg_card_chk.setFocusPolicy(Qt.NoFocus)
         self._avg_card_chk.setToolTip('평균 곡선 표시 / 숨김')
         self._avg_card_chk.toggled.connect(self._on_avg_show_toggle)
-        self._avg_card_sw = QLabel('■'); self._avg_card_sw.setFixedWidth(15)
         self._avg_card_name = QLabel('AVG')
         self._avg_card_cnt = QLabel('')
-        _ac.addWidget(self._avg_card_chk); _ac.addWidget(self._avg_card_sw)
+        _ac.addWidget(self._avg_card_chk)
         _ac.addWidget(self._avg_card_name); _ac.addWidget(self._avg_card_cnt); _ac.addStretch()
         self._avg_card.hide()
         self._avg_card.setCursor(Qt.PointingHandCursor)
@@ -13709,7 +13707,6 @@ class TransferFunctionWindow(QWidget):
         col = self._avg_curve_color()
         self._avg_card.setStyleSheet(
             f'QFrame#measCard{{border:1px solid {_bd};border-radius:10px;background:{_bg};padding:2px;}}')
-        self._avg_card_sw.setStyleSheet(f'color:{col};font-size:15px;background:transparent;')
         self._avg_card_name.setStyleSheet(
             f'color:{T("text")};background:transparent;font-size:{FS_BODY}px;font-weight:bold;')
         self._avg_card_cnt.setStyleSheet(
@@ -13739,11 +13736,6 @@ class TransferFunctionWindow(QWidget):
         while lay.count():
             it = lay.takeAt(0); wdg = it.widget()
             if wdg is not None: wdg.setParent(None)
-        acc = T('accent')
-        chk_ss = (f'QCheckBox::indicator{{width:13px;height:13px;border:1.5px solid {acc};'
-                  f'border-radius:3px;background:transparent;}}'
-                  f'QCheckBox::indicator:checked{{background:{acc};image:none;}}'
-                  f'QCheckBox{{spacing:0px;}}')
         entries = []   # (card, num, dev, ch)
         if getattr(self, '_level_cards', None):
             pc = self._level_cards[0]
@@ -13763,6 +13755,11 @@ class TransferFunctionWindow(QWidget):
             hint.setStyleSheet(f'color:{T("text_dim")};background:transparent;font-size:{FS_SM}px;')
             lay.addWidget(hint); return
         for card, num, dev, ch in entries:
+            col = getattr(card, '_color', T('accent'))   # 체크박스 = 마이크 카드 색
+            chk_ss = (f'QCheckBox::indicator{{width:13px;height:13px;border:1.5px solid {col};'
+                      f'border-radius:3px;background:transparent;}}'
+                      f'QCheckBox::indicator:checked{{background:{col};image:none;}}'
+                      f'QCheckBox{{spacing:0px;}}')
             row = QWidget(); rl = QHBoxLayout(row)
             rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(8)
             cb = QCheckBox(); cb.setChecked(bool(getattr(card, 'in_average', False)))
@@ -16688,7 +16685,7 @@ class TransferFunctionWindow(QWidget):
                 _hl.setStyleSheet(f'color:{T("text")};background:transparent;')
         for c in (self._level_cards + [p.get('card') for p in getattr(self, '_extra_pairs', []) if p.get('card')]):
             if hasattr(c, '_avg_chk'):
-                c._avg_chk.setStyleSheet(c._avg_chk_ss())
+                c._update_avg_chk_icon()
 
     def _update_sig_type_label(self):
         """타입 드롭다운 셀의 아이콘+이름을 현재 선택된 신호 타입으로 갱신."""
