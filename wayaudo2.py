@@ -12837,8 +12837,7 @@ class TransferFunctionWindow(QWidget):
         # 라이브 멀티마이크 평균 상태
         self._avg_on = False
         self._avg_mode = 'mag'      # 'mag'(파워RMS) | 'complex'(벡터)
-        self._avg_only = False      # True면 개별 곡선 숨기고 AVG만
-        self._avg_align = True      # 복소 모드 딜레이 자동정렬
+        self._avg_align = True      # 복소 모드 딜레이 자동정렬(코어용, UI 미노출)
         self._avg_show = True       # AVG 카드 ✓ = 평균 곡선 표시/숨김
         self._last_avg_diag = None  # tf_avg_render 로그 스팸 방지용 마지막 상태 시그니처
         self._extra_pairs = []        # Smaart 방식: 추가 Ref+Meas 쌍 목록
@@ -13161,17 +13160,8 @@ class TransferFunctionWindow(QWidget):
         pop.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
         avg_l = QVBoxLayout(pop); avg_l.setContentsMargins(12, 10, 12, 12); avg_l.setSpacing(8)
         avg_l.addWidget(_n2_group_header('AVERAGE'))
-        row1 = QHBoxLayout(); row1.setSpacing(8)
-        self._avg_master_btn = _N2Toggle(text='AVG')
-        self._avg_master_btn.setChecked(False)
-        self._avg_master_btn.toggled.connect(self._on_avg_master)
-        self._avg_only_btn = _N2Toggle(text='평균만')
-        self._avg_only_btn.toggled.connect(self._on_avg_only)
-        row1.addWidget(self._avg_master_btn); row1.addWidget(self._avg_only_btn); row1.addStretch()
-        avg_l.addLayout(row1)
-        # 마이크 체크리스트 (팝업 열 때 현재 카드로 재구성; 카드 avg 토글과 동기)
-        avg_l.addWidget(hsep())
-        _mhdr = QLabel('평균에 포함')
+        # 마이크 체크리스트만 (Σ 버튼이 on/off, 여기선 평균 대상 선택; 열 때 현재 카드로 재구성)
+        _mhdr = QLabel('평균에 포함할 마이크')
         _mhdr.setStyleSheet(f'color:{T("text_dim")};background:transparent;font-size:{FS_SM}px;letter-spacing:0.5px;')
         avg_l.addWidget(_mhdr)
         self._avg_mic_box = QWidget()
@@ -13312,6 +13302,9 @@ class TransferFunctionWindow(QWidget):
         _ac.addWidget(self._avg_card_chk); _ac.addWidget(self._avg_card_sw)
         _ac.addWidget(self._avg_card_name); _ac.addWidget(self._avg_card_cnt); _ac.addStretch()
         self._avg_card.hide()
+        self._avg_card.setCursor(Qt.PointingHandCursor)
+        self._avg_card.setToolTip('클릭: 평균 마이크 선택')
+        self._avg_card.mousePressEvent = lambda e: self._open_avg_popup()   # 카드 클릭 → 마이크 선택 팝업
         self._style_avg_card()
         mpl.addWidget(self._avg_card)
         self.sig_out_ch_cb.currentIndexChanged.connect(self._sig_out_ch_changed)
@@ -13417,9 +13410,9 @@ class TransferFunctionWindow(QWidget):
         self.auralize_btn.clicked.connect(self._open_auralize)
         tl.addWidget(self.auralize_btn)
         # 라이브 멀티마이크 평균 — 클릭 시 팝업(크기/복소·평균만·딜레이정렬). LED=on/off
-        self._avg_tb_btn = _N2IconBtn('sigma'); self._avg_tb_btn.setFixedHeight(_H)
+        self._avg_tb_btn = _N2IconBtn('sigma', checkable=True); self._avg_tb_btn.setFixedHeight(_H)
         self._avg_tb_btn.setToolTip(_tx('Live multi-mic average — combine running mics into one averaged curve'))
-        self._avg_tb_btn.clicked.connect(self._open_avg_popup)
+        self._avg_tb_btn.toggled.connect(self._on_avg_tb_toggled)
         tl.addWidget(self._avg_tb_btn)
         tl.addStretch()
         # 별도 창 팝아웃 토글 (멀티모니터) — 클릭 연결은 MainWindow가 함
@@ -13698,12 +13691,15 @@ class TransferFunctionWindow(QWidget):
         if sig_was_playing and not getattr(self, '_restoring_devices', False):
             self._start_sig_gen()
 
-    def _on_avg_master(self, on):
+    def _on_avg_tb_toggled(self, on):
+        """툴바 Σ = 평균 on/off. 켜면 즉시 시작 + AVG 카드 등장 + 마이크 선택 팝업 표시."""
         self._avg_on = bool(on)
-        if hasattr(self, '_avg_tb_btn'):
-            self._avg_tb_btn.setChecked(self._avg_on)   # 툴바 Σ 아이콘 = on/off 표시
         self._update_avg_card()
         _diag('tf_avg_toggle', on=self._avg_on, mode=self._avg_mode)
+        if self._avg_on:
+            self._open_avg_popup()
+        elif hasattr(self, '_avg_popup'):
+            self._avg_popup.hide()
         self._request_avg_render()
 
     def _style_avg_card(self):
@@ -13802,9 +13798,6 @@ class TransferFunctionWindow(QWidget):
             pass
         pop.move(gp); pop.show(); pop.raise_()
 
-    def _on_avg_only(self, on):
-        self._avg_only = bool(on); self._request_avg_render()
-
     def _request_avg_render(self):
         # 다음 렌더 틱에서 Task5 훅이 반영. 즉시 캔버스 갱신도 트리거.
         for cvs in (getattr(self, 'mag_cvs', None), getattr(self, 'phase_cvs', None),
@@ -13858,7 +13851,7 @@ class TransferFunctionWindow(QWidget):
         return {
             'engine': self.eng_cb.currentIndex(), 'fft': self.fft_cb.currentIndex(),
             'response': self.avg_cb.currentIndex(), 'smooth': self.sm_cb.currentIndex(),
-            'tf_avg_on': self._avg_on, 'tf_avg_only': self._avg_only,
+            'tf_avg_on': self._avg_on,
             'tf_avg_primary': (self._level_cards[0].in_average if getattr(self, '_level_cards', None) else False),
             'ir': self.ir_cb.currentIndex(), 'phase': self.phase_cb.currentIndex(),
             'units': self.unit_cb.currentIndex(),
@@ -13889,12 +13882,11 @@ class TransferFunctionWindow(QWidget):
         _idx('engine', self.eng_cb); _idx('fft', self.fft_cb); _idx('response', self.avg_cb)
         _idx('smooth', self.sm_cb); _idx('ir', self.ir_cb); _idx('phase', self.phase_cb); _idx('units', self.unit_cb)
         self._avg_on = bool(d.get('tf_avg_on', False))
-        self._avg_only = bool(d.get('tf_avg_only', False))
-        if hasattr(self, '_avg_master_btn'):
-            self._avg_master_btn.setChecked(self._avg_on)
-            self._avg_only_btn.setChecked(self._avg_only)
-            if self._level_cards and hasattr(self._level_cards[0], '_avg_chk'):
-                self._level_cards[0]._avg_chk.setChecked(bool(d.get('tf_avg_primary', False)))
+        if hasattr(self, '_avg_tb_btn'):
+            self._avg_tb_btn.setChecked(self._avg_on)
+        self._update_avg_card()
+        if self._level_cards and hasattr(self._level_cards[0], '_avg_chk'):
+            self._level_cards[0]._avg_chk.setChecked(bool(d.get('tf_avg_primary', False)))
         try:
             g = d.get('gen', 'none')
             btnmap = {'pink': self.sig_pink_btn, 'white': self.sig_white_btn, 'sine': self.sig_sine_btn,
@@ -15292,7 +15284,6 @@ class TransferFunctionWindow(QWidget):
         if not getattr(self, '_avg_on', False):
             self.mag_cvs.clear_tf_average(); self.phase_cvs.clear_tf_average()
             self.ir_cvs.clear_tf_average()
-            self._apply_avg_only(False)
             self._last_avg_diag = None
             return
         H_list, g_list, d_list = [], [], []
@@ -15321,10 +15312,10 @@ class TransferFunctionWindow(QWidget):
             H_list.append(H_disp); g_list.append(g); d_list.append(pd)
         r = _multimic_average(H_list, g_list, d_list, freqs, self.sample_rate,
                               self.smooth_bpo, mode=self._avg_mode, align=self._avg_align)
-        _sig = (self._avg_mode, (r['n'] if r else 0), self._avg_align, self._avg_only)
+        _sig = ((r['n'] if r else 0), self._avg_show)
         if getattr(self, '_last_avg_diag', None) != _sig:
             _diag('tf_avg_render', on=True, mode=self._avg_mode,
-                  n=(r['n'] if r else 0), aligned=self._avg_align, only=self._avg_only)
+                  n=(r['n'] if r else 0), show=self._avg_show)
             self._last_avg_diag = _sig
         _n = r['n'] if r else 0
         if hasattr(self, '_avg_card_cnt'):   # AVG 카드 (n) 갱신
@@ -15334,7 +15325,7 @@ class TransferFunctionWindow(QWidget):
         # 유효<2(None)이거나 AVG 카드 ✓ 꺼짐 → 곡선 숨김(카드는 유지)
         if r is None or not getattr(self, '_avg_show', True):
             self.mag_cvs.clear_tf_average(); self.phase_cvs.clear_tf_average()
-            self.ir_cvs.clear_tf_average(); self._apply_avg_only(False)
+            self.ir_cvs.clear_tf_average()
             return
         col = self._avg_curve_color()
         self.mag_cvs.set_tf_average(col, r['f'], r['mag'], coh=r['coh'])
@@ -15344,15 +15335,6 @@ class TransferFunctionWindow(QWidget):
                 self.ir_cvs.set_tf_average(col, t_ms, r['h_ir'])
         else:
             self.phase_cvs.clear_tf_average(); self.ir_cvs.clear_tf_average()
-        self._apply_avg_only(self._avg_only)
-
-    def _apply_avg_only(self, only):
-        """'평균만' ON → 그 캔버스에 AVG 오버레이가 있을 때만 개별 라이브 곡선 숨김.
-        (크기 모드는 phase/IR에 AVG가 없으므로 그 둘은 개별을 계속 보여줌 → 빈 화면 방지.)"""
-        for cvs in (self.mag_cvs, self.phase_cvs, self.ir_cvs):
-            want = bool(only) and (getattr(cvs, '_tf_avg', None) is not None)
-            if getattr(cvs, '_hide_individual', False) != want:
-                cvs._hide_individual = want; cvs.update()
 
     # ── 딜레이 자동 탐지 (2단계: 2초 측정 후 계산) ──────────────────────
     def _on_sweep_captured(self, ref_arr, meas_arr, start_pos=0):

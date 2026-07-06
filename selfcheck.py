@@ -715,20 +715,17 @@ def _tf_avg_state_roundtrip():
         tf = w.TransferFunctionWindow(None, settings={}, embedded=True)
     except Exception as e:
         return f'SKIP (TF 창 offscreen 인스턴스화 불가: {type(e).__name__})'
-    tf._avg_master_btn.setChecked(True); tf._avg_on = True
-    tf._avg_only_btn.setChecked(True); tf._avg_only = True
+    tf._avg_on = True; tf._avg_tb_btn.setChecked(True)   # Σ 툴바 토글 = 평균 on/off
     tf._tf_add_pair()
     tf._extra_pairs[0]['card']._avg_chk.setChecked(True)
     st = tf.get_state()
-    assert st['tf_avg_on'] is True and st['tf_avg_only'] is True, st
+    assert st['tf_avg_on'] is True, st
     assert st['extra_pairs'][0]['in_average'] is True, st['extra_pairs']
     # 위젯/상태를 기본값으로 되돌린 뒤 저장된 st 로 복원 — 필드+위젯 동기화 확인
-    tf._avg_master_btn.setChecked(False); tf._avg_on = False
-    tf._avg_only_btn.setChecked(False); tf._avg_only = False
+    tf._avg_on = False; tf._avg_tb_btn.setChecked(False)
     tf.apply_state(st)
-    assert tf._avg_on is True and tf._avg_only is True, (tf._avg_on, tf._avg_only)
-    assert tf._avg_master_btn.isChecked() is True, 'master 토글 위젯 미동기화'
-    assert tf._avg_only_btn.isChecked() is True, '평균만 토글 위젯 미동기화'
+    assert tf._avg_on is True, (tf._avg_on,)
+    assert tf._avg_tb_btn.isChecked() is True, 'Σ 토글 위젯 미동기화'
     # 추가카드 in_average 복원 — 새 pair 로 재현(0개→apply_state 로 재생성)
     tf.apply_state({'extra_pairs': []})
     assert len(tf._extra_pairs) == 0
