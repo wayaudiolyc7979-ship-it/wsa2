@@ -1,6 +1,6 @@
 11#!/usr/bin/env python3
 # ═══════════════════════════════════════════════════
-#  SPECTRA — Spectrum Analyzer  (by WAYAUDIO)  v1.8
+#  SPECTRA — Spectrum Analyzer  (by WAYAUDIO)  v1.9
 #  ✅ FFT 버벅임 수정 (포인트 다운샘플링)
 #  ✅ 마이크 캘리브레이션 (94/114dB @ 1kHz)
 #  ✅ dBA / dBC 실시간 레벨
@@ -161,7 +161,7 @@ import math as _math
 
 # ── 앱 버전 (단일 소스) ── 버전 올릴 땐 `bash bump_version.sh 1.6` 한 줄로 전부 갱신.
 #   (이 상수 + 상단 주석 + WSA2.spec/build_intel.sh/version_info.txt 까지 스크립트가 처리)
-_APP_VERSION = '1.8'
+_APP_VERSION = '1.9'
 
 # ═══════════════════════════════════════════════════════════════════
 #  라이선스 관리
@@ -296,7 +296,7 @@ class LicenseDialog(QDialog):
         lay = QVBoxLayout(self); lay.setSpacing(14); lay.setContentsMargins(24, 20, 24, 20)
 
         title = QLabel('SPECTRA')
-        title.setStyleSheet('font-size:17px;font-weight:bold;color:#4E7DF0;letter-spacing:4px;')
+        title.setStyleSheet(f'font-family:"{FONT_FAMILY}";font-size:17px;font-weight:bold;color:#4E7DF0;letter-spacing:4px;')
         lay.addWidget(title)
 
         # 머신 ID 표시
@@ -982,11 +982,11 @@ PAD_CTRL, PAD_SM = '2px 8px', '1px 4px'
 if _pl.system() == 'Windows':
     FONT_FAMILY = 'Candara'    # 브랜드/UI: Optima 근사(윈도우 기본 탑재 휴머니스트, 획 강약 有)
     FONT_NUM    = 'Segoe UI'   # 숫자/값: Helvetica Neue 근사(깔끔한 그로테스크)
-    FONT_SANS   = 'Segoe UI'   # 일반 산세리프: Helvetica 근사
+    FONT_SANS   = FONT_FAMILY  # 일반 텍스트/라벨도 브랜드 폰트로 통일(숫자만 FONT_NUM)
 else:
     FONT_FAMILY = 'Optima'
     FONT_NUM    = 'Helvetica Neue'
-    FONT_SANS   = 'Helvetica'
+    FONT_SANS   = FONT_FAMILY  # 일반 텍스트/라벨도 브랜드 폰트로 통일(숫자만 FONT_NUM)
 
 def _qfont(pt, bold=False):
     f = QFont(FONT_FAMILY, pt); f.setBold(bold); return f
@@ -1326,9 +1326,11 @@ def _apply_windows_titlebar_dark(win):
 
 def _brand_logo_html(subtitle):
     """브랜드 헤더 워드마크 RichText — SPECTRA(accent) + 부제(text_dim). 테마색 반영."""
-    return (f'<span style="font-size:14px;font-weight:700;color:{T("accent")};'
+    # ⚠️ font-family는 <span>에선 무시되고 <div>(블록)에서만 상속됨(Qt 리치텍스트 특성) → div로 감싼다.
+    return (f'<div style="font-family:\'{FONT_FAMILY}\';">'
+            f'<span style="font-size:14px;font-weight:700;color:{T("accent")};'
             f'letter-spacing:3px;">SPECTRA</span>'
-            f'&nbsp;&nbsp;<span style="font-size:11px;color:{T("text_dim")};">{subtitle}</span>')
+            f'&nbsp;&nbsp;<span style="font-size:11px;color:{T("text_dim")};">{subtitle}</span></div>')
 
 
 class _CollapseBtn(QPushButton):
@@ -1391,6 +1393,24 @@ def _restyle_brand_header(bar):
             bar._logo.setText(_brand_logo_html(getattr(bar, '_subtitle', '')))
     except Exception:
         pass
+
+
+def _dialog_brand_header(subtitle, mark_h=20):
+    """다이얼로그 상단 브랜드 헤더(가운데 정렬) — 그라디언트 웨이브 마크 + SPECTRA 워드마크
+    + 부제, 하단 시그니처 그라디언트 언더라인. 팝아웃 헤더와 톤 통일(라이브 렌더 아님)."""
+    box = QWidget(); box.setObjectName('dlgBrandHdr')
+    v = QVBoxLayout(box); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(0)
+    bar = QWidget(); bar.setObjectName('dlgBrandBar'); bar.setFixedHeight(46)
+    bar.setStyleSheet(f'#dlgBrandBar{{background:{T("panel")};}}')
+    h = QHBoxLayout(bar); h.setContentsMargins(16, 0, 16, 0); h.setSpacing(9)
+    mark = QLabel(); mark.setPixmap(_spectra_mark(mark_h)); mark.setStyleSheet('background:transparent;')
+    logo = QLabel(); logo.setTextFormat(Qt.RichText); logo.setStyleSheet('background:transparent;')
+    logo.setText(_brand_logo_html(subtitle))
+    h.addStretch(1); h.addWidget(mark); h.addWidget(logo); h.addStretch(1)
+    line = QFrame(); line.setObjectName('dlgBrandLine'); line.setFixedHeight(2)
+    line.setStyleSheet(f'#dlgBrandLine{{background:{_SPECTRA_GRAD_QSS};border:none;}}')
+    v.addWidget(bar); v.addWidget(line)
+    return box
 
 
 def _set_float_above_fullscreen(win):
@@ -4513,7 +4533,11 @@ class CalibDialog(QDialog):
         self._rows = {}                       # ch -> {'btn':..., 'off':...}
         self._measuring = False
         self._meas_samples = []
-        layout = QVBoxLayout(self); layout.setSpacing(12); layout.setContentsMargins(18,16,18,16)
+        # ── 최상위: 브랜드 헤더(풀폭) + 본문 컨테이너. `layout`은 본문 컨테이너 레이아웃으로 유지.
+        _outer = QVBoxLayout(self); _outer.setSpacing(0); _outer.setContentsMargins(0, 0, 0, 0)
+        _outer.addWidget(_dialog_brand_header(_tx('Mic Calibration')))
+        layout = QVBoxLayout(); layout.setSpacing(12); layout.setContentsMargins(18, 16, 18, 16)
+        _outer.addLayout(layout)
 
         # ── 순서 안내
         steps = QLabel(
@@ -5377,7 +5401,10 @@ class SplAlarmConfigDialog(QDialog):
                     f"QComboBox QAbstractItemView{{background:{T('bg2')};color:{T('text')};"
                     f"border:1px solid {T('accent')};selection-background-color:rgba(78,125,240,80);}}")
 
-        root = QVBoxLayout(self); root.setSpacing(12); root.setContentsMargins(18, 16, 18, 16)
+        _outer = QVBoxLayout(self); _outer.setSpacing(0); _outer.setContentsMargins(0, 0, 0, 0)
+        _outer.addWidget(_dialog_brand_header(_tx('SPL Alarm Settings')))
+        root = QVBoxLayout(); root.setSpacing(12); root.setContentsMargins(18, 16, 18, 16)
+        _outer.addLayout(root)
 
         mrow = QHBoxLayout(); mrow.addStretch(); mrow.addWidget(QLabel('Metric:'))
         self._metric_cb = QComboBox(); self._metric_cb.setStyleSheet(cstyle()); self._metric_cb.setMinimumWidth(150)
@@ -5644,7 +5671,7 @@ class ShowModeWindow(QWidget):
         p.setFont(bf); p.setPen(QColor('#C9CDD7'))
         p.drawText(m, int(m * 0.6), W, int(H * 0.06), Qt.AlignLeft | Qt.AlignVCenter, 'SPECTRA')
         clk = time.strftime('%H:%M')
-        cf = QFont(FONT_SANS); cf.setPixelSize(max(14, int(H * 0.028)))
+        cf = QFont(FONT_NUM); cf.setPixelSize(max(14, int(H * 0.028)))   # 시계=숫자 폰트 유지
         p.setFont(cf); p.setPen(QColor('#6A7180'))
         p.drawText(0, int(m * 0.6), W - m, int(H * 0.06), Qt.AlignRight | Qt.AlignVCenter, clk)
         # ── 본문 영역 ──
@@ -6097,12 +6124,10 @@ class SplLayoutDialog(QDialog):
         self._ids = [None] + list(metrics.keys())   # 콤보 인덱스 ↔ 지표 id
         self._src_ids = [s[0] for s in (sources or [])]   # 소스 콤보 인덱스 ↔ 카드 id
 
-        root = QVBoxLayout(self); root.setSpacing(12); root.setContentsMargins(18, 16, 18, 16)
-
-        info = QLabel(_tx('Set rows and columns, then choose a metric for each cell.\nLeave cells empty with "— None".'))
-        info.setStyleSheet(f'color:{T("text_dim")};font-size:11px;'
-                           f'background:{T("panel")};border-radius:8px;padding:10px;')
-        info.setWordWrap(True); root.addWidget(info)
+        _outer = QVBoxLayout(self); _outer.setSpacing(0); _outer.setContentsMargins(0, 0, 0, 0)
+        _outer.addWidget(_dialog_brand_header(_tx('SPL Settings')))
+        root = QVBoxLayout(); root.setSpacing(12); root.setContentsMargins(18, 16, 18, 16)
+        _outer.addLayout(root)
 
         # ── 측정 소스(어느 입력 카드를 SPL 미터로 측정할지)
         self._src_cb = None
@@ -6208,12 +6233,14 @@ class SplLayoutDialog(QDialog):
 #  Custom floating dropdown popup
 # ───────────────────────────────────────────
 def _global_popup_qss():
-    """앱 전역(모든 top-level 창) QMenu·QToolTip 다크 스타일. Fusion 기본 밝은색으로
-    뜨던 우클릭 컨텍스트 메뉴/툴팁을 테마색으로 통일 — 팝아웃·다이얼로그까지 커버.
-    QMenu/QToolTip 셀렉터만 지정해 다른 위젯엔 영향 없음."""
+    """앱 전역(모든 top-level 창) 스타일. ① 브랜드 폰트를 전 위젯에 강제 —
+    QSS에 font-size만 있고 font-family가 없는 위젯은 Qt가 기본 sans(Helvetica)로 리셋하는데,
+    `*{font-family}`로 브랜드 폰트를 깔아 라벨 전체를 통일한다(측정 숫자는 QPainter로 FONT_NUM을
+    직접 setFont하므로 QSS 영향 없음 → 그대로 유지). ② QMenu·QToolTip 다크 스타일 통일."""
     a = QColor(T('accent')); ar, ag, ab = a.red(), a.green(), a.blue()
     bg2, txt, dim, bd = T('bg2'), T('text'), T('text_dim'), T('border')
     return (
+        f'*{{font-family:"{FONT_FAMILY}";}}'
         f'QMenu{{background:{bg2};color:{txt};border:1px solid {bd};border-radius:8px;padding:4px;}}'
         f'QMenu::item{{background:transparent;color:{txt};padding:5px 20px 5px 14px;border-radius:5px;}}'
         f'QMenu::item:selected{{background:rgba({ar},{ag},{ab},55);color:{txt};}}'
@@ -6365,9 +6392,10 @@ class DeviceCardPopup(QFrame):
         hdr_lay = QHBoxLayout(hdr_w); hdr_lay.setContentsMargins(0,2,0,2); hdr_lay.setSpacing(4)
         hdr_lay.addStretch(1)
         hdr_title = QLabel(
+            f'<div style="font-family:\'{FONT_FAMILY}\';">'
             f'<span style="font-size:12px;font-weight:700;'
             f'color:{T("accent")};letter-spacing:2px;">AUDIO</span>'
-            f'&nbsp;<span style="font-size:10px;color:{T("text_dim")};">Input Device</span>'
+            f'&nbsp;<span style="font-size:10px;color:{T("text_dim")};">Input Device</span></div>'
         )
         hdr_title.setStyleSheet('background:transparent; border:none;')
         hdr_lay.addWidget(hdr_title)
@@ -11778,7 +11806,10 @@ class SweepConfigDialog(QDialog):
             f'border:1px solid {bd};}}'
             f'QRadioButton::indicator:checked{{background:{ac};border-color:{ac};}}'
         )
-        lay = QVBoxLayout(self); lay.setSpacing(12); lay.setContentsMargins(18, 16, 18, 16)
+        _outer = QVBoxLayout(self); _outer.setSpacing(0); _outer.setContentsMargins(0, 0, 0, 0)
+        _outer.addWidget(_grad_topline())
+        lay = QVBoxLayout(); lay.setSpacing(12); lay.setContentsMargins(18, 16, 18, 16)
+        _outer.addLayout(lay)
 
         # 제목
         title = QLabel(_tx('Sweep Configuration'))
@@ -11908,14 +11939,17 @@ class DelayFinderDialog(QDialog):
         self._tick_count = 0
         self._prog_timer = None
         self.setWindowTitle(_tx('Delay Finder')); _apply_dark_titlebar(self)
-        self.setFixedSize(460, 280)
+        self.setFixedWidth(460)   # 높이는 브랜드 헤더 포함해 콘텐츠에 맞춰 자동
         self.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
         self._build_ui()
         self._result_sig.connect(self._on_result)
         self._start_find()
 
     def _build_ui(self):
-        lay = QVBoxLayout(self); lay.setContentsMargins(16,14,16,14); lay.setSpacing(8)
+        _outer = QVBoxLayout(self); _outer.setSpacing(0); _outer.setContentsMargins(0, 0, 0, 0)
+        _outer.addWidget(_dialog_brand_header(_tx('Delay Finder')))
+        lay = QVBoxLayout(); lay.setContentsMargins(16,14,16,14); lay.setSpacing(8)
+        _outer.addLayout(lay)
 
         # Progress bar
         self._progress = QProgressBar()
@@ -12117,7 +12151,10 @@ class AllDelayFinderDialog(QDialog):
 
     def _build_ui(self):
         import math as _math2
-        lay = QVBoxLayout(self); lay.setContentsMargins(16,14,16,14); lay.setSpacing(8)
+        _outer = QVBoxLayout(self); _outer.setSpacing(0); _outer.setContentsMargins(0, 0, 0, 0)
+        _outer.addWidget(_dialog_brand_header(_tx('Delay Finder')))
+        lay = QVBoxLayout(); lay.setContentsMargins(16,14,16,14); lay.setSpacing(8)
+        _outer.addLayout(lay)
 
         self._progress = QProgressBar()
         self._progress.setRange(0,100); self._progress.setValue(0)
@@ -12407,10 +12444,10 @@ class ShortcutsDialog(QDialog):
         self.setWindowTitle(_tx('Keyboard Shortcuts')); _apply_dark_titlebar(self)
         self.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
         self.setMinimumWidth(460)
-        root = QVBoxLayout(self); root.setContentsMargins(24, 18, 24, 18); root.setSpacing(4)
-        title = QLabel(_tx('Keyboard Shortcuts'))
-        title.setStyleSheet(f'color:{T("text")};font-size:16px;font-weight:bold;')
-        root.addWidget(title)
+        _outer = QVBoxLayout(self); _outer.setSpacing(0); _outer.setContentsMargins(0, 0, 0, 0)
+        _outer.addWidget(_dialog_brand_header(_tx('Keyboard Shortcuts')))
+        root = QVBoxLayout(); root.setContentsMargins(24, 18, 24, 18); root.setSpacing(4)
+        _outer.addLayout(root)
         for gname, items in self._GROUPS:
             hdr = QLabel(_tx(gname))
             hdr.setStyleSheet(f'color:{T("accent")};font-size:12px;font-weight:bold;'
@@ -19881,7 +19918,7 @@ class MainWindow(QMainWindow):
             self._rebuild_ch_cards()
         self._apply_tab_styles()
         self.logo_lbl.setStyleSheet(
-            f'font-size:17px;font-weight:700;letter-spacing:5px;color:{text};background:transparent;')
+            f'font-family:"{FONT_FAMILY}";font-size:17px;font-weight:700;letter-spacing:5px;color:{text};background:transparent;')
         self.status_lbl.setStyleSheet(
             f'color:{text_dim};font-size:11px;letter-spacing:0.5px;')
         self.mic_st.setStyleSheet(f'color:{text_dim};font-size:10px;')

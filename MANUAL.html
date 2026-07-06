@@ -221,9 +221,37 @@
   <h2 id="common"><span class="n">4</span>공통 요소 — 메뉴바 · 트랜스포트 · 우측 패널</h2>
   <p class="lead">어느 탭에서나 똑같이 쓰는 부분이에요. 한 번만 익히면 됩니다.</p>
 
+  <h3>앱 상단 바 — 상태 · 테마 · 언어 · 프리셋 · 보정</h3>
+  <figure class="shot">
+    <div class="frame">
+      <img src="docs/img/topbar.png" alt="SPECTRA 앱 상단 바 (헤더 + 탭)">
+      <span class="cz" style="left:49%;top:82%">1</span>
+      <span class="cz" style="left:70%;top:33%">2</span>
+      <span class="cz" style="left:75.5%;top:33%">3</span>
+      <span class="cz" style="left:79%;top:33%">4</span>
+      <span class="cz" style="left:83%;top:33%">5</span>
+      <span class="cz" style="left:90%;top:33%">6</span>
+      <span class="cz" style="left:94.5%;top:33%">7</span>
+      <span class="cz" style="left:98.5%;top:82%">8</span>
+    </div>
+    <figcaption>▲ <b>앱 상단 바</b> — 가운데 <b>SPECTRA</b> 로고 오른쪽으로 상태·설정 아이콘, 아래 줄은 <b>탭 전환</b>.</figcaption>
+  </figure>
+  <table class="legend">
+    <tr><th>#</th><th>요소</th><th>무엇</th></tr>
+    <tr><td>1</td><td class="lbl">탭 전환</td><td><b>Spectrum · Transfer Function · Stereo Loudness</b> 세 탭을 여기서 오가요. 탭을 <b>더블클릭</b>하면 그 탭이 <b>최대화</b>됩니다.</td></tr>
+    <tr><td>2</td><td class="lbl">● Running</td><td>측정이 <b>동작 중</b>인지 표시(초록 = 실행 중).</td></tr>
+    <tr><td>3</td><td class="lbl">☀️ Light / 🌙 Dark</td><td>밝은/어두운 화면 <b>테마 전환</b>.</td></tr>
+    <tr><td>4</td><td class="lbl">🌐 언어</td><td><b>한국어 / English</b> 전환(적용하면 재시작돼요).</td></tr>
+    <tr><td>5</td><td class="lbl">— Preset —</td><td>세 탭 설정을 통째로 저장해 둔 <b>프리셋</b> 고르기(아래 참고).</td></tr>
+    <tr><td>6</td><td class="lbl">💾 / 🗑️</td><td>현재 설정을 <b>프리셋으로 저장</b> / 선택한 프리셋 <b>삭제</b>.</td></tr>
+    <tr><td>7</td><td class="lbl">Calibration</td><td>마이크 <b>보정</b> 창 열기(9번).</td></tr>
+    <tr><td>8</td><td class="lbl">∧ 툴바 접기</td><td>그 탭의 <b>툴바를 접었다 펴기</b>.</td></tr>
+  </table>
+
+  <h3>메뉴바 (맥 최상단 View · Help)</h3>
   <figure class="shot">
     <div class="ph"><span><b>📷 촬영 예정 — <code>docs/img/menubar.png</code></b>View·Help 메뉴를 펼친 모습 (맥 화면 최상단 메뉴바)</span></div>
-    <figcaption>▲ <b>메뉴바</b> — View(보기)·Help(도움말) 메뉴를 펼친 모습.</figcaption>
+    <figcaption>▲ <b>메뉴바</b> — 맥 화면 <b>최상단</b>의 View(보기)·Help(도움말) 메뉴를 펼친 모습. (위 <b>앱 상단 바</b>와는 별개예요)</figcaption>
   </figure>
 
   <h3>View 메뉴 (보기)</h3>
@@ -298,9 +326,8 @@
   <h2 id="spectrum"><span class="n">6</span>Spectrum 탭 — 실시간 주파수 분석</h2>
   <p class="lead">지금 들어오는 소리에 어떤 음들이 얼마나 들어있는지 실시간으로 봅니다.</p>
   <figure class="shot">
-    <!-- TODO v1.8: re-shoot, UI changed (사이드바 섹션 헤더 세로 바·LEVEL 값 색·dB 버튼) -->
     <div class="frame">
-      <img src="docs/img/spectrum.png" alt="Spectrum 탭 전체화면">
+      <img src="docs/img/spectrum.png" alt="Spectrum 탭 전체화면 (v1.9)">
       <!-- 번호 뱃지: 실제 스크린샷 입수 후 left/top(%) 보정. 툴바 왼→오 순서 -->
       <span class="cz" style="left:6%;top:5.5%">1</span>
       <span class="cz" style="left:20%;top:5.5%">2</span>
@@ -346,15 +373,17 @@
   <div class="tip"><b>쉽게 말하면</b> — 한쪽으로 <b>기준 신호를 내보내고</b>, 다른 쪽 마이크로 <b>실제로 들리는 소리를 받아서</b>, 둘을 비교합니다. "원본 대비 어디가 커지고/작아지고/늦게 도착했나"를 그래프로 보여줘요. 스피커 EQ 잡거나 방 음향 진단할 때 핵심 도구예요.</div>
   <figure class="shot">
     <div class="frame">
-      <img src="docs/img/tf.png" alt="Transfer Function 탭 전체화면 (v1.8)">
-      <span class="cz" style="left:8%;top:12.3%">1</span>
-      <span class="cz" style="left:14%;top:12.3%">2</span>
-      <span class="cz" style="left:25%;top:12.3%">3</span>
-      <span class="cz" style="left:55%;top:12.3%">4</span>
-      <span class="cz" style="left:62%;top:12.3%">5</span>
-      <span class="cz" style="left:88%;top:19.5%">6</span>
+      <img src="docs/img/tf.png" alt="Transfer Function 탭 전체화면 (v1.9)">
+      <span class="cz" style="left:5%;top:10.4%">1</span>
+      <span class="cz" style="left:11.5%;top:10.4%">2</span>
+      <span class="cz" style="left:19.5%;top:10.4%">3</span>
+      <span class="cz" style="left:29.5%;top:10.4%">4</span>
+      <span class="cz" style="left:37%;top:10.4%">5</span>
+      <span class="cz" style="left:46.5%;top:10.4%">6</span>
+      <span class="cz" style="left:61.5%;top:10.4%">7</span>
+      <span class="cz" style="left:95.5%;top:10.4%">8</span>
     </div>
-    <figcaption>▲ <b>Transfer Function 탭</b> — <b>위 툴바</b> 버튼은 아래 표(기능별), 왼쪽에 <b>떠 있는 둥근 카드 3장</b>(IR · 위상 · 매그니튜드+코히런스), 오른쪽 신호 발생기·측정 패널. <span style="color:#FF9F0A">※ 화면 그림은 v1.9 UI로 갱신 예정.</span></figcaption>
+    <figcaption>▲ <b>Transfer Function 탭</b> — <b>위 툴바</b> 버튼은 아래 표(기능별), 왼쪽에 <b>떠 있는 둥근 카드 3장</b>(IR · 위상 · 매그니튜드+코히런스), 오른쪽 신호 발생기·측정 패널(카드 여러 장 추가 가능).</figcaption>
   </figure>
 
   <h3>툴바 버튼 — 기능별 설명 <span class="pill">v1.9 리디자인</span></h3>
@@ -362,9 +391,9 @@
   <table class="legend">
     <tr><th>#</th><th>버튼</th><th>무엇 / 언제</th></tr>
     <tr><td>1</td><td class="lbl">Engine (Single / Adaptive)</td><td><b>측정 엔진</b> 선택. <b>Single</b>=고정 FFT(가볍고 단순), <b>Adaptive</b>=주파수마다 해상도를 달리해 <b>저역까지 촘촘하게</b>(라이브 현장 튜닝 추천). 자세히는 아래 ⑤ "엔진".</td></tr>
-    <tr><td>2</td><td class="lbl">DB (Auto / 수동 고정)</td><td>세로축 dB 범위. 평소 <b>Auto</b>. 누르면 상·하한을 <b>정확한 값으로 입력해 고정</b>(예: +6 / −60), 버튼이 파란 <code>+6 / −60</code>으로 바뀌어요. 해제=대화상자 [자동] 또는 dB 눈금 더블클릭. <span class="pill">v1.9</span></td></tr>
-    <tr><td>3</td><td class="lbl">FFT</td><td>분석 크기. 클수록 저역 분해능↑·반응↓. (Adaptive에서는 자동이라 비활성)</td></tr>
-    <tr><td>4</td><td class="lbl">Response / Smooth</td><td><b>Response(반응 속도)</b> — 곡선이 얼마나 빠르게/부드럽게 반응할지. <b>Fast(0.5초)·Quick(1)·Normal(2, 기본)·Smooth(4)·Stable(8)</b>. v1.9부터 곡선이 <b>올라갈 때·내려갈 때 같은 속도</b>로 반응해요(대칭). <b>Smooth</b>=곡선 매끄럽기(1/48이 가장 미세).</td></tr>
+    <tr><td>2</td><td class="lbl">FFT</td><td>분석 크기. 클수록 저역 분해능↑·반응↓. (Adaptive에서는 자동이라 비활성)</td></tr>
+    <tr><td>3</td><td class="lbl">Response / Smooth</td><td><b>Response(반응 속도)</b> — 곡선이 얼마나 빠르게/부드럽게 반응할지. <b>Fast(0.5초)·Quick(1)·Normal(2, 기본)·Smooth(4)·Stable(8)</b>. v1.9부터 곡선이 <b>올라갈 때·내려갈 때 같은 속도</b>로 반응해요(대칭). <b>Smooth</b>=곡선 매끄럽기(1/48이 가장 미세).</td></tr>
+    <tr><td>4</td><td class="lbl">DB (Auto / 수동 고정)</td><td>세로축 dB 범위. 평소 <b>Auto</b>. 누르면 상·하한을 <b>정확한 값으로 입력해 고정</b>(예: +6 / −60), 버튼이 파란 <code>+6 / −60</code>으로 바뀌어요. 해제=대화상자 [자동] 또는 dB 눈금 더블클릭. <span class="pill">v1.9</span></td></tr>
     <tr><td>5</td><td class="lbl">IR / Units</td><td><b>IR</b>=임펄스 응답 표시 방식(Lin/ETC/Log), <b>Units</b>=딜레이 단위 <b>ms / ms·m / m</b> 전환(거리 환산, 음속 343 m/s).</td></tr>
     <tr><td>6</td><td class="lbl">Phase / △ Delta / ⧗ Stable</td><td><b>Phase</b>=위상 표시 방식, <b>△</b>=기준 캡쳐 대비 <b>차이(±dB)</b>만 보기, <b>⧗</b>=안정된 뒤 자동 캡쳐(12번).</td></tr>
     <tr><td>7</td><td class="lbl">📷 Capture · 🎧 Auralize · Σ Average</td><td><b>Capture</b>=현재 곡선 박제(<kbd>Space</kbd>), <b>🎧</b>=오라리제이션(측정 공간을 귀로 듣기), <b>Σ</b>=라이브 멀티마이크 평균 켜기(위 신기능 3종 참고). <span class="pill">v1.9</span></td></tr>
@@ -439,6 +468,12 @@
   <div class="steps">
     ① 측정 카드를 <b>2개 이상</b> 만들어 각 마이크로 <b>측정 시작</b> → ② TF 툴바의 <b>Σ 버튼</b>을 누르면 <b>바로 평균이 켜지고</b>(다시 누르면 끔) <b>마이크 선택 팝업</b>이 떠요 → ③ 팝업에서 평균에 넣을 <b>마이크를 체크</b>(각 마이크 카드 색으로 표시) → ④ <b>굵은 평균 곡선</b>이 개별 곡선들 위에 그려집니다.
   </div>
+  <figure class="shot">
+    <div class="frame">
+      <img src="docs/img/tf_average.png" alt="TF 라이브 멀티마이크 평균 — Σ 팝업과 AVG 카드 (v1.9)">
+    </div>
+    <figcaption>▲ 툴바 <b>Σ</b>를 켜면 상단에 <b>AVERAGE 마이크 선택 팝업</b>(측정 카드 색으로 표시)이 뜨고, 오른쪽 측정 패널 <b>맨 아래에 AVG 카드</b>가 나타나요. 선택한 마이크들의 <b>굵은 평균 곡선</b>이 개별 곡선 위로 그려집니다.</figcaption>
+  </figure>
   <ul>
     <li><b>Σ 버튼(툴바)</b> — 평균 켜기/끄기. 켜지면 아이콘에 파란 불이 들어와요.</li>
     <li><b>마이크 선택</b> — Σ 팝업의 체크리스트, 또는 각 측정 카드 헤더의 <b>Σ 아이콘</b>(평균에 넣으면 카드 색, 빼면 흐림). 둘은 서로 연동돼요.</li>
