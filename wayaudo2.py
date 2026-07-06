@@ -9241,10 +9241,10 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
     def clear_all_tf_extra_phase(self):
         self._tf_extra_phase.clear(); self.update()
 
-    def set_tf_average(self, color, f, ph_wrap, ph_unwr, grp):
+    def set_tf_average(self, color, f, ph_wrap, ph_unwr, grp, width=2.8):
         # grp_ms 키로 저장 — _draw_extra_phase_curve()가 참조하는 이름과 일치시켜 재사용
         self._tf_avg = {'color': color, 'f': f, 'ph_wrap': ph_wrap,
-                        'ph_unwr': ph_unwr, 'grp_ms': grp}; self.update()
+                        'ph_unwr': ph_unwr, 'grp_ms': grp, 'w': width}; self.update()
 
     def clear_tf_average(self):
         if getattr(self, '_tf_avg', None) is not None:
@@ -9641,7 +9641,7 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
                 self._draw_extra_phase_curve(p, W, H, self._tf_extra_phase[fk], width=3.4)
         # 멀티마이크 평균(AVG) — 항상 맨 위(front 재드로우 이후) 굵은 실선 오버레이 (extra 위상 곡선과 동일 좌표변환 재사용)
         if self._tf_avg is not None:
-            self._draw_extra_phase_curve(p, W, H, self._tf_avg, width=2.8)
+            self._draw_extra_phase_curve(p, W, H, self._tf_avg, width=self._tf_avg.get('w', 2.8))
         p.setRenderHint(QPainter.Antialiasing, True)   # 라이브 곡선 후 AA 복원 [TF_LIVE_CURVE_PERF]
 
     def _draw_extra_phase_curve(self, p, W, H, ex, width=1.8, dim=False):
@@ -9870,8 +9870,8 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
     def clear_all_tf_extra(self):
         self._tf_extra.clear(); self.update()
 
-    def set_tf_average(self, color, f, mag, coh=None):
-        self._tf_avg = {'color': color, 'f': f, 'mag': mag, 'coh': coh}; self.update()
+    def set_tf_average(self, color, f, mag, coh=None, width=2.8):
+        self._tf_avg = {'color': color, 'f': f, 'mag': mag, 'coh': coh, 'w': width}; self.update()
 
     def clear_tf_average(self):
         if self._tf_avg is not None:
@@ -10299,7 +10299,7 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
                     _ai = np.linspace(0, len(a_xs) - 1, _ex_max_pts_a, dtype=int)
                     a_xs = a_xs[_ai]; a_ys = a_ys[_ai]
                 p.setRenderHint(QPainter.Antialiasing, True)
-                p.setPen(QPen(QColor(a['color']), 2.8)); p.setBrush(Qt.NoBrush)
+                p.setPen(QPen(QColor(a['color']), a.get('w', 2.8))); p.setBrush(Qt.NoBrush)
                 p.drawPath(_catmull_seg(a_xs, a_ys))
         p.setRenderHint(QPainter.Antialiasing, True)   # 라이브 곡선 후 AA 복원(격자/라벨/커서 선명) [TF_LIVE_CURVE_PERF]
 
@@ -11142,7 +11142,7 @@ class TFIRCanvas(QWidget):
     def clear_all_tf_extra(self):
         self._tf_extra.clear(); self.update()
 
-    def set_tf_average(self, color, t, h):
+    def set_tf_average(self, color, t, h, width=2.2):
         # etc_db 는 set_tf_extra 와 동일하게 계산 — Hilbert 포락선 + 피크정규화(0dB).
         # (raw |h| dB 로 하면 ETC/Log 모드서 영점교차마다 -200 으로 튀어 개별곡선과 불일치)
         if h is not None:
@@ -11150,7 +11150,7 @@ class TFIRCanvas(QWidget):
             etc_db = (20 * np.log10(np.maximum(etc / pk, 1e-10))).astype(np.float32)
         else:
             etc_db = None
-        self._tf_avg = {'color': color, 't': t, 'h': h, 'etc_db': etc_db}; self.update()
+        self._tf_avg = {'color': color, 't': t, 'h': h, 'etc_db': etc_db, 'w': width}; self.update()
 
     def clear_tf_average(self):
         if getattr(self, '_tf_avg', None) is not None:
@@ -11444,7 +11444,7 @@ class TFIRCanvas(QWidget):
         if self._tf_avg is not None:
             a = self._tf_avg
             self._draw_ir_curve(p, W, H, a.get('t'), a.get('h'),
-                                a.get('color'), 2.2, a.get('etc_db'))
+                                a.get('color'), a.get('w', 2.2), a.get('etc_db'))
 
     def paintEvent(self, ev):
         W = self.width(); H = self.height()
@@ -12838,6 +12838,8 @@ class TransferFunctionWindow(QWidget):
         self._avg_mode = 'mag'      # 'mag'(파워RMS) | 'complex'(벡터)
         self._avg_align = True      # 복소 모드 딜레이 자동정렬(코어용, UI 미노출)
         self._avg_show = True       # AVG 카드 ✓ = 평균 곡선 표시/숨김
+        self._avg_color = None      # 평균 곡선/카드 색(None=테마 기본 흰/근검정, 우클릭 변경)
+        self._avg_card_selected = False   # AVG 카드 선택(틴트+맨앞 굵게)
         self._last_avg_diag = None  # tf_avg_render 로그 스팸 방지용 마지막 상태 시그니처
         self._extra_pairs = []        # Smaart 방식: 추가 Ref+Meas 쌍 목록
         self._front_pair = None       # 분석 화면 맨 앞 곡선: None=primary, int=pair idx
@@ -13160,9 +13162,6 @@ class TransferFunctionWindow(QWidget):
         avg_l = QVBoxLayout(pop); avg_l.setContentsMargins(12, 10, 12, 12); avg_l.setSpacing(8)
         avg_l.addWidget(_n2_group_header('AVERAGE'))
         # 마이크 체크리스트만 (Σ 버튼이 on/off, 여기선 평균 대상 선택; 열 때 현재 카드로 재구성)
-        _mhdr = QLabel('평균에 포함할 마이크')
-        _mhdr.setStyleSheet(f'color:{T("text_dim")};background:transparent;font-size:{FS_SM}px;letter-spacing:0.5px;')
-        avg_l.addWidget(_mhdr)
         self._avg_mic_box = QWidget()
         self._avg_mic_lay = QVBoxLayout(self._avg_mic_box)
         self._avg_mic_lay.setContentsMargins(0, 2, 0, 0); self._avg_mic_lay.setSpacing(5)
@@ -13301,8 +13300,9 @@ class TransferFunctionWindow(QWidget):
         _ac.addWidget(self._avg_card_name); _ac.addWidget(self._avg_card_cnt); _ac.addStretch()
         self._avg_card.hide()
         self._avg_card.setCursor(Qt.PointingHandCursor)
-        self._avg_card.setToolTip('클릭: 평균 마이크 선택')
-        self._avg_card.mousePressEvent = lambda e: self._open_avg_popup()   # 카드 클릭 → 마이크 선택 팝업
+        self._avg_card.setToolTip('클릭: 선택(분석 맨앞) · 우클릭: 색상 변경')
+        self._avg_card.mousePressEvent = self._avg_card_mouse_press
+        self._avg_card.contextMenuEvent = self._avg_card_context
         self._style_avg_card()
         mpl.addWidget(self._avg_card)
         self.sig_out_ch_cb.currentIndexChanged.connect(self._sig_out_ch_changed)
@@ -13705,8 +13705,14 @@ class TransferFunctionWindow(QWidget):
         _bg = '#1E1E22' if _theme == 'dark' else '#F3F5FA'
         _bd = '#34343B' if _theme == 'dark' else T('border')
         col = self._avg_curve_color()
-        self._avg_card.setStyleSheet(
-            f'QFrame#measCard{{border:1px solid {_bd};border-radius:10px;background:{_bg};padding:2px;}}')
+        if getattr(self, '_avg_card_selected', False):   # 선택 = 색 틴트 채움(마이크 카드와 동일)
+            _c = QColor(col); _bd_s = '#4A4A54' if _theme == 'dark' else T('accent')
+            self._avg_card.setStyleSheet(
+                f'QFrame#measCard{{border:1px solid {_bd_s};border-radius:10px;'
+                f'background:rgba({_c.red()},{_c.green()},{_c.blue()},20);padding:2px;}}')
+        else:
+            self._avg_card.setStyleSheet(
+                f'QFrame#measCard{{border:1px solid {_bd};border-radius:10px;background:{_bg};padding:2px;}}')
         self._avg_card_name.setStyleSheet(
             f'color:{T("text")};background:transparent;font-size:{FS_BODY}px;font-weight:bold;')
         self._avg_card_cnt.setStyleSheet(
@@ -13723,6 +13729,34 @@ class TransferFunctionWindow(QWidget):
     def _update_avg_card(self):
         if hasattr(self, '_avg_card'):
             self._avg_card.setVisible(bool(self._avg_on))
+
+    def _avg_card_mouse_press(self, e):
+        if e.button() == Qt.LeftButton:
+            self._select_avg_card()
+
+    def _avg_card_context(self, e):
+        from PyQt5.QtWidgets import QMenu
+        m = QMenu(self)   # 앱 전역 QMenu 다크 스타일 상속(_global_popup_qss)
+        m.addAction('색상 변경…', self._pick_avg_color)
+        m.exec_(e.globalPos())
+
+    def _select_avg_card(self):
+        """AVG 카드 선택 → 틴트 + 다른 카드 선택 해제 + 평균곡선 맨앞 굵게."""
+        self._avg_card_selected = True
+        for c in self._level_cards:
+            if hasattr(c, 'set_selected'): c.set_selected(False)
+        for p in getattr(self, '_extra_pairs', []):
+            card = p.get('card')
+            if card is not None and hasattr(card, 'set_selected'): card.set_selected(False)
+        self._style_avg_card()
+        self._request_avg_render()
+
+    def _pick_avg_color(self):
+        init = QColor(self._avg_curve_color())
+        c = QColorDialog.getColor(init, self, '평균 곡선 색상')
+        if c.isValid():
+            self._avg_color = c.name()
+            self._style_avg_card(); self._request_avg_render()
 
     def _style_avg_popup(self):
         if not hasattr(self, '_avg_popup'): return
@@ -13848,7 +13882,7 @@ class TransferFunctionWindow(QWidget):
         return {
             'engine': self.eng_cb.currentIndex(), 'fft': self.fft_cb.currentIndex(),
             'response': self.avg_cb.currentIndex(), 'smooth': self.sm_cb.currentIndex(),
-            'tf_avg_on': self._avg_on,
+            'tf_avg_on': self._avg_on, 'tf_avg_color': self._avg_color,
             'tf_avg_primary': (self._level_cards[0].in_average if getattr(self, '_level_cards', None) else False),
             'ir': self.ir_cb.currentIndex(), 'phase': self.phase_cb.currentIndex(),
             'units': self.unit_cb.currentIndex(),
@@ -13879,9 +13913,11 @@ class TransferFunctionWindow(QWidget):
         _idx('engine', self.eng_cb); _idx('fft', self.fft_cb); _idx('response', self.avg_cb)
         _idx('smooth', self.sm_cb); _idx('ir', self.ir_cb); _idx('phase', self.phase_cb); _idx('units', self.unit_cb)
         self._avg_on = bool(d.get('tf_avg_on', False))
+        self._avg_color = d.get('tf_avg_color', None)
         if hasattr(self, '_avg_tb_btn'):
             self._avg_tb_btn.setChecked(self._avg_on)
         self._update_avg_card()
+        if hasattr(self, '_avg_card'): self._style_avg_card()
         if self._level_cards and hasattr(self._level_cards[0], '_avg_chk'):
             self._level_cards[0]._avg_chk.setChecked(bool(d.get('tf_avg_primary', False)))
         try:
@@ -14284,6 +14320,10 @@ class TransferFunctionWindow(QWidget):
             if pr.get('card') is card:
                 key = i; break
         self._front_pair = key
+        if getattr(self, '_avg_card_selected', False):   # 마이크 카드 선택 → AVG 카드 선택 해제
+            self._avg_card_selected = False
+            if hasattr(self, '_avg_card'): self._style_avg_card()
+            self._request_avg_render()
         for c in self._level_cards:
             c.set_selected(c is card)
         # 카드 클릭 → 라이브 포커스(캡쳐 선택 해제 → 캡쳐 흐리게, 그 카드 곡선 밝게 맨앞)
@@ -15272,7 +15312,9 @@ class TransferFunctionWindow(QWidget):
         self._render_average(freqs, t_ms)
 
     def _avg_curve_color(self):
-        # 다색 개별 곡선 위에서 도드라지는 테마 대응 고대비
+        # 사용자 지정색 우선, 없으면 다색 개별 위 도드라지는 테마 대응 고대비
+        if getattr(self, '_avg_color', None):
+            return self._avg_color
         return '#FFFFFF' if _theme == 'dark' else '#1A1A1A'
 
     def _render_average(self, freqs, t_ms):
@@ -15325,11 +15367,13 @@ class TransferFunctionWindow(QWidget):
             self.ir_cvs.clear_tf_average()
             return
         col = self._avg_curve_color()
-        self.mag_cvs.set_tf_average(col, r['f'], r['mag'], coh=r['coh'])
+        _sel = getattr(self, '_avg_card_selected', False)   # 선택 시 굵게(맨앞 강조)
+        _wmp = 3.6 if _sel else 2.8; _wir = 3.0 if _sel else 2.2
+        self.mag_cvs.set_tf_average(col, r['f'], r['mag'], coh=r['coh'], width=_wmp)
         if r['mode'] == 'complex':
-            self.phase_cvs.set_tf_average(col, r['f'], r['ph_wrap'], r['ph_unwr'], r['grp'])
+            self.phase_cvs.set_tf_average(col, r['f'], r['ph_wrap'], r['ph_unwr'], r['grp'], width=_wmp)
             if r['h_ir'] is not None:
-                self.ir_cvs.set_tf_average(col, t_ms, r['h_ir'])
+                self.ir_cvs.set_tf_average(col, t_ms, r['h_ir'], width=_wir)
         else:
             self.phase_cvs.clear_tf_average(); self.ir_cvs.clear_tf_average()
 
