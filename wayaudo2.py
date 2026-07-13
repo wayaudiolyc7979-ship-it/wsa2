@@ -3481,12 +3481,14 @@ class FFTCanvas(QWidget):
         elif e.key()==Qt.Key_Down and hasattr(win,'_db_shift'): win._db_shift(-6)
         else: super().keyPressEvent(e)
     def mouseDoubleClickEvent(self,e):
-        if e.x()<self.PAD_L and self._ds_avg is not None and len(self._ds_avg)>0:
+        if e.x()<self.PAD_L:
+            _w=self.window()
+            if hasattr(_w,'_spec_db_autofit'):   # 창 상태(db_max/min·_pending_auto_fit·persist)까지 일원화
+                _w._spec_db_autofit(); return
+            # 폴백(팝아웃 등 창 핸들러 없음) — 캔버스 로컬 자동맞춤
+            if self._ds_avg is None or len(self._ds_avg)==0: return
             valid=self._ds_avg[self._ds_avg>-90]
             if len(valid)==0: return
-            _w=self.window()
-            if hasattr(_w,'_db_lock'): _w._db_lock=False   # 더블클릭=자동 복귀(고정 해제)
-            if hasattr(_w,'_persist_spec_db'): _w._persist_spec_db()
             self._db_lock=False
             peak=float(np.max(valid)); span=self.db_max-self.db_min
             self.db_max=int(math.ceil((peak+12)/12))*12
@@ -3889,11 +3891,11 @@ class OctaveCanvas(QWidget):
         else: super().keyPressEvent(e)
     def mouseDoubleClickEvent(self,e):
         if e.x()<self.PAD_L:
+            _w=self.window()
+            if hasattr(_w,'_spec_db_autofit'):   # 창 상태까지 일원화 (FFT 캔버스와 동일)
+                _w._spec_db_autofit(); return
             sm=self.smooth[self.mode]; valid=sm[sm>-90]
             if len(valid)==0: return
-            _w=self.window()
-            if hasattr(_w,'_db_lock'): _w._db_lock=False   # 더블클릭=자동 복귀(고정 해제)
-            if hasattr(_w,'_persist_spec_db'): _w._persist_spec_db()
             self._db_lock=False
             peak=float(np.max(valid)); span=self.db_max-self.db_min
             self.db_max=int(math.ceil((peak+12)/12))*12
@@ -8366,6 +8368,7 @@ class _N2Button(QFrame):
         if self._txt: self._txt.setText(t)
     def set_running(self, playing):
         """트랜스포트 실행상태 — 아이콘 play/stop + 색(정지=레드) 전환. 텍스트는 호출부가 지정."""
+        self._running_state = bool(playing)   # restyle(테마 토글)이 red/stop 복원할 수 있게 기억
         self._icon_name = 'stop' if playing else 'play'; self._accent_icon = True
         col = T('red') if playing else T('accent')
         if self._icl: self._icl.setPixmap(_icon_pm(self._icon_name, 16, col))
@@ -8385,9 +8388,14 @@ class _N2Button(QFrame):
     def restyle(self):
         self.setStyleSheet(_n2_hover_ss('n2cell'))
         _act = getattr(self, '_active', False)
-        if self._icl: self._icl.setPixmap(_icon_pm(self._icon_name, 16, T('accent') if (self._accent_icon or _act) else _n2_icon_color()))
+        _run = getattr(self, '_running_state', False)   # 실행 중 트랜스포트 = red/stop 유지(테마 토글에도)
+        if self._icl:
+            _icol = T('red') if _run else (T('accent') if (self._accent_icon or _act) else _n2_icon_color())
+            self._icl.setPixmap(_icon_pm(self._icon_name, 16, _icol))
         if self._lbl: self._lbl.setStyleSheet(f'color:{T("text_dim")};background:transparent;')
-        if self._txt: self._txt.setStyleSheet(f'color:{T("accent") if _act else T("text")};background:transparent;')
+        if self._txt:
+            _tcol = T('red') if _run else (T('accent') if _act else T('text'))
+            self._txt.setStyleSheet(f'color:{_tcol};background:transparent;')
 
 
 class _N2Toggle(QFrame):
@@ -9154,6 +9162,10 @@ class _TFFreqZoomMixin:
         pl, pr = self.PAD_L, self.PAD_R; uw = max(self.width() - pl - pr, 1)
         L, Hh = math.log10(self.f_lo), math.log10(self.f_hi)
         d = -(dx_px / uw) * (Hh - L)
+        # 벽(20Hz/20kHz)에서는 이동만 멈추고 스팬 보존 — _fz_clamp가 lo/hi를 독립 clip해
+        # 한쪽만 밀리며 조용히 줌인되던 것 방지. [PAN_WALL]
+        d = max(math.log10(_FZ_LO_LIMIT) - L, min(math.log10(_FZ_HI_LIMIT) - Hh, d))
+        if abs(d) < 1e-12: return
         self._fz_apply(10 ** (L + d), 10 ** (Hh + d))
     def _fz_reset(self):
         self._fz_apply(_FZ_LO_LIMIT, _FZ_HI_LIMIT)
@@ -10139,7 +10151,9 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
         self._db_lock=False; self.fit_y(); self._notify_db_lock()
 
     def _db_toggle(self):
-        self._db_lock=not self._db_lock; self._cache=None; self.update(); self._notify_db_lock()
+        self._db_lock=not self._db_lock
+        if not self._db_lock: self.fit_y()       # 해제 → 자동맞춤 재개 (메뉴 'back to auto'와 일치)
+        self._cache=None; self.update(); self._notify_db_lock()
 
     def enterEvent(self,e): self.setFocus(); super().enterEvent(e)
     def mousePressEvent(self,e):
@@ -12591,6 +12605,7 @@ class _AuralizeDialog(QDialog):
         super().__init__(parent)
         self._tf = tf_win
         self._music = None          # 모노 float32, tf.sample_rate
+        self._music_sr = None       # _music이 리샘플된 SR (장치 SR 바뀌면 재리샘플 판정)
         self._wet = None            # 컨볼루션 결과 캐시
         self._wet_sig = None        # _wet가 어느 IR로 빌드됐는지(재측정 stale 방지)
         self._conv = None; self._pending_play = False
@@ -12787,7 +12802,7 @@ class _AuralizeDialog(QDialog):
         data = np.asarray(data, dtype=np.float32)
         pk = float(np.max(np.abs(data))) if len(data) else 0.0
         if pk > 1e-6: data = (data / pk * 0.9).astype(np.float32)
-        self._music = data; self._wet = None; self._wet_sig = None
+        self._music = data; self._music_sr = srr; self._wet = None; self._wet_sig = None
         self._music_name = os.path.basename(path)
         self._music_lbl.setText(self._music_name[:22] + ('…' if len(self._music_name) > 22 else ''))
         self._refresh_ir_state()
@@ -12800,7 +12815,20 @@ class _AuralizeDialog(QDialog):
         #   (현 세션 캡처·Live IR은 항상 현재 SR이라 정상).
         return (len(ir), round(float(ir.sum()), 5), round(float(np.abs(ir).max()), 5))
 
+    def _ensure_music_sr(self):
+        """재생 직전, TF 장치 SR이 로드 시점과 달라졌으면 음악을 현재 SR로 재리샘플.
+        (SR 바뀐 뒤 옛 SR 버퍼를 그대로 재생하면 피치가 틀어지고 Room 컨볼루션도 오염됨.)"""
+        if self._music is None: return
+        cur = self._sr(); old = getattr(self, '_music_sr', None)
+        if old and old != cur and len(self._music) > 1:
+            n_new = max(1, int(len(self._music) * cur / old))
+            self._music = np.interp(np.linspace(0, len(self._music)-1, n_new),
+                                    np.arange(len(self._music)), self._music).astype(np.float32)
+            self._music_sr = cur
+            self._wet = None; self._wet_sig = None   # 옛 SR 컨볼루션 캐시 무효화
+
     def _play(self, which):
+        self._ensure_music_sr()
         if which == 'dry':
             self._pending_play = False
             self._set_active('dry'); self._start_playback(self._music); return
@@ -12888,6 +12916,7 @@ class TransferFunctionWindow(QWidget):
         self._extra_pair_threads = [] # 쌍마다 (sync_thread, ref_thread, meas_thread)
         self._extra_pair_acc = []     # 쌍마다 {cross, auto_x, auto_y, n} or None
         self._last_primary_H = None; self._last_primary_coh = None  # 라이브 평균 수집용(프레임별 갱신)
+        self._last_avg_freqs = None; self._last_avg_t_ms = None      # 정지 시 AVG 재계산용 마지막 그리드
         self._mc_threads = {}         # {device_idx: (thread, routing_list)}
         self._last_ref_fft = None; self._last_meas_fft = None
         self._last_ref_rms = 0.0; self._last_meas_rms = 0.0
@@ -12898,6 +12927,8 @@ class TransferFunctionWindow(QWidget):
         self._dsp_exec = None       # ThreadPoolExecutor(max_workers=1) — MTW 렌더 시 지연생성
         self._dsp_future = None     # 진행 중 계산 future
         self._dsp_out = None        # 워커가 적재한 최신 (f_m, H_m, coh_m)
+        self._dsp_gen = 0           # 리셋 세대 토큰 — 리셋 이후 진행 중 워커 결과 폐기(비차단)
+        self._mtw_reset_pending = False  # xrun 등 비차단 리셋 예약 → 워커 idle 시 안전하게 _mtw.reset()
         self._last_ref_buf = None; self._last_meas_buf = None
         self._mtw_H_lin = None      # MTW 최신 선형그리드 H (영속) — 딜레이 파인더용
         self._rta_sub = None        # RTA 전용 엔진 구독(제너레이터/Start 없이 마이크 스펙트럼)
@@ -13872,7 +13903,17 @@ class TransferFunctionWindow(QWidget):
         pop.move(gp); pop.show(); pop.raise_()
 
     def _request_avg_render(self):
-        # 다음 렌더 틱에서 Task5 훅이 반영. 즉시 캔버스 갱신도 트리거.
+        # 라이브 중이면 다음 렌더 틱의 _render_average가 반영. 정지 상태에서는 렌더 루프가
+        # 안 돌아 오버레이가 갱신/삭제되지 않으므로(토글 OFF·마이크 변경이 화면에 안 먹힘),
+        # 여기서 마지막 그리드로 직접 재계산. 없으면 오버레이만 지운다.
+        if not getattr(self, '_running', False):
+            _f = getattr(self, '_last_avg_freqs', None)
+            if _f is not None:
+                self._render_average(_f, getattr(self, '_last_avg_t_ms', None))
+            else:
+                for cvs in (getattr(self, 'mag_cvs', None), getattr(self, 'phase_cvs', None),
+                            getattr(self, 'ir_cvs', None)):
+                    if cvs is not None and hasattr(cvs, 'clear_tf_average'): cvs.clear_tf_average()
         for cvs in (getattr(self, 'mag_cvs', None), getattr(self, 'phase_cvs', None),
                     getattr(self, 'ir_cvs', None)):
             if cvs is not None: cvs.update()
@@ -15177,7 +15218,7 @@ class TransferFunctionWindow(QWidget):
                 _alog.warning(f'[DIAG] SigGen xrun → ref/avg 리셋 (#{self._xrun_reset_count})  '
                               f'delay={getattr(self,"delay_ms",0.0):.2f}ms')
                 self._int_ref_buf[:] = 0; self._int_ref_pos[0] = 0; self._int_ref_filled = False
-                self._reset_avg()
+                self._reset_avg(sync=False)   # 렌더 스레드 — 워커 대기로 UI 멈추지 않게 비차단 리셋
                 return
             # 락 없이 위치만 읽고 필요한 윈도우만 복사 (131072샘플 전체 복사 제거)
             # _ir_pos는 GIL이 단일 연산 원자성 보장. 순환 버퍼 크기≫fft_size여서 경쟁 무시 가능.
@@ -15362,6 +15403,8 @@ class TransferFunctionWindow(QWidget):
     def _render_average(self, freqs, t_ms):
         """참여 카드(정렬된 표시 H) 수집 → _multimic_average → 3캔버스 AVG 슬롯.
         primary·extra 모두 딜레이 제거된 H_disp를 넘긴다(캡쳐 평균과 동일 전제)."""
+        if freqs is not None:                       # 정지 후 재계산에 쓸 마지막 그리드 보관
+            self._last_avg_freqs = freqs; self._last_avg_t_ms = t_ms
         if not getattr(self, '_avg_on', False):
             self.mag_cvs.clear_tf_average(); self.phase_cvs.clear_tf_average()
             self.ir_cvs.clear_tf_average()
@@ -16180,16 +16223,23 @@ class TransferFunctionWindow(QWidget):
         if self._mtw is not None:
             self._mtw.avg_target = self._avg_target
 
-    def _reset_avg(self):
+    def _reset_avg(self, sync=True):
         with QMutexLocker(self._mutex):
             self._cross_acc = None; self._auto_acc_x = None; self._auto_acc_y = None; self._n_avg = 0
         self._extra_pair_acc = [None] * len(self._extra_pairs)
         self._mtw_H_lin = None
         self._pm_prev = None; self._pm_targ = None; self._pm_done = True   # 모션 스무딩 버퍼 비움
         if self._mtw is not None:
-            self._dsp_sync()        # 워커가 _mtw 쓰는 중일 수 있음 → 끝나길 대기 후 리셋(레이스 방지)
+            self._dsp_gen += 1      # 진행 중 워커 결과를 stale로 만들어 폐기(gen 불일치)
             self._dsp_out = None
-            self._mtw.reset()
+            if sync:
+                self._dsp_sync()    # 정지/엔진변경 등(렌더 밖) — 즉시 확정 리셋(블로킹 허용)
+                self._mtw.reset()
+                self._mtw_reset_pending = False   # 확정 리셋했으니 예약 취소(중복 방지)
+            else:
+                # 렌더 루프(xrun) 안 — GUI 스레드를 워커 완료까지 막지 않도록 리셋을 예약.
+                # 다음 렌더 틱의 워커 idle 지점에서 안전하게 _mtw.reset() (아래 submit 직전).
+                self._mtw_reset_pending = True
 
     def _render_primary_H(self, H_raw, gamma2, freqs, t_ms, primary_show):
         """primary H(f)[선형 freqs 그리드] → mag/phase/IR 캔버스. Single·MTW 공통 렌더 테일.
@@ -16299,8 +16349,14 @@ class TransferFunctionWindow(QWidget):
             # → 무거운 MTW FFT가 GUI 스레드 밖에서 돌아 Spectrum FFT와 병렬(numpy GIL 해제).
             fut = self._dsp_future
             if fut is None or fut.done():
+                # 워커가 idle인 이 시점이 _mtw를 만질 유일한 안전 지점 → 예약된 비차단 리셋 실행.
+                if self._mtw_reset_pending:
+                    try: self._mtw.reset()
+                    except Exception: pass
+                    self._dsp_out = None          # 워커 완료 확정 → 혹시 남은 stale 결과 제거
+                    self._mtw_reset_pending = False
                 self._dsp_future = self._dsp_exec.submit(
-                    self._mtw_compute_task, ref_b, meas_b, self.sample_rate)
+                    self._mtw_compute_task, ref_b, meas_b, self.sample_rate, self._dsp_gen)
             res = self._dsp_out
             if res is None:
                 self.avg_lbl.setText('Adaptive…'); return
@@ -16328,9 +16384,10 @@ class TransferFunctionWindow(QWidget):
         self.avg_lbl.setText('Adaptive')
         self._render_primary_H(H_raw, gamma2, freqs, t_ms, primary_show)
 
-    def _mtw_compute_task(self, ref_b, meas_b, sr):
+    def _mtw_compute_task(self, ref_b, meas_b, sr, gen):
         """워커 스레드 — MTW 멀티레이트 FFT(무거움)만 수행. ⚠️위젯 절대 접근 금지(numpy만).
-        _mtw는 이 워커가 전담 사용하고, 드문 reset/engine 변경은 GUI가 _dsp_sync로 직렬화한다."""
+        _mtw는 이 워커가 전담 사용하고, 드문 reset/engine 변경은 GUI가 _dsp_sync로 직렬화한다.
+        gen = 제출 시점 세대. 계산 중 리셋(gen 증가)되면 결과를 버려 오염 프레임 표시를 막는다."""
         try:
             m = self._mtw
             if m is None:
@@ -16341,7 +16398,7 @@ class TransferFunctionWindow(QWidget):
                 return
             m.push(ref_b, meas_b)
             r = m.result()
-            if r is not None:
+            if r is not None and gen == self._dsp_gen:   # 리셋 이후 stale 결과 폐기
                 self._dsp_out = r                # 참조 대입은 GIL-원자적 → GUI가 안전하게 읽음
         except Exception as e:
             try: _diag('tf_dsp_err', err=str(e))
@@ -16575,9 +16632,14 @@ class TransferFunctionWindow(QWidget):
             if pair_idx < len(self._extra_pairs):
                 card = self._extra_pairs[pair_idx].get('card')
                 if card and hasattr(card, 'set_delay'):
+                    _chg = (float(d_ms) != float(self._extra_pairs[pair_idx].get('delay_ms', 0.0)))
                     card.set_delay(d_ms)   # 스핀 표시 갱신 (시그널 차단됨)
                     self._extra_pairs[pair_idx]['delay_ms'] = d_ms
                     self._save_tf_extra_pairs()
+                    # set_delay가 blockSignals(True)라 _on_extra_delay_changed가 안 불림 →
+                    # 여기서 직접 누적 재시드해야 새 D로 정렬된 올바른 레벨로 즉시 스냅(콤필터 크롤 방지). [DELAY_SNAP]
+                    if _chg and pair_idx < len(self._extra_pair_acc):
+                        self._extra_pair_acc[pair_idx] = None
                     # raw H IR: 마커가 d_ms 로 이동. 이 카드가 front 면 뷰도 센터링.
                     if getattr(self, '_front_pair', None) == pair_idx:
                         self._center_ir_on_delay(d_ms)
@@ -19836,9 +19898,9 @@ class MainWindow(QMainWindow):
             f'background:rgba({ar},{ag},{ab},55);}}')
         self.dev_cb.setStyleSheet(_cb_ss)
         self.in_ch_cb.setStyleSheet(_cb_ss)
-        self._st_l_cb.setStyleSheet(_cb_ss)
-        self._st_r_cb.setStyleSheet(_cb_ss)
-        self._st_target_cb.setStyleSheet(_cb_ss)
+        # ⚠️_st_l_cb/_st_r_cb/_st_target_cb 는 QComboBox가 아니라 _N2Select(QFrame)라
+        #   _cb_ss(QComboBox 규칙)가 안 먹고 오히려 N2 투명배경/hover를 지워 솔리드 박스로 만듦.
+        #   위 블랭킷 restyle 루프가 _N2Select.restyle()로 이미 올바르게 처리하므로 여기선 손대지 않음.
         # Spectrum 툴바 콤보도 전역 cascade 대신 _cb_ss 직접 적용 → 3탭 콤보 100% 동일 보장
         for _spc in ('sr_cb', 'hold_cb', 'db_cb', 'spd_cb'):
             _w = getattr(self, _spc, None)
@@ -20377,7 +20439,10 @@ class MainWindow(QMainWindow):
         self._db_lock=False; self._pending_auto_fit=True; self._auto_fit_y_to_data(); self._apply_db_range(); self._persist_spec_db()
 
     def _spec_db_toggle(self):
-        self._db_lock=not self._db_lock; self._apply_db_range(); self._persist_spec_db()
+        self._db_lock=not self._db_lock
+        if not self._db_lock:                    # 해제 → 자동맞춤 재개 (메뉴 'back to auto'와 일치)
+            self._pending_auto_fit=True; self._auto_fit_y_to_data()
+        self._apply_db_range(); self._persist_spec_db()
 
     def _persist_spec_db(self):
         self._settings['spec_db_lock'] = bool(self._db_lock)
@@ -21154,10 +21219,10 @@ class MainWindow(QMainWindow):
         self.calib_offset = offset
         self.i_calib.setText(f'{offset:+.1f} dB')
         self._apply_calib_thresholds()
-        # 채널 변경 시 실행 중이면 재시작
+        # primary 입력 채널 변경 → primary 카드만 재시작(개별로 꺼둔 추가 카드는 안 건드림)
         self._rebuild_ch_cards()
-        if self._spec_running():
-            self._stop(); self._start()
+        if self._primary_running():
+            self._card_stop(0); self._card_start(0)
 
     def _on_device_changed(self, _):
         name = self.dev_cb.currentText()
@@ -21168,9 +21233,10 @@ class MainWindow(QMainWindow):
         self._update_input_ch_cb()
         ch = self.in_ch_cb.currentData() or 0
         self._load_calib_for_device(name, ch)
+        # primary 입력 장치 변경 → primary 카드만 재시작(개별로 꺼둔 추가 카드는 안 건드림)
         self._rebuild_ch_cards()
-        if self._spec_running():
-            self._stop(); self._start()
+        if self._primary_running():
+            self._card_stop(0); self._card_start(0)
         self._st_update_dev_label()
         if self.stereo_page._running:
             self.stereo_page.stop()
@@ -22108,7 +22174,13 @@ class MainWindow(QMainWindow):
         for key, cb in (('sr', self.sr_cb), ('hold', self.hold_cb),
                         ('db', self.db_cb), ('speed', self.spd_cb)):
             try:
-                if key in d: cb.setCurrentIndex(int(d[key]))
+                if key in d:
+                    if key == 'db':
+                        # db_cb 복원이 _db_changed를 쏘면 방금 복원한 dB 수동고정 범위를
+                        # 프리셋 span으로 덮어씀 → 복원 중엔 시그널 차단(표시 인덱스만 설정).
+                        cb.blockSignals(True); cb.setCurrentIndex(int(d[key])); cb.blockSignals(False)
+                    else:
+                        cb.setCurrentIndex(int(d[key]))
             except Exception: pass
         try:
             if 'peak' in d and bool(d['peak']) != self.peak_btn.isChecked(): self.peak_btn.click()
