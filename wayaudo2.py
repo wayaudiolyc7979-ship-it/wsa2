@@ -11743,8 +11743,20 @@ class TFDuplexThread(QThread):
                     self._active_stream = stream
                     _alog.debug(f'TFDuplexThread sd.Stream opened OK  latency={stream.latency}')
                     _wd_last[0] = time.monotonic()
+                    _open_t = time.monotonic()          # [DIAG] 오픈 시각 — 첫 콜백 지연/미시작 계측
+                    _first_logged = False; _dead_logged = False
                     while self.running:
                         self.msleep(10)
+                        # [DIAG] AUHAL 콜백 시작 진단: 인터페이스 콜드오픈 시 스트림은 열려도 콜백이
+                        # 스케줄 안 되는 레이스(하드웨어 미터도 무음) 추적. 재현 로그로 재오픈 워치독 위치 확정.
+                        if _wd_got[0] and not _first_logged:
+                            _first_logged = True
+                            _diag('tf_duplex_first_cb', dev=self.out_dev,
+                                  dt_ms=round((time.monotonic() - _open_t) * 1000))
+                        if (not _wd_got[0]) and (not _dead_logged) and time.monotonic() - _open_t > 2.0:
+                            _dead_logged = True
+                            _diag('tf_duplex_cb_dead', dev=self.out_dev, in_dev=self.in_dev,
+                                  bs=blocksize)   # ⚠️콜백 2초간 미시작 = 무음 원인 후보
                         # USB 입력 제거 시 콜백 정지 → 흐르다 2초 끊기면 끊김 판단
                         # (첫 콜백 받은 뒤에만 — 같은장치 in/out 시작 지연 오판 방지)
                         if _wd_got[0] and time.monotonic() - _wd_last[0] > 2.0:
@@ -12274,21 +12286,25 @@ class AllDelayFinderDialog(QDialog):
         with QMutexLocker(tw._mutex):
             for enc, label, cross_flag, _ in pairs:
                 if cross_flag == 'cross_device':
-                    tasks.append((enc, label, None, None))
+                    tasks.append((enc, label, None, None, 0.0))
                     continue
                 if enc == -1:
                     cross, auto_x = prim_cross, prim_auto
+                    base_ms = float(tw.delay_ms)
                 else:
                     acc = tw._extra_pair_acc[enc] if enc < len(tw._extra_pair_acc) else None
                     cross = acc['cross'].copy() if acc else None
                     auto_x = acc['auto_x'].copy() if acc else None
-                tasks.append((enc, label, cross, auto_x))
+                    base_ms = float(tw._extra_pairs[enc].get('delay_ms', 0.0)) \
+                              if enc < len(tw._extra_pairs) else 0.0
+                # 누적은 현재 딜레이로 이미 정렬됨 → 잔여+base=참값 [DELAY_FIND_ABS]
+                tasks.append((enc, label, cross, auto_x, base_ms))
 
         fft_size = tw.fft_size; sr = tw.sample_rate
 
         def _worker():
             out = []
-            for enc, label, cross, auto_x in tasks:
+            for enc, label, cross, auto_x, base_ms in tasks:
                 if cross is None:
                     out.append((label, enc, None)); continue
                 H = cross / np.maximum(auto_x, 1e-30)
@@ -12300,7 +12316,7 @@ class AllDelayFinderDialog(QDialog):
                     denom = 2*(2*y1 - y0 - y2)
                     if denom > 0: peak += (y2 - y0) / denom
                 if peak > fft_size // 2: peak -= fft_size
-                d_ms = round(float(peak) / sr * 1000.0, 2)
+                d_ms = round(base_ms + float(peak) / sr * 1000.0, 2)   # 잔여+현재딜레이=참 딜레이
                 out.append((label, enc, d_ms))
             self._results_sig.emit(out)
 
@@ -12903,6 +12919,9 @@ class TransferFunctionWindow(QWidget):
         self._mutex = QMutex()
         self._engine = None   # 공유 오디오 엔진 (MainWindow가 주입) — TF 측정입력을 장치당 단일 스트림으로
         self._ref_thread = None; self._meas_thread = None; self._sync_thread = None
+        # primary 프레임이 콜백에서 이미 시간영역 정렬됐는지(_on_frame 경로=True). 분리 콜백
+        # 경로(_on_ref+_on_meas: Internal SigGen / 다른장치 ref)는 False → 렌더에서 정렬 필요.
+        self._primary_upstream_aligned = False
         # 라이브 멀티마이크 평균 상태
         self._avg_on = False
         self._avg_mode = 'mag'      # 'mag'(파워RMS) | 'complex'(벡터)
@@ -14826,6 +14845,9 @@ class TransferFunctionWindow(QWidget):
 
     def _on_meas(self, buf):
         rms = float(np.sqrt(np.mean(buf ** 2)))
+        # 분리 콜백 경로(Internal SigGen ref / 다른장치 ref): ref·meas가 캡처 시 정렬 안 됨
+        # → 렌더에서 딜레이 정렬 필요. (_on_frame 경로만 True)
+        self._primary_upstream_aligned = False
         if self._tf_engine_mtw:
             with QMutexLocker(self._mutex):
                 self._last_meas_buf = buf; self._last_meas_rms = rms
@@ -14863,6 +14885,7 @@ class TransferFunctionWindow(QWidget):
             ref_a, meas_a = self._align_pair(ref_buf, meas_buf, _D)
         else:
             ref_a, meas_a = ref_buf, meas_buf
+        self._primary_upstream_aligned = True   # _on_frame 경로: 정수 딜레이 이미 정렬됨
         if self._tf_engine_mtw:
             # MTW: 시간영역 버퍼만 보관 (엔진이 자체 멀티레이트 FFT 수행) — 콜백 FFT 생략
             with QMutexLocker(self._mutex):
@@ -15304,8 +15327,18 @@ class TransferFunctionWindow(QWidget):
         _primary_show = (_pc is None) or (_pc._display_on and _pc.is_graph_visible())
         self._last_primary_H = None; self._last_primary_coh = None
 
+        # 딜레이 정렬 — 분리 콜백 경로(Internal SigGen / 다른장치 ref)는 캡처 시 정렬이 안 돼
+        # H(f) 위상에 정수 딜레이가 그대로 남는다(_render_primary_H 는 sub-sample 잔여만 제거).
+        # → duplex/extra 와 동일하게 여기서 정수 딜레이를 제거해 위상·IR·코히런스를 정렬 기준으로 맞춘다.
+        # duplex/sync(_on_frame)는 이미 정렬됐으므로(_primary_upstream_aligned=True) 건너뛴다(이중정렬 방지). [DELAY_TIME_ALIGN]
+        _D_primary = int(round(self.delay_ms / 1000.0 * self.sample_rate)) if self.delay_ms else 0
+        _need_align = (_D_primary != 0 and not self._primary_upstream_aligned)
+
         # ── MTW 라이브 엔진 경로 (primary 전용, v1.7) — 시간영역 버퍼를 멀티레이트 분석 ──
         if self._tf_engine_mtw and self._mtw is not None:
+            if _need_align and ref_b is not None and meas_b is not None \
+                    and len(ref_b) == len(meas_b) and abs(_D_primary) < len(ref_b):
+                ref_b, meas_b = self._align_pair(ref_b, meas_b, _D_primary)
             self._render_mtw(ref_b, meas_b, rr, mr, freqs, t_ms, _primary_show)
             self._render_extra_pairs(freqs, t_ms)   # extra 카드는 엔진 무관 — 함께 렌더
             return
@@ -15315,6 +15348,10 @@ class TransferFunctionWindow(QWidget):
         primary_ok = (X is not None and Y is not None and len(X) == len(Y)
                       and rr >= 1e-6 and mr >= 1e-6)
         if primary_ok:
+            if _need_align:
+                # 시간영역 정렬과 등가: ref FFT 를 exp(-jωD) 회전(=ref 를 D 지연) → 크로스스펙트럼
+                # 위상에서 정수 딜레이 제거. 부호 무관(D<0 도 동일 식). 창 경계효과는 2차이므로 무시.
+                X = X * np.exp(-1j * 2 * np.pi * freqs * (_D_primary / self.sample_rate))
             S_xy = Y * np.conj(X); S_xx = np.abs(X) ** 2; S_yy = np.abs(Y) ** 2
             if self._cross_acc is None:
                 self._cross_acc = S_xy.copy(); self._auto_acc_x = S_xx.copy()
@@ -15591,6 +15628,7 @@ class TransferFunctionWindow(QWidget):
             self.find_btn.setEnabled(True); self.find_btn.setText('Find')
             return
         fft_size = self.fft_size; sr = self.sample_rate
+        base_ms = float(self.delay_ms)   # 누적은 현재 딜레이로 이미 정렬됨 → 잔여+base=참값 [DELAY_FIND_ABS]
 
         def _worker():
             # Smaart 방식: H = Sxy/Sxx (TF 정규화) → IFFT → IR 피크
@@ -15605,7 +15643,7 @@ class TransferFunctionWindow(QWidget):
                 denom = 2*(2*y1 - y0 - y2)
                 if denom > 0: peak += (y2 - y0) / denom
             if peak > fft_size // 2: peak -= fft_size
-            d_ms = round(float(peak) / sr * 1000.0, 2)
+            d_ms = round(base_ms + float(peak) / sr * 1000.0, 2)   # 잔여 + 현재딜레이 = 참 딜레이
             self._find_result_sig.emit(d_ms)
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -16599,6 +16637,14 @@ class TransferFunctionWindow(QWidget):
                 auto_x = acc['auto_x'].copy()
         if cross is None or auto_x is None: return
         fft_size = self.fft_size; sr = self.sample_rate
+        # ⭐현재 적용 중인 딜레이(base). 누적 스펙트럼은 이 딜레이로 이미 시간정렬돼 있어(_align_pair)
+        # IR 피크는 "잔여(참값−base)"만 보인다 → 찾은 잔여에 base 를 더해야 참 딜레이가 나온다.
+        # (v1.9 _align_pair 도입 전엔 누적이 미정렬이라 base=0로 맞았음. 정렬 도입 후 회귀했던 부분.) [DELAY_FIND_ABS]
+        if pair_idx is None:
+            base_ms = float(self.delay_ms)
+        else:
+            base_ms = float(self._extra_pairs[pair_idx].get('delay_ms', 0.0)) \
+                      if pair_idx < len(self._extra_pairs) else 0.0
 
         def _worker():
             H = cross / np.maximum(auto_x, 1e-30)
@@ -16610,7 +16656,7 @@ class TransferFunctionWindow(QWidget):
                 denom = 2*(2*y1 - y0 - y2)
                 if denom > 0: peak += (y2 - y0) / denom
             if peak > fft_size // 2: peak -= fft_size
-            d_ms = round(float(peak) / sr * 1000.0, 2)
+            d_ms = round(base_ms + float(peak) / sr * 1000.0, 2)   # 잔여 + 현재딜레이 = 참 딜레이
             self._find_pair_result_sig.emit(pair_idx if pair_idx is not None else -1, d_ms)
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -17153,6 +17199,7 @@ class TransferFunctionWindow(QWidget):
             self._standalone_fade_pos = [0]
             self._standalone_buf_r    = [self._pink_buf]
             self._standalone_xrun     = [False]   # xrun 감지 → GUI 스레드에서 EMA 리셋
+            self._standalone_cb_fired = [False]   # [DIAG] 첫 콜백 수신 — 콜드오픈 콜백 미시작(무음) 추적
 
             # lvl_r: 뮤터블 컨테이너 — 레벨 변경이 실행 중 스트림에 즉시 반영됨
             lvl_r = [self._sig_level_lin]; self._sig_lvl_ref = lvl_r
@@ -17171,10 +17218,12 @@ class TransferFunctionWindow(QWidget):
             _ir_buf = self._int_ref_buf; _ir_pos = self._int_ref_pos
             _sg_muted = self._standalone_muted
             _sg_xrun  = self._standalone_xrun
+            _sg_fired = self._standalone_cb_fired
             _sg_fade_frames = int(self.sample_rate * 0.05)
             _sg_ramp = np.linspace(0.0, 1.0, _sg_fade_frames, dtype=np.float32)
             _sg_fade_pos = self._standalone_fade_pos
             def cb(outdata, frames, ti, status):
+                _sg_fired[0] = True   # 플래그 write만(I/O 아님) — GUI 워치독이 미시작 판정
                 if status:
                     _alog.warning(f'SigGen cb xrun/status: {status}')
                     _sg_xrun[0] = True   # GUI 스레드 → _render_inner()에서 EMA 리셋
@@ -17224,6 +17273,12 @@ class TransferFunctionWindow(QWidget):
                                    f'req(bs={_blk_size},lat=high) actual(bs={self._sig_stream.blocksize},lat={self._sig_stream.latency})')
                     except Exception:
                         _alog.debug(f'  OutputStream started  out={out_dev} sr={self.sample_rate} ch={n_ch}')
+                    # [DIAG] 콜드오픈 콜백 미시작(무음) 워치독: 2초 내 첫 콜백 없으면 로그.
+                    # 재현 로그로 재오픈 워치독 넣을 경로 확정용(동작 변경 없음, 진단만).
+                    def _sig_cb_watchdog(_fired=self._standalone_cb_fired, _od=out_dev):
+                        if self._sig_stream is not None and not _fired[0]:
+                            _diag('sig_cb_dead', dev=_od)   # ⚠️OutputStream 콜백 2초간 미시작 = 무음 후보
+                    QTimer.singleShot(2000, _sig_cb_watchdog)
                     break
                 except Exception as e:
                     _alog.warning(f'  OutputStream attempt {_attempt+1} failed: {e}')

@@ -7,6 +7,13 @@
 
 ---
 
+## 🐛 2026-07-16 수정 (v1.9, 커밋 완료)
+- [x] **[버그] Auto 딜레이 파인더 값 튐(v1.9 회귀)** — 딜레이 시간정렬(`_align_pair`) 도입 후, 누적 스펙트럼이 이미 현재 딜레이로 정렬돼 파인더가 "잔여"만 보고 그걸 **덮어써** 참값 못 감(로그 `2.65↔0.46 ms` 핑퐁). **수정: `d_ms = 현재딜레이 + 잔여`** (3경로: `_find_delay_for_pair`·`_find_delay_compute`·`AllDelayFinderDialog`). M4 물리ref **실측 확정**(4.47ms 고정·잔여0·임펄스 명중). verify_finder.py로 핑퐁 재현→수렴 검증, selfcheck 39/39. `[DELAY_FIND_ABS]` *(상세: project_v19_delay_time_align)*
+- [x] **[버그] 내부(SigGen)·다른장치 ref 측정 위상/임펄스 어긋남** — 딜레이 정렬이 `_on_frame`(same-device duplex/sync)에만 걸리고 분리콜백 경로(Internal SigGen·diff-device primary=`_on_ref`+`_on_meas`)엔 빠져, `_render_primary_H`가 정수딜레이 제거 가정만 하다 위상 과다랩핑·IR 임펄스 2×딜레이. **수정: `_primary_upstream_aligned` 플래그로 미정렬 경로만 렌더 직전 정렬**(MTW=`_align_pair`, Single=`X·exp(-jωD)`), duplex 이중정렬 가드. 헤드리스 검증(verify_delay_align.py). ⏳실측=원래 스샷(맥스피커+맥마이크=diff-device)에서만 발동, M4는 duplex라 미발동. *(상세: project_v19_delay_time_align)*
+- 진단(유지): 콜드오픈 콜백 미시작 워치독 로그 `sig_cb_dead`/`tf_duplex_cb_dead`/`tf_duplex_first_cb` — "인터페이스 출력 간헐 무음"(이번엔 사용자 라우팅 실수로 판명, 근본 미재현) 대비 저비용 로그.
+
+---
+
 ## 🎧 A. 내일 바로 — 하드웨어 실측 (회사 M4/외장 인터페이스 필요)
 
 - [x] **캘리브 멀티채널 검증** — ✅✅**실측 검증완료(2026-06-16, M4 4채널)**. 채널목록 4행·채널전환·채널별 측정/오프셋 정상. **검증 중 버그 2건 발견·수정:** ①**오프셋 150 클램프** — `offset_spin.setRange(-30,150)`이 측정마이크 오프셋(보통 120~170dB)을 150에 잘라 전 채널 +150으로 표시 → `(-30,200)`로 상향(`wayaudo2.py:3150`). ②**단독 측정 시 분석창/라이브카드 같이 켜짐** — `_open_calib`이 정지상태에서 `_start()`(메인경로)를 켜 분석창·카드가 살아남 → **캘리브 전용 경량 스트림**(`_calib_start_measure/_calib_on_chunk/_calib_stop_measure`)으로 레벨만 측정, 캔버스/카드/트랜스포트 미터치. 분석 Running 중이면 기존처럼 in_ch_cb 전환(라이브 곡선도 전환). **TF 탭엔 캘리브 미적용 확인(정상)** — TF 매그니튜드=meas÷ref 상대이득(dB)이라 절대SPL 약분, 캘리브는 Spectrum/SPL미터 전용. 미빌드. *(상세: project_calib_channel_table_verify)*
