@@ -12,6 +12,16 @@ if [ "$ARCH" = "arm64" ]; then
 fi
 
 # 여기부터 x86_64 모드 (Rosetta)
+# PyInstaller가 부르는 lipo/xcrun 등은 CLT에 x86_64 슬라이스가 없어 Rosetta에서 실패한다.
+# → arm64 강제 래퍼를 만들어 PATH 앞에 둔다 (재부팅으로 /tmp 날아가도 매 빌드 자동 재생성).
+ARM64_TOOLS="/tmp/arm64_tools"
+mkdir -p "$ARM64_TOOLS"
+for t in lipo codesign strip install_name_tool otool xcrun; do
+    printf '#!/bin/bash\nexec arch -arm64 /usr/bin/%s "$@"\n' "$t" > "$ARM64_TOOLS/$t"
+    chmod +x "$ARM64_TOOLS/$t"
+done
+export PATH="$ARM64_TOOLS:$PATH"
+
 VENV="/tmp/spectra_intel_venv"
 PY="arch -x86_64 $VENV/bin/python"
 if [ ! -d "$VENV" ]; then
@@ -20,7 +30,17 @@ if [ ! -d "$VENV" ]; then
 fi
 echo "x86_64 의존성 설치/확인 중... (최초엔 수 분 소요)"
 $PY -m pip install --upgrade pip --quiet
-$PY -m pip install PyQt5 numpy scipy sounddevice soundfile pyinstaller --quiet
+# ⚠️ 구형 macOS 호환(Ventura 13 이하): numpy>=2.3 / scipy>=1.14 의 x86_64 휠은 minos=14.0(Sonoma)라
+#    dyld가 로드 거부 → 앱이 "열렸다 즉시 종료". numpy 2.2.6 은 10_9·14_0 두 휠이 있어 macOS 26 에선
+#    pip 가 14_0 을 골라버림 → 반드시 macosx_10_9 휠을 명시 다운로드해 강제 설치한다.
+#    (scipy 1.13.1 은 10_9 휠만 존재.) 버전 변경 시 빌드 후 `vtool -show-build` 로 minos<=13 재검증 필수.
+LOWDIR=/tmp/spectra_low_wheels
+rm -rf "$LOWDIR"; mkdir -p "$LOWDIR"
+$PY -m pip download --no-deps --only-binary=:all: \
+    --platform macosx_10_9_x86_64 --python-version 311 --abi cp311 \
+    -d "$LOWDIR" "numpy==2.2.6" "scipy==1.13.1"
+$PY -m pip install --force-reinstall --no-deps "$LOWDIR"/*.whl
+$PY -m pip install PyQt5 sounddevice soundfile pyinstaller --quiet
 
 SITE=$($PY -c "import site; print(site.getsitepackages()[0])")
 echo "site-packages: $SITE"
