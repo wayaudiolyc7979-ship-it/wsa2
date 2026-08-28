@@ -35,8 +35,12 @@ _spec.loader.exec_module(w)          # 모듈 import 자체가 1차 검증(문�
 # (wayaudo 자체 심볼은 절대 덮어쓰지 않음). 테스트 하네스가 이동에 견디도록.
 import spectra.ui.widgets, spectra.ui.dialogs, spectra.ui.spl
 import spectra.ui.draw, spectra.ui.colors, spectra.ui.tokens, spectra.ui.icons
+import spectra.ui.canvas_spectrum, spectra.ui.canvas_tf
+import spectra.core.config, spectra.dsp.weighting
 for _m in (spectra.ui.widgets, spectra.ui.dialogs, spectra.ui.spl,
-           spectra.ui.draw, spectra.ui.colors, spectra.ui.tokens, spectra.ui.icons):
+           spectra.ui.draw, spectra.ui.colors, spectra.ui.tokens, spectra.ui.icons,
+           spectra.ui.canvas_spectrum, spectra.ui.canvas_tf,
+           spectra.core.config, spectra.dsp.weighting):
     for _n in dir(_m):
         if not _n.startswith('__') and not hasattr(w, _n):
             setattr(w, _n, getattr(_m, _n))
