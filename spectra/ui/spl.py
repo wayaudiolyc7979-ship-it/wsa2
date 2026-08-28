@@ -10,7 +10,7 @@ from PyQt5.QtGui import (QBrush, QColor, QCursor, QFont, QLinearGradient, QPaint
 from PyQt5.QtCore import (Qt, QMutex, QMutexLocker, QPointF, QRectF, QTimer,
                           QEasingCurve, QVariantAnimation, pyqtSignal)
 from PyQt5.QtWidgets import (QDialog, QFrame, QGraphicsOpacityEffect, QGridLayout,
-                             QGroupBox, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
+                             QGroupBox, QHBoxLayout, QLabel, QMenu, QPushButton, QSizePolicy,
                              QVBoxLayout, QWidget)
 from spectra.core.config import T, is_dark, _save_settings
 from spectra.core.i18n import _tx
@@ -964,6 +964,11 @@ class ShowModeWindow(QWidget):
         self._spl = -120.0; self._unit = 'dBA'
         self._peak = -120.0; self._leq = -120.0; self._leq_e = None
         self._num_pix = None; self._num_key = None   # 거대 숫자 픽스맵 캐시(문자열/색 바뀔 때만 재렌더)
+        _st = getattr(main, '_settings', {}) or {}
+        self._metric_mode = _st.get('show_metric', 'dba')   # 헤드라인 지표: dba/dbc/spl (드롭다운 선택)
+        self._spec_mode   = _st.get('show_spec', 'oct24')   # 스펙트럼 해상도: oct3/oct12/oct24/fft
+        self._sm_prev = None            # 스펙트럼 막대 평활 상태(모드 바뀌면 리셋)
+        self._metric_rect = None; self._spec_rect = None    # 드롭다운 클릭 히트영역 (x,y,w,h)
         self._last_paint = 0.0          # 리페인트 throttle (글랜스 차분하게)
         self._last_push = 0.0           # 헤드라인 시간기반 평활용 (프레임율 무관)
         self._limit = 100.0; self._amber = 3.0
@@ -975,7 +980,16 @@ class ShowModeWindow(QWidget):
     def push(self, raw, unit, bands, bmin, bmax):
         """순간 SPL(raw) + 스펙트럼 급전. 헤드라인 큰 숫자는 Slow 평활(글랜스 가독),
         PEAK(순간 홀드)·LEQ(긴 지수창)는 raw 기준. 리페인트는 ~15fps로 제한."""
-        self._unit = unit; self._bands = bands; self._bmin = bmin; self._bmax = bmax
+        self._unit = unit; self._bmin = bmin; self._bmax = bmax
+        # 스펙트럼 막대 평활 — 해상도 모드가 raw(_calc_oct/FFT)로 와도 글랜스답게 차분히
+        # (모드 바뀌어 길이 다르면 리셋). 채움만 평활, 스파이크는 어느정도 살림.
+        if bands is not None:
+            b = np.asarray(bands, dtype=float)
+            if self._sm_prev is None or len(self._sm_prev) != len(b):
+                self._sm_prev = b.copy()
+            else:
+                self._sm_prev += (b - self._sm_prev) * 0.35
+            self._bands = self._sm_prev
         now = time.time()
         # 헤드라인 = Slow 평활 (raw가 60fps로 튀면 안 읽혀서). 시간기반 EMA →
         # push 호출율이 달라도 체감 속도 일정. dt 첫 프레임/큰 갭은 33ms로 클램프.
@@ -995,6 +1009,37 @@ class ShowModeWindow(QWidget):
 
     def set_limit(self, limit, amber):
         self._limit = float(limit); self._amber = float(amber)
+
+    def mousePressEvent(self, e):
+        """지표(dBA/dBC/dB SPL)·스펙트럼 해상도(1/3·1/12·1/24·FFT) 드롭다운 클릭."""
+        x, y = e.x(), e.y()
+        def _in(r): return r and r[0] <= x <= r[0]+r[2] and r[1] <= y <= r[1]+r[3]
+        if _in(self._metric_rect):
+            self._pick(e.globalPos(), '_metric_mode',
+                       [('dba', 'dBA'), ('dbc', 'dBC'), ('spl', 'dB SPL')])
+        elif _in(self._spec_rect):
+            self._pick(e.globalPos(), '_spec_mode',
+                       [('oct3', '1/3 oct'), ('oct12', '1/12 oct'),
+                        ('oct24', '1/24 oct'), ('fft', 'FFT')], reset_bands=True)
+        else:
+            super().mousePressEvent(e)
+
+    def _pick(self, gpos, attr, opts, reset_bands=False):
+        """공용 드롭다운(QMenu) — 현재값 체크, 선택 시 저장+재렌더."""
+        mnu = QMenu(self); cur = getattr(self, attr)
+        acts = {}
+        for key, lbl in opts:
+            a = mnu.addAction(lbl); a.setCheckable(True); a.setChecked(key == cur)
+            acts[a] = key
+        act = mnu.exec_(gpos)
+        if act in acts and acts[act] != cur:
+            setattr(self, attr, acts[act])
+            if reset_bands: self._sm_prev = None       # 해상도 바뀜 → 막대 평활 리셋
+            st = getattr(self._main, '_settings', None)
+            if st is not None:
+                st['show_metric'] = self._metric_mode; st['show_spec'] = self._spec_mode
+                _save_settings(st)
+            self.update()
 
     def _state_color(self):
         if self._spl >= self._limit:            return QColor(T('red'))
@@ -1057,8 +1102,10 @@ class ShowModeWindow(QWidget):
         uf = QFont(FONT_SANS); uf.setPixelSize(max(14, int(H * 0.040)))
         uf.setLetterSpacing(QFont.AbsoluteSpacing, 2)
         p.setFont(uf); p.setPen(QColor('#8B93A2'))
-        p.drawText(m, int(bot - (bot - top) * 0.22), left_w - m, int((bot - top) * 0.20),
-                   Qt.AlignHCenter | Qt.AlignTop, f'{self._unit}   /   {self._limit:.0f}')
+        _uy = int(bot - (bot - top) * 0.22); _uh = int((bot - top) * 0.20)
+        p.drawText(m, _uy, left_w - m, _uh,
+                   Qt.AlignHCenter | Qt.AlignTop, f'{self._unit}  ▾   /   {self._limit:.0f}')
+        self._metric_rect = (m, _uy, left_w - m, _uh)   # 지표 드롭다운 클릭영역
         # 오른쪽: 라이브 스펙트럼 막대
         sx = left_w + m // 2; sy = top; sw = W - sx - m; sh = bot - top
         p.fillRect(sx, sy, sw, sh, QColor('#0D0F14'))
@@ -1077,6 +1124,18 @@ class ShowModeWindow(QWidget):
                 bx = int(sx + i * bw + gap / 2); ww = max(1, int(bw - gap)); by = sy + sh - bh
                 p.fillRect(bx, by, ww, bh, brush)
                 if bh > 6: p.fillRect(bx, by, ww, 1, capc)
+        # 스펙트럼 해상도 드롭다운 라벨 (박스 우상단) — 클릭 시 1/3·1/12·1/24·FFT 선택
+        _rl = {'oct3': '1/3 oct', 'oct12': '1/12 oct', 'oct24': '1/24 oct',
+               'fft': 'FFT'}.get(self._spec_mode, '1/24 oct') + '  ▾'
+        rf = QFont(FONT_SANS); rf.setPixelSize(max(11, int(H * 0.022)))
+        rf.setLetterSpacing(QFont.AbsoluteSpacing, 1)
+        p.setFont(rf); _fm = p.fontMetrics()
+        _rw = _fm.horizontalAdvance(_rl) + 22; _rh = _fm.height() + 10
+        _rx = sx + sw - _rw - 12; _ry = sy + 12
+        p.setPen(Qt.NoPen); p.setBrush(QColor(0, 0, 0, 160))
+        p.drawRoundedRect(QRectF(_rx, _ry, _rw, _rh), 6, 6)
+        p.setPen(QColor('#9CA3B2')); p.drawText(_rx, _ry, _rw, _rh, Qt.AlignCenter, _rl)
+        self._spec_rect = (_rx, _ry, _rw, _rh)   # 해상도 드롭다운 클릭영역
         # ── 하단: 지표 칩 ──
         chips = [('PEAK', f'{self._peak:.0f}'), ('LEQ', f'{self._leq:.1f}'),
                  ('HEADROOM', f'{self._limit - self._spl:+.0f} dB')]

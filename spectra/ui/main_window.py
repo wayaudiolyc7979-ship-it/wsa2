@@ -3171,14 +3171,16 @@ class MainWindow(QMainWindow):
             # FOH 쇼 모드 — 한계 라이브 동기화 + 헤드라인 지표는 SPL 알람 Metric 가중 따라감
             _a = self._settings.get('spl_alarm', {})
             self.show_mode_win.set_limit(_a.get('limit', 100.0), _a.get('amber', 3.0))
-            _mtr = _a.get('metric', 'dba')
-            if _mtr in ('lceq', 'dbc', 'dbc_fast', 'peak_c'):
-                _sv, _su = raw_dbc, 'dBC'
-            elif _mtr in ('spl', 'spl_fast', 'spl_slow', 'peak', 'fs_peak'):
-                _sv, _su = raw_dbfs + self.calib_offset, 'dB SPL'
-            else:                                   # laeq/dba/dba_fast 등 A가중
-                _sv, _su = raw_dba, 'dBA'
-            _sm_bands = self.oct_cvs.smooth.get(self.oct_cvs.mode)
+            _mm = self.show_mode_win._metric_mode   # 쇼모드 자체 지표 선택(드롭다운): dba/dbc/spl
+            if _mm == 'dbc':   _sv, _su = raw_dbc, 'dBC'
+            elif _mm == 'spl': _sv, _su = raw_dbfs + self.calib_offset, 'dB SPL'
+            else:              _sv, _su = raw_dba, 'dBA'
+            _sp = self.show_mode_win._spec_mode     # 쇼모드 스펙트럼 해상도 선택: oct3/12/24/fft
+            if _sp == 'fft':                        # FFT = 로그격자 재샘플(막대 균등표시용)
+                _lg = np.logspace(np.log10(20), np.log10(min(self.sample_rate / 2, 20000)), 240)
+                _sm_bands = np.interp(_lg, freqs, avg_cal).astype(np.float32)
+            else:                                   # 옥타브 = 그 해상도로 FFT서 즉시 계산
+                _sm_bands = self._calc_oct(freqs, avg_cal, mode=_sp)
             self.show_mode_win.push(_sv, _su, _sm_bands, self.db_min, self.db_max)
 
     # ── 렌더링 타이머 (30fps)
