@@ -4,6 +4,8 @@ v2.0 분해: wayaudo2.py에서 이동(동작 0 변경).
 """
 from PyQt5.QtGui import QPainter, QPixmap, QColor, QPen, QRadialGradient, QIcon
 from PyQt5.QtCore import Qt, QRectF, QPointF
+from PyQt5.QtWidgets import QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout
+from spectra.ui.tokens import _n2_caps_font
 from spectra.core.config import T, is_dark, theme
 from spectra.ui.colors import _SPECTRA_GRAD_DEFS
 
@@ -151,3 +153,36 @@ def _wave_toggle_icon(on, size=16):
     p.end()
     ic = QIcon(pm); _wave_toggle_icon_cache[key] = ic
     return ic
+
+
+# ── N2 UI 빌더 ──
+def _n2_group_header(text):
+    """N2 섹션 헤더 — 파란 액센트 바 + 대문자 라벨 + 하단 하어라인. 목업의 그룹 헤더 룩.
+    반환: 헤더+하어라인을 담은 QWidget (그룹 레이아웃 맨 위에 삽입)."""
+    w_ = QWidget(); w_.setStyleSheet('background:transparent;')
+    v = QVBoxLayout(w_); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(6)
+    row = QHBoxLayout(); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(7)
+    bar = QFrame(); bar.setFixedSize(3, 12); bar.setStyleSheet(f'background:{T("accent")};border-radius:1px;')
+    lbl = QLabel(text); lbl.setObjectName('n2GroupHdr'); lbl.setFont(_n2_caps_font(11)); lbl.setStyleSheet(f'color:{T("text")};background:transparent;')
+    row.addWidget(bar); row.addWidget(lbl); row.addStretch()
+    v.addLayout(row)
+    hair = QFrame(); hair.setFixedHeight(1)
+    hair.setStyleSheet('background:rgba(128,128,128,0.28);border:none;')   # 테마 중립
+    v.addWidget(hair)
+    return w_
+
+
+
+def _n2_divider():
+    f = QFrame(); f.setFrameShape(QFrame.VLine); f.setFixedWidth(1); f.setFixedHeight(26)
+    hair = '#3E3E46' if is_dark() else T('border')   # 또렷하게(기존 #232329 너무 흐림)
+    f.setStyleSheet(f'color:{hair};background:{hair};border:none;')
+    return f
+
+
+def _n2_tab_ss():
+    hov = 'rgba(255,255,255,0.05)' if is_dark() else 'rgba(0,0,0,0.05)'
+    return (f'#n2tab{{background:transparent;border-radius:7px;}}'
+            f'#n2tab:hover{{background:{hov};}}')
+
+

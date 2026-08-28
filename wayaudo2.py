@@ -6647,22 +6647,8 @@ from spectra.ui.icons import _icon_pm, _n2_hover_ss, _n2_icon_color, _n2_led_col
 from spectra.ui.tokens import _n2_mono_font, _n2_caps_font, _n2_val_font
 
 
-def _n2_group_header(text):
-    """N2 섹션 헤더 — 파란 액센트 바 + 대문자 라벨 + 하단 하어라인. 목업의 그룹 헤더 룩.
-    반환: 헤더+하어라인을 담은 QWidget (그룹 레이아웃 맨 위에 삽입)."""
-    w_ = QWidget(); w_.setStyleSheet('background:transparent;')
-    v = QVBoxLayout(w_); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(6)
-    row = QHBoxLayout(); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(7)
-    bar = QFrame(); bar.setFixedSize(3, 12); bar.setStyleSheet(f'background:{T("accent")};border-radius:1px;')
-    lbl = QLabel(text); lbl.setObjectName('n2GroupHdr'); lbl.setFont(_n2_caps_font(11)); lbl.setStyleSheet(f'color:{T("text")};background:transparent;')
-    row.addWidget(bar); row.addWidget(lbl); row.addStretch()
-    v.addLayout(row)
-    hair = QFrame(); hair.setFixedHeight(1)
-    hair.setStyleSheet('background:rgba(128,128,128,0.28);border:none;')   # 테마 중립
-    v.addWidget(hair)
-    return w_
-
-
+# N2 UI 빌더 — v2.0 분해: spectra/ui/icons.py 로 이동, re-import
+from spectra.ui.icons import _n2_group_header, _n2_divider, _n2_tab_ss
 class _N2Select(QFrame):
     """RoundComboBox 드롭인 대체 — [아이콘][CAPS라벨][값] 테두리리스, hover, 클릭=드롭다운.
     QComboBox 툴바 사용 API 제공: addItem/addItems/setCurrentIndex/currentIndex/currentData/
@@ -6946,19 +6932,6 @@ class _N2Segmented(QFrame):
         for b in self._btns.values(): b.set_on(b._on)
     def apply_theme(self):   # _SegmentedControl 호환
         self.restyle()
-
-
-def _n2_divider():
-    f = QFrame(); f.setFrameShape(QFrame.VLine); f.setFixedWidth(1); f.setFixedHeight(26)
-    hair = '#3E3E46' if is_dark() else T('border')   # 또렷하게(기존 #232329 너무 흐림)
-    f.setStyleSheet(f'color:{hair};background:{hair};border:none;')
-    return f
-
-
-def _n2_tab_ss():
-    hov = 'rgba(255,255,255,0.05)' if is_dark() else 'rgba(0,0,0,0.05)'
-    return (f'#n2tab{{background:transparent;border-radius:7px;}}'
-            f'#n2tab:hover{{background:{hov};}}')
 
 
 def _sec_hairline():
