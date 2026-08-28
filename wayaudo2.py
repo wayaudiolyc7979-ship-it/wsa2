@@ -237,42 +237,8 @@ def freq_to_note(f):
     n = int(round(69.0 + 12.0 * math.log2(f / 440.0)))   # 69 = A4
     return f'{_NOTE_NAMES[n % 12]}{n // 12 - 1}'
 
-# ── 딜레이 단위 (ms ↔ 거리 m) — 표시 통합 ──────────────────────────────
-# 내부 저장값은 *항상* ms. 딜레이를 화면에 글로 찍는 모든 곳(IR 마커/커서/시간축/
-# 파인더/스핀박스 보조라벨)은 fmt_delay() 하나만 거친다. 나중에 토글 UI는
-# _DELAY_UNIT 값만 바꾸고 캔버스.update()+스핀박스 새로고침 하면 전체가 일괄 환산됨.
-_SOUND_SPEED = 343.0      # m/s (20°C). _DelayAdvancedDialog에서 조정(전역 단일 소스).
-_DELAY_UNIT  = 'ms'       # 'ms' | 'm' | 'both'  — 딜레이 표시 단위 (기본=ms, 동작 변화 0)
-# 접근자 — 모듈 분해(v2.0) 대비 가변 전역 직접 참조 금지, 이 함수로만.
-def sound_speed(): return _SOUND_SPEED
-def set_sound_speed(v):
-    global _SOUND_SPEED
-    _SOUND_SPEED = v
-def delay_unit(): return _DELAY_UNIT
-def set_delay_unit(v):
-    global _DELAY_UNIT
-    _DELAY_UNIT = v
-
-def ms_to_m(ms):
-    return ms * sound_speed() / 1000.0
-
-def m_to_ms(m):
-    return m * 1000.0 / sound_speed()
-
-def fmt_delay(ms, prec=2, unit=None, compact=False, sign=False):
-    """딜레이(ms 값) → 현재 표시 단위 문자열.
-    unit 지정 시 강제. compact=축 눈금용(공백 없이 단일 단위). sign=델타용 +부호."""
-    u = unit or delay_unit()
-    s = '+' if sign else ''
-    if compact:                                   # 축 눈금: 한 단위만, 공백 없이
-        if u == 'm':
-            return f'{ms_to_m(ms):{s}.{max(prec,1)}f}m'
-        return f'{ms:{s}.{prec}f}ms'
-    if u == 'm':
-        return f'{ms_to_m(ms):{s}.2f} m'
-    if u == 'both':
-        return f'{ms:{s}.{prec}f} ms · {ms_to_m(ms):{s}.2f} m'
-    return f'{ms:{s}.{prec}f} ms'
+# 딜레이/음속 단위 — v2.0 분해: spectra/core/config.py, 함수만 re-import(_SOUND_SPEED/_DELAY_UNIT은 config 소유)
+from spectra.core.config import (sound_speed, set_sound_speed, delay_unit, set_delay_unit, ms_to_m, m_to_ms, fmt_delay)
 
 # power_spectrum_db — v2.0 분해: spectra/dsp/weighting.py 로 이동, re-import(동작 불변)
 from spectra.dsp.weighting import power_spectrum_db
