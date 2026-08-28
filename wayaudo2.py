@@ -2275,34 +2275,38 @@ def y_to_db(y, draw_h, db_min, db_max):
 # ───────────────────────────────────────────
 #  커서 정보창
 # ───────────────────────────────────────────
-def draw_info_box(p, W, freq_str, db_str, pk_str=None):
-    # 폭 계산과 실제 그리기를 같은 토큰으로 → 박스 폭/텍스트 정합
-    p.setFont(_qfont(CF_CUR_TITLE, True))
-    fw = p.fontMetrics().horizontalAdvance(freq_str)
-    p.setFont(_qfont(CF_CUR_VAL, True))
-    dw = p.fontMetrics().horizontalAdvance(db_str)
+def draw_info_box(p, W, title_str, val_str, pk_str=None, cx=None, x_lo=0, x_hi=None,
+                  top=6, val_color=None):
+    # 커서 리드아웃 = 커서에 붙는 태그(H2). 위치(제목)는 흐리게 위, 값은 곡선색으로 아래.
+    # cx 지정 시 커서 x 에 태그를 물리고 아래 노치(▽)로 그 지점을 가리킴(플롯 안으로 클램프);
+    # cx=None 이면 상단 중앙 폴백. 글로우/굵은 테두리/주황값(구식) 폐지 → N2 모노+하어라인.
+    if x_hi is None: x_hi = W
+    p.setRenderHint(QPainter.Antialiasing, True)
+    p.setFont(_n2_mono_font(13, QFont.DemiBold)); tw = p.fontMetrics().horizontalAdvance(title_str)
+    p.setFont(_n2_mono_font(15, QFont.Bold));     vw = p.fontMetrics().horizontalAdvance(val_str)
     pw = p.fontMetrics().horizontalAdvance(pk_str) if pk_str else 0
-    bw = max(fw,dw,pw)+40; bh=90 if pk_str else 66
-    bx = W//2-bw//2; by=14
-    for off,alp in [(5,15),(3,30),(2,50)]:
-        # 라이트: 흰 배경에서 카드가 떠 보이도록 은은한 뉴트럴 드롭섀도(파란 띠 X)
-        ring = QColor(20,33,58, max(6, alp//2)) if _theme=='light' else QColor(78,125,240,alp)
-        p.setPen(QPen(ring, off*2)); p.setBrush(Qt.NoBrush)
-        p.drawRoundedRect(bx-off,by-off,bw+off*2,bh+off*2,10,10)
-    p.setPen(QPen(QColor(T('accent')),2))
-    p.setBrush(QBrush(QColor(T('panel')) if _theme=='light' else QColor(0,0,0,230)))
-    p.drawRoundedRect(bx,by,bw,bh,8,8)
-    p.setFont(_qfont(CF_CUR_TITLE, True)); p.setPen(QColor(T('accent')))
-    p.drawText(bx,by+4,bw,30,Qt.AlignHCenter|Qt.AlignVCenter,freq_str)
-    p.setPen(QPen(QColor(T('border')),1))
-    p.drawLine(bx+12,by+36,bx+bw-12,by+36)
-    p.setFont(_qfont(CF_CUR_VAL, True)); p.setPen(QColor(T('accent2')))
-    p.drawText(bx,by+36,bw,28,Qt.AlignHCenter|Qt.AlignVCenter,db_str)
+    bw = max(tw, vw, pw) + 22
+    bh = 66 if pk_str else 44
+    by = top + 6
+    if cx is None:
+        bx = W // 2 - bw // 2
+    else:
+        bx = int(min(max(cx - bw / 2, x_lo + 3), x_hi - bw - 3))
+    fill = QColor(T('panel')) if _theme == 'light' else QColor(16, 16, 18, 240)
+    path = QPainterPath(); path.addRoundedRect(bx, by, bw, bh, 7, 7)
+    p.setPen(Qt.NoPen); p.setBrush(QBrush(fill)); p.drawPath(path)
+    if cx is not None:   # 노치 — 커서 지점을 가리킴(태그 밑변 안으로 클램프)
+        nx = int(min(max(cx, bx + 11), bx + bw - 11))
+        p.drawPolygon(QPolygonF([QPointF(nx - 6, by + bh - 0.5),
+                                 QPointF(nx + 6, by + bh - 0.5), QPointF(nx, by + bh + 8)]))
+    p.setPen(QPen(QColor(T('border')), 1)); p.setBrush(Qt.NoBrush); p.drawPath(path)
+    p.setFont(_n2_mono_font(13, QFont.DemiBold)); p.setPen(QColor(T('text_dim')))
+    p.drawText(bx, by + 4, bw, 18, Qt.AlignHCenter | Qt.AlignVCenter, title_str)
+    p.setFont(_n2_mono_font(15, QFont.Bold)); p.setPen(QColor(val_color or T('text')))
+    p.drawText(bx, by + 21, bw, 20, Qt.AlignHCenter | Qt.AlignVCenter, val_str)
     if pk_str:
-        p.setPen(QPen(QColor(T('border')),1))
-        p.drawLine(bx+12,by+62,bx+bw-12,by+62)
-        p.setFont(_qfont(CF_CUR_VAL, True)); p.setPen(QColor('#FFB300'))
-        p.drawText(bx,by+62,bw,26,Qt.AlignHCenter|Qt.AlignVCenter,pk_str)
+        p.setPen(QColor('#FFB300'))
+        p.drawText(bx, by + 42, bw, 20, Qt.AlignHCenter | Qt.AlignVCenter, pk_str)
 
 def draw_dom_badge(p, plot_right, plot_top, dom_fs, dom_db, unit='dB'):
     """우상단 고정 배지: 가장 큰 레벨의 주파수 + dB/dBSPL."""
@@ -3569,7 +3573,8 @@ class FFTCanvas(QWidget):
             p.setPen(QPen(QColor(T('accent')).lighter(80) if _theme=='light' else QColor(T('accent')),
                          1,Qt.DashLine))
             p.drawLine(cx,pt,cx,H-pb); p.drawLine(pl,cy,W-pr,cy)
-            draw_info_box(p,W,fs,f'{db:.1f} {unit}')
+            draw_info_box(p,W,fs,f'{db:.1f} {unit}', cx=cx, x_lo=pl, x_hi=W-pr, top=pt,
+                          val_color=QColor(*bar_top()[:3]))
         p.end()
 
 # ───────────────────────────────────────────
@@ -3996,7 +4001,8 @@ class OctaveCanvas(QWidget):
             p.drawRect(bx2,pt,bw2,dh)
             fs=f'{fc/1000:.2f} kHz' if fc>=1000 else f'{fc:.0f} Hz'
             fs=f'{fs}   {freq_to_note(fc)}'
-            draw_info_box(p,W,fs,f'{db2:.1f} {unit}')
+            draw_info_box(p,W,fs,f'{db2:.1f} {unit}', cx=cx, x_lo=pl, x_hi=W-pr, top=pt,
+                          val_color=QColor(*bar_top()[:3]))
         if self._idle_hint:
             _draw_idle_hint(p, pl, pt, W-pl-pr, dh)
         _draw_tf_sel_border(self, p)   # TF의 RTA 칸 선택 시 파란 테두리(Spectrum 탭에선 무효)
@@ -4290,16 +4296,16 @@ class SpectrogramCanvas(QWidget):
                     t_ago=frame_ago/self.FPS
                     db_str=f'{db_val:.1f} dB'
                     t_str=f'  {t_ago:.1f}s ago' if t_ago>=0.1 else ''
-                    draw_info_box(p,W,fs,db_str+t_str)
+                    draw_info_box(p,W,fs,db_str+t_str, cx=cx, x_lo=pl, x_hi=pl+dw, top=pt)
                     # small time label beside cursor Y
                     t_lbl=f'{t_ago:.1f}s'
                     p.setFont(_qfont(CF_ANNO))
                     p.setPen(QColor(20,33,58,200) if _theme=='light' else QColor(255,255,255,160))
                     p.drawText(pl+4,cy-3,t_lbl)
                 else:
-                    draw_info_box(p,W,fs,'')
+                    draw_info_box(p,W,fs,'', cx=cx, x_lo=pl, x_hi=pl+dw, top=pt)
             else:
-                draw_info_box(p,W,fs,'')
+                draw_info_box(p,W,fs,'', cx=cx, x_lo=pl, x_hi=pl+dw, top=pt)
         p.end()
 
 # ───────────────────────────────────────────
@@ -9825,7 +9831,12 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
                     ph_str=f'  {int(val_plot)}°'
                 else:
                     ph_str=f'  {val_plot:+.1f}°'
-                draw_info_box(p,W,fs,f'{mag_str}{ph_str}')
+                if isinstance(_fk, int) and _fk != -1 and _fk in self._tf_extra_phase:
+                    _vcol = self._tf_extra_phase[_fk].get('color')
+                else:
+                    _vcol = self._live_color or T('green')
+                draw_info_box(p,W,fs,f'{mag_str}{ph_str}', cx=cx, x_lo=pl, x_hi=W-pr, top=pt,
+                              val_color=_vcol)
         self._fz_overlay(p, W, H)          # 박스줌 러버밴드
         _draw_tf_sel_border(self, p)
         p.end()
@@ -10427,7 +10438,12 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
             coh_str=''
             if _cc is not None and len(_cc)==len(_cf):
                 coh_str=f'  {_cc[idx]*100:.0f}%'
-            draw_info_box(p,W,fs,f'{mag_str}{ph_str}{coh_str}')
+            if isinstance(_fk, int) and _fk != -1 and _fk in self._tf_extra:
+                _vcol = self._tf_extra[_fk].get('color')
+            else:
+                _vcol = self._live_color or T('green')
+            draw_info_box(p,W,fs,f'{mag_str}{ph_str}{coh_str}', cx=cx, x_lo=pl, x_hi=W-pr, top=pt,
+                          val_color=_vcol)
         self._fz_overlay(p, W, H)          # 박스줌 러버밴드
         _draw_tf_sel_border(self, p)
         p.end()
@@ -11630,18 +11646,22 @@ class TFIRCanvas(QWidget):
             p.drawLine(cx, pt, cx, H - pb)
             t_cur = self.t_min + (cx - pl) / uw * t_range
             t_arr = _ct
+            if isinstance(_fk, int) and _fk != -1 and _fk in self._tf_extra:
+                _vcol = self._tf_extra[_fk].get('color')
+            else:
+                _vcol = self._live_color or T('green')
             if self.ir_mode == 0 and _ch is not None:
                 pk = max(float(np.max(np.abs(_ch))), 1e-10)
                 idx = int(np.clip(np.argmin(np.abs(t_arr - t_cur)), 0, len(_ch) - 1))
-                draw_info_box(p, W, fmt_delay(t_cur, 1), f'{_ch[idx]/pk:+.3f}')
+                draw_info_box(p, W, fmt_delay(t_cur, 1), f'{_ch[idx]/pk:+.3f}', cx=cx, x_lo=pl, x_hi=W-pr, top=pt, val_color=_vcol)
             elif self.ir_mode == 1 and _cetc is not None:
                 idx = int(np.clip(np.argmin(np.abs(t_arr - t_cur)), 0, len(_cetc) - 1))
-                draw_info_box(p, W, fmt_delay(t_cur, 1), f'{_cetc[idx]:+.1f} dB')
+                draw_info_box(p, W, fmt_delay(t_cur, 1), f'{_cetc[idx]:+.1f} dB', cx=cx, x_lo=pl, x_hi=W-pr, top=pt, val_color=_vcol)
             elif self.ir_mode == 2 and _ch is not None:
                 pk = max(float(np.max(np.abs(_ch))), 1e-10)
                 idx = int(np.clip(np.argmin(np.abs(t_arr - t_cur)), 0, len(_ch) - 1))
                 db_val = 20 * math.log10(max(abs(float(_ch[idx])) / pk, 1e-10))
-                draw_info_box(p, W, fmt_delay(t_cur, 1), f'{db_val:+.1f} dB')
+                draw_info_box(p, W, fmt_delay(t_cur, 1), f'{db_val:+.1f} dB', cx=cx, x_lo=pl, x_hi=W-pr, top=pt, val_color=_vcol)
         _draw_tf_sel_border(self, p)
         p.end()
 

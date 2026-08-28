@@ -452,9 +452,18 @@ check('브랜드 스플래시', _splash)
 
 def _info_box():
     pm = QPixmap(420, 160); pm.fill(QColor('#101010'))
-    p = QPainter(pm); w.draw_info_box(p, 420, '1.00 kHz', '-12.3 dB'); p.end()
+    p = QPainter(pm)
+    # 커서 세로선 + 커서에 붙는 태그(H2) — 노치가 커서를 가리킴, 값=곡선색(초록)
+    from PyQt5.QtGui import QPen
+    from PyQt5.QtCore import Qt
+    p.setPen(QPen(QColor(0,229,255,90), 1, Qt.DashLine)); p.drawLine(250, 20, 250, 150)
+    w.draw_info_box(p, 420, '-0.17 m', '-0.202', cx=250, x_lo=10, x_hi=410, top=8,
+                    val_color='#33FF66')
+    # 좌측 끝 클램프 확인(태그가 플롯 밖으로 안 나가고 노치만 커서로) + 폴백(center)
+    w.draw_info_box(p, 420, '1.00 kHz', '-12.3 dB')
+    p.end()
     return _save_pixmap(pm, 'cursor_infobox.png')
-check('커서 리드아웃 카드(draw_info_box)', _info_box)
+check('커서 리드아웃 태그(draw_info_box H2)', _info_box)
 
 
 # ─────────────────────────────────────────────────────────────
