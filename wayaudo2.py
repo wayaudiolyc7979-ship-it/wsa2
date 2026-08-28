@@ -1116,38 +1116,8 @@ def _make_splash_pixmap(w=520, h=300):
     return pm
 
 
-# 캡쳐 일괄 표시/숨김 토글 전용 아이콘 — SPECTRA 시그니처 웨이브(캡쳐=스펙트럼 곡선 은유).
-# 기존 Lucide 아이콘 재사용 금지(브랜드 정체성) → 그라디언트 마크를 미니 글리프로 자체 렌더.
-_WAVE_TOGGLE_PATH = 'M2,12 C5,12 5,7 8,7 S11,17 14,12 S17,7 20,7 S22,12 22,12'
-_wave_toggle_icon_cache = {}
-def _wave_toggle_icon(on, size=16):
-    """ON=브랜드 그라디언트 웨이브(=모두 표시), OFF=흐린 회색 웨이브+사선(=모두 숨김).
-    OFF 회색은 테마 적응. 한 번 렌더 후 (on,size,theme)로 캐시."""
-    from PyQt5.QtGui import QIcon
-    from PyQt5.QtSvg import QSvgRenderer
-    from PyQt5.QtCore import QByteArray
-    key = (on, size, theme())
-    ic = _wave_toggle_icon_cache.get(key)
-    if ic is not None:
-        return ic
-    if on:
-        body = (f'{_SPECTRA_GRAD_DEFS}'
-                f'<path d="{_WAVE_TOGGLE_PATH}" fill="none" stroke="url(#g)" stroke-width="2.4" '
-                f'stroke-linecap="round" stroke-linejoin="round"/>')
-    else:
-        gray  = '#6B6B70' if is_dark() else '#9AA0AA'
-        slash = '#9A9AA0' if is_dark() else '#6B7280'
-        body = (f'<path d="{_WAVE_TOGGLE_PATH}" fill="none" stroke="{gray}" stroke-width="2.2" '
-                f'stroke-linecap="round" stroke-linejoin="round"/>'
-                f'<line x1="5" y1="19" x2="19" y2="5" stroke="{slash}" stroke-width="2.2" stroke-linecap="round"/>')
-    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">{body}</svg>'
-    dpr = 2
-    pm = QPixmap(size * dpr, size * dpr); pm.setDevicePixelRatio(dpr); pm.fill(Qt.transparent)
-    p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing, True)
-    QSvgRenderer(QByteArray(svg.encode())).render(p, QRectF(0, 0, size, size))
-    p.end()
-    ic = QIcon(pm); _wave_toggle_icon_cache[key] = ic
-    return ic
+# 웨이브 토글 아이콘 — v2.0 분해: spectra/ui/icons.py 로 이동, re-import
+from spectra.ui.icons import _wave_toggle_icon, _WAVE_TOGGLE_PATH
 
 
 # ss_* 스타일시트 헬퍼 — v2.0 분해: spectra/ui/tokens.py 로 이동, re-import(동작 불변)
