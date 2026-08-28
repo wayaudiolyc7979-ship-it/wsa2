@@ -6930,18 +6930,8 @@ def _n2_led_color(on):
     if on: return T('accent')
     return '#3A3A42' if is_dark() else '#C7C7CC'
 
-def _n2_mono_font(size=12, weight=QFont.DemiBold):
-    f = QFont(); f.setStyleHint(QFont.Monospace); f.setFamily('Menlo')
-    f.setPixelSize(size); f.setWeight(weight); return f
-
-def _n2_caps_font(size=9):
-    # 패밀리 명시 필수 — QFont()만으론 setFont 시 앱 폰트(Optima)가 아닌 시스템 기본(SF Pro)으로
-    # 떨어져 나머지 UI와 폰트가 어긋남. 앱 브랜드 폰트(FONT_FAMILY)로 통일.
-    f = QFont(FONT_FAMILY); f.setPixelSize(size); f.setBold(True)
-    f.setLetterSpacing(QFont.AbsoluteSpacing, 0.5); f.setCapitalization(QFont.AllUppercase); return f
-
-def _n2_val_font(size=12, weight=QFont.DemiBold):
-    f = QFont(FONT_FAMILY); f.setPixelSize(size); f.setWeight(weight); return f
+# N2 폰트 헬퍼 — v2.0 분해: spectra/ui/tokens.py 로 이동, re-import(동작 불변)
+from spectra.ui.tokens import _n2_mono_font, _n2_caps_font, _n2_val_font
 
 
 def _n2_group_header(text):

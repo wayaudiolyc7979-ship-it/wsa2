@@ -97,3 +97,18 @@ def ss_btn_danger(size=12):
             f'border:1px solid {T("red")};border-radius:6px;padding:5px 16px;'
             f'font-size:{size}px;font-weight:600;min-width:60px;}}'
             f'QPushButton:hover{{background:rgba({rr},{rg},{rb},210);}}')
+
+
+# ── N2 폰트 헬퍼 ──
+def _n2_mono_font(size=12, weight=QFont.DemiBold):
+    f = QFont(); f.setStyleHint(QFont.Monospace); f.setFamily('Menlo')
+    f.setPixelSize(size); f.setWeight(weight); return f
+
+def _n2_caps_font(size=9):
+    # 패밀리 명시 필수 — QFont()만으론 setFont 시 앱 폰트(Optima)가 아닌 시스템 기본(SF Pro)으로
+    # 떨어져 나머지 UI와 폰트가 어긋남. 앱 브랜드 폰트(FONT_FAMILY)로 통일.
+    f = QFont(FONT_FAMILY); f.setPixelSize(size); f.setBold(True)
+    f.setLetterSpacing(QFont.AbsoluteSpacing, 0.5); f.setCapitalization(QFont.AllUppercase); return f
+
+def _n2_val_font(size=12, weight=QFont.DemiBold):
+    f = QFont(FONT_FAMILY); f.setPixelSize(size); f.setWeight(weight); return f
