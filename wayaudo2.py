@@ -10605,6 +10605,35 @@ class _DashedAddButton(QPushButton):
         p.end()
 
 
+class _ColorSwatch(QWidget):
+    """작은 원형 색 스와치 — 좌클릭 시 on_click 콜백(색상 선택창). 안티앨리어싱 원
+    (QLabel border-radius 계단현상 회피, [[project_v18_compliance_badge_aa]] 방식)."""
+    def __init__(self, diameter=13, parent=None):
+        super().__init__(parent)
+        self._sw_color = '#FFFFFF'
+        self._d = int(diameter)
+        self.setFixedSize(self._d + 4, self._d + 4)
+        self.setCursor(Qt.PointingHandCursor)
+        self.on_click = None
+
+    def set_color(self, c):
+        self._sw_color = c or '#FFFFFF'
+        self.update()
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton and callable(self.on_click):
+            self.on_click(); e.accept()
+        else:
+            super().mousePressEvent(e)
+
+    def paintEvent(self, ev):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setPen(QPen(QColor(0, 0, 0, 70), 1))   # 옅은 테두리 → 흰 스와치도 밝은 배경서 보임
+        p.setBrush(QColor(self._sw_color))
+        p.drawEllipse(2, 2, self._d, self._d)
+
+
 class _MeasCard(QFrame):
     """측정 채널 카드 — 레벨 바 + Meas 장치 선택 + 딜레이 + Start/Stop."""
     start_clicked      = pyqtSignal()
@@ -13340,6 +13369,7 @@ class TransferFunctionWindow(QWidget):
         primary_card.set_name(self._tf_primary_name)
         primary_card.renamed.connect(lambda name: self._on_tf_renamed(None, name))
         primary_card.graph_toggled.connect(self._on_primary_graph_toggle)
+        primary_card.avg_include_toggled.connect(self._on_card_avg_include)
         # backward-compat: delay spin synced to self.delay_ms
         primary_card._delay_spin.valueChanged.connect(self._on_delay_changed)
         self._level_cards.append(primary_card)
@@ -13386,9 +13416,15 @@ class TransferFunctionWindow(QWidget):
         self._avg_card_chk.setFocusPolicy(Qt.NoFocus)
         self._avg_card_chk.setToolTip(_tx('Show / hide the average curve'))
         self._avg_card_chk.toggled.connect(self._on_avg_show_toggle)
+        # 색 스와치(좌클릭=색상 선택창). 색은 이 스와치가 담당 → 체크박스는 중립.
+        self._avg_card_sw = _ColorSwatch(13)
+        self._avg_card_sw.set_color(self._avg_curve_color())
+        self._avg_card_sw.setToolTip(_tx('Change color…'))
+        self._avg_card_sw.on_click = self._pick_avg_color
         self._avg_card_name = QLabel('AVG')
         self._avg_card_cnt = QLabel('')
         _ac.addWidget(self._avg_card_chk)
+        _ac.addWidget(self._avg_card_sw)
         _ac.addWidget(self._avg_card_name); _ac.addWidget(self._avg_card_cnt); _ac.addStretch()
         self._avg_card.hide()
         self._avg_card.setCursor(Qt.PointingHandCursor)
@@ -13782,14 +13818,44 @@ class TransferFunctionWindow(QWidget):
             self._start_sig_gen()
 
     def _on_avg_tb_toggled(self, on):
-        """툴바 Σ = 평균 on/off. 켜면 즉시 시작 + AVG 카드 등장 + 마이크 선택 팝업 표시."""
+        """툴바 Σ = 평균 on/off. 켜면 즉시 시작 + AVG 카드 등장 + 마이크 선택 팝업 표시.
+        켤 때 아직 아무 마이크도 안 골랐으면 현재 카드 전부 자동 포함 → '평균 켜기'가 바로 동작."""
         self._avg_on = bool(on)
+        if self._avg_on:
+            self._auto_include_all_mics()
         self._update_avg_card()
         _diag('tf_avg_toggle', on=self._avg_on, mode=self._avg_mode)
         if self._avg_on:
             self._open_avg_popup()
         elif hasattr(self, '_avg_popup'):
             self._avg_popup.hide()
+        self._request_avg_render()
+
+    def _auto_include_all_mics(self):
+        """툴바 Σ ON 시, 아직 아무 마이크도 선택 안 됐으면 모든 카드를 평균에 자동 포함.
+        렌더가 데이터(acc n≥3 / _last_primary_H) 유무로 실제 참여를 게이트하므로, 아직 Start
+        안 한 카드를 포함해도 무해(데이터 생기면 자동 합류). 사용자가 이미 고른 게 있으면 존중."""
+        cards = list(getattr(self, '_level_cards', []) or [])
+        if not cards or any(getattr(c, 'in_average', False) for c in cards):
+            return
+        for c in cards:
+            c.in_average = True
+            if hasattr(c, '_avg_chk'):
+                c._avg_chk.blockSignals(True); c._avg_chk.setChecked(True); c._avg_chk.blockSignals(False)
+            if hasattr(c, '_update_avg_chk_icon'):
+                c._update_avg_chk_icon()
+
+    def _on_card_avg_include(self, card_id, included):
+        """카드 헤더 Σ 아이콘 토글 → 평균 참여. 마스터가 꺼져 있으면 자동으로 켜서
+        per-card Σ 단독으로도 평균이 바로 뜨게(예전엔 시그널 미연결로 아무 반응 없었음)."""
+        if included and not getattr(self, '_avg_on', False):
+            self._avg_on = True
+            if hasattr(self, '_avg_tb_btn'):
+                self._avg_tb_btn.blockSignals(True); self._avg_tb_btn.setChecked(True); self._avg_tb_btn.blockSignals(False)
+            self._update_avg_card()
+        # 팝업이 열려 있으면 체크 상태 동기
+        if getattr(self, '_avg_popup', None) is not None and self._avg_popup.isVisible():
+            self._rebuild_avg_mic_list()
         self._request_avg_render()
 
     def _style_avg_card(self):
@@ -13809,10 +13875,13 @@ class TransferFunctionWindow(QWidget):
             f'color:{T("text")};background:transparent;font-size:{FS_BODY}px;font-weight:bold;')
         self._avg_card_cnt.setStyleSheet(
             f'color:{T("text_dim")};background:transparent;font-size:{FS_SM}px;')
+        if hasattr(self, '_avg_card_sw'):
+            self._avg_card_sw.set_color(col)   # 곡선 색 = 스와치 색
+        _chk_col = T('accent')   # 색은 스와치가 담당 → 표시/숨김 체크박스는 중립 액센트
         self._avg_card_chk.setStyleSheet(
-            f'QCheckBox::indicator{{width:13px;height:13px;border:1.5px solid {col};'
+            f'QCheckBox::indicator{{width:13px;height:13px;border:1.5px solid {_chk_col};'
             f'border-radius:3px;background:transparent;}}'
-            f'QCheckBox::indicator:checked{{background:{col};image:none;}}')
+            f'QCheckBox::indicator:checked{{background:{_chk_col};image:none;}}')
 
     def _on_avg_show_toggle(self, on):
         self._avg_show = bool(on)
@@ -14347,6 +14416,7 @@ class TransferFunctionWindow(QWidget):
         card.selected.connect(lambda c=card: self._on_card_select(c))
         card.renamed.connect(lambda name, c=card: self._on_tf_renamed(c, name))
         card.graph_toggled.connect(lambda vis, c=card: self._on_extra_graph_toggle(c, vis))
+        card.avg_include_toggled.connect(self._on_card_avg_include)
         self._level_cards.append(card)
         # 끝의 stretch 앞에 삽입 → 카드는 위로 쌓이고 빈 공간은 항상 아래로
         self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
@@ -15471,12 +15541,27 @@ class TransferFunctionWindow(QWidget):
             _resid = pd / 1000.0 - D_ex / self.sample_rate
             H_disp = H_raw * np.exp(1j * 2 * np.pi * freqs * _resid) if _resid else H_raw
             H_list.append(H_disp); g_list.append(g); d_list.append(pd)
+        # [AVG_DIAG] 참여 판정 상세 — 개별 곡선은 뜨는데 AVG만 안 뜰 때 어느 게이트가 막는지 로그.
+        # P=primary(in_average/_display_on/_last_primary_H), E#=extra(acc n/display/in_average).
+        _roster = []
+        _pc_d = self._level_cards[0] if getattr(self, '_level_cards', None) else None
+        if _pc_d is not None:
+            _roster.append('P(iavg=%s,disp=%s,H=%s)' % (
+                getattr(_pc_d, 'in_average', None), getattr(_pc_d, '_display_on', None),
+                self._last_primary_H is not None))
+        for _di, _da in enumerate(self._extra_pair_acc):
+            _dp = self._extra_pairs[_di] if _di < len(self._extra_pairs) else None
+            _dc = _dp.get('card') if _dp else None
+            _roster.append('E%d(n=%s,disp=%s,iavg=%s)' % (
+                _di, ('None' if _da is None else _da.get('n')),
+                (_dp.get('display') if _dp else None),
+                (getattr(_dc, 'in_average', None) if _dc is not None else None)))
         r = _multimic_average(H_list, g_list, d_list, freqs, self.sample_rate,
                               self.smooth_bpo, mode=self._avg_mode, align=self._avg_align)
-        _sig = ((r['n'] if r else 0), self._avg_show)
+        _sig = ((r['n'] if r else 0), self._avg_show, tuple(_roster))
         if getattr(self, '_last_avg_diag', None) != _sig:
             _diag('tf_avg_render', on=True, mode=self._avg_mode,
-                  n=(r['n'] if r else 0), show=self._avg_show)
+                  n=(r['n'] if r else 0), show=self._avg_show, mics='|'.join(_roster))
             self._last_avg_diag = _sig
         _n = r['n'] if r else 0
         if hasattr(self, '_avg_card_cnt'):   # AVG 카드 (n) 갱신

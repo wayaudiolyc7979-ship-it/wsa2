@@ -701,6 +701,12 @@ def _tf_avg_group_render():
     tf._avg_on = True; tf._update_avg_card(); tf._avg_card_cnt.setText('(2)')
     tf._avg_card.setVisible(True); tf._avg_card.resize(240, 40); _app.processEvents()
     out += '  ' + _save(tf._avg_card, 'tf_avg_card.png')
+    # 기능형 색 스와치: 존재 + 클릭배선 + 색상변경 반영 (회귀 가드)
+    assert hasattr(tf, '_avg_card_sw'), 'AVG 색 스와치 없음'
+    assert tf._avg_card_sw.on_click == tf._pick_avg_color, '스와치 클릭 미배선'
+    tf._avg_color = '#FF6A3D'; tf._style_avg_card()
+    assert tf._avg_card_sw._sw_color == '#FF6A3D', f'스와치 색 미반영: {tf._avg_card_sw._sw_color}'
+    out += '  swatch OK'
     c = w._MeasCard(2, w.T('green'), deletable=True)
     c._avg_chk.setChecked(True)
     c.resize(240, 100); _app.processEvents()
