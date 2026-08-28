@@ -7,7 +7,7 @@
 **정밀 음향 측정을, 가장 세련되게.**
 Spectrum Analyzer · by **WAYAUDIO**
 
-![version](https://img.shields.io/badge/version-1.7-4E7DF0)
+![version](https://img.shields.io/badge/version-2.0-4E7DF0)
 ![platform](https://img.shields.io/badge/platform-macOS%20·%20Windows-9B5DE5)
 ![license](https://img.shields.io/badge/license-Proprietary-8E8E93)
 
@@ -32,10 +32,11 @@ SPECTRA는 소리를 **눈으로 보는** 음향 측정 도구입니다. 실시�
 | 탭 | 설명 |
 |---|---|
 | **Spectrum** | 실시간 주파수 분석 — FFT · 1/3~1/24 옥타브 · 스펙트로그램, 멀티채널 동시 오버레이, 정밀 SPL/LAeq |
-| **Transfer Function** | 스피커·룸 측정 — 매그니튜드 · 위상 · 코히어런스 · 임펄스 응답, 자동 딜레이, 다지점 비교 |
+| **Transfer Function** | 스피커·룸 측정 — 매그니튜드 · 위상 · 코히어런스 · 임펄스 응답, 자동 딜레이, 다지점 비교, 코히런스 블랭킹, 라이브 공간 평균 |
 | **Stereo Loudness** | 방송·음원 라우드니스 — 벡터스코프 · 라우드니스 레이더 · M/S/I · True Peak · LRA |
 
 - ⚡ 적응형 TF 엔진 (멀티레이트 라이브) + 정밀 스윕 측정 (Farina ESS · THD/SNR)
+- 📐 THD 측정 (커서 총고조파왜곡 %) · 🖥️ 글랜스 쇼 모드 (FOH 풀스크린 SPL)
 - 💾 이름 프리셋 — 세 탭 설정을 저장하고 한 번에 불러오기 (+ 마지막 세션 자동 복원)
 - 🌐 한국어 / 영어 전환 · 🌗 다크 / 라이트 테마
 - 🎚️ 마이크 캘리브레이션 (94 / 114 dBSPL 기준기)
@@ -80,10 +81,16 @@ bash build_intel.sh
 ## 📂 레포 구조
 
 ```
-─ 앱 코드
-  wayaudo2.py              메인 소스 (단일 파일 ~19,800줄)
+─ 앱 코드  (v2.0에서 단일 파일 → 모듈 패키지로 분해)
+  wayaudo2.py              진입점 · 스플래시 · _APP_VERSION (~670줄)
+  spectra/                 앱 본체 패키지
+    dsp/                   측정·DSP (weighting · tf · loudness · farina) — 골든테스트 대상
+    core/                  설정 · i18n · 로깅 · 라이선스
+    audio/                 공유 오디오 엔진 (장치당 스트림 1개, 탭 동시측정)
+    ui/                    토큰·색·아이콘·위젯·다이얼로그·캔버스·탭·MainWindow
   ed25519_min.py           순수 파이썬 Ed25519 (라이선스 검증)
   selfcheck.py             헤드리스 위젯 렌더 회귀 하네스
+  tests/                   DSP 골든값 pytest
 
 ─ 빌드 / 배포 (루트 고정 — spec·스크립트가 경로로 참조)
   WSA2.spec / build_silicon.sh        macOS Apple Silicon
