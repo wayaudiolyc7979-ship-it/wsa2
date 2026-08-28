@@ -356,37 +356,14 @@ FREQ_MARKS = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
 # ───────────────────────────────────────────
 #  설정 저장/불러오기
 # ───────────────────────────────────────────
-if _pl.system() == 'Windows':
-    _APP_SUPPORT = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'WSA2')
-else:
-    _APP_SUPPORT = os.path.expanduser('~/Library/Application Support/WSA2')
-# 테스트/개발 시 실제 사용자 설정 파일 보호 — 환경변수로 경로 오버라이드 가능
-_SETTINGS_PATH = os.environ.get('WSA2_SETTINGS_PATH') or os.path.join(_APP_SUPPORT, 'settings.json')
-_CAPTURES_PATH = os.environ.get('WSA2_CAPTURES_PATH') or os.path.join(_APP_SUPPORT, 'captures.json')
-_CAPTURES_LOCK = threading.Lock()   # captures.json 동시 읽기-수정-쓰기 보호 (백그라운드 저장용)
+# 설정 저장/불러오기 — v2.0 분해: spectra/core/config.py 로 이동, re-import(동작 불변)
+from spectra.core.config import (_APP_SUPPORT, _SETTINGS_PATH, _CAPTURES_PATH, _CAPTURES_LOCK,
+                                 _load_settings, _save_settings, _load_captures_file, _save_captures_file)
 
 # ── i18n: 영어 원문을 키로 쓰는 경량 번역 ──────────────────────────
 # i18n — v2.0 분해: spectra/core/i18n.py 로 이동, re-import(동작 불변)
 from spectra.core.i18n import _TR_KO, _resolve_lang, _set_lang, cur_lang, _tx
 
-def _load_settings():
-    try:
-        with open(_SETTINGS_PATH, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-def _save_settings(data):
-    try:
-        d = os.path.dirname(_SETTINGS_PATH)
-        if d: os.makedirs(d, exist_ok=True)          # bare filename이면 dirname='' → makedirs 스킵
-        tmp = _SETTINGS_PATH + '.tmp'
-        with open(tmp, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        os.replace(tmp, _SETTINGS_PATH)              # 원자적 교체(중간 실패해도 기존 파일 보존)
-    except Exception as e:
-        try: _alog.warning(f'settings 저장 실패: {e}')
-        except Exception: pass
 
 # 모듈 로드 시점에 _LANG 확정
 try:
@@ -394,20 +371,6 @@ try:
 except Exception:
     pass
 
-def _load_captures_file():
-    try:
-        with open(_CAPTURES_PATH, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-def _save_captures_file(data):
-    try:
-        os.makedirs(os.path.dirname(_CAPTURES_PATH), exist_ok=True)
-        with open(_CAPTURES_PATH, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False)
-    except Exception as e:
-        _alog.warning(f'캡처 저장 실패: {e}')
 
 # A/C 가중(IEC 61672) — v2.0 분해: spectra/dsp/weighting.py 로 이동, 여기로 re-import(동작 불변)
 from spectra.dsp.weighting import a_weight_db, c_weight_db

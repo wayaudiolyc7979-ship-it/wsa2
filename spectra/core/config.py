@@ -5,6 +5,10 @@ v2.0 분해: wayaudo2.py에서 이동(동작 0 변경). ⭐_theme은 여기 단�
 (직접 import는 값 복사라 토글이 안 퍼짐. 2.0_MODULE_PLAN §결합지점1). 설정 load/save는 추후 이관.
 """
 
+import os, json, threading
+import platform as _pl
+from spectra.core.logging_diag import _alog
+
 THEMES = {
     'dark': {
         'bg':        '#000000',
@@ -64,3 +68,49 @@ def toggle_theme():
     global _theme
     _theme = 'light' if _theme == 'dark' else 'dark'
     return _theme
+
+
+
+# ── 설정/캡처 저장 (v2.0 분해: wayaudo2.py에서 이동) ──
+if _pl.system() == 'Windows':
+    _APP_SUPPORT = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'WSA2')
+else:
+    _APP_SUPPORT = os.path.expanduser('~/Library/Application Support/WSA2')
+# 테스트/개발 시 실제 사용자 설정 파일 보호 — 환경변수로 경로 오버라이드 가능
+_SETTINGS_PATH = os.environ.get('WSA2_SETTINGS_PATH') or os.path.join(_APP_SUPPORT, 'settings.json')
+_CAPTURES_PATH = os.environ.get('WSA2_CAPTURES_PATH') or os.path.join(_APP_SUPPORT, 'captures.json')
+_CAPTURES_LOCK = threading.Lock()   # captures.json 동시 읽기-수정-쓰기 보호 (백그라운드 저장용)
+
+def _load_settings():
+    try:
+        with open(_SETTINGS_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_settings(data):
+    try:
+        d = os.path.dirname(_SETTINGS_PATH)
+        if d: os.makedirs(d, exist_ok=True)          # bare filename이면 dirname='' → makedirs 스킵
+        tmp = _SETTINGS_PATH + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, _SETTINGS_PATH)              # 원자적 교체(중간 실패해도 기존 파일 보존)
+    except Exception as e:
+        try: _alog.warning(f'settings 저장 실패: {e}')
+        except Exception: pass
+
+def _load_captures_file():
+    try:
+        with open(_CAPTURES_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_captures_file(data):
+    try:
+        os.makedirs(os.path.dirname(_CAPTURES_PATH), exist_ok=True)
+        with open(_CAPTURES_PATH, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception as e:
+        _alog.warning(f'캡처 저장 실패: {e}')
