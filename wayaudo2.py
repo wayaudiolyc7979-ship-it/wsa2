@@ -1114,66 +1114,13 @@ class _ReloadBtn(QPushButton):
 
 
 # ── SPECTRA 로고 마크 (정적 그라디언트 웨이브 SVG → QPixmap 캐시; 라이브 렌더 아님 → 속도 무관)
-_SPECTRA_MARK_SVG = (
-    b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 110 60">'
-    b'<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="0">'
-    b'<stop offset="0" stop-color="#1FA2FF"/><stop offset="0.28" stop-color="#4E7DF0"/>'
-    b'<stop offset="0.52" stop-color="#9B5DE5"/><stop offset="0.72" stop-color="#F15BB5"/>'
-    b'<stop offset="0.86" stop-color="#FF9F0A"/><stop offset="1" stop-color="#FF453A"/>'
-    b'</linearGradient></defs>'
-    b'<path d="M2,42 C12,42 14,30 20,30 S26,46 31,40 S37,8 44,18 S50,52 56,34 '
-    b'S62,4 70,26 S76,50 83,38 S90,22 96,30 S104,40 108,38" fill="none" '
-    b'stroke="url(#g)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-)
-# 시그니처 그라디언트 — Qt 스타일시트용 (헤더 언더라인 등)
-_SPECTRA_GRAD_QSS = ('qlineargradient(x1:0,y1:0,x2:1,y2:0,'
-                     'stop:0 #1FA2FF, stop:0.28 #4E7DF0, stop:0.52 #9B5DE5,'
-                     'stop:0.72 #F15BB5, stop:0.86 #FF9F0A, stop:1 #FF453A)')
-# 시그니처 그라디언트 — SVG <defs>용 (아이콘 stroke="url(#g)")
-_SPECTRA_GRAD_DEFS = (
-    '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="0">'
-    '<stop offset="0" stop-color="#1FA2FF"/><stop offset="0.28" stop-color="#4E7DF0"/>'
-    '<stop offset="0.52" stop-color="#9B5DE5"/><stop offset="0.72" stop-color="#F15BB5"/>'
-    '<stop offset="0.86" stop-color="#FF9F0A"/><stop offset="1" stop-color="#FF453A"/>'
-    '</linearGradient></defs>')
+# 브랜드 마크 SVG — v2.0 분해: spectra/ui/colors.py 로 이동, re-import
+from spectra.ui.colors import _SPECTRA_MARK_SVG
 # 시그니처 그라디언트 stops — QLinearGradient용 (스펙트럼 곡선 등 라이브 렌더; 브러시라 부담 0)
 # 브랜드 그라디언트 상수 — v2.0 분해: spectra/ui/colors.py 로 이동, re-import
 from spectra.ui.colors import _SPECTRA_GRAD_STOPS
-def _spectra_grad_obj(x0, x1, alpha=255):
-    """가로(주파수축) SPECTRA QLinearGradient — 저역(파랑)→고역(빨강)."""
-    g = QLinearGradient(float(x0), 0.0, float(x1), 0.0)
-    for o, c in _SPECTRA_GRAD_STOPS:
-        qc = QColor(c); qc.setAlpha(alpha); g.setColorAt(o, qc)
-    return g
-def _spectra_grad_pen(x0, x1, width=2.2, alpha=255):
-    """가로 SPECTRA 그라디언트 펜 (선)."""
-    return QPen(QBrush(_spectra_grad_obj(x0, x1, alpha)), width)
-def _spectra_grad_brush(x0, x1, alpha=255):
-    """가로 SPECTRA 그라디언트 브러시 (채움)."""
-    return QBrush(_spectra_grad_obj(x0, x1, alpha))
-_spectra_mark_cache = {}
-def _spectra_mark(h=22):
-    """그라디언트 웨이브 마크 QPixmap(높이 h px). 한 번만 렌더 후 캐시 (속도 영향 0)."""
-    try:
-        dpr = QApplication.primaryScreen().devicePixelRatio() if QApplication.instance() else 1.0
-    except Exception:
-        dpr = 1.0
-    w = int(round(h * 110 / 60))
-    key = (w, h, round(dpr, 2))
-    pm = _spectra_mark_cache.get(key)
-    if pm is not None:
-        return pm
-    try:
-        from PyQt5.QtCore import QByteArray
-        from PyQt5.QtSvg import QSvgRenderer
-        r = QSvgRenderer(QByteArray(_SPECTRA_MARK_SVG))
-        pm = QPixmap(max(1, int(w * dpr)), max(1, int(h * dpr))); pm.fill(Qt.transparent)
-        p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing); r.render(p); p.end()
-        pm.setDevicePixelRatio(dpr)
-    except Exception:
-        pm = QPixmap(1, 1); pm.fill(Qt.transparent)   # QtSvg 없으면 빈 마크(워드마크만 표시)
-    _spectra_mark_cache[key] = pm
-    return pm
+# 브랜드 그라디언트/마크 빌더 — v2.0 분해: spectra/ui/colors.py 로 이동, re-import
+from spectra.ui.colors import _spectra_grad_obj, _spectra_grad_pen, _spectra_grad_brush, _spectra_mark
 
 
 def _make_splash_pixmap(w=520, h=300):
