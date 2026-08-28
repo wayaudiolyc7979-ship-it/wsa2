@@ -5,7 +5,7 @@ v2.0 분해: wayaudo2.py에서 이동(동작 0 변경). is_dark()로 라이트/�
 from PyQt5.QtGui import QColor, QLinearGradient, QPen, QBrush, QPixmap, QPainter
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
-from spectra.core.config import is_dark
+from spectra.core.config import is_dark, T
 
 _SPECTRA_GRAD_STOPS = [(0.0,'#1FA2FF'),(0.28,'#4E7DF0'),(0.52,'#9B5DE5'),
                        (0.72,'#F15BB5'),(0.86,'#FF9F0A'),(1.0,'#FF453A')]
@@ -129,3 +129,42 @@ BAR_PRESETS = [
     ("Sunset",   (255,220,0,220), (255,30,80,30)),
     ("Mono",     (220,230,240,220),(100,120,140,20)),
 ]
+
+
+# ── 막대 색 상태 (color picker가 뮤테이트 — 단일 경유점 set/get) ──
+_bar_preset_idx = 0   # 0 = Default (follows theme)
+_custom_color = None  # (R,G,B) — macOS color picker로 선택한 색상
+
+def bar_custom_color():
+    return _custom_color
+
+def set_bar_custom_color(rgb):
+    """color picker 전용: 커스텀 막대색 지정(preset=Default 리셋). 가변 전역 뮤테이션 단일 경유점."""
+    global _custom_color, _bar_preset_idx
+    _custom_color = rgb
+    _bar_preset_idx = 0
+
+def bar_top():
+    if _custom_color is not None:
+        return (*_custom_color, 200)
+    if _bar_preset_idx == 0:
+        return T('spec_fill_top')
+    return BAR_PRESETS[_bar_preset_idx][1]
+
+def bar_bot():
+    if _custom_color is not None:
+        return (*_custom_color, 40)
+    if _bar_preset_idx == 0:
+        return T('spec_fill_bot')
+    return BAR_PRESETS[_bar_preset_idx][2]
+
+def _vbar_gradient(col):
+    """막대 세로 그라디언트 — 위=col 밝게, 아래 어둡게(입체) + 상단 sheen 색.
+    ObjectBoundingMode라 브러시 1개를 높이 다른 모든 막대에 재사용(라이브 그라디언트 perf 규칙 준수)."""
+    a = col.alpha()
+    col_bot = QColor(int(col.red()*0.40), int(col.green()*0.40), int(col.blue()*0.40), a)
+    g = QLinearGradient(0, 0, 0, 1); g.setCoordinateMode(g.ObjectBoundingMode)
+    g.setColorAt(0.0, col); g.setColorAt(1.0, col_bot)
+    cap = QColor(min(255, int(col.red()*1.10)+28), min(255, int(col.green()*1.10)+28),
+                 min(255, int(col.blue()*1.10)+28), a)
+    return QBrush(g), cap

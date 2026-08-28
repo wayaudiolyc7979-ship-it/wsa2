@@ -793,36 +793,9 @@ class _VScrollArea(QScrollArea):
 # ───────────────────────────────────────────
 #  Bar gradient presets
 # ───────────────────────────────────────────
-# BAR_PRESETS — v2.0 분해: spectra/ui/colors.py, re-import
-from spectra.ui.colors import BAR_PRESETS
-_bar_preset_idx = 0  # 0 = Default (follows theme)
-_custom_color = None  # (R,G,B) — macOS color picker로 선택한 색상
-
-
-def bar_top():
-    if _custom_color is not None:
-        return (*_custom_color, 200)
-    if _bar_preset_idx == 0:
-        return T('spec_fill_top')
-    return BAR_PRESETS[_bar_preset_idx][1]
-
-def bar_bot():
-    if _custom_color is not None:
-        return (*_custom_color, 40)
-    if _bar_preset_idx == 0:
-        return T('spec_fill_bot')
-    return BAR_PRESETS[_bar_preset_idx][2]
-
-def _vbar_gradient(col):
-    """막대 세로 그라디언트 — 위=col 밝게, 아래 어둡게(입체) + 상단 sheen 색.
-    ObjectBoundingMode라 브러시 1개를 높이 다른 모든 막대에 재사용(라이브 그라디언트 perf 규칙 준수)."""
-    a = col.alpha()
-    col_bot = QColor(int(col.red()*0.40), int(col.green()*0.40), int(col.blue()*0.40), a)
-    g = QLinearGradient(0, 0, 0, 1); g.setCoordinateMode(g.ObjectBoundingMode)
-    g.setColorAt(0.0, col); g.setColorAt(1.0, col_bot)
-    cap = QColor(min(255, int(col.red()*1.10)+28), min(255, int(col.green()*1.10)+28),
-                 min(255, int(col.blue()*1.10)+28), a)
-    return QBrush(g), cap
+# BAR_PRESETS/bar 색 — v2.0 분해: spectra/ui/colors.py, re-import
+from spectra.ui.colors import (BAR_PRESETS, bar_top, bar_bot, _vbar_gradient,
+                               bar_custom_color, set_bar_custom_color)
 
 # ───────────────────────────────────────────
 #  좌표 변환
@@ -16760,14 +16733,13 @@ class MainWindow(QMainWindow):
     def _open_color_picker(self, card_id=None):
         # 카드 색을 바꾼다 — primary는 그래프 그라디언트+카드, 추가 카드는 그 소스 곡선+카드.
         # card_id 지정(우클릭 메뉴)이면 그 카드, 아니면 선택(front) 카드(툴바 Color).
-        global _custom_color, _bar_preset_idx
         fid = card_id if card_id is not None else getattr(self, '_spec_front_id', 0)
         if fid == 0:
-            init = QColor(*_custom_color) if _custom_color else QColor(*bar_top()[:3])
+            _cc = bar_custom_color()
+            init = QColor(*_cc) if _cc else QColor(*bar_top()[:3])
             color = QColorDialog.getColor(init, self, 'Select color — Source 1')
             if not color.isValid(): return
-            _custom_color = (color.red(), color.green(), color.blue())
-            _bar_preset_idx = 0
+            set_bar_custom_color((color.red(), color.green(), color.blue()))
             self.fft_cvs._cache = None; self.oct_cvs._cache = None
             self.fft_cvs.update(); self.oct_cvs.update()
             if self._primary_card is not None:
