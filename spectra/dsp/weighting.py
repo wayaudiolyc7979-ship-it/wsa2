@@ -97,3 +97,38 @@ def _octave_bands(freqs, db_vals, mode):
         else:
             res.append(float(db_vals[item[1]]))
     return res
+
+
+def thd_from_spectrum(f, db, f0, n_harm=5, win_oct=0.04):
+    """스펙트럼(주파수 f[Hz], 크기 db[dB])에서 기본파 f0 기준 THD(총고조파왜곡) 계산.
+    f0를 커서 근처 실제 피크로 스냅 → 각 배음 k·f0 근처 창(±win_oct 옥타브)의 피크 레벨을
+    선형 진폭으로 → THD = sqrt(Σ배음²) / 기본파. Smaart식(커서=기본파 가정).
+    반환: (thd_pct, thd_db) 또는 None(범위 밖/데이터 부족). [THD]"""
+    f = np.asarray(f, dtype=float); db = np.asarray(db, dtype=float)
+    if len(f) < 8 or f0 <= 0 or f[-1] <= f0:
+        return None
+    def _win(fc):
+        lo = fc * (2.0 ** -win_oct); hi = fc * (2.0 ** win_oct)
+        m = (f >= lo) & (f <= hi)
+        return m if np.any(m) else None
+    # 기본파를 커서 근처 실제 피크로 스냅
+    m0 = _win(f0)
+    if m0 is None:
+        return None
+    idxs = np.nonzero(m0)[0]; f0 = float(f[idxs[np.argmax(db[idxs])]])
+    a1 = 10.0 ** (float(np.max(db[m0])) / 20.0)
+    if a1 <= 0:
+        return None
+    harms = []
+    for k in range(2, n_harm + 1):
+        fk = f0 * k
+        if fk > f[-1]:
+            break
+        mk = _win(fk)
+        if mk is not None:
+            harms.append(10.0 ** (float(np.max(db[mk])) / 20.0))
+    if not harms:
+        return None
+    thd = math.sqrt(sum(a * a for a in harms)) / a1
+    thd = min(thd, 10.0)                      # 클램프(무의미한 대형값 방지)
+    return thd * 100.0, (20.0 * math.log10(thd) if thd > 0 else -120.0)

@@ -129,6 +129,23 @@ def _fft():
 check('FFTCanvas (FFT 곡선)', _fft)
 
 
+def _fft_thd():
+    """THD 커서 리드아웃 — 1kHz 기본파+배음 스펙트럼, 커서를 기본파에 올리면 리드아웃에
+    'THD n%' 한 줄(우클릭 Show THD로 켠 상태). 배음(2/3/4kHz)에서 계산. [THD]"""
+    cv = w.FFTCanvas(); cv.resize(1000, 320); cv._show_thd = True; cv._idle_hint = False
+    f = np.logspace(np.log10(20), np.log10(20000), 1200).astype(np.float32)
+    db = np.full(len(f), -90.0)
+    for fc, lv in [(1000, -6), (2000, -46), (3000, -54), (4000, -62)]:
+        db = np.maximum(db, lv - 9000 * (np.log10(f / fc)) ** 2)
+    cv.set_data(f, db.astype(np.float32))
+    pl = cv.PAD_L; uw = cv.width() - cv.PAD_L - cv.PAD_R; ny = min(cv.sample_rate / 2, 20000)
+    cv._mx = int(w.freq_to_x(1000, pl, uw, ny))    # 커서 = 기본파(1kHz)
+    r = w.thd_from_spectrum(cv._ds_f, cv._ds_avg, 1000.0)
+    assert r is not None and 0.7 < r[0] < 1.6, f'THD 계산 이상: {r}'
+    return _save(cv, 'fft_thd.png') + f'  THD={r[0]:.2f}%'
+check('FFTCanvas THD 커서 리드아웃', _fft_thd)
+
+
 def _level_meters():
     """레벨미터 구간(green/yellow/red 위치 사다리) — TF R/M(_HorizBarVU)+Spectrum 카드(_MiniMeterBar)
     공통 _draw_zone_meter_h. 좌=_HorizBarVU(-60..0), 우=_MiniMeterBar(-84..0)."""

@@ -176,3 +176,22 @@ def test_kweight_coefficients_48k():
     assert list(k._pa) == pytest.approx([1.0, -1.69065929, 0.73248077], abs=1e-8)
     assert list(k._rb) == pytest.approx([1.0, -2.0, 1.0], abs=1e-12)
     assert list(k._ra) == pytest.approx([1.0, -1.99004745, 0.99007225], abs=1e-8)
+
+
+# ── 14. thd_from_spectrum — 배음 왜곡 계산(물리 앵커) ──────────────────
+def test_thd_from_spectrum():
+    from spectra.dsp.weighting import thd_from_spectrum
+    import math
+    f = np.logspace(np.log10(20), np.log10(24000), 6000)
+    db = np.full(len(f), -95.0)
+    for fc, lv in [(1000, 0), (2000, -40), (3000, -50), (4000, -60)]:
+        db = np.maximum(db, lv - 8000 * (np.log10(f / fc)) ** 2)   # 날카로운 봉우리
+    pct, dbv = thd_from_spectrum(f, db, 1000.0)
+    exp = math.sqrt(10**-4 + 10**-5 + 10**-6) * 100                # ≈1.054%
+    assert pct == pytest.approx(exp, abs=0.06)
+    assert dbv == pytest.approx(20*math.log10(exp/100), abs=0.5)
+    # 배음 없음(순음) → 거의 0
+    db2 = np.maximum(np.full(len(f), -95.0), 0 - 8000*(np.log10(f/1000))**2)
+    assert thd_from_spectrum(f, db2, 1000.0)[0] < 0.05
+    # 범위 밖 f0 → None
+    assert thd_from_spectrum(f, db, 20000.0) is None

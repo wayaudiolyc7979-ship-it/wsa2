@@ -9,7 +9,7 @@ from PyQt5.QtGui import (QBrush, QColor, QImage, QPainter, QPainterPath, QPen,
 from PyQt5.QtCore import Qt, QPoint, QPointF, QSize, pyqtSignal
 from PyQt5.QtWidgets import QSizePolicy, QWidget
 from spectra.core.config import T, is_dark, MAX_DB, SPEC_ATTACK, SPEED_LEVELS, FREQ_MARKS
-from spectra.dsp.weighting import BANDS
+from spectra.dsp.weighting import BANDS, thd_from_spectrum
 from spectra.ui.tokens import CF_ANNO, CF_GRID, CF_MODE, CF_TINY, _qfont
 from spectra.ui.colors import _spectra_grad_brush, _spectra_grad_pen, _vbar_gradient, bar_top
 from spectra.ui.draw import (freq_to_x, x_to_freq, db_to_y, draw_info_box, draw_dom_badge,
@@ -36,6 +36,7 @@ class FFTCanvas(QWidget):
         self.freqs=None; self.avg=None; self.peak=None
         self.peak_hold=True; self.scale_log=True
         self.sample_rate=48000; self.fft_size=16384
+        self._show_thd=False              # 커서 THD 표시(우클릭 'Show THD'로 토글) [THD]
         self._mx=-1; self._my=-1
         self.peak_hold_frames=30         # 기본 1초 홀드 (30fps 기준)
         self.peak_decay_rate_pk=20.0/30.0  # 20 dB/s 고정 낙하
@@ -517,7 +518,11 @@ class FFTCanvas(QWidget):
                 p.setPen(QPen(QColor(T('accent')).lighter(80) if (not is_dark()) else QColor(T('accent')),
                              1,Qt.DashLine))
                 p.drawLine(cx,pt,cx,H-pb); p.drawLine(pl,cy,W-pr,cy)
-                draw_info_box(p,W,fs,f'{db:.1f} {unit}', cx=cx, x_lo=pl, x_hi=W-pr, top=pt,
+                _thd_str=None                          # [THD] 커서=기본파 가정, 라이브 스펙트럼서 계산
+                if self._show_thd:
+                    _r=thd_from_spectrum(f_arr, a_arr, freq)
+                    if _r is not None: _thd_str=f'THD {_r[0]:.2f}%'
+                draw_info_box(p,W,fs,f'{db:.1f} {unit}', pk_str=_thd_str, cx=cx, x_lo=pl, x_hi=W-pr, top=pt,
                               val_color=_cap_col or QColor(*bar_top()[:3]))
         p.end()
 
@@ -537,6 +542,7 @@ class OctaveCanvas(QWidget):
         self.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Expanding)
         self.setMouseTracking(True); self.setAttribute(Qt.WA_OpaquePaintEvent,True)
         self.setFocusPolicy(Qt.StrongFocus)
+        self._show_thd=False              # 커서 THD 표시(우클릭 'Show THD'로 토글) [THD]
         self.mode='oct3'
         self.title_text=''   # 설정 시 좌상단 제목 표시(TF의 RTA 칸용; Spectrum 옥타브는 빈값)
         self.smooth={k:np.full(len(v),-96.0) for k,v in BANDS.items()}
@@ -951,7 +957,11 @@ class OctaveCanvas(QWidget):
             p.drawRect(bx2,pt,bw2,dh)
             fs=f'{fc/1000:.2f} kHz' if fc>=1000 else f'{fc:.0f} Hz'
             fs=f'{fs}   {freq_to_note(fc)}'
-            draw_info_box(p,W,fs,f'{db2:.1f} {unit}', cx=cx, x_lo=pl, x_hi=W-pr, top=pt,
+            _thd_str=None                          # [THD] RTA 밴드 데이터서 계산(커서=기본파)
+            if self._show_thd:
+                _r=thd_from_spectrum(bands, sm, fc)
+                if _r is not None: _thd_str=f'THD {_r[0]:.2f}%'
+            draw_info_box(p,W,fs,f'{db2:.1f} {unit}', pk_str=_thd_str, cx=cx, x_lo=pl, x_hi=W-pr, top=pt,
                           val_color=_cap_col or QColor(*bar_top()[:3]))
         if self._idle_hint:
             _draw_idle_hint(p, pl, pt, W-pl-pr, dh)

@@ -755,6 +755,8 @@ class MainWindow(QMainWindow):
         self.vu_a=VUMeter(); self.vu_a.hide()   # 숨김 — 레벨 계산 코드 유지용
         self.fft_cvs=FFTCanvas(); self.fft_cvs.hide()
         self.oct_cvs=OctaveCanvas(); self.oct_cvs.set_mode('oct12')
+        _thd0=bool(self._settings.get('spec_show_thd', False))   # [THD] 재시작 복원
+        self.fft_cvs._show_thd=_thd0; self.oct_cvs._show_thd=_thd0
         self.spectro_cvs=SpectrogramCanvas(); self.spectro_cvs.hide()
         self.cvs_splitter=QSplitter(Qt.Vertical)
         self.cvs_splitter.setHandleWidth(7)   # 3탭 스플리터 핸들 폭 통일
@@ -1924,7 +1926,15 @@ class MainWindow(QMainWindow):
     def _spec_db_menu(self, gpos):
         _db_axis_context_menu(self, gpos, self.db_max, self.db_min, self._db_lock,
                               on_apply=self._spec_db_apply, on_autofit=self._spec_db_autofit,
-                              on_toggle_lock=self._spec_db_toggle)
+                              on_toggle_lock=self._spec_db_toggle,
+                              extra_toggles=[('Show THD', self.fft_cvs._show_thd, self._toggle_thd)])
+
+    def _toggle_thd(self):
+        """커서 THD 표시 on/off (FFT·RTA 공통) + 설정 저장. [THD]"""
+        on = not self.fft_cvs._show_thd
+        self.fft_cvs._show_thd = on; self.oct_cvs._show_thd = on
+        self.fft_cvs.update(); self.oct_cvs.update()
+        self._settings['spec_show_thd'] = bool(on); _save_settings(self._settings)
 
     def _spec_db_apply(self, top, bot):
         self.db_max=float(top); self.db_min=float(bot); self.db_range=self.db_max-self.db_min
