@@ -261,90 +261,10 @@ def _detach_as_child(child, parent):
 
 # _apply_on_top — v2.0 분해: spectra/ui/spl.py, re-import
 from spectra.ui.spl import (_apply_on_top)
-def _fourcc(s):
-    """4문자 코드(b'dev#' 등) → UInt32. CoreAudio 셀렉터/스코프 상수용."""
-    return int.from_bytes(s, 'big')
-
-
-class _CoreAudioDeviceWatcher(QObject):
-    """macOS CoreAudio 하드웨어 장치 변경 리스너 — USB 인터페이스를 idle 상태에서
-    뽑/꽂아도 OS 레벨에서 즉시 감지(PortAudio 재초기화 없이는 query_devices() 개수가
-    안 바뀌므로 폴링으론 못 잡는다). 변경 시 changed 시그널을 메인 스레드로 큐잉한다.
-    콜백은 CoreAudio 스레드에서 호출되므로 Qt를 직접 만지지 말고 시그널만 emit."""
-    changed = pyqtSignal()
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._ca = None
-        self._proc = None        # CFUNCTYPE 콜백 — GC 방지로 self에 보관
-        self._addr = None
-        self._active = False
-
-    def start(self):
-        if sys.platform != 'darwin' or self._active:
-            return False
-        try:
-            import ctypes
-            ca = ctypes.CDLL('/System/Library/Frameworks/CoreAudio.framework/CoreAudio')
-
-            class _Addr(ctypes.Structure):
-                _fields_ = [('mSelector', ctypes.c_uint32),
-                            ('mScope',    ctypes.c_uint32),
-                            ('mElement',  ctypes.c_uint32)]
-
-            addr = _Addr(_fourcc(b'dev#'),   # kAudioHardwarePropertyDevices
-                         _fourcc(b'glob'),   # kAudioObjectPropertyScopeGlobal
-                         0)                   # kAudioObjectPropertyElementMain
-
-            PROC = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_uint32, ctypes.c_uint32,
-                                    ctypes.c_void_p, ctypes.c_void_p)
-
-            def _cb(obj_id, n_addr, addrs, client):
-                try: self.changed.emit()   # 큐잉 → 메인 스레드에서 처리
-                except Exception: pass
-                return 0
-
-            proc = PROC(_cb)
-            ca.AudioObjectAddPropertyListener.restype = ctypes.c_int32
-            ca.AudioObjectAddPropertyListener.argtypes = [
-                ctypes.c_uint32, ctypes.POINTER(_Addr), PROC, ctypes.c_void_p]
-            status = ca.AudioObjectAddPropertyListener(
-                1, ctypes.byref(addr), proc, None)   # 1 = kAudioObjectSystemObject
-            if status != 0:
-                _alog.warning(f'CoreAudio 리스너 등록 실패 status={status}')
-                return False
-            self._ca = ca; self._proc = proc; self._addr = addr; self._active = True
-            _alog.info('CoreAudio 장치변경 리스너 등록 OK')
-            return True
-        except Exception as e:
-            _alog.warning(f'CoreAudio 리스너 시작 예외: {e}')
-            return False
-
-    def device_count(self):
-        """현재 OS(HAL)가 보는 오디오 장치 개수를 CoreAudio에 직접 질의해 반환(None=실패).
-        PortAudio 캐시(query_devices)와 달리 재초기화 없이 실시간 — USB가 뽑히면 즉시 줄어든다.
-        ※일부 USB 드라이버는 뽑혀도 InputStream 콜백을 무음으로 계속 흘려 '콜백 생존'으로는
-        끊김을 못 잡으므로(2초 워치독·콜백age 무력), 장치 개수 감소로 제거를 확실히 감지한다."""
-        if not self._active or self._ca is None or self._addr is None:
-            return None
-        try:
-            import ctypes
-            ca = self._ca
-            ca.AudioObjectGetPropertyDataSize.restype = ctypes.c_int32
-            ca.AudioObjectGetPropertyDataSize.argtypes = [
-                ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32,
-                ctypes.c_void_p, ctypes.c_void_p]
-            size = ctypes.c_uint32(0)
-            st = ca.AudioObjectGetPropertyDataSize(
-                1, ctypes.byref(self._addr), 0, None, ctypes.byref(size))   # 1=systemObject
-            if st != 0:
-                return None
-            return size.value // 4   # sizeof(AudioDeviceID)=UInt32=4byte
-        except Exception:
-            return None
-
-
-# _glance_chrome_update, _glance_set_chrome, _ReloadBtn — v2.0 분해: spectra/ui/spl.py, re-import
+# _fourcc — v2.0 분해: spectra/audio/engine.py, re-import
+from spectra.audio.engine import _fourcc
+# _CoreAudioDeviceWatcher — v2.0 분해: spectra/audio/engine.py, re-import
+from spectra.audio.engine import _CoreAudioDeviceWatcher
 from spectra.ui.spl import (_glance_chrome_update, _glance_set_chrome, _ReloadBtn)
 from spectra.ui.colors import _SPECTRA_MARK_SVG, _SPECTRA_GRAD_DEFS, _SPECTRA_GRAD_QSS
 # 시그니처 그라디언트 stops — QLinearGradient용 (스펙트럼 곡선 등 라이브 렌더; 브러시라 부담 0)
@@ -487,93 +407,8 @@ class _DeadCallbackError(Exception):
 # (오디오 엔진 클래스는 위에서 spectra.audio.engine 로 일괄 re-import됨)
 
 
-class TFSyncThread(QThread):
-    """Ref와 Meas가 같은 장치의 다른 채널일 때 단일 InputStream으로 샘플 동기화.
-    두 채널을 동일 콜백에서 읽어 타이밍 오프셋을 완전히 제거.
-    frame_ready(ref_buf, meas_buf)로 두 버퍼를 원자적으로 전달."""
-    frame_ready  = pyqtSignal(object, object)   # (ref_buf, meas_buf) — 단일 이벤트
-    error_signal = pyqtSignal(str)
-    disconnected_signal = pyqtSignal(str)   # 작동 중 물리적 연결 끊김
-
-    def __init__(self, device_idx, sample_rate, fft_size, ref_ch, meas_ch):
-        super().__init__()
-        self.device_idx = device_idx
-        self.sample_rate = sample_rate; self.fft_size = fft_size
-        self.ref_ch = ref_ch; self.meas_ch = meas_ch
-        self.running = False
-        self._active_stream = None   # stop()에서 abort()로 즉시 장치 해제
-
-    def run(self):
-        self.running = True
-        blocksize = min(self.fft_size // 4, 2048)
-        n_ch = max(self.ref_ch, self.meas_ch) + 1
-        ref_buf  = np.zeros(self.fft_size, dtype=np.float32)
-        meas_buf = np.zeros(self.fft_size, dtype=np.float32)
-        r_ch = self.ref_ch; m_ch = self.meas_ch
-        _last_cb = [time.monotonic()]   # watchdog: USB 제거 감지
-        _got_cb = [False]   # 첫 콜백 수신 여부 — 시작 지연을 끊김으로 오판 방지
-
-        def cb(indata, frames, ti, status):
-            try:
-                if not self.running: return
-                _last_cb[0] = time.monotonic(); _got_cb[0] = True   # 콜백 살아있음 갱신
-                nc = indata.shape[1]
-                rc = min(r_ch, nc - 1); mc = min(m_ch, nc - 1)
-                frames = min(frames, self.fft_size)   # 큰 호스트버퍼(bs=0 폴백)에서 frames>fft_size 시 ValueError 방지
-                ref_buf[:-frames]  = ref_buf[frames:];  ref_buf[-frames:]  = indata[:frames, rc]
-                meas_buf[:-frames] = meas_buf[frames:]; meas_buf[-frames:] = indata[:frames, mc]
-                self.frame_ready.emit(ref_buf.copy(), meas_buf.copy())
-            except Exception: pass
-
-        last_err = None
-        for round_n in range(2):
-            for bs in (blocksize, 0):
-                try:
-                    with _no_stderr():
-                        with sd.InputStream(device=self.device_idx, samplerate=self.sample_rate,
-                                            channels=n_ch, blocksize=bs,
-                                            callback=cb, latency='high', dtype='float32',
-                                            extra_settings=_win_extra_settings()) as _s:
-                            self._active_stream = _s
-                            _last_cb[0] = time.monotonic()
-                            try:
-                                while self.running:
-                                    self.msleep(10)
-                                    # macOS AUHAL은 USB 제거 후에도 active=True 유지 →
-                                    # 콜백이 흐르다 2초 이상 끊기면 물리적 끊김으로 판단
-                                    # (첫 콜백 받은 뒤에만 — 같은장치 in/out 시작 지연 오판 방지)
-                                    if _got_cb[0] and time.monotonic() - _last_cb[0] > 2.0:
-                                        self.disconnected_signal.emit('device removed')
-                                        return
-                            finally:
-                                self._active_stream = None
-                    return  # 정상 종료
-                except Exception as e:
-                    last_err = e
-                    if not self.running: return
-            if round_n == 0:
-                for _ in range(15):   # AUHAL 해제 대기 (running 반응형)
-                    if not self.running: return
-                    self.msleep(100)
-        if last_err: self.error_signal.emit(str(last_err))
-
-    def stop(self):
-        self.running = False
-        s = self._active_stream
-        if s is not None:
-            try: s.abort(ignore_errors=True)
-            except Exception:
-                try: s.close(ignore_errors=True)
-                except Exception: pass
-        if not self.wait(3000):
-            _alog.warning('TFSyncThread stop(): wait timeout — stream forced abort')
-
-
-
-# ───────────────────────────────────────────
-#  FFT 캔버스 — ★ 다운샘플링으로 포인트 수 제한
-# ───────────────────────────────────────────
-# FFTCanvas — v2.0 분해: spectra/ui/canvas_spectrum.py, re-import
+# TFSyncThread — v2.0 분해: spectra/ui/tf_window.py, re-import
+from spectra.ui.tf_window import TFSyncThread
 from spectra.ui.canvas_spectrum import FFTCanvas
 # OctaveCanvas — v2.0 분해: spectra/ui/canvas_spectrum.py, re-import
 from spectra.ui.canvas_spectrum import OctaveCanvas

@@ -8,7 +8,8 @@ import time
 import numpy as np
 import sounddevice as sd
 import platform as _pl
-from PyQt5.QtCore import QThread, QObject, pyqtSignal
+import ctypes
+from PyQt5.QtCore import QThread, QObject, pyqtSignal, Qt
 from spectra.core.logging_diag import _alog, _diag
 
 
@@ -621,3 +622,89 @@ class _EngineChannelSource(QObject):
             try: self._sub.close()
             except Exception: pass
             self._sub = None
+
+
+def _fourcc(s):
+    """4문자 코드(b'dev#' 등) → UInt32. CoreAudio 셀렉터/스코프 상수용."""
+    return int.from_bytes(s, 'big')
+
+
+class _CoreAudioDeviceWatcher(QObject):
+    """macOS CoreAudio 하드웨어 장치 변경 리스너 — USB 인터페이스를 idle 상태에서
+    뽑/꽂아도 OS 레벨에서 즉시 감지(PortAudio 재초기화 없이는 query_devices() 개수가
+    안 바뀌므로 폴링으론 못 잡는다). 변경 시 changed 시그널을 메인 스레드로 큐잉한다.
+    콜백은 CoreAudio 스레드에서 호출되므로 Qt를 직접 만지지 말고 시그널만 emit."""
+    changed = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._ca = None
+        self._proc = None        # CFUNCTYPE 콜백 — GC 방지로 self에 보관
+        self._addr = None
+        self._active = False
+
+    def start(self):
+        if sys.platform != 'darwin' or self._active:
+            return False
+        try:
+            import ctypes
+            ca = ctypes.CDLL('/System/Library/Frameworks/CoreAudio.framework/CoreAudio')
+
+            class _Addr(ctypes.Structure):
+                _fields_ = [('mSelector', ctypes.c_uint32),
+                            ('mScope',    ctypes.c_uint32),
+                            ('mElement',  ctypes.c_uint32)]
+
+            addr = _Addr(_fourcc(b'dev#'),   # kAudioHardwarePropertyDevices
+                         _fourcc(b'glob'),   # kAudioObjectPropertyScopeGlobal
+                         0)                   # kAudioObjectPropertyElementMain
+
+            PROC = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_uint32, ctypes.c_uint32,
+                                    ctypes.c_void_p, ctypes.c_void_p)
+
+            def _cb(obj_id, n_addr, addrs, client):
+                try: self.changed.emit()   # 큐잉 → 메인 스레드에서 처리
+                except Exception: pass
+                return 0
+
+            proc = PROC(_cb)
+            ca.AudioObjectAddPropertyListener.restype = ctypes.c_int32
+            ca.AudioObjectAddPropertyListener.argtypes = [
+                ctypes.c_uint32, ctypes.POINTER(_Addr), PROC, ctypes.c_void_p]
+            status = ca.AudioObjectAddPropertyListener(
+                1, ctypes.byref(addr), proc, None)   # 1 = kAudioObjectSystemObject
+            if status != 0:
+                _alog.warning(f'CoreAudio 리스너 등록 실패 status={status}')
+                return False
+            self._ca = ca; self._proc = proc; self._addr = addr; self._active = True
+            _alog.info('CoreAudio 장치변경 리스너 등록 OK')
+            return True
+        except Exception as e:
+            _alog.warning(f'CoreAudio 리스너 시작 예외: {e}')
+            return False
+
+    def device_count(self):
+        """현재 OS(HAL)가 보는 오디오 장치 개수를 CoreAudio에 직접 질의해 반환(None=실패).
+        PortAudio 캐시(query_devices)와 달리 재초기화 없이 실시간 — USB가 뽑히면 즉시 줄어든다.
+        ※일부 USB 드라이버는 뽑혀도 InputStream 콜백을 무음으로 계속 흘려 '콜백 생존'으로는
+        끊김을 못 잡으므로(2초 워치독·콜백age 무력), 장치 개수 감소로 제거를 확실히 감지한다."""
+        if not self._active or self._ca is None or self._addr is None:
+            return None
+        try:
+            import ctypes
+            ca = self._ca
+            ca.AudioObjectGetPropertyDataSize.restype = ctypes.c_int32
+            ca.AudioObjectGetPropertyDataSize.argtypes = [
+                ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32,
+                ctypes.c_void_p, ctypes.c_void_p]
+            size = ctypes.c_uint32(0)
+            st = ca.AudioObjectGetPropertyDataSize(
+                1, ctypes.byref(self._addr), 0, None, ctypes.byref(size))   # 1=systemObject
+            if st != 0:
+                return None
+            return size.value // 4   # sizeof(AudioDeviceID)=UInt32=4byte
+        except Exception:
+            return None
+
+
+# _glance_chrome_update, _glance_set_chrome, _ReloadBtn — v2.0 분해: spectra/ui/spl.py, re-import

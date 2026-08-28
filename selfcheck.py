@@ -36,11 +36,11 @@ _spec.loader.exec_module(w)          # 모듈 import 자체가 1차 검증(문�
 import spectra.ui.widgets, spectra.ui.dialogs, spectra.ui.spl
 import spectra.ui.draw, spectra.ui.colors, spectra.ui.tokens, spectra.ui.icons
 import spectra.ui.canvas_spectrum, spectra.ui.canvas_tf, spectra.ui.canvas_stereo
-import spectra.ui.stereo_page, spectra.ui.tf_window
+import spectra.ui.stereo_page, spectra.ui.tf_window, spectra.ui.capture_drawer
 import spectra.core.config, spectra.dsp.weighting
 for _m in (spectra.ui.widgets, spectra.ui.dialogs, spectra.ui.spl, spectra.ui.stereo_page,
-           spectra.ui.tf_window, spectra.ui.draw, spectra.ui.colors, spectra.ui.tokens,
-           spectra.ui.icons, spectra.ui.canvas_spectrum, spectra.ui.canvas_tf,
+           spectra.ui.tf_window, spectra.ui.capture_drawer, spectra.ui.draw, spectra.ui.colors,
+           spectra.ui.tokens, spectra.ui.icons, spectra.ui.canvas_spectrum, spectra.ui.canvas_tf,
            spectra.ui.canvas_stereo, spectra.core.config, spectra.dsp.weighting):
     for _n in dir(_m):
         if not _n.startswith('__') and not hasattr(w, _n):

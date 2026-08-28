@@ -5017,3 +5017,92 @@ class TransferFunctionWindow(QWidget):
 # ───────────────────────────────────────────
 #  캔버스 키/마우스 라우터 (앱 레벨 이벤트 필터)
 # ───────────────────────────────────────────
+
+
+class TFSyncThread(QThread):
+    """Ref와 Meas가 같은 장치의 다른 채널일 때 단일 InputStream으로 샘플 동기화.
+    두 채널을 동일 콜백에서 읽어 타이밍 오프셋을 완전히 제거.
+    frame_ready(ref_buf, meas_buf)로 두 버퍼를 원자적으로 전달."""
+    frame_ready  = pyqtSignal(object, object)   # (ref_buf, meas_buf) — 단일 이벤트
+    error_signal = pyqtSignal(str)
+    disconnected_signal = pyqtSignal(str)   # 작동 중 물리적 연결 끊김
+
+    def __init__(self, device_idx, sample_rate, fft_size, ref_ch, meas_ch):
+        super().__init__()
+        self.device_idx = device_idx
+        self.sample_rate = sample_rate; self.fft_size = fft_size
+        self.ref_ch = ref_ch; self.meas_ch = meas_ch
+        self.running = False
+        self._active_stream = None   # stop()에서 abort()로 즉시 장치 해제
+
+    def run(self):
+        self.running = True
+        blocksize = min(self.fft_size // 4, 2048)
+        n_ch = max(self.ref_ch, self.meas_ch) + 1
+        ref_buf  = np.zeros(self.fft_size, dtype=np.float32)
+        meas_buf = np.zeros(self.fft_size, dtype=np.float32)
+        r_ch = self.ref_ch; m_ch = self.meas_ch
+        _last_cb = [time.monotonic()]   # watchdog: USB 제거 감지
+        _got_cb = [False]   # 첫 콜백 수신 여부 — 시작 지연을 끊김으로 오판 방지
+
+        def cb(indata, frames, ti, status):
+            try:
+                if not self.running: return
+                _last_cb[0] = time.monotonic(); _got_cb[0] = True   # 콜백 살아있음 갱신
+                nc = indata.shape[1]
+                rc = min(r_ch, nc - 1); mc = min(m_ch, nc - 1)
+                frames = min(frames, self.fft_size)   # 큰 호스트버퍼(bs=0 폴백)에서 frames>fft_size 시 ValueError 방지
+                ref_buf[:-frames]  = ref_buf[frames:];  ref_buf[-frames:]  = indata[:frames, rc]
+                meas_buf[:-frames] = meas_buf[frames:]; meas_buf[-frames:] = indata[:frames, mc]
+                self.frame_ready.emit(ref_buf.copy(), meas_buf.copy())
+            except Exception: pass
+
+        last_err = None
+        for round_n in range(2):
+            for bs in (blocksize, 0):
+                try:
+                    with _no_stderr():
+                        with sd.InputStream(device=self.device_idx, samplerate=self.sample_rate,
+                                            channels=n_ch, blocksize=bs,
+                                            callback=cb, latency='high', dtype='float32',
+                                            extra_settings=_win_extra_settings()) as _s:
+                            self._active_stream = _s
+                            _last_cb[0] = time.monotonic()
+                            try:
+                                while self.running:
+                                    self.msleep(10)
+                                    # macOS AUHAL은 USB 제거 후에도 active=True 유지 →
+                                    # 콜백이 흐르다 2초 이상 끊기면 물리적 끊김으로 판단
+                                    # (첫 콜백 받은 뒤에만 — 같은장치 in/out 시작 지연 오판 방지)
+                                    if _got_cb[0] and time.monotonic() - _last_cb[0] > 2.0:
+                                        self.disconnected_signal.emit('device removed')
+                                        return
+                            finally:
+                                self._active_stream = None
+                    return  # 정상 종료
+                except Exception as e:
+                    last_err = e
+                    if not self.running: return
+            if round_n == 0:
+                for _ in range(15):   # AUHAL 해제 대기 (running 반응형)
+                    if not self.running: return
+                    self.msleep(100)
+        if last_err: self.error_signal.emit(str(last_err))
+
+    def stop(self):
+        self.running = False
+        s = self._active_stream
+        if s is not None:
+            try: s.abort(ignore_errors=True)
+            except Exception:
+                try: s.close(ignore_errors=True)
+                except Exception: pass
+        if not self.wait(3000):
+            _alog.warning('TFSyncThread stop(): wait timeout — stream forced abort')
+
+
+
+# ───────────────────────────────────────────
+#  FFT 캔버스 — ★ 다운샘플링으로 포인트 수 제한
+# ───────────────────────────────────────────
+# FFTCanvas — v2.0 분해: spectra/ui/canvas_spectrum.py, re-import
