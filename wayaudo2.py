@@ -2303,52 +2303,8 @@ def _text_input_dialog(parent, title, label, default=''):
     return le.text(), ok
 
 
-def _brand_msg(parent, title, text, kind='info', ok_text='OK', cancel_text=None, danger=False):
-    """SPECTRA 브랜드 메시지/확인 다이얼로그 (시스템 QMessageBox 대체).
-    kind: 'info'(파랑 i) / 'warn'(주황 △!) / 'question'(파랑 ?). 상단 그라디언트 라인 + 라인 아이콘.
-    cancel_text 지정 시 확인/취소 2버튼(확인=True), 아니면 OK 1버튼. danger=True면 주동작 빨강.
-    반환: True(확인/OK) / False(취소)."""
-    dlg = QDialog(parent)
-    dlg.setWindowTitle(title); _apply_dark_titlebar(dlg)
-    dlg.setMinimumWidth(360); dlg.setMaximumWidth(540)
-    dlg.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
-    lay = QVBoxLayout(dlg); lay.setSpacing(0); lay.setContentsMargins(0, 0, 0, 0)
-    lay.addWidget(_grad_topline())
-    body = QWidget(); bl = QVBoxLayout(body)
-    bl.setContentsMargins(20, 18, 20, 16); bl.setSpacing(18)
-    row = QHBoxLayout(); row.setSpacing(14)
-    _ic_name, _ic_col = {'info': ('info', T('accent')),
-                         'warn': ('alert-triangle', '#FF9F0A'),
-                         'question': ('help-circle', T('accent'))}.get(kind, ('info', T('accent')))
-    ic = QLabel(); ic.setPixmap(_icon(_ic_name, 30, color=_ic_col).pixmap(30, 30))
-    ic.setFixedWidth(34); ic.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
-    row.addWidget(ic, 0, Qt.AlignTop)
-    msg = QLabel(text); msg.setWordWrap(True)
-    msg.setStyleSheet(f'color:{T("text")};font-size:13px;font-weight:600;background:transparent;')
-    row.addWidget(msg, 1)
-    bl.addLayout(row)
-    btn_row = QHBoxLayout(); btn_row.setSpacing(8); btn_row.addStretch()
-    if cancel_text:
-        cb = QPushButton(cancel_text); cb.setStyleSheet(ss_btn_neutral())
-        cb.clicked.connect(dlg.reject); btn_row.addWidget(cb)
-    ob = QPushButton(ok_text)
-    ob.setStyleSheet(ss_btn_danger() if danger else ss_btn_primary())
-    ob.setDefault(True); ob.clicked.connect(dlg.accept); btn_row.addWidget(ob)
-    bl.addLayout(btn_row)
-    lay.addWidget(body)
-    return dlg.exec_() == QDialog.Accepted
-
-
-class _BrandBox:
-    """QMessageBox 드롭인 대체 — 브랜드 다이얼로그로 표시 (information/warning)."""
-    @staticmethod
-    def information(parent, title, text):
-        _brand_msg(parent, title, text, kind='info')
-    @staticmethod
-    def warning(parent, title, text):
-        _brand_msg(parent, title, text, kind='warn')
-
-
+# _brand_msg/_BrandBox — v2.0 분해: spectra/ui/dialogs.py, re-import
+from spectra.ui.dialogs import _brand_msg, _BrandBox
 def _md_to_html(md):
     """릴리즈 노트용 경량 마크다운→HTML (##/###, - 불릿, **굵게**, `코드`, > 인용, ---).
     외부 라이브러리 없이 우리 노트 형식만 처리."""
