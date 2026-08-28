@@ -37,9 +37,10 @@ import spectra.ui.widgets, spectra.ui.dialogs, spectra.ui.spl
 import spectra.ui.draw, spectra.ui.colors, spectra.ui.tokens, spectra.ui.icons
 import spectra.ui.canvas_spectrum, spectra.ui.canvas_tf, spectra.ui.canvas_stereo
 import spectra.ui.stereo_page, spectra.ui.tf_window, spectra.ui.capture_drawer
+import spectra.ui.main_window
 import spectra.core.config, spectra.dsp.weighting
 for _m in (spectra.ui.widgets, spectra.ui.dialogs, spectra.ui.spl, spectra.ui.stereo_page,
-           spectra.ui.tf_window, spectra.ui.capture_drawer, spectra.ui.draw, spectra.ui.colors,
+           spectra.ui.tf_window, spectra.ui.capture_drawer, spectra.ui.main_window, spectra.ui.draw, spectra.ui.colors,
            spectra.ui.tokens, spectra.ui.icons, spectra.ui.canvas_spectrum, spectra.ui.canvas_tf,
            spectra.ui.canvas_stereo, spectra.core.config, spectra.dsp.weighting):
     for _n in dir(_m):
