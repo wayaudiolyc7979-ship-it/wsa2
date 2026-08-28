@@ -701,18 +701,39 @@ def _tf_avg_group_render():
     tf._avg_on = True; tf._update_avg_card(); tf._avg_card_cnt.setText('(2)')
     tf._avg_card.setVisible(True); tf._avg_card.resize(240, 40); _app.processEvents()
     out += '  ' + _save(tf._avg_card, 'tf_avg_card.png')
-    # 기능형 색 스와치: 존재 + 클릭배선 + 색상변경 반영 (회귀 가드)
-    assert hasattr(tf, '_avg_card_sw'), 'AVG 색 스와치 없음'
-    assert tf._avg_card_sw.on_click == tf._pick_avg_color, '스와치 클릭 미배선'
+    # 색 스와치 제거됨 → 색은 체크박스가 담당, 색 변경은 카드 우클릭 컨텍스트메뉴 (회귀 가드)
+    assert not hasattr(tf, '_avg_card_sw'), 'AVG 색 스와치는 제거되어야 함'
+    assert tf._avg_card.contextMenuEvent == tf._avg_card_context, '우클릭 색변경 미배선'
     tf._avg_color = '#FF6A3D'; tf._style_avg_card()
-    assert tf._avg_card_sw._sw_color == '#FF6A3D', f'스와치 색 미반영: {tf._avg_card_sw._sw_color}'
-    out += '  swatch OK'
+    assert '#FF6A3D' in tf._avg_card_chk.styleSheet(), '체크박스 색 미반영'
+    out += '  chk-color+rclick OK'
     c = w._MeasCard(2, w.T('green'), deletable=True)
     c._avg_chk.setChecked(True)
     c.resize(240, 100); _app.processEvents()
     out += '  ' + _save(c, 'meascard_avg_toggle.png')
     return out
 check('TF AVERAGE 그룹 + 카드 avg 토글 렌더', _tf_avg_group_render)
+
+
+def _meascard_color_change():
+    """개별 카드 우클릭 색 변경 — set_color 가 헤더 요소(번호/체크/미터/색점) 재색칠 + color_changed 시그널."""
+    c = w._MeasCard(3, w.T('green'), deletable=True)
+    assert hasattr(c, 'color_changed'), 'color_changed 시그널 없음'
+    got = []
+    c.color_changed.connect(lambda s: got.append(s))
+    c.set_color('#FF33AA')
+    assert c._color == '#FF33AA', f'카드 색 미반영: {c._color}'
+    assert '#FF33AA' in c._num_label.styleSheet(), '번호 라벨 색 미반영'
+    assert '#FF33AA' in c._vis_chk.styleSheet(), '표시 체크박스 색 미반영'
+    c.color_changed.emit(c._color)   # 우클릭 다이얼로그 대신 직접 방출(배선 확인)
+    assert got == ['#FF33AA'], f'color_changed 방출 실패: {got}'
+    c.resize(240, 100); _app.processEvents()
+    out = _save(c, 'meascard_custom_color.png')
+    # 캔버스 primary(1번) 라이브색 설정 → 렌더 무오류
+    for _CV in (w.TFMagCanvas, w.TFPhaseCanvas, w.TFIRCanvas):
+        cv = _CV(); cv._live_color = '#FF33AA'; cv.resize(400, 200); _app.processEvents(); cv.grab()
+    return out + '  live_color OK'
+check('TF 개별 카드 색 변경 + 캔버스 라이브색', _meascard_color_change)
 
 
 def _tf_avg_state_roundtrip():

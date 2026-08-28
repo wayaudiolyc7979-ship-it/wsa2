@@ -9246,6 +9246,7 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
         self._cap_built.connect(self._apply_cap_built)
         self._tf_extra_phase = {}  # {ch_idx: {'color', 'f', 'ph_wrap', 'ph_unwr', 'grp_ms'}}
         self._tf_avg = None   # {'color','f','ph_wrap','ph_unwr','grp_ms'} — 라이브 멀티마이크 평균 오버레이
+        self._live_color = None   # primary(1번) 곡선 사용자색. None=기본 T('green')
         self._hide_individual = False   # '평균만' — 개별 라이브 곡선 숨김(AVG는 계속 그림)
         # Reference/Delta 비교
         self._ref_f = None; self._ref_pw = None; self._ref_pu = None; self._ref_gm = None
@@ -9670,7 +9671,7 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
                 else:
                     seg_x.append(float(xs[i])); seg_y.append(float(ys[i]))
             _flush()
-            p.setPen(QPen(_col('#33FF66', None),2.0)); p.setBrush(Qt.NoBrush); p.drawPath(path)
+            p.setPen(QPen(_col(self._live_color or '#33FF66', None),2.0)); p.setBrush(Qt.NoBrush); p.drawPath(path)
         # ── 추가 채널 곡선 (primary 유무와 무관하게 그림; front 는 마지막에 굵게) ──
         fk=self._front_extra
         if not _hide:
@@ -9681,7 +9682,7 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
         if self._tf_extra_phase and not _capf and not _hide:
             if fk is None or fk==-1:
                 if path is not None:
-                    p.setPen(QPen(QColor('#33FF66'),3.4)); p.setBrush(Qt.NoBrush); p.drawPath(path)
+                    p.setPen(QPen(QColor(self._live_color or '#33FF66'),3.4)); p.setBrush(Qt.NoBrush); p.drawPath(path)
             elif fk in self._tf_extra_phase:
                 self._draw_extra_phase_curve(p, W, H, self._tf_extra_phase[fk], width=3.4)
         # 멀티마이크 평균(AVG) — 항상 맨 위(front 재드로우 이후) 굵은 실선 오버레이 (extra 위상 곡선과 동일 좌표변환 재사용)
@@ -9861,6 +9862,7 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
         self._cap_built.connect(self._apply_cap_built)
         self._tf_extra = {}  # {ch_idx: {'color', 'f', 'mag'}}
         self._tf_avg = None   # {'color','f','mag','coh'} — 라이브 멀티마이크 평균 오버레이
+        self._live_color = None   # primary(1번) 곡선 사용자색. None=기본 T('green')
         self._hide_individual = False   # '평균만' — 개별 라이브 곡선 숨김(AVG는 계속 그림)
         # Reference/Delta 비교
         self._ref_f = None; self._ref_mag = None
@@ -10281,7 +10283,7 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
             # AA 래스터 비용이 폭증(측정 52→22ms/프레임)해 오디오 콜백을 굶겨 핑크 끊김·전체 버벅임.
             # 포인트 수·스플라인은 그대로 유지(1/48 디테일 보존). float 좌표라 계단현상 미미. 뒤에서 AA 복원.
             p.setRenderHint(QPainter.Antialiasing,False)
-            p.setPen(QPen(_col(T('green'), None),2.5)); p.setBrush(Qt.NoBrush)
+            p.setPen(QPen(_col(self._live_color or T('green'), None),2.5)); p.setBrush(Qt.NoBrush)
             p.drawPath(_catmull_seg(xs_d, ys_ms))
             if self.coh is not None and len(self.coh)==len(f_arr):
                 cr,cg,cb_=self._COH_COLOR
@@ -10325,7 +10327,7 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
             if fk is None or fk==-1:
                 if self.freqs is not None and self.mag is not None:
                     fm=self.mag - np.interp(self.freqs,self._ref_f,self._ref_mag) if refmode else self.mag
-                    self._draw_mag_line(p,W,H, self.freqs, fm, T('green'), 3.4)
+                    self._draw_mag_line(p,W,H, self.freqs, fm, self._live_color or T('green'), 3.4)
             elif fk in self._tf_extra:
                 ex=self._tf_extra[fk]; exf=ex.get('f'); exm=ex.get('mag')
                 if exf is not None and exm is not None:
@@ -10644,6 +10646,7 @@ class _MeasCard(QFrame):
     renamed            = pyqtSignal(str)  # 카드 이름 변경 (새 이름)
     graph_toggled      = pyqtSignal(bool) # 그래프 표시 ON/OFF (분석은 계속)
     avg_include_toggled = pyqtSignal(int, bool)  # (card_id, included) — 라이브 평균 참여 토글
+    color_changed      = pyqtSignal(str)  # 우클릭 → 곡선 색 변경 (새 색 hex)
 
     def __init__(self, number, color, deletable=True):
         super().__init__()
@@ -10920,11 +10923,31 @@ class _MeasCard(QFrame):
         m = QMenu(self)
         a_rename = m.addAction(_tx('Rename'))
         a_rename.triggered.connect(self._begin_rename)
+        a_color = m.addAction(_tx('Change color…'))
+        a_color.triggered.connect(self._pick_color)
         if self._deletable:
             m.addSeparator()
             a_del = m.addAction(_tx('Delete'))
             a_del.triggered.connect(self.delete_clicked)
         m.exec_(e.globalPos())
+
+    def _pick_color(self):
+        c = QColorDialog.getColor(QColor(self._color), self, _tx('Curve color'))
+        if c.isValid():
+            self.set_color(c.name())
+            self.color_changed.emit(c.name())
+
+    def set_color(self, color):
+        """곡선/카드 색 변경 — 헤더 요소 색 갱신 후 재스타일."""
+        self._color = color
+        self._num_label.setStyleSheet(f'color:{color};background:transparent;font-size:{FS_BODY}px;font-weight:bold;')
+        self._vis_chk.setStyleSheet(
+            f'QCheckBox::indicator{{width:13px;height:13px;border:1.5px solid {color};'
+            f'border-radius:3px;background:transparent;}}'
+            f'QCheckBox::indicator:checked{{background:{color};image:none;}}')
+        self._db_lbl.setStyleSheet(f'color:{color};background:transparent;'); self._db_lbl_color = color
+        self._start_dot.setIcon(QIcon(_led_power_pm(self._running, 18, color)))
+        self._apply_card_style()
 
     def set_running(self, running):
         self._running = running
@@ -11024,6 +11047,7 @@ class TFIRCanvas(QWidget):
         self._cap_built.connect(self._apply_cap_built)
         self._tf_extra = {}       # {ch_idx: {'color','t','h'}} — 카드별 라이브 IR
         self._tf_avg = None       # {'color','t','h','etc_db'} — 라이브 멀티마이크 평균 오버레이
+        self._live_color = None   # primary(1번) 곡선 사용자색. None=기본 T('green')
         self._hide_individual = False   # '평균만' — 개별 라이브 IR 숨김(AVG는 계속 그림)
         self._front_extra = None  # None/-1=primary 맨앞, int=해당 pair idx 맨앞
 
@@ -11445,6 +11469,7 @@ class TFIRCanvas(QWidget):
             return _fk == key
         _pdim = not _is_focus(None)        # primary 흐림 여부
         _LA = 140 if _pdim else 230        # primary 라이브 라인 알파
+        _gc = self._live_color or T('green')   # primary(1번) IR 색 — 사용자 지정 우선
         if self.ir_mode == 0:
             if self.t_ms is not None and self.h_raw is not None and len(self.t_ms) >= 2 and not _hide:
                 peak_lin = max(float(np.max(np.abs(self.h_raw))), 1e-10)
@@ -11458,7 +11483,7 @@ class TFIRCanvas(QWidget):
                         t_v = t_v[ids]; h_v = h_v[ids]
                     xs = (pl + (t_v - self.t_min) / t_range * uw).astype(float)
                     ys = (pt + np.clip((1.0 - h_v) / 2.0 * dh, 0, dh)).astype(float)
-                    lc = QColor(T('green')); lc.setAlpha(_LA)
+                    lc = QColor(_gc); lc.setAlpha(_LA)
                     p.setPen(QPen(lc, 2.0)); p.setBrush(Qt.NoBrush)
                     p.drawPolyline(QPolygonF([QPointF(x,y) for x,y in zip(xs.tolist(),ys.tolist())]))
         else:
@@ -11490,15 +11515,15 @@ class TFIRCanvas(QWidget):
                             for pt2 in _poly_pts[1:]: fp.lineTo(pt2.x(), pt2.y())
                             fp.lineTo(xs[-1], float(H - pb)); fp.closeSubpath()
                             g = QLinearGradient(0, pt, 0, H - pb)
-                            ac = QColor(T('green')); ac.setAlpha(20 if _pdim else 55)
-                            ac2 = QColor(T('green')); ac2.setAlpha(2 if _pdim else 5)
+                            ac = QColor(_gc); ac.setAlpha(20 if _pdim else 55)
+                            ac2 = QColor(_gc); ac2.setAlpha(2 if _pdim else 5)
                             g.setColorAt(0, ac); g.setColorAt(1, ac2)
                             p.setBrush(QBrush(g)); p.setPen(Qt.NoPen); p.drawPath(fp)
-                            lc = QColor(T('green')); lc.setAlpha(_LA)
+                            lc = QColor(_gc); lc.setAlpha(_LA)
                             p.setPen(QPen(lc, 1.6)); p.setBrush(Qt.NoBrush)
                             p.drawPolyline(QPolygonF(_poly_pts))
                         else:  # Log — line only
-                            lc = QColor(T('green')); lc.setAlpha(_LA)
+                            lc = QColor(_gc); lc.setAlpha(_LA)
                             p.setPen(QPen(lc, 1.2)); p.setBrush(Qt.NoBrush)
                             p.drawPolyline(QPolygonF(_poly_pts))
 
@@ -11511,7 +11536,7 @@ class TFIRCanvas(QWidget):
             if not _capf:   # 캡쳐 포커스 시엔 라이브 front 굵게 재드로우 생략
                 fk = self._front_extra
                 if fk is None or fk == -1:
-                    self._draw_ir_curve(p, W, H, self.t_ms, self.h_raw, T('green'), 2.8, self.etc_db)
+                    self._draw_ir_curve(p, W, H, self.t_ms, self.h_raw, _gc, 2.8, self.etc_db)
                 elif fk in self._tf_extra:
                     ex = self._tf_extra[fk]
                     self._draw_ir_curve(p, W, H, ex.get('t'), ex.get('h'),
@@ -11557,7 +11582,7 @@ class TFIRCanvas(QWidget):
         _markers = []   # (delay_ms, color, is_front, is_capture)
         # 라이브 카드 마커 — 세로 점선 + front 값 라벨
         if self.t_ms is not None:   # primary 활성(정지 시 숨김)
-            _markers.append((self._delay_ms, T('green'),
+            _markers.append((self._delay_ms, self._live_color or T('green'),
                              _cap_front_idx is None and (_fk is None or _fk == -1), False))
         for _key, _ex in self._tf_extra.items():
             _markers.append((_ex.get('delay', 0.0), _ex.get('color'),
@@ -12940,6 +12965,7 @@ class TransferFunctionWindow(QWidget):
             self.setMinimumSize(1020, 570)
         self._settings = settings or {}
         self._tf_primary_name = self._settings.get('tf_primary_name', '')  # primary 카드 사용자 이름
+        self._tf_primary_color = self._settings.get('tf_primary_color', '') or ''  # primary(1번) 곡선 사용자색. ''=기본 green
         self.sample_rate = 48000; self.fft_size = 16384
         self.smooth_bpo = 3; self.averaging_sec = 2.0   # 기본 Normal(2초, 대칭)
         self.delay_ms = 0.0; self.phase_mode = 0; self.coh_blank = 0.5
@@ -13015,6 +13041,8 @@ class TransferFunctionWindow(QWidget):
         self._monitor_threads = {}   # 입력 레벨 모니터(분석 미실행 시) dev -> MultiChannelAudioThread
         self._monitor_chmap = {}     # dev -> {ch: card}
         self._build_ui(); self._load_devices(); self._restore_tf_extra_pairs()
+        if self._tf_primary_color:   # 저장된 primary(1번) 사용자색 복원
+            self._apply_primary_color(self._tf_primary_color, save=False)
         self.setAcceptDrops(True)   # 오디오 파일 드래그&드롭 → File 측정 신호 로드
         self._find_result_sig.connect(self._apply_find_result)
         self._find_pair_result_sig.connect(self._apply_find_pair_result)
@@ -13370,6 +13398,7 @@ class TransferFunctionWindow(QWidget):
         primary_card.renamed.connect(lambda name: self._on_tf_renamed(None, name))
         primary_card.graph_toggled.connect(self._on_primary_graph_toggle)
         primary_card.avg_include_toggled.connect(self._on_card_avg_include)
+        primary_card.color_changed.connect(self._on_primary_color_changed)
         # backward-compat: delay spin synced to self.delay_ms
         primary_card._delay_spin.valueChanged.connect(self._on_delay_changed)
         self._level_cards.append(primary_card)
@@ -13416,15 +13445,10 @@ class TransferFunctionWindow(QWidget):
         self._avg_card_chk.setFocusPolicy(Qt.NoFocus)
         self._avg_card_chk.setToolTip(_tx('Show / hide the average curve'))
         self._avg_card_chk.toggled.connect(self._on_avg_show_toggle)
-        # 색 스와치(좌클릭=색상 선택창). 색은 이 스와치가 담당 → 체크박스는 중립.
-        self._avg_card_sw = _ColorSwatch(13)
-        self._avg_card_sw.set_color(self._avg_curve_color())
-        self._avg_card_sw.setToolTip(_tx('Change color…'))
-        self._avg_card_sw.on_click = self._pick_avg_color
+        # 색은 체크박스가 담당(측정 카드와 동일). 색 변경 = 카드 우클릭.
         self._avg_card_name = QLabel('AVG')
         self._avg_card_cnt = QLabel('')
         _ac.addWidget(self._avg_card_chk)
-        _ac.addWidget(self._avg_card_sw)
         _ac.addWidget(self._avg_card_name); _ac.addWidget(self._avg_card_cnt); _ac.addStretch()
         self._avg_card.hide()
         self._avg_card.setCursor(Qt.PointingHandCursor)
@@ -13875,9 +13899,7 @@ class TransferFunctionWindow(QWidget):
             f'color:{T("text")};background:transparent;font-size:{FS_BODY}px;font-weight:bold;')
         self._avg_card_cnt.setStyleSheet(
             f'color:{T("text_dim")};background:transparent;font-size:{FS_SM}px;')
-        if hasattr(self, '_avg_card_sw'):
-            self._avg_card_sw.set_color(col)   # 곡선 색 = 스와치 색
-        _chk_col = T('accent')   # 색은 스와치가 담당 → 표시/숨김 체크박스는 중립 액센트
+        _chk_col = col   # 곡선 색 = 체크박스 색(측정 카드와 동일). 색 변경은 우클릭.
         self._avg_card_chk.setStyleSheet(
             f'QCheckBox::indicator{{width:13px;height:13px;border:1.5px solid {_chk_col};'
             f'border-radius:3px;background:transparent;}}'
@@ -14196,10 +14218,12 @@ class TransferFunctionWindow(QWidget):
                 'delay_ms': float(p.get('delay_ms', 0.0)),
                 'name': p.get('name', ''),
                 'num': p.get('num', 2),
+                'color': p.get('color', ''),
                 'in_average': (p.get('card').in_average if p.get('card') else False),
             })
         self._settings['tf_extra_pairs'] = pairs
         self._settings['tf_primary_name'] = getattr(self, '_tf_primary_name', '')
+        self._settings['tf_primary_color'] = getattr(self, '_tf_primary_color', '') or ''
         _save_settings(self._settings)
 
     def _populate_extra_pair(self, pair, entry):
@@ -14223,6 +14247,10 @@ class TransferFunctionWindow(QWidget):
         if saved_num:
             pair['num'] = saved_num
             pair['card'].set_number(saved_num)
+        saved_col = entry.get('color')
+        if saved_col:
+            pair['color'] = saved_col
+            pair['card'].set_color(saved_col)
         if entry.get('in_average'):
             pair['card']._avg_chk.setChecked(True)
 
@@ -14417,6 +14445,7 @@ class TransferFunctionWindow(QWidget):
         card.renamed.connect(lambda name, c=card: self._on_tf_renamed(c, name))
         card.graph_toggled.connect(lambda vis, c=card: self._on_extra_graph_toggle(c, vis))
         card.avg_include_toggled.connect(self._on_card_avg_include)
+        card.color_changed.connect(lambda col, c=card: self._on_extra_color_changed(c, col))
         self._level_cards.append(card)
         # 끝의 stretch 앞에 삽입 → 카드는 위로 쌓이고 빈 공간은 항상 아래로
         self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
@@ -14438,6 +14467,28 @@ class TransferFunctionWindow(QWidget):
         else:
             for p in self._extra_pairs:
                 if p.get('card') is card: p['name'] = txt; break
+        self._save_tf_extra_pairs()
+
+    def _apply_primary_color(self, col, save=True):
+        """primary(1번) 곡선 색 적용 — 3캔버스 라이브색 + 카드 헤더 + (옵션)저장."""
+        self._tf_primary_color = col or ''
+        _lc = col or None   # ''(기본) → None = 캔버스가 T('green') 사용
+        for cv in (self.mag_cvs, self.phase_cvs, self.ir_cvs):
+            cv._live_color = _lc; cv.update()
+        if self._level_cards and col:
+            self._level_cards[0].set_color(col)
+        if save:
+            self._save_tf_extra_pairs()
+
+    def _on_primary_color_changed(self, col):
+        """primary 카드 우클릭 → 색 변경. 카드 set_color 는 카드 자체를 이미 갱신했으므로 캔버스만."""
+        self._apply_primary_color(col)
+
+    def _on_extra_color_changed(self, card, col):
+        """추가 카드 우클릭 → 색 변경. pair 색 갱신 → 다음 렌더가 그 색으로 그림 + 저장."""
+        for p in self._extra_pairs:
+            if p.get('card') is card:
+                p['color'] = col; break
         self._save_tf_extra_pairs()
 
     def _on_primary_graph_toggle(self, visible):
@@ -15472,7 +15523,7 @@ class TransferFunctionWindow(QWidget):
                 continue  # 분석 중지 — skip
             if pair and pair.get('card') is not None and not pair['card'].is_graph_visible():
                 continue  # 그래프 표시 OFF — 분석은 계속, 곡선만 숨김
-            color = _MC_COLORS[i % len(_MC_COLORS)]
+            color = (pair.get('color') if pair else None) or _MC_COLORS[i % len(_MC_COLORS)]
             H_ex_raw = acc['cross'] / np.maximum(acc['auto_x'], 1e-30)
             # 코히런스 γ² (primary와 동일 정의) — 커서 리드아웃 %용
             gamma2_ex = np.clip(np.abs(acc['cross']) ** 2 /
