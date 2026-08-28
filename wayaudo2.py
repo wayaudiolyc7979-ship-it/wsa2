@@ -454,53 +454,8 @@ from spectra.ui.canvas_tf import _TFFreqZoomMixin
 from spectra.ui.canvas_tf import TFPhaseCanvas
 # TFMagCanvas — v2.0 분해: spectra/ui/canvas_tf.py, re-import
 from spectra.ui.canvas_tf import TFMagCanvas
-class _SignalIcon(QWidget):
-    def __init__(self, kind='ref', parent=None):
-        super().__init__(parent)
-        self._kind = kind
-        self.setFixedSize(14, 14)
-
-    def paintEvent(self, ev):
-        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        col = QColor(T('accent') if self._kind == 'ref' else T('accent2'))
-        pen = QPen(col, 1.4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-        p.setPen(pen); p.setBrush(Qt.NoBrush)
-        if self._kind == 'ref':
-            # ─▶| 입력 커넥터 : 화살표 → 수직 바
-            p.drawLine(1, 7, 8, 7)          # 수평 라인
-            p.drawLine(6, 4, 9, 7)          # 화살촉 위
-            p.drawLine(6, 10, 9, 7)         # 화살촉 아래
-            p.drawLine(10, 3, 10, 11)       # 수직 바 (입력 포트)
-            p.drawLine(10, 7, 13, 7)        # 오른쪽 연장선
-        else:
-            # 파형 심벌 (measurement probe)
-            path = QPainterPath()
-            path.moveTo(1, 7)
-            path.lineTo(3, 7)
-            path.lineTo(4, 3)
-            path.lineTo(6, 11)
-            path.lineTo(8, 3)
-            path.lineTo(10, 11)
-            path.lineTo(11, 7)
-            path.lineTo(13, 7)
-            p.drawPath(path)
-        p.end()
-
-
-def _device_section_label(kind, text):
-    row = QWidget(); lay = QHBoxLayout(row)
-    lay.setContentsMargins(0, 2, 0, 2); lay.setSpacing(5)
-    lay.addWidget(_SignalIcon(kind))
-    lbl = QLabel(text)
-    lbl.setStyleSheet(f'color:{T("text")};font-size:11px;font-weight:bold;')
-    lay.addWidget(lbl); lay.addStretch()
-    return row
-
-
-# ───────────────────────────────────────────
-#  소형 VU 미터 (TF 창 전용)
-# ───────────────────────────────────────────
-# _MiniVU — v2.0 분해: spectra/ui/widgets.py, re-import
+# _SignalIcon — v2.0: 미사용(구 TF 장치선택 UI 잔재) 제거(2026-08-29)
+# _device_section_label — v2.0: 미사용(구 TF 장치선택 UI 잔재) 제거(2026-08-29)
 from spectra.ui.widgets import _MiniVU
 # ───────────────────────────────────────────
 #  Smaart 방식 Input Levels 카드 위젯
@@ -509,36 +464,7 @@ from spectra.ui.widgets import _MiniVU
 from spectra.ui.widgets import _HorizBarVU
 # _DashedAddButton — v2.0 분해: spectra/ui/widgets.py 로 이동, re-import
 from spectra.ui.widgets import _DashedAddButton
-class _ColorSwatch(QWidget):
-    """작은 원형 색 스와치 — 좌클릭 시 on_click 콜백(색상 선택창). 안티앨리어싱 원
-    (QLabel border-radius 계단현상 회피, [[project_v18_compliance_badge_aa]] 방식)."""
-    def __init__(self, diameter=13, parent=None):
-        super().__init__(parent)
-        self._sw_color = '#FFFFFF'
-        self._d = int(diameter)
-        self.setFixedSize(self._d + 4, self._d + 4)
-        self.setCursor(Qt.PointingHandCursor)
-        self.on_click = None
-
-    def set_color(self, c):
-        self._sw_color = c or '#FFFFFF'
-        self.update()
-
-    def mousePressEvent(self, e):
-        if e.button() == Qt.LeftButton and callable(self.on_click):
-            self.on_click(); e.accept()
-        else:
-            super().mousePressEvent(e)
-
-    def paintEvent(self, ev):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing, True)
-        p.setPen(QPen(QColor(0, 0, 0, 70), 1))   # 옅은 테두리 → 흰 스와치도 밝은 배경서 보임
-        p.setBrush(QColor(self._sw_color))
-        p.drawEllipse(2, 2, self._d, self._d)
-
-
-# _MeasCard — v2.0 분해: spectra/ui/widgets.py, re-import
+# _ColorSwatch — v2.0: 미사용(구 TF 장치선택 UI 잔재) 제거(2026-08-29)
 from spectra.ui.widgets import _MeasCard, _PairLevelCard
 # _VUProxy — v2.0 분해: spectra/ui/widgets.py, re-import
 from spectra.ui.widgets import _VUProxy
