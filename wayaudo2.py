@@ -745,6 +745,8 @@ def _set_lang(v):
     global _LANG
     _LANG = v if v in ('en', 'ko') else 'en'
 
+def cur_lang(): return _LANG   # 언어 접근자(모듈 분해 대비 직접 _LANG 참조 금지)
+
 def _tx(s):
     """영어 원문 s 를 현재 언어로. en=그대로, ko=_TR_KO 조회(없으면 원문 폴백)."""
     return _TR_KO.get(s, s) if _LANG == 'ko' else s
@@ -817,17 +819,26 @@ def freq_to_note(f):
 # _DELAY_UNIT 값만 바꾸고 캔버스.update()+스핀박스 새로고침 하면 전체가 일괄 환산됨.
 _SOUND_SPEED = 343.0      # m/s (20°C). _DelayAdvancedDialog에서 조정(전역 단일 소스).
 _DELAY_UNIT  = 'ms'       # 'ms' | 'm' | 'both'  — 딜레이 표시 단위 (기본=ms, 동작 변화 0)
+# 접근자 — 모듈 분해(v2.0) 대비 가변 전역 직접 참조 금지, 이 함수로만.
+def sound_speed(): return _SOUND_SPEED
+def set_sound_speed(v):
+    global _SOUND_SPEED
+    _SOUND_SPEED = v
+def delay_unit(): return _DELAY_UNIT
+def set_delay_unit(v):
+    global _DELAY_UNIT
+    _DELAY_UNIT = v
 
 def ms_to_m(ms):
-    return ms * _SOUND_SPEED / 1000.0
+    return ms * sound_speed() / 1000.0
 
 def m_to_ms(m):
-    return m * 1000.0 / _SOUND_SPEED
+    return m * 1000.0 / sound_speed()
 
 def fmt_delay(ms, prec=2, unit=None, compact=False, sign=False):
     """딜레이(ms 값) → 현재 표시 단위 문자열.
     unit 지정 시 강제. compact=축 눈금용(공백 없이 단일 단위). sign=델타용 +부호."""
-    u = unit or _DELAY_UNIT
+    u = unit or delay_unit()
     s = '+' if sign else ''
     if compact:                                   # 축 눈금: 한 단위만, 공백 없이
         if u == 'm':
@@ -10878,7 +10889,7 @@ class _MeasCard(QFrame):
     def _update_m_lbl(self):
         """딜레이 ms → 옆 거리(m) 라벨 갱신. _DELAY_UNIT 이 ms 면 숨김."""
         if not hasattr(self, '_m_lbl'): return
-        if _DELAY_UNIT in ('m', 'both'):
+        if delay_unit() in ('m', 'both'):
             self._m_lbl.setText(f'= {ms_to_m(self._delay_spin.value()):.2f} m')
             self._m_lbl.show()
         else:
@@ -12076,7 +12087,7 @@ class DelayFinderDialog(QDialog):
     def __init__(self, tw, parent=None):
         super().__init__(parent)
         self._tw = tw
-        self._speed_ms = _SOUND_SPEED   # 전역 음속 단일 소스 미러
+        self._speed_ms = sound_speed()   # 전역 음속 단일 소스 미러
         self._measured_ms = None
         self._tick_count = 0
         self._prog_timer = None
@@ -12255,9 +12266,8 @@ class DelayFinderDialog(QDialog):
     def _on_advanced(self):
         dlg = _DelayAdvancedDialog(self, self._speed_ms)
         if dlg.exec_() == QDialog.Accepted:
-            global _SOUND_SPEED
-            _SOUND_SPEED = dlg.speed()       # 전역 단일 소스 갱신 → IR 마커/커서 m 환산 일치
-            self._speed_ms = _SOUND_SPEED
+            set_sound_speed(dlg.speed())     # 전역 단일 소스 갱신 → IR 마커/커서 m 환산 일치
+            self._speed_ms = sound_speed()
             if self._measured_ms is not None:
                 self._on_result(self._measured_ms)
 
@@ -13581,7 +13591,7 @@ class TransferFunctionWindow(QWidget):
         # Units
         self.unit_cb = _N2Select('ruler','UNIT',mono=True); self.unit_cb.setFixedHeight(_H)
         self.unit_cb.addItems(['ms', 'ms·m', 'm'])
-        self.unit_cb.setCurrentIndex(('ms', 'both', 'm').index(_DELAY_UNIT))
+        self.unit_cb.setCurrentIndex(('ms', 'both', 'm').index(delay_unit()))
         self.unit_cb.setToolTip(_tx('Delay display units — ms / distance (m) / both (speed of sound 343 m/s, adjustable in Delay Finder advanced settings)'))
         self.unit_cb.currentIndexChanged.connect(self._unit_changed)
         tl.addWidget(self.unit_cb)
@@ -16973,8 +16983,7 @@ class TransferFunctionWindow(QWidget):
 
     def _unit_changed(self, idx):
         """딜레이 표시 단위 토글 (ms / both / m). 전역값만 바꾸고 새로고침 — 표시코드 불변."""
-        global _DELAY_UNIT
-        _DELAY_UNIT = ('ms', 'both', 'm')[idx]
+        set_delay_unit(('ms', 'both', 'm')[idx])
         self._refresh_delay_unit()
 
     def _refresh_delay_unit(self):
@@ -18487,7 +18496,7 @@ class LoudnessHistoryCanvas(QWidget):
             p.setPen(QColor(T('text_dim'))); p.setFont(QFont(FONT_NUM, FS_BODY))
             # 타겟 점선과 안 겹치게 상단 1/3 위치에 안내
             p.drawText(QRectF(0, H*0.18, W, H*0.30), Qt.AlignCenter,
-                       'Start measuring to plot loudness over 60s' if _LANG != 'ko'
+                       'Start measuring to plot loudness over 60s' if cur_lang() != 'ko'
                        else '측정을 시작하면 최근 60초 라우드니스가 그려집니다')
             return
         # short-term 값은 블록 단위로 갱신돼 그대로 이으면 계단처럼 보인다.
@@ -20473,8 +20482,7 @@ class MainWindow(QMainWindow):
                     _restyle_brand_header(_bh)
 
     def _on_lang_toggle(self):
-        global _LANG
-        new = 'en' if _LANG == 'ko' else 'ko'
+        new = 'en' if cur_lang() == 'ko' else 'ko'   # 실제 반영은 settings 저장 후 재시작
         msg = ('언어를 바꾸려면 앱을 다시 시작합니다. 계속할까요?'
                if new == 'ko' else 'Restart the app to change language. Continue?')
         if _brand_msg(self, _tx('Language'), msg, kind='question', cancel_text=_tx('Cancel')) is not True:
