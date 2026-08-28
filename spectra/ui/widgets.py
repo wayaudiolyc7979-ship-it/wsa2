@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (QPushButton, QLabel, QWidget, QSplitter, QSplitterH
 from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF, QFont, QBrush, QLinearGradient, QPalette
 from PyQt5.QtCore import Qt, QPointF, QRectF, pyqtSignal, QPoint, QSize, QTimer
 from spectra.core.config import T, is_dark
-from spectra.audio.engine import _MC_COLORS  # TODO: colors.py로 이전
+from spectra.ui.colors import _MC_COLORS
 from spectra.ui.icons import _icon_pm, _n2_hover_ss, _n2_icon_color, _n2_led_color, _n2_tab_ss
 from spectra.core.i18n import _tx
 from spectra.ui.draw import (METER_DB_MIN, METER_YELLOW_DB, METER_RED_DB, METER_PEAK_DECAY, METER_TAU_ATTACK, METER_TAU_RELEASE, _draw_zone_meter_h)

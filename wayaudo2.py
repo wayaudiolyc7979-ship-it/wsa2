@@ -51,8 +51,9 @@ from spectra.core.logging_diag import _alog, _diag, _LOG_PATH, _LOG_DIR
 from spectra.audio.engine import (
     _win_preferred_hostapi, _dev_hostapi_ok, _win_extra_settings, _HI_LAT,
     AudioThread, MultiChannelAudioThread, Subscription, _DeviceStream, AudioEngine,
-    _EngineSyncSource, _EngineMultiSource, _EngineChannelSource,
-    _MC_COLORS)   # _MC_COLORS: TF 카드 색 팔레트(엔진 구역에 있던 상수, 추후 ui로 재배치)
+    _EngineSyncSource, _EngineMultiSource, _EngineChannelSource)
+# _MC_COLORS(TF카드색) — v2.0: spectra/ui/colors.py 로 이전, re-import
+from spectra.ui.colors import _MC_COLORS
 
 
 from PyQt5.QtWidgets import (

@@ -116,3 +116,6 @@ def _spectra_mark(h=22):
     return pm
 
 _TF_SEL_GRAD_STOPS = ('#1FA2FF', '#4E7DF0', '#9B5DE5', '#F15BB5', '#FF9F0A', '#FF453A')  # SPECTRA 시그니처
+
+# TF 카드 색 팔레트(라이브 멀티카드)
+_MC_COLORS = ['#00D4FF','#FF8C00','#44FF88','#FF4488','#FFDD00','#AA66FF','#FF6644','#00FFCC']

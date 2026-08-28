@@ -152,7 +152,6 @@ class AudioThread(QThread):
 
 
 # 멀티채널 오버레이 색상 팔레트 (채널 인덱스 기준 고정)
-_MC_COLORS = ['#00D4FF','#FF8C00','#44FF88','#FF4488','#FFDD00','#AA66FF','#FF6644','#00FFCC']
 
 
 class MultiChannelAudioThread(QThread):
