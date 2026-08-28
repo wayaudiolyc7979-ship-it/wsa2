@@ -1249,64 +1249,9 @@ def _wave_toggle_icon(on, size=16):
     return ic
 
 
-def ss_text(size=FS_BODY, color_key='text_dim', bold=False):
-    """라벨/텍스트용 스타일시트 문자열. (전역 QWidget 배경 상속 방지 위해 투명 배경 명시)"""
-    return f'color:{T(color_key)};background:transparent;font-size:{size}px;' + ('font-weight:bold;' if bold else '')
-
-def ss_pill_btn(color_key='text_dim', size=FS_XS, radius=RADIUS_SM):
-    """투명 배경 + 테두리 알약 버튼 스타일 (hover 시 accent)."""
-    return (f'QPushButton{{background:transparent;color:{T(color_key)};border:1px solid {T("border")};'
-            f'border-radius:{radius}px;font-size:{size}px;padding:{PAD_SM};}}'
-            f'QPushButton:hover{{color:{T("accent")};border-color:{T("accent")};}}')
-
-def ss_input(size=FS_SM, radius=RADIUS_SM):
-    """스핀박스/입력류 스타일."""
-    return (f'background:{T("panel")};color:{T("text")};border:1px solid {T("border")};'
-            f'border-radius:{radius}px;padding:{PAD_SM};font-size:{size}px;')
-
-def ss_spin(size=FS_BODY, radius=6, min_w=80):
-    """다이얼로그 스핀박스 공통 스타일 — 패널 배경 + up/down 버튼 숨김."""
-    return (f'QDoubleSpinBox, QSpinBox {{ background:{T("panel")}; color:{T("text")};'
-            f'border:1px solid {T("border")}; padding:3px 8px; border-radius:{radius}px;'
-            f'min-width:{min_w}px; font-size:{size}px; }}'
-            f'QDoubleSpinBox::up-button, QSpinBox::up-button {{ width:0; border:none; }}'
-            f'QDoubleSpinBox::down-button, QSpinBox::down-button {{ width:0; border:none; }}')
-
-def ss_dialog_btns():
-    """다이얼로그 OK/Cancel 버튼박스 공통 스타일 — OK(default)=로고블루 주동작, Cancel=중립."""
-    a = QColor(T('accent')); ar, ag, ab = a.red(), a.green(), a.blue()
-    return (
-        f'QPushButton{{background:{T("panel")};color:{T("text")};'
-        f'border:1px solid {T("border")};border-radius:6px;padding:5px 18px;font-size:12px;min-width:68px;}}'
-        f'QPushButton:hover{{border-color:{T("accent")};}}'
-        f'QPushButton:default{{background:{T("accent")};color:#FFFFFF;'
-        f'border:1px solid {T("accent")};font-weight:600;}}'
-        f'QPushButton:default:hover{{background:rgba({ar},{ag},{ab},210);}}')
-
-def ss_btn_primary(size=12):
-    """다이얼로그 주동작 버튼 — 로고블루 채움."""
-    a = QColor(T('accent')); ar, ag, ab = a.red(), a.green(), a.blue()
-    return (f'QPushButton{{background:{T("accent")};color:#FFFFFF;'
-            f'border:1px solid {T("accent")};border-radius:6px;padding:5px 16px;'
-            f'font-size:{size}px;font-weight:600;min-width:60px;}}'
-            f'QPushButton:hover{{background:rgba({ar},{ag},{ab},210);}}'
-            f'QPushButton:disabled{{background:{T("panel")};color:{T("text_dim")};border-color:{T("border")};}}')
-
-def ss_btn_neutral(size=12):
-    """다이얼로그 보조/취소 버튼 — 중립."""
-    return (f'QPushButton{{background:{T("panel")};color:{T("text")};'
-            f'border:1px solid {T("border")};border-radius:6px;padding:5px 16px;'
-            f'font-size:{size}px;min-width:60px;}}'
-            f'QPushButton:hover{{border-color:{T("accent")};}}'
-            f'QPushButton:disabled{{color:{T("text_dim")};}}')
-
-def ss_btn_danger(size=12):
-    """다이얼로그 위험(삭제 등) 주동작 버튼 — 빨강 채움."""
-    r = QColor(T('red')); rr, rg, rb = r.red(), r.green(), r.blue()
-    return (f'QPushButton{{background:{T("red")};color:#FFFFFF;'
-            f'border:1px solid {T("red")};border-radius:6px;padding:5px 16px;'
-            f'font-size:{size}px;font-weight:600;min-width:60px;}}'
-            f'QPushButton:hover{{background:rgba({rr},{rg},{rb},210);}}')
+# ss_* 스타일시트 헬퍼 — v2.0 분해: spectra/ui/tokens.py 로 이동, re-import(동작 불변)
+from spectra.ui.tokens import (ss_text, ss_pill_btn, ss_input, ss_spin,
+                               ss_dialog_btns, ss_btn_primary, ss_btn_neutral, ss_btn_danger)
 
 def hsep(color_key='border'):
     """1px 수평 구분선. QFrame.HLine 의 베벨/이중선 없이 깔끔한 단색 라인."""
