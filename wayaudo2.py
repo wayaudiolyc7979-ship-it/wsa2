@@ -6149,18 +6149,8 @@ class _VUProxy:
 # ───────────────────────────────────────────
 #  Live IR 헬퍼 & 캔버스
 # ───────────────────────────────────────────
-def _hilbert_env(x):
-    """FFT 기반 Hilbert 포락선 (scipy 불필요)."""
-    N = len(x)
-    X = np.fft.fft(x)
-    h = np.zeros(N, dtype=np.float64)
-    if N % 2 == 0:
-        h[0] = 1; h[N // 2] = 1; h[1:N // 2] = 2
-    else:
-        h[0] = 1; h[1:(N + 1) // 2] = 2
-    return np.abs(np.fft.ifft(X * h)).astype(np.float32)
-
-
+# _hilbert_env — v2.0 분해: spectra/dsp/tf.py, re-import
+from spectra.dsp.tf import _hilbert_env
 def _ir_from_mag_phase(f_hz, mag_db, phase_deg, fs=48000, N=16384):
     """크기(dB)+위상(deg)에서 IR을 역FFT로 복원 (임포트용).
 
@@ -7534,22 +7524,8 @@ class _TFTitleHotspot(QWidget):
         self._on_click(e.globalPos())
 
 
-class _ConvWorker(QThread):
-    """음악 × IR 컨볼루션을 백그라운드에서 (긴 곡에서 UI 프리즈 방지)."""
-    done = pyqtSignal(object)
-    def __init__(self, music, ir, sig):
-        super().__init__(); self._m = music; self._ir = ir; self.sig = sig
-    def run(self):
-        try:
-            from scipy.signal import fftconvolve
-            wet = fftconvolve(self._m, self._ir)
-        except Exception:
-            wet = np.convolve(self._m, self._ir)
-        pk = float(np.max(np.abs(wet))) if len(wet) else 0.0
-        if pk > 1e-6: wet = wet / pk * 0.9
-        self.done.emit(wet.astype(np.float32))
-
-
+# _ConvWorker — v2.0 분해: spectra/ui/dialogs.py, re-import
+from spectra.ui.dialogs import _ConvWorker
 class _AuralizeDialog(QDialog):
     """오라리제이션 — 측정한 IR로 '그 자리 소리'를 헤드폰으로 듣기.
 

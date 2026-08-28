@@ -3,7 +3,7 @@ import sys
 from PyQt5.QtWidgets import (QDialog, QDialogButtonBox, QDoubleSpinBox, QFrame, QHBoxLayout,
     QLabel, QPushButton, QRadioButton, QSpinBox, QVBoxLayout, QWidget,
     QAbstractItemView, QApplication, QComboBox, QGridLayout, QGroupBox, QLineEdit, QScrollArea, QMessageBox)
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QColor
 from spectra.core.config import T, is_dark
 from spectra.core.i18n import _tx
@@ -858,3 +858,19 @@ class _BrandBox:
     @staticmethod
     def warning(parent, title, text):
         _brand_msg(parent, title, text, kind='warn')
+
+
+class _ConvWorker(QThread):
+    """음악 × IR 컨볼루션을 백그라운드에서 (긴 곡에서 UI 프리즈 방지)."""
+    done = pyqtSignal(object)
+    def __init__(self, music, ir, sig):
+        super().__init__(); self._m = music; self._ir = ir; self.sig = sig
+    def run(self):
+        try:
+            from scipy.signal import fftconvolve
+            wet = fftconvolve(self._m, self._ir)
+        except Exception:
+            wet = np.convolve(self._m, self._ir)
+        pk = float(np.max(np.abs(wet))) if len(wet) else 0.0
+        if pk > 1e-6: wet = wet / pk * 0.9
+        self.done.emit(wet.astype(np.float32))

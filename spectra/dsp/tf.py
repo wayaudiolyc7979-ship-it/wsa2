@@ -214,3 +214,15 @@ def _multimic_average(H_list, gamma_list, delay_list, freqs, sr, bpo,
     h_ir = np.fft.fftshift(np.fft.irfft(H_avg, n=fft_size)).astype(np.float32)
     return {'mode': 'complex', 'n': n, 'f': f_a, 'mag': mag_a, 'coh': coh_a,
             'ph_wrap': pw_a, 'ph_unwr': pu_a, 'grp': grp_a, 'h_ir': h_ir}
+
+
+def _hilbert_env(x):
+    """FFT 기반 Hilbert 포락선 (scipy 불필요)."""
+    N = len(x)
+    X = np.fft.fft(x)
+    h = np.zeros(N, dtype=np.float64)
+    if N % 2 == 0:
+        h[0] = 1; h[N // 2] = 1; h[1:N // 2] = 2
+    else:
+        h[0] = 1; h[1:(N + 1) // 2] = 2
+    return np.abs(np.fft.ifft(X * h)).astype(np.float32)
