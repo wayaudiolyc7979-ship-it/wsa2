@@ -1,9 +1,9 @@
 """UI 위젯 — 작은 커스텀 버튼/배지 (v2.0 분해, 동작 0 변경)."""
 import time
 from PyQt5.QtWidgets import (QPushButton, QLabel, QWidget, QSplitter, QSplitterHandle, QFrame,
-    QHBoxLayout, QVBoxLayout, QApplication, QComboBox, QScrollArea, QScrollBar, QAbstractButton, QCheckBox, QGridLayout, QStyle, QStyleOptionComboBox, QStylePainter)
+    QHBoxLayout, QVBoxLayout, QApplication, QComboBox, QScrollArea, QScrollBar, QAbstractButton, QCheckBox, QGridLayout, QStyle, QStyleOptionComboBox, QStylePainter, QLineEdit)
 from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF, QFont, QBrush, QLinearGradient, QPalette
-from PyQt5.QtCore import Qt, QPointF, QRectF, pyqtSignal, QPoint, QSize, QTimer
+from PyQt5.QtCore import Qt, QPointF, QRectF, pyqtSignal, QPoint, QSize, QTimer, QEvent, QObject
 from spectra.core.config import T, is_dark
 from spectra.ui.colors import _MC_COLORS
 from spectra.ui.icons import _icon_pm, _n2_hover_ss, _n2_icon_color, _n2_led_color, _n2_tab_ss
@@ -11,7 +11,7 @@ from spectra.core.i18n import _tx
 from spectra.ui.draw import (METER_DB_MIN, METER_YELLOW_DB, METER_RED_DB, METER_PEAK_DECAY, METER_TAU_ATTACK, METER_TAU_RELEASE, _draw_zone_meter_h)
 from spectra.ui.colors import _TF_SEL_GRAD_STOPS
 from spectra.ui.draw import _tf_card_palette
-from spectra.ui.tokens import FONT_FAMILY, FS_BODY, RADIUS_SM, CF_ANNO, CF_AXIS, CF_TINY, _qfont, _n2_caps_font, _n2_mono_font, _n2_val_font
+from spectra.ui.tokens import FONT_FAMILY, FS_BODY, FS_SM, RADIUS_SM, CF_ANNO, CF_AXIS, CF_TINY, _qfont, _n2_caps_font, _n2_mono_font, _n2_val_font
 
 
 class _SettingsBtn(QPushButton):
@@ -1214,3 +1214,59 @@ class RoundComboBox(QComboBox):
 
     def hidePopup(self):
         super().hidePopup()
+
+
+def hsep(color_key='border'):
+    """1px 수평 구분선. QFrame.HLine 의 베벨/이중선 없이 깔끔한 단색 라인."""
+    f = QFrame(); f.setFixedHeight(1)
+    f.setStyleSheet(f'background:{T(color_key)};border:none;')
+    return f
+
+
+def begin_inline_rename(host, label, on_done):
+    """label 위에 인라인 QLineEdit 를 띄워 그 자리에서 이름 편집. 확정 시 on_done(text) 호출.
+    빈 문자열이면 on_done('') (기본값 복귀는 호출측에서 처리)."""
+    from PyQt5.QtWidgets import QLineEdit
+    edit = QLineEdit(label.text(), host)
+    edit.setStyleSheet(
+        f'QLineEdit{{background:{T("bg3")};color:{T("text")};border:1px solid {T("accent")};'
+        f'border-radius:{RADIUS_SM}px;padding:0 4px;font-size:{FS_SM}px;}}')
+    tl = label.mapTo(host, QPoint(0, 0))
+    # 카드(host) 오른쪽 경계를 넘지 않게 폭 클램프 — 넘치던 버그 수정
+    w = max(label.width() + 60, 100)
+    w = min(w, max(40, host.width() - tl.x() - 6))
+    edit.setGeometry(tl.x(), tl.y() - 1, w, label.height() + 2)
+    edit.selectAll(); edit.setFocus()
+    _done = {'v': False}
+    _filt = {'v': None}
+    def _finish():
+        if _done['v']: return
+        _done['v'] = True
+        if _filt['v'] is not None:
+            _app = QApplication.instance()
+            if _app is not None: _app.removeEventFilter(_filt['v'])
+            _filt['v'] = None
+        txt = edit.text().strip()
+        edit.deleteLater()
+        on_done(txt)
+    edit.editingFinished.connect(_finish)
+
+    # 에디터 밖(다른 카드·분석화면 등 포커스 안 받는 위젯 포함) 클릭 시에도 커밋·닫힘.
+    # editingFinished는 포커스 이동 시에만 발동 → NoFocus 위젯 클릭 땐 안 닫히던 버그 해결.
+    from PyQt5.QtCore import QObject, QEvent
+    class _OutsideClick(QObject):
+        def eventFilter(self, obj, ev):
+            if ev.type() == QEvent.MouseButtonPress and not _done['v']:
+                w = obj
+                inside = False
+                while w is not None:
+                    if w is edit: inside = True; break
+                    w = w.parentWidget() if hasattr(w, 'parentWidget') else None
+                if not inside:
+                    _finish()   # 원래 클릭은 소비하지 않음(대상 카드 선택 등 정상 동작)
+            return False
+    _filt['v'] = _OutsideClick(edit)
+    _app = QApplication.instance()
+    if _app is not None: _app.installEventFilter(_filt['v'])
+
+    edit.show(); edit.raise_()

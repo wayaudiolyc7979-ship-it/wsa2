@@ -315,32 +315,8 @@ def _svg_render(p, inner, color, size, filled=False):
     svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" {attrs}>{inner}</svg>'
     QSvgRenderer(QByteArray(svg.encode())).render(p, QRectF(0, 0, size, size))
 
-def _icon(name, size=16, color=None):
-    """단색 벡터 아이콘 — Lucide(MIT) SVG를 테마색으로 렌더. Retina 2x.
-    color 미지정 시 테마 적응(다크=밝은 회색 / 라이트=짙은 회색). 호출부는 기존과 동일."""
-    from PyQt5.QtGui import QIcon
-    from PyQt5.QtSvg import QSvgRenderer
-    from PyQt5.QtCore import QByteArray
-    if color is None:
-        color = '#C7CAD1' if is_dark() else '#46566e'
-    s = size; dpr = 3   # 레티나에서 크게 렌더(작은 아이콘 계단현상 완화)
-    pm = QPixmap(s * dpr, s * dpr); pm.setDevicePixelRatio(dpr); pm.fill(Qt.transparent)
-    entry = _LUCIDE_ICONS.get(name)
-    if entry is None:
-        return QIcon(pm)
-    inner, filled = entry
-    if filled:
-        # 채움 아이콘도 같은색 둥근-조인트 스트로크를 얹어 뾰족한 꼭짓점을 부드럽게(play 삼각형 등)
-        attrs = f'fill="{color}" stroke="{color}" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"'
-    else:
-        attrs = f'fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'
-    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" {attrs}>{inner}</svg>'
-    p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing, True)
-    QSvgRenderer(QByteArray(svg.encode())).render(p, QRectF(0, 0, s, s))
-    p.end()
-    return QIcon(pm)
-
-
+# _icon — v2.0 분해: spectra/ui/icons.py, re-import
+from spectra.ui.icons import _icon
 def _draw_reload_arrow(p, cx, cy, r, col, lw=2.0):
     """리셋/리로드용 둥근 화살표 — 거의 꽉 찬 원(상단 작은 틈)+깔끔한 삼각 화살촉. 공용."""
     p.setRenderHint(QPainter.Antialiasing, True)
@@ -1052,12 +1028,8 @@ from spectra.ui.icons import _wave_toggle_icon, _WAVE_TOGGLE_PATH
 from spectra.ui.tokens import (ss_text, ss_pill_btn, ss_input, ss_spin,
                                ss_dialog_btns, ss_btn_primary, ss_btn_neutral, ss_btn_danger)
 
-def hsep(color_key='border'):
-    """1px 수평 구분선. QFrame.HLine 의 베벨/이중선 없이 깔끔한 단색 라인."""
-    f = QFrame(); f.setFixedHeight(1)
-    f.setStyleSheet(f'background:{T(color_key)};border:none;')
-    return f
-
+# hsep — v2.0 분해: spectra/ui/widgets.py, re-import
+from spectra.ui.widgets import hsep
 def _db_ctrl_btn_style(locked):
     """툴바 dB 범위 버튼 스타일 — 고정=로고블루 테두리·틴트 / 자동=중립 pill (Engine/FFT 컨트롤과 톤 맞춤)."""
     if locked:
@@ -4799,55 +4771,8 @@ class _DblClickLabel(QLabel):
         super().mouseDoubleClickEvent(e)
 
 
-def begin_inline_rename(host, label, on_done):
-    """label 위에 인라인 QLineEdit 를 띄워 그 자리에서 이름 편집. 확정 시 on_done(text) 호출.
-    빈 문자열이면 on_done('') (기본값 복귀는 호출측에서 처리)."""
-    from PyQt5.QtWidgets import QLineEdit
-    edit = QLineEdit(label.text(), host)
-    edit.setStyleSheet(
-        f'QLineEdit{{background:{T("bg3")};color:{T("text")};border:1px solid {T("accent")};'
-        f'border-radius:{RADIUS_SM}px;padding:0 4px;font-size:{FS_SM}px;}}')
-    tl = label.mapTo(host, QPoint(0, 0))
-    # 카드(host) 오른쪽 경계를 넘지 않게 폭 클램프 — 넘치던 버그 수정
-    w = max(label.width() + 60, 100)
-    w = min(w, max(40, host.width() - tl.x() - 6))
-    edit.setGeometry(tl.x(), tl.y() - 1, w, label.height() + 2)
-    edit.selectAll(); edit.setFocus()
-    _done = {'v': False}
-    _filt = {'v': None}
-    def _finish():
-        if _done['v']: return
-        _done['v'] = True
-        if _filt['v'] is not None:
-            _app = QApplication.instance()
-            if _app is not None: _app.removeEventFilter(_filt['v'])
-            _filt['v'] = None
-        txt = edit.text().strip()
-        edit.deleteLater()
-        on_done(txt)
-    edit.editingFinished.connect(_finish)
-
-    # 에디터 밖(다른 카드·분석화면 등 포커스 안 받는 위젯 포함) 클릭 시에도 커밋·닫힘.
-    # editingFinished는 포커스 이동 시에만 발동 → NoFocus 위젯 클릭 땐 안 닫히던 버그 해결.
-    from PyQt5.QtCore import QObject, QEvent
-    class _OutsideClick(QObject):
-        def eventFilter(self, obj, ev):
-            if ev.type() == QEvent.MouseButtonPress and not _done['v']:
-                w = obj
-                inside = False
-                while w is not None:
-                    if w is edit: inside = True; break
-                    w = w.parentWidget() if hasattr(w, 'parentWidget') else None
-                if not inside:
-                    _finish()   # 원래 클릭은 소비하지 않음(대상 카드 선택 등 정상 동작)
-            return False
-    _filt['v'] = _OutsideClick(edit)
-    _app = QApplication.instance()
-    if _app is not None: _app.installEventFilter(_filt['v'])
-
-    edit.show(); edit.raise_()
-
-
+# begin_inline_rename — v2.0 분해: spectra/ui/widgets.py, re-import
+from spectra.ui.widgets import begin_inline_rename
 class _SpecCard(QFrame):
     """Spectrum 추가 소스 카드 — 카드마다 장치+채널 독립 선택 (멀티-장치 오버레이).
     TF 측정 카드 룩 차용: 색 테두리 + 가시성 토글 + 장치/채널 드롭다운 + 레벨미터 + 삭제."""

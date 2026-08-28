@@ -186,3 +186,27 @@ def _n2_tab_ss():
             f'#n2tab:hover{{background:{hov};}}')
 
 
+def _icon(name, size=16, color=None):
+    """단색 벡터 아이콘 — Lucide(MIT) SVG를 테마색으로 렌더. Retina 2x.
+    color 미지정 시 테마 적응(다크=밝은 회색 / 라이트=짙은 회색). 호출부는 기존과 동일."""
+    from PyQt5.QtGui import QIcon
+    from PyQt5.QtSvg import QSvgRenderer
+    from PyQt5.QtCore import QByteArray
+    if color is None:
+        color = '#C7CAD1' if is_dark() else '#46566e'
+    s = size; dpr = 3   # 레티나에서 크게 렌더(작은 아이콘 계단현상 완화)
+    pm = QPixmap(s * dpr, s * dpr); pm.setDevicePixelRatio(dpr); pm.fill(Qt.transparent)
+    entry = _LUCIDE_ICONS.get(name)
+    if entry is None:
+        return QIcon(pm)
+    inner, filled = entry
+    if filled:
+        # 채움 아이콘도 같은색 둥근-조인트 스트로크를 얹어 뾰족한 꼭짓점을 부드럽게(play 삼각형 등)
+        attrs = f'fill="{color}" stroke="{color}" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"'
+    else:
+        attrs = f'fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" {attrs}>{inner}</svg>'
+    p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing, True)
+    QSvgRenderer(QByteArray(svg.encode())).render(p, QRectF(0, 0, s, s))
+    p.end()
+    return QIcon(pm)
