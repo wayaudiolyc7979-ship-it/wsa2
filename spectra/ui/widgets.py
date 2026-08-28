@@ -1,10 +1,10 @@
 """UI 위젯 — 작은 커스텀 버튼/배지 (v2.0 분해, 동작 0 변경)."""
 from PyQt5.QtWidgets import QPushButton, QLabel, QWidget
 from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF, QFont
-from PyQt5.QtCore import Qt, QPointF, QRectF
+from PyQt5.QtCore import Qt, QPointF, QRectF, pyqtSignal
 from spectra.core.config import T
 from spectra.core.i18n import _tx
-from spectra.ui.tokens import FONT_FAMILY, FS_BODY, RADIUS_SM
+from spectra.ui.tokens import FONT_FAMILY, FS_BODY, RADIUS_SM, CF_ANNO, _qfont
 
 
 class _SettingsBtn(QPushButton):
@@ -242,4 +242,126 @@ class _SegBtn(QPushButton):
         p.setPen(QColor(col))
         f = self.font(); f.setBold(on); p.setFont(f)
         p.drawText(self.rect(), Qt.AlignCenter, self.text())
+        p.end()
+
+
+class _DrawerToggleBtn(QPushButton):
+    """Logic X 스타일 캡처 드로어 토글 버튼.
+    두 개의 수평 pill을 그려 드로어 표시/숨김을 나타낸다."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setFixedSize(38, 30)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip(_tx('Show/hide Capture panel'))
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        checked = self.isChecked()
+        ac = QColor(T('accent'))
+        if checked:
+            fill = QColor(ac.red(), ac.green(), ac.blue(), 45)
+            border = QColor(ac.red(), ac.green(), ac.blue(), 160)
+            pill_c = QColor(ac.red(), ac.green(), ac.blue(), 230)
+        else:
+            fill = QColor(255, 255, 255, 18)
+            border = QColor(255, 255, 255, 40)
+            pill_c = QColor(T('text_dim'))
+        p.setBrush(fill)
+        p.setPen(QPen(border, 1.0))
+        p.drawRoundedRect(QRectF(0.5, 0.5, w - 1, h - 1), 7, 7)
+        # 아이콘: 사이드 패널 토글 (오른쪽 칸 채운 패널) — 캡처 패널이 우측이라 직관적
+        iw, ih = 18, 14; ix = (w - iw) // 2; iy = (h - ih) // 2
+        p.setPen(QPen(pill_c, 1.3)); p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(QRectF(ix, iy, iw, ih), 3, 3)
+        divx = ix + iw * 0.58
+        p.setPen(Qt.NoPen); p.setBrush(pill_c)
+        p.drawRoundedRect(QRectF(divx, iy + 1.5, ix + iw - divx - 1.5, ih - 3), 2, 2)
+        p.end()
+
+
+class _RightPanelToggleBtn(_DrawerToggleBtn):
+    """우측 패널(LEVEL/INFO/INPUT · TF rp) 표시/숨김 토글 — 캡처 드로어 토글과 동일 스타일."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setToolTip(_tx('Show/hide right panel'))
+
+
+class _ToolbarToggleBtn(QPushButton):
+    """툴바(컨트롤 바) 접기/펴기 토글 — 탭바에 위치. 셰브론(표시=⌃접기 / 숨김=⌄펴기)."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCheckable(True); self.setChecked(True)
+        self.setFixedSize(30, 28); self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip(_tx('Collapse/expand toolbar'))
+        self.setStyleSheet('QPushButton{border:none;background:transparent;border-radius:6px;}'
+                           'QPushButton:hover{background:rgba(255,255,255,28);}')
+
+    def paintEvent(self, e):
+        super().paintEvent(e)   # hover 배경
+        shown = self.isChecked()
+        col = QColor(T('accent')) if shown else QColor(T('text_dim'))
+        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
+        pen = QPen(col, 1.8); pen.setCapStyle(Qt.RoundCap); pen.setJoinStyle(Qt.RoundJoin)
+        p.setPen(pen); p.setBrush(Qt.NoBrush)
+        cx, cy = self.width()/2, self.height()/2; d = 4.5
+        if shown:   # ⌃ 접기
+            p.drawPolyline(QPolygonF([QPointF(cx-d, cy+d*0.6), QPointF(cx, cy-d*0.6), QPointF(cx+d, cy+d*0.6)]))
+        else:       # ⌄ 펴기
+            p.drawPolyline(QPolygonF([QPointF(cx-d, cy-d*0.6), QPointF(cx, cy+d*0.6), QPointF(cx+d, cy-d*0.6)]))
+        p.end()
+
+
+class _MiniVU(QWidget):
+    clicked = pyqtSignal()
+
+    def __init__(self):
+        super().__init__(); self.setFixedSize(58, 108)
+        self._db=-80.0; self._pk=-80.0; self._pk_hold=0
+
+    def mousePressEvent(self, e): self.clicked.emit(); super().mousePressEvent(e)
+
+    def set_rms(self,db):
+        self._db=db; self._pk_hold+=1
+        if db>self._pk or self._pk_hold>40: self._pk=db; self._pk_hold=0
+        self.update()
+
+    def paintEvent(self,ev):
+        p=QPainter(self); p.setRenderHint(QPainter.Antialiasing)
+        W=self.width(); H=self.height()
+        DB_MIN=-60.0; DB_MAX=0.0; rng=DB_MAX-DB_MIN
+
+        # 텍스트 영역 높이 고정 (숫자 18px + dBFS 14px + 여백 4px = 36px)
+        TEXT_H = 36
+        bx=4; bw=W-8; by=4; bh=H-by-TEXT_H-2  # 바 영역
+
+        # 테두리
+        p.setPen(QPen(QColor(T('border')), 1)); p.setBrush(Qt.NoBrush)
+        p.drawRect(bx, by, bw-1, bh-1)
+
+        # 레벨 fill
+        p.setPen(Qt.NoPen)
+        fill=max(0.0,min(1.0,(self._db-DB_MIN)/rng))
+        fh=int(bh*fill)
+        if fh>0:
+            fy=by+bh-fh
+            c=T('red') if self._db>-6 else T('yellow') if self._db>-18 else T('accent')
+            g=QLinearGradient(0,fy,0,by+bh)
+            g.setColorAt(0,QColor(T('accent'))); g.setColorAt(1,QColor(c))
+            p.setBrush(QBrush(g)); p.drawRect(bx+1,fy,bw-2,fh)
+
+        # 피크 홀드 라인
+        pk=max(0.0,min(1.0,(self._pk-DB_MIN)/rng))
+        py_=int(by+bh*(1.0-pk))
+        p.setPen(QPen(QColor(T('yellow')),1)); p.drawLine(bx+1,py_,bx+bw-2,py_)
+
+        # 텍스트 (바 아래 고정 영역)
+        txt_top = by + bh + 4
+        c2=T('red') if self._db>-6 else T('yellow') if self._db>-18 else T('accent')
+        p.setFont(_qfont(11, True)); p.setPen(QColor(c2))
+        p.drawText(0, txt_top, W, 18, Qt.AlignHCenter|Qt.AlignVCenter, f'{self._db:.0f}')
+        p.setFont(_qfont(CF_ANNO)); p.setPen(QColor(T('text_dim')))
+        p.drawText(0, txt_top+18, W, 14, Qt.AlignHCenter|Qt.AlignVCenter, 'dBFS')
         p.end()
