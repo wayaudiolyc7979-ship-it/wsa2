@@ -1,17 +1,17 @@
 """UI 위젯 — 작은 커스텀 버튼/배지 (v2.0 분해, 동작 0 변경)."""
 import time
 from PyQt5.QtWidgets import (QPushButton, QLabel, QWidget, QSplitter, QSplitterHandle, QFrame,
-    QHBoxLayout, QVBoxLayout, QApplication, QComboBox, QScrollArea, QScrollBar, QAbstractButton, QCheckBox, QGridLayout, QStyle, QStyleOptionComboBox, QStylePainter, QLineEdit)
-from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF, QFont, QBrush, QLinearGradient, QPalette
+    QHBoxLayout, QVBoxLayout, QApplication, QComboBox, QScrollArea, QScrollBar, QAbstractButton, QCheckBox, QGridLayout, QStyle, QStyleOptionComboBox, QStylePainter, QLineEdit, QMenu)
+from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF, QFont, QBrush, QLinearGradient, QPalette, QIcon
 from PyQt5.QtCore import Qt, QPointF, QRectF, pyqtSignal, QPoint, QSize, QTimer, QEvent, QObject
 from spectra.core.config import T, is_dark
 from spectra.ui.colors import _MC_COLORS
-from spectra.ui.icons import _icon_pm, _n2_hover_ss, _n2_icon_color, _n2_led_color, _n2_tab_ss
+from spectra.ui.icons import _icon_pm, _led_power_pm, _n2_hover_ss, _n2_icon_color, _n2_led_color, _n2_tab_ss
 from spectra.core.i18n import _tx
 from spectra.ui.draw import (METER_DB_MIN, METER_YELLOW_DB, METER_RED_DB, METER_PEAK_DECAY, METER_TAU_ATTACK, METER_TAU_RELEASE, _draw_zone_meter_h)
 from spectra.ui.colors import _TF_SEL_GRAD_STOPS
 from spectra.ui.draw import _tf_card_palette
-from spectra.ui.tokens import FONT_FAMILY, FS_BODY, FS_SM, RADIUS_SM, CF_ANNO, CF_AXIS, CF_TINY, _qfont, _n2_caps_font, _n2_mono_font, _n2_val_font
+from spectra.ui.tokens import FONT_FAMILY, FS_BODY, FS_SM, FS_XS, RADIUS_SM, CF_ANNO, CF_AXIS, CF_TINY, ss_text, _qfont, _n2_caps_font, _n2_mono_font, _n2_val_font
 
 
 class _SettingsBtn(QPushButton):
@@ -1270,3 +1270,448 @@ def begin_inline_rename(host, label, on_done):
     if _app is not None: _app.installEventFilter(_filt['v'])
 
     edit.show(); edit.raise_()
+
+
+class DeviceCardPopup(QFrame):
+    device_selected = pyqtSignal(int)  # combo index
+    refresh_requested = pyqtSignal()
+
+    def __init__(self, combo, disconnected_name=''):
+        super().__init__(None, Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        self.setAutoFillBackground(True)
+        pal = self.palette()
+        pal.setColor(self.backgroundRole(), QColor(T('bg2')))
+        self.setPalette(pal)
+        self.setObjectName('devPopup')
+        self.setStyleSheet(
+            f'QFrame#devPopup {{ background:{T("bg2")}; border:1px solid {T("accent")}; '
+            f'border-radius:12px; }}'
+        )
+        self._outer = QVBoxLayout(self)
+        self._outer.setContentsMargins(10, 10, 10, 10)
+        self._outer.setSpacing(6)
+
+        hdr_w = QWidget(); hdr_w.setStyleSheet('background:transparent;')
+        hdr_lay = QHBoxLayout(hdr_w); hdr_lay.setContentsMargins(0,2,0,2); hdr_lay.setSpacing(4)
+        hdr_lay.addStretch(1)
+        hdr_title = QLabel(
+            f'<div style="font-family:\'{FONT_FAMILY}\';">'
+            f'<span style="font-size:12px;font-weight:700;'
+            f'color:{T("accent")};letter-spacing:2px;">AUDIO</span>'
+            f'&nbsp;<span style="font-size:10px;color:{T("text_dim")};">Input Device</span></div>'
+        )
+        hdr_title.setStyleSheet('background:transparent; border:none;')
+        hdr_lay.addWidget(hdr_title)
+        hdr_lay.addStretch(1)
+        self._status_lbl = QLabel()
+        self._status_lbl.setStyleSheet(
+            f'color:{T("green")}; font-size:9px; background:transparent; border:none;'
+        )
+        self._status_lbl.setVisible(False)
+        hdr_lay.addWidget(self._status_lbl)
+        self._outer.addWidget(hdr_w)
+
+        sep = QFrame(); sep.setFrameShape(QFrame.HLine); sep.setFixedHeight(1)
+        sep.setStyleSheet(f'background:{T("border")}; border:none;')
+        self._outer.addWidget(sep)
+
+        # 카드 전용 컨테이너 — rebuild_cards 에서 이 영역만 갱신
+        self._cards_widget = QWidget(); self._cards_widget.setStyleSheet('background:transparent;')
+        self._cards_layout = QVBoxLayout(self._cards_widget)
+        self._cards_layout.setContentsMargins(0, 0, 0, 0); self._cards_layout.setSpacing(6)
+        self._outer.addWidget(self._cards_widget)
+        self._fill_cards(combo, disconnected_name)
+
+        bot_sep = QFrame(); bot_sep.setFrameShape(QFrame.HLine); bot_sep.setFixedHeight(1)
+        bot_sep.setStyleSheet(f'background:{T("border")}; border:none;')
+        self._outer.addWidget(bot_sep)
+
+        ref_btn = QPushButton('Refresh Devices'); ref_btn.setIcon(_icon('refresh', 13))
+        ref_btn.setFixedHeight(28)
+        ref_btn.setStyleSheet(
+            f'QPushButton {{ background:transparent; color:{T("text_dim")}; border:none; '
+            f'border-radius:6px; font-size:10px; padding:0px 8px; }}'
+            f'QPushButton:hover {{ background:rgba(255,255,255,10); color:{T("text")}; }}'
+        )
+        ref_btn.mousePressEvent = lambda e: self._refresh()
+        self._outer.addWidget(ref_btn)
+
+    def _fill_cards(self, combo, disconnected_name):
+        for i in range(combo.count()):
+            name = combo.itemText(i)
+            dev_idx = combo.itemData(i)
+            selected = (i == combo.currentIndex())
+            disc = bool(disconnected_name and name == disconnected_name)
+            ch_count = 0
+            try:
+                if dev_idx is not None and dev_idx >= 0:
+                    ch_count = int(sd.query_devices(dev_idx)['max_input_channels'])
+            except Exception:
+                pass
+            self._cards_layout.addWidget(self._make_card(i, name, ch_count, selected, disc, dev_idx))
+
+    def rebuild_cards(self, combo, disconnected_name=''):
+        fixed_w = self.width()
+        idx = self._outer.indexOf(self._cards_widget)
+        self._outer.removeWidget(self._cards_widget)
+        self._cards_widget.hide()
+        self._cards_widget.deleteLater()
+
+        self._cards_widget = QWidget()
+        self._cards_widget.setStyleSheet('background:transparent;')
+        self._cards_layout = QVBoxLayout(self._cards_widget)
+        self._cards_layout.setContentsMargins(0, 0, 0, 0)
+        self._cards_layout.setSpacing(6)
+        self._outer.insertWidget(idx, self._cards_widget)
+
+        self._fill_cards(combo, disconnected_name)
+        self.adjustSize()
+        self.resize(fixed_w, self.sizeHint().height())
+        self._status_lbl.setText('✓ Refreshed')
+        self._status_lbl.setVisible(True)
+        QTimer.singleShot(2000, self._clear_status)
+
+    def _clear_status(self):
+        try:
+            self._status_lbl.setVisible(False)
+        except RuntimeError:
+            pass
+
+    def _refresh(self):
+        self.refresh_requested.emit()  # 팝업 닫지 않음 — 메인 윈도우가 갱신 후 rebuild_cards 호출
+
+    def _make_card(self, combo_idx, name, ch_count, selected, disconnected, dev_idx):
+        card = QFrame(); card.setObjectName('devCard')
+        bg = 'rgba(78,125,240,40)' if selected else T('bg3')
+        bd = T('accent') if selected else T('border')
+        card.setStyleSheet(
+            f'QFrame#devCard {{ background:{bg}; border:1px solid {bd}; border-radius:8px; }}'
+        )
+        lay = QHBoxLayout(card)
+        lay.setContentsMargins(10, 7, 10, 7); lay.setSpacing(8)
+
+        dot = QLabel('●')
+        dot_color = T('text_dim') if (disconnected or (dev_idx is not None and dev_idx < 0)) else T('green')
+        dot.setStyleSheet(f'color:{dot_color}; font-size:9px; background:transparent; border:none;')
+        dot.setFixedWidth(12)
+        lay.addWidget(dot)
+
+        txt_w = QWidget(); txt_w.setStyleSheet('background:transparent; border:none;')
+        txt_lay = QVBoxLayout(txt_w); txt_lay.setContentsMargins(0,0,0,0); txt_lay.setSpacing(1)
+
+        name_color = T('text_dim') if disconnected else (T('accent') if selected else T('text'))
+        name_lbl = QLabel(name)
+        name_lbl.setStyleSheet(
+            f'color:{name_color};  font-size:11px; '
+            f'font-weight:{"bold" if selected else "normal"}; background:transparent; border:none;'
+        )
+        txt_lay.addWidget(name_lbl)
+
+        if disconnected:
+            sub = QLabel('Disconnected')
+            sub.setStyleSheet(f'color:{T("yellow")}; font-size:9px; background:transparent; border:none;')
+            txt_lay.addWidget(sub)
+        elif ch_count > 0:
+            sub = QLabel(f'{ch_count} ch')
+            sub.setStyleSheet(f'color:{T("text_dim")}; font-size:9px; background:transparent; border:none;')
+            txt_lay.addWidget(sub)
+
+        lay.addWidget(txt_w); lay.addStretch()
+
+        if selected:
+            chk = QLabel('✓')
+            chk.setStyleSheet(
+                f'color:{T("accent")}; font-size:12px; font-weight:bold; '
+                f'background:transparent; border:none;'
+            )
+            lay.addWidget(chk)
+
+        if not disconnected and dev_idx is not None and dev_idx >= 0:
+            card.mousePressEvent = lambda e, idx=combo_idx: self._pick(idx)
+            card.setCursor(Qt.PointingHandCursor)
+
+        return card
+
+    def _pick(self, idx):
+        self.device_selected.emit(idx)
+        self.close()
+
+
+class ChannelCard(QFrame):
+    """INPUT 패널 내 채널 카드 — 체크박스(그래프 가시성) + 장치명 + 채널 번호 + 레벨 미터."""
+    visibility_toggled = pyqtSignal(int, bool)   # (ch_idx, visible)
+    remove_requested   = pyqtSignal(int)          # (ch_idx)  — primary는 emit 안 함
+    device_clicked     = pyqtSignal()             # primary 카드 전용
+
+    def __init__(self, ch_idx, device_name, color, is_primary=False, parent=None):
+        super().__init__(parent)
+        self._ch_idx    = ch_idx
+        self._is_primary = is_primary
+        self._color = color
+        self.setObjectName('channelCard')
+        lay = QVBoxLayout(self); lay.setContentsMargins(6,5,6,5); lay.setSpacing(3)
+
+        # ── Row 1: [☑] [●] [device name] [×]
+        row1 = QHBoxLayout(); row1.setSpacing(3)
+        self._chk = QCheckBox(); self._chk.setChecked(True); self._chk.setFixedWidth(20)
+        self._chk.setFocusPolicy(Qt.NoFocus)   # macOS 파란 포커스 링 제거
+        self._chk.setStyleSheet(f'''
+            QCheckBox::indicator {{
+                width:13px; height:13px;
+                border:1.5px solid {color};
+                border-radius:3px;
+                background:transparent;
+            }}
+            QCheckBox::indicator:checked {{
+                background:{color};
+                image:none;
+            }}
+        ''')
+        self._chk.stateChanged.connect(lambda st: self.visibility_toggled.emit(self._ch_idx, st==Qt.Checked))
+        dot = QLabel('●')
+        dot.setStyleSheet(f'color:{color};background:transparent;font-size:11px;'); dot.setFixedWidth(13)
+        short = (device_name[:17]+'..') if len(device_name)>19 else device_name
+        if is_primary:
+            self._dev_btn_ref = QPushButton(short)
+            self._dev_btn_ref.setFlat(True)
+            self._dev_btn_ref.setStyleSheet(
+                f'color:{T("text")};font-size:10px;text-align:left;padding:0 2px;border:none;'
+                f'background:transparent;')
+            self._dev_btn_ref.setCursor(Qt.PointingHandCursor)
+            self._dev_btn_ref.clicked.connect(self.device_clicked)
+            row1.addWidget(self._chk); row1.addWidget(dot); row1.addWidget(self._dev_btn_ref, 1)
+        else:
+            dev_lbl = QLabel(short)
+            dev_lbl.setStyleSheet(f'color:{T("text")};background:transparent;font-size:10px;')
+            rm = QPushButton('✕'); rm.setFixedSize(16,16)
+            rm.setStyleSheet(f'QPushButton{{color:{T("text_dim")};font-size:12px;border:none;padding:0;background:transparent;}}'
+                             f'QPushButton:hover{{color:{T("red")};}}')
+            rm.setCursor(Qt.PointingHandCursor)
+            rm.clicked.connect(lambda: self.remove_requested.emit(self._ch_idx))
+            row1.addWidget(self._chk); row1.addWidget(dot); row1.addWidget(dev_lbl, 1); row1.addWidget(rm)
+        lay.addLayout(row1)
+
+        # ── Row 2: [Ch X] [meter] [dB]
+        row2 = QHBoxLayout(); row2.setSpacing(3)
+        ch_lbl = QLabel(f'Ch {ch_idx+1}')
+        ch_lbl.setStyleSheet(f'color:{T("text_dim")};background:transparent;font-size:10px;'); ch_lbl.setFixedWidth(28)
+        self._meter = _MiniMeterBar(); self._meter.setFixedHeight(7)
+        self._db_lbl = QLabel(' — ')
+        self._db_lbl.setStyleSheet(f'color:{T("text_dim")};background:transparent;font-size:10px;')
+        self._db_lbl.setFixedWidth(34); self._db_lbl.setAlignment(Qt.AlignRight|Qt.AlignVCenter)
+        row2.addWidget(ch_lbl); row2.addWidget(self._meter, 1); row2.addWidget(self._db_lbl)
+        lay.addLayout(row2)
+        self._apply_style()
+
+    def _apply_style(self):
+        # TF 측정 카드와 동일한 색 테두리 룩
+        self.setStyleSheet(f'#channelCard{{background:{T("panel")};'
+                           f'border:2px solid {self._color};border-radius:{RADIUS_SM}px;padding:1px;}}')
+
+    def update_level(self, db, peak_db=None):
+        self._meter.set_level(db, peak_db); self._db_lbl.setText(f'{db:.1f}')
+
+    def reset(self):
+        self._meter.reset(); self._db_lbl.setText(' — ')
+
+
+class _SpecCard(QFrame):
+    """Spectrum 추가 소스 카드 — 카드마다 장치+채널 독립 선택 (멀티-장치 오버레이).
+    TF 측정 카드 룩 차용: 색 테두리 + 가시성 토글 + 장치/채널 드롭다운 + 레벨미터 + 삭제."""
+    device_changed     = pyqtSignal(int)        # card_id
+    channel_changed    = pyqtSignal(int)        # card_id
+    visibility_toggled = pyqtSignal(int, bool)  # (card_id, visible)
+    remove_requested   = pyqtSignal(int)        # card_id
+    selected           = pyqtSignal(int)        # card_id — 카드 클릭 → front
+    renamed            = pyqtSignal(int, str)   # (card_id, new_name)
+    start_toggled      = pyqtSignal(int)        # card_id — 카드별 Start(측정 on/off)
+    color_requested    = pyqtSignal(int)        # card_id — 우클릭 색 변경
+
+    def __init__(self, card_id, color, dev_items, is_primary=False, parent=None):
+        super().__init__(parent)
+        self._card_id = card_id
+        self._color = color
+        self._is_primary = is_primary
+        self._is_selected = False
+        self._default_name = str(card_id + 1)
+        self._name = ''
+        self.setObjectName('specCard')
+        self._apply_border()
+        lay = QVBoxLayout(self); lay.setContentsMargins(9,5,6,6); lay.setSpacing(3)
+
+        # 헤더: [가시성 체크] [●=Start] [번호] ... [삭제]  (모든 카드 동일 레이아웃)
+        # 체크박스 폭 ≥ 인디케이터(13+테두리 3=16px)라야 네모가 안 잘림.
+        hdr = QHBoxLayout(); hdr.setContentsMargins(0,0,0,0); hdr.setSpacing(3)
+        self._chk = QCheckBox(); self._chk.setChecked(True); self._chk.setFixedWidth(17)
+        self._chk.setFocusPolicy(Qt.NoFocus)   # macOS 파란 포커스 링 제거
+        self._chk.setStyleSheet(
+            f'QCheckBox::indicator{{width:13px;height:13px;border:1.5px solid {color};'
+            f'border-radius:3px;background:transparent;}}'
+            f'QCheckBox::indicator:checked{{background:{color};image:none;}}')
+        self._chk.stateChanged.connect(
+            lambda st: self.visibility_toggled.emit(self._card_id, st == Qt.Checked))
+        # 색 점 = 카드별 Start 토글(측정 on/off) 겸 색 정체성. 측정 중=채움+글로우 / 꺼짐=흐린 링.
+        self._running = False
+        self._start_dot = QPushButton()
+        self._start_dot.setFixedSize(18, 22)
+        self._start_dot.setFocusPolicy(Qt.NoFocus)
+        self._start_dot.setCursor(Qt.PointingHandCursor)
+        self._start_dot.setToolTip(_tx('Start / stop measuring this source'))
+        self._start_dot.setIconSize(QSize(20, 20))
+        self._start_dot.setStyleSheet('QPushButton{border:none;background:transparent;padding:0;}')
+        self._start_dot.setIcon(QIcon(_led_power_pm(False, 20, color)))
+        self._start_dot.clicked.connect(lambda: self.start_toggled.emit(self._card_id))
+        self._num_label = QLabel(self._default_name)
+        self._num_label.setStyleSheet(f'color:{color};background:transparent;font-size:11px;font-weight:bold;')
+        self._num_label.setToolTip(_tx('Double-click to rename'))
+        hdr.addWidget(self._chk); hdr.addWidget(self._start_dot); hdr.addWidget(self._num_label); hdr.addStretch()
+        # E안: dBFS 값을 헤더 우측에 크게·모노로 (라이브 레벨 강조)
+        self._db_lbl = QLabel('—')
+        self._db_lbl.setStyleSheet(f'color:{T("text")};background:transparent;')
+        self._db_lbl.setFont(_n2_mono_font(14, QFont.Bold))
+        self._db_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        hdr.addWidget(self._db_lbl)
+        # 삭제는 인라인 ✕ 대신 우클릭 메뉴(contextMenuEvent)로 통일 — 모든 카드(1번·추가) 헤더가
+        # 동일해지고, 되돌리기 힘든 삭제를 의도적 우클릭 뒤에 둠. TF 측정 카드와 동일 UX.
+        self.setToolTip(_tx('Right-click: rename / delete'))
+        lay.addLayout(hdr)
+
+        # 미터 행: 레벨바가 카드 폭 끝까지 꽉 차게 (TF M바와 동일)
+        mr = QHBoxLayout(); mr.setContentsMargins(0,0,0,0); mr.setSpacing(0)
+        self._meter = _MiniMeterBar(); self._meter.setFixedHeight(12)   # E안: 미터 강조
+        mr.addWidget(self._meter, 1)
+        lay.addLayout(mr)
+
+        lay.addWidget(hsep())
+
+        # 장치 + 채널 행 (장치명은 폭에 맞춰 자동 생략 …)
+        _cb_ss = (
+            f'QComboBox{{background:{T("bg3")};color:{T("text")};border:1px solid {T("border")};'
+            f'border-radius:{RADIUS_SM}px;padding:1px 6px;font-size:{FS_SM}px;min-height:22px;}}'
+            f'QComboBox:hover{{border-color:{T("accent")};}}'
+            f'QComboBox::drop-down{{width:0;border:none;}}'
+            f'QComboBox::down-arrow{{width:0;height:0;image:none;}}')
+        row = QHBoxLayout(); row.setContentsMargins(0,0,0,0); row.setSpacing(3)
+        lbl = QLabel('In'); lbl.setFixedWidth(14); lbl.setStyleSheet(ss_text(FS_XS))
+        self._dev_cb = RoundComboBox(); self._dev_cb.setStyleSheet(_cb_ss)
+        self._dev_cb.setFocusPolicy(Qt.NoFocus)        # macOS 파란 포커스 링 제거
+        self._dev_cb.setMinimumWidth(40)               # stretch로 채워지고 긴 이름은 폭에 맞춰 … 로 생략
+        self._dev_cb.setMinimumContentsLength(4)
+        self._dev_cb._elide_to_width = True            # 'MacBo' 처럼 잘리지 않고 'MacB…' 로 깔끔히
+        for name, idx in dev_items:
+            self._dev_cb.addItem(name, idx)
+        self._ch_cb = RoundComboBox(); self._ch_cb.setStyleSheet(_cb_ss); self._ch_cb._grid_popup = True
+        self._ch_cb.setFocusPolicy(Qt.NoFocus)         # macOS 파란 포커스 링 제거
+        self._ch_cb.setFixedWidth(46); self._ch_cb._align_center = True
+        row.addWidget(lbl); row.addWidget(self._dev_cb, 1); row.addWidget(self._ch_cb)
+        lay.addLayout(row)
+        self._dev_cb.currentIndexChanged.connect(lambda _: self.device_changed.emit(self._card_id))
+        self._ch_cb.currentIndexChanged.connect(lambda _: self.channel_changed.emit(self._card_id))
+
+    def _apply_border(self):
+        # E안: 중립 카드(테두리 회색·배경 서브틀), 정체성은 스와치·번호·미터색. 선택 시 채널색 테두리로 front 표시.
+        c = QColor(self._color); r, g, b = c.red(), c.green(), c.blue()
+        _bg  = '#1E1E22' if is_dark() else '#F3F5FA'
+        _bd  = '#34343B' if is_dark() else T('border')
+        _bd_s = '#4A4A54' if is_dark() else T('accent')   # 선택 = 밝은 중립 테두리(채널색 대신)
+        if self._is_selected:
+            # front 표시 = 채널색 은은한 배경 틴트 + 밝은 중립 테두리 (테두리는 중립 유지 = E안)
+            self.setStyleSheet(f'#specCard{{border:1px solid {_bd_s};'
+                               f'border-radius:8px;background:rgba({r},{g},{b},20);padding:2px;}}')
+        else:
+            self.setStyleSheet(f'#specCard{{border:1px solid {_bd};'
+                               f'border-radius:8px;background:{_bg};padding:2px;}}')
+
+    def set_selected(self, on):
+        on = bool(on)
+        if on == self._is_selected: return
+        self._is_selected = on; self._apply_border()
+
+    def set_running(self, on):
+        """카드별 Start 점 갱신 (측정 중=카드색 채움+글로우 / 꺼짐=카드색 흐린 링)."""
+        self._running = bool(on)
+        self._start_dot.setIcon(QIcon(_led_power_pm(self._running, 20, self._color)))
+
+    def set_color(self, color):
+        """카드 색 변경 — 체크박스·Start 점·번호 라벨·선택 틴트 모두 갱신 (곡선색과 동기)."""
+        self._color = color
+        self._chk.setStyleSheet(
+            f'QCheckBox::indicator{{width:13px;height:13px;border:1.5px solid {color};'
+            f'border-radius:3px;background:transparent;}}'
+            f'QCheckBox::indicator:checked{{background:{color};image:none;}}')
+        self._num_label.setStyleSheet(f'color:{color};background:transparent;font-size:11px;font-weight:bold;')
+        self._start_dot.setIcon(QIcon(_led_power_pm(self._running, 20, color)))
+        self._apply_border()
+
+    def set_name(self, name):
+        self._name = name or ''
+        self._num_label.setText(self._name or self._default_name)
+
+    def set_number(self, n):
+        """표시 번호(위치 기반)를 설정. 사용자 지정 이름이 없을 때만 라벨에 반영."""
+        self._default_name = str(n)
+        if not self._name:
+            self._num_label.setText(self._default_name)
+
+    def _begin_rename(self):
+        begin_inline_rename(self, self._num_label, self._on_renamed)
+
+    def _on_renamed(self, txt):
+        self._name = txt
+        self._num_label.setText(txt or self._default_name)
+        self.renamed.emit(self._card_id, txt)
+
+    def mousePressEvent(self, e):
+        self.selected.emit(self._card_id)
+        super().mousePressEvent(e)
+
+    def mouseDoubleClickEvent(self, e):
+        # 카드 본문 더블클릭 → 이름 편집 (자식 콤보/체크박스는 자체 처리)
+        self._begin_rename()
+        super().mouseDoubleClickEvent(e)
+
+    def contextMenuEvent(self, e):
+        # 우클릭 → 카드 액션 메뉴(인라인 ✕ 대체). 이름 변경은 항상, 삭제는 primary가 아닐 때만.
+        from PyQt5.QtWidgets import QMenu
+        self.selected.emit(self._card_id)
+        m = QMenu(self)
+        a_rename = m.addAction(_tx('Rename'))
+        a_rename.triggered.connect(self._begin_rename)
+        a_color = m.addAction(_tx('Change color…'))
+        a_color.triggered.connect(lambda: self.color_requested.emit(self._card_id))
+        if not self._is_primary:
+            m.addSeparator()
+            a_del = m.addAction(_tx('Delete'))
+            a_del.triggered.connect(lambda: self.remove_requested.emit(self._card_id))
+        m.exec_(e.globalPos())
+
+    def device_idx(self):  return self._dev_cb.currentData()
+    def device_name(self): return self._dev_cb.currentText()
+    def channel(self):     return self._ch_cb.currentData() or 0
+
+    def set_device(self, idx):
+        for i in range(self._dev_cb.count()):
+            if self._dev_cb.itemData(i) == idx:
+                self._dev_cb.setCurrentIndex(i); return
+
+    def set_channel(self, ch):
+        for i in range(self._ch_cb.count()):
+            if self._ch_cb.itemData(i) == ch:
+                self._ch_cb.setCurrentIndex(i); return
+
+    def set_channel_list(self, n_ch):
+        self._ch_cb.blockSignals(True)
+        cur = self._ch_cb.currentData()
+        self._ch_cb.clear()
+        for i in range(max(n_ch, 1)):
+            self._ch_cb.addItem(f'Ch {i+1}', i)
+        if cur is not None:
+            for i in range(self._ch_cb.count()):
+                if self._ch_cb.itemData(i) == cur: self._ch_cb.setCurrentIndex(i); break
+        self._ch_cb.blockSignals(False)
+
+    def update_level(self, db, peak_db=None):
+        self._meter.set_level(db, peak_db); self._db_lbl.setText(f'{db:.0f}')
+
+    def reset(self):
+        self._meter.reset(); self._db_lbl.setText('—')
