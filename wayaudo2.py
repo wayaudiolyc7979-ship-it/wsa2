@@ -596,29 +596,8 @@ def _brand_logo_html(subtitle):
             f'&nbsp;&nbsp;<span style="font-size:11px;color:{T("text_dim")};">{subtitle}</span></div>')
 
 
-class _CollapseBtn(QPushButton):
-    """툴바(메뉴) 접기 토글 — 셰브론 직접 페인트. 펼침=▴(접기), 접힘=▾(펼치기)."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setCheckable(True); self.setFixedSize(30, 24)
-        self.setCursor(Qt.PointingHandCursor)
-        self.setToolTip('Hide / show toolbar')
-        self.setStyleSheet('QPushButton{background:transparent;border:none;}')
-    def paintEvent(self, e):
-        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        c = QColor(T('accent'))
-        if self.underMouse(): c = c.lighter(120)
-        p.setPen(QPen(c, 2.0, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-        cx, cy, s = self.width()/2, self.height()/2, 5
-        if self.isChecked():   # 접힌 상태 → ▾ (클릭하면 펼침)
-            p.drawLine(int(cx-s), int(cy-2), int(cx), int(cy+3))
-            p.drawLine(int(cx), int(cy+3), int(cx+s), int(cy-2))
-        else:                  # 펼친 상태 → ▴ (클릭하면 접힘)
-            p.drawLine(int(cx-s), int(cy+2), int(cx), int(cy-3))
-            p.drawLine(int(cx), int(cy-3), int(cx+s), int(cy+2))
-        p.end()
-
-
+# _CollapseBtn — v2.0 분해: spectra/ui/widgets.py 로 이동, re-import
+from spectra.ui.widgets import _CollapseBtn
 class _BrandHeaderBar(QWidget):
     """팝아웃 상단 브랜드 헤더 — 더블클릭 시 창 최대화↔복원 토글(메인 창 헤더와 동일 UX)."""
     def mouseDoubleClickEvent(self, e):
@@ -5575,35 +5554,8 @@ class _SplAlarmBtn(QPushButton):
         p.end()
 
 
-class _ComplianceBadge(QWidget):
-    """라우드니스 COMPLIANCE 상태 원형 배지 — 안티앨리어싱 원(틴트 채움 + 컬러 링 + 글리프).
-    QLabel+CSS border-radius의 테두리 계단현상을 피하려 QPainter로 직접 그림."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(68, 68)
-        self._col = QColor(T('text_dim'))
-        self.glyph = '—'
-
-    def set_state(self, col, glyph='—'):
-        self._col = QColor(col); self.glyph = glyph
-        self.update()
-
-    def paintEvent(self, e):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        c = self._col
-        d = min(self.width(), self.height()) - 4   # 2px 링 두께 여유
-        x = (self.width() - d) / 2.0; y = (self.height() - d) / 2.0
-        rect = QRectF(x, y, d, d)
-        fill = QColor(c); fill.setAlpha(30)
-        p.setPen(Qt.NoPen); p.setBrush(fill); p.drawEllipse(rect)
-        ring = QColor(c); ring.setAlpha(160)
-        p.setBrush(Qt.NoBrush); p.setPen(QPen(ring, 2.0)); p.drawEllipse(rect)
-        f = QFont(FONT_FAMILY); f.setPixelSize(30); f.setBold(True); p.setFont(f)
-        p.setPen(c); p.drawText(self.rect(), Qt.AlignCenter, self.glyph)
-        p.end()
-
-
+# _ComplianceBadge — v2.0 분해: spectra/ui/widgets.py 로 이동, re-import
+from spectra.ui.widgets import _ComplianceBadge
 class _CheckBtn(QPushButton):
     """Checkable QPushButton — CSS :checked border는 macOS에서 클리핑되므로
     paintEvent에서 QPainter로 직접 테두리를 그린다."""
@@ -8560,39 +8512,8 @@ class _HorizBarVU(QWidget):
         p.end()
 
 
-class _DashedAddButton(QPushButton):
-    """점선 테두리 'Add' 버튼. Qt QSS의 dashed 보더는 둥근 모서리에서
-    점선이 끊겨 보여서, QPainter 로 직접 균일한 점선 라운드 사각형을 그린다."""
-    def __init__(self, text, parent=None):
-        super().__init__(text, parent)
-        self._hover = False
-        self.setStyleSheet('background:transparent;border:none;')
-
-    def enterEvent(self, e):
-        self._hover = True; self.update(); super().enterEvent(e)
-
-    def leaveEvent(self, e):
-        self._hover = False; self.update(); super().leaveEvent(e)
-
-    def paintEvent(self, e):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing, True)
-        col = QColor(T('accent')) if self._hover else QColor(T('border'))
-        pen = QPen(col, 1.0)
-        pen.setStyle(Qt.CustomDashLine)
-        pen.setDashPattern([4, 4])       # 4px 선 / 4px 간격
-        pen.setCapStyle(Qt.FlatCap)
-        p.setPen(pen); p.setBrush(Qt.NoBrush)
-        r = float(RADIUS_SM)
-        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        p.drawRoundedRect(rect, r, r)
-        txt_col = QColor(T('accent')) if self._hover else QColor(T('text_dim'))
-        p.setPen(txt_col)
-        f = self.font(); f.setPixelSize(FS_BODY); p.setFont(f)
-        p.drawText(self.rect(), Qt.AlignCenter, self.text())
-        p.end()
-
-
+# _DashedAddButton — v2.0 분해: spectra/ui/widgets.py 로 이동, re-import
+from spectra.ui.widgets import _DashedAddButton
 class _ColorSwatch(QWidget):
     """작은 원형 색 스와치 — 좌클릭 시 on_click 콜백(색상 선택창). 안티앨리어싱 원
     (QLabel border-radius 계단현상 회피, [[project_v18_compliance_badge_aa]] 방식)."""
