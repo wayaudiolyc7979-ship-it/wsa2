@@ -1,10 +1,12 @@
 """UI 위젯 — 작은 커스텀 버튼/배지 (v2.0 분해, 동작 0 변경)."""
 import time
 from PyQt5.QtWidgets import (QPushButton, QLabel, QWidget, QSplitter, QSplitterHandle, QFrame,
-    QHBoxLayout, QVBoxLayout, QApplication, QComboBox, QScrollArea, QScrollBar, QAbstractButton, QCheckBox, QGridLayout, QStyle, QStyleOptionComboBox, QStylePainter, QLineEdit, QMenu, QColorDialog, QDoubleSpinBox, QSizePolicy)
+    QHBoxLayout, QVBoxLayout, QApplication, QComboBox, QScrollArea, QScrollBar, QAbstractButton, QCheckBox, QGridLayout, QStyle, QStyleOptionComboBox, QStylePainter, QLineEdit, QMenu, QColorDialog, QDoubleSpinBox, QSizePolicy, QSizeGrip)
 from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF, QFont, QBrush, QLinearGradient, QPalette, QIcon
 from PyQt5.QtCore import Qt, QPointF, QRectF, pyqtSignal, QPoint, QSize, QTimer, QEvent, QObject
-from spectra.core.config import T, is_dark, delay_unit, ms_to_m
+from spectra.core.config import T, is_dark, theme, delay_unit, ms_to_m
+from spectra.core.logging_diag import _alog, _diag
+from spectra.ui.colors import _SPECTRA_GRAD_QSS, _spectra_mark
 from spectra.ui.colors import _MC_COLORS
 from spectra.ui.icons import _icon, _icon_pm, _led_power_pm, _n2_hover_ss, _n2_icon_color, _n2_led_color, _n2_tab_ss
 from spectra.core.i18n import _tx
@@ -2040,3 +2042,282 @@ class _MeasCard(QFrame):
 
 # backward-compat alias
 _PairLevelCard = _MeasCard
+
+
+class _DarkTitleBar(QWidget):
+    """프레임리스 창용 다크 커스텀 타이틀바 — 제목 + 닫기(✕) + 드래그 이동.
+    라이트모드에서 흰색 네이티브 타이틀바가 다크 본문과 안 어울리는 문제 해결."""
+    def __init__(self, win, title='', aux=None):
+        super().__init__()
+        self._win = win; self._drag = None
+        self.setFixedHeight(34); self.setObjectName('darkTitleBar')
+        self.setStyleSheet(f'#darkTitleBar{{background:{T("bg2")};}}')
+        lay = QHBoxLayout(self); lay.setContentsMargins(14, 0, 8, 0); lay.setSpacing(0)
+        self._full_title = title
+        self._title = QLabel(title)
+        self._title.setStyleSheet(f'color:{T("text")};font-size:12px;font-weight:bold;background:transparent;')
+        self._title.setMinimumWidth(0)
+        lay.addWidget(self._title); lay.addStretch()
+        # 창별 보조 버튼(예: SPL Meter 설정 토글) — ✕ 왼쪽에 배치
+        self._aux = list(aux) if aux else []
+        if aux:
+            for b in aux:
+                b.setParent(self); lay.addWidget(b)
+            lay.addSpacing(6)
+        self._x = QPushButton('✕'); self._x.setFixedSize(24, 24); self._x.setCursor(Qt.PointingHandCursor)
+        _x_col = '#9A9AA0' if is_dark() else T('text_dim')
+        self._x.setStyleSheet(f'QPushButton{{border:none;background:transparent;color:{_x_col};font-size:13px;border-radius:6px;}}'
+                              'QPushButton:hover{background:#FF453A;color:#FFFFFF;}')
+        self._x.clicked.connect(self._close)
+        lay.addWidget(self._x)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._elide_title()
+
+    def _elide_title(self):
+        # 우측 고정폭(보조버튼 + spacing + ✕) 제외한 공간에 맞춰 제목 elide → 글자 중간 잘림 방지
+        right = sum(b.sizeHint().width() for b in self._aux) + (6 if self._aux else 0) + 24
+        avail = self.width() - 14 - 8 - right
+        self._title.setText(self._title.fontMetrics().elidedText(
+            self._full_title, Qt.ElideRight, max(0, avail)))
+
+    def _close(self):
+        if hasattr(self._win, 'reject'):
+            self._win.reject()
+        else:
+            self._win.close()
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            self._drag = e.globalPos() - self._win.frameGeometry().topLeft(); e.accept()
+
+    def mouseMoveEvent(self, e):
+        if self._drag is not None and (e.buttons() & Qt.LeftButton):
+            self._win.move(e.globalPos() - self._drag); e.accept()
+
+    def mouseReleaseEvent(self, e):
+        self._drag = None
+
+
+def _add_resize_grip(win):
+    """프레임리스 창에 우하단 리사이즈 그립 — 네이티브 프레임 리사이즈 대체."""
+    from PyQt5.QtWidgets import QSizeGrip
+    grip = QSizeGrip(win); grip.setFixedSize(15, 15); grip.setStyleSheet('background:transparent;')
+    win._dark_grip = grip
+    def _pos():
+        try: grip.move(win.width() - 17, win.height() - 17); grip.raise_(); grip.show()
+        except Exception: pass
+    class _RF(QObject):
+        def eventFilter(self, o, e):
+            if e.type() == QEvent.Resize: _pos()
+            return False
+    f = _RF(win); win._dark_grip_filter = f; win.installEventFilter(f)
+    QTimer.singleShot(0, _pos)
+
+
+def _apply_dark_titlebar(win, resizable=False, aux=None):
+    """창을 프레임리스로 + 다크 커스텀 타이틀바 부착(레이아웃 menuBar 슬롯).
+    resizable=True 면 우하단 리사이즈 그립 추가. 바 삽입은 레이아웃 준비 후로 지연.
+    aux: ✕ 왼쪽에 넣을 보조 버튼 리스트(창별 토글 등)."""
+    try:
+        win.setWindowFlags((win.windowFlags() | Qt.FramelessWindowHint))
+    except Exception:
+        return
+    def _ins():
+        try:
+            lay = win.layout()
+            if lay is not None and lay.menuBar() is None:
+                bar = _DarkTitleBar(win, win.windowTitle(), aux=aux)
+                win._dark_titlebar = bar
+                lay.setMenuBar(bar)
+        except Exception:
+            pass
+    QTimer.singleShot(0, _ins)
+    if resizable:
+        _add_resize_grip(win)
+
+
+def _apply_native_titlebar_dark(win):
+    """macOS: 팝아웃 top-level 창의 네이티브 타이틀바를 메인 창과 동일하게 —
+    (1) FullSizeContentView+투명 → 본문 상단 브랜드 헤더가 타이틀바 행에 렌더되고
+    (2) 네이티브 제목 텍스트 숨김 (브랜드 헤더로 대체)
+    (3) 테마색 appearance(다크=DarkAqua). winId() 유효해야 하므로 show() 이후 호출."""
+    if _pl.system() == 'Windows':
+        _apply_windows_titlebar_dark(win)   # 윈도우는 네이티브 타이틀바를 다크로
+        return
+    if sys.platform != 'darwin':
+        return
+    try:
+        import ctypes
+        objc = ctypes.cdll.LoadLibrary('/usr/lib/libobjc.A.dylib')
+        objc.sel_registerName.restype = ctypes.c_void_p
+        objc.sel_registerName.argtypes = [ctypes.c_char_p]
+        objc.objc_getClass.restype = ctypes.c_void_p
+        objc.objc_getClass.argtypes = [ctypes.c_char_p]
+        def sel(n): return objc.sel_registerName(n.encode())
+        def msg(restype, obj, sel_name, *args):
+            f = objc.objc_msgSend
+            f.restype = restype
+            f.argtypes = [ctypes.c_void_p, ctypes.c_void_p] + [type(a) for a in args]
+            return f(obj, sel(sel_name), *args)
+        ns_view = ctypes.c_void_p(int(win.winId()))
+        ns_window = msg(ctypes.c_void_p, ns_view, 'window')
+        if not ns_window:
+            return
+        # (1) NSFullSizeContentViewWindowMask(1<<15) — 콘텐츠를 타이틀바 영역까지 확장
+        style = msg(ctypes.c_ulong, ns_window, 'styleMask')
+        msg(None, ns_window, 'setStyleMask:', ctypes.c_ulong(style | (1 << 15)))
+        # (1) 타이틀바 투명 → 뒤의 브랜드 헤더(bg2)가 비쳐 다크 바가 됨
+        msg(None, ns_window, 'setTitlebarAppearsTransparent:', ctypes.c_bool(True))
+        # (2) 네이티브 제목 텍스트 숨김 (NSWindowTitleHidden=1)
+        msg(None, ns_window, 'setTitleVisibility:', ctypes.c_long(1))
+        name = b'NSAppearanceNameDarkAqua' if is_dark() else b'NSAppearanceNameAqua'
+        ns_str = msg(ctypes.c_void_p, objc.objc_getClass(b'NSString'),
+                     'stringWithUTF8String:', ctypes.c_char_p(name))
+        appearance = msg(ctypes.c_void_p, objc.objc_getClass(b'NSAppearance'),
+                         'appearanceNamed:', ctypes.c_void_p(ns_str))
+        if appearance:
+            msg(None, ns_window, 'setAppearance:', ctypes.c_void_p(appearance))
+        new_style = msg(ctypes.c_ulong, ns_window, 'styleMask')
+        _diag('popout_titlebar', win=type(win).__name__,
+              style_before=int(style), style_after=int(new_style),
+              fullsize=bool(int(new_style) & (1 << 15)))
+    except Exception as e:
+        try: _diag('popout_titlebar_fail', err=str(e))
+        except Exception: pass
+
+
+def _apply_app_dark_appearance():
+    """macOS: NSApplication 전체 외형을 앱 테마(다크=DarkAqua)로 강제.
+    창별 setAppearance(_apply_native_titlebar_dark)만으론 **별도 NSWindow로 뜨는
+    컨텍스트 메뉴(QMenu)·네이티브 팝업**이 커버 안 됨 → 시스템이 라이트 모드일 때
+    우클릭 메뉴가 흰색으로 떴다. NSApp.appearance를 지정하면 그 팝업들도 다크로 통일."""
+    if sys.platform != 'darwin':
+        return
+    try:
+        import ctypes
+        objc = ctypes.cdll.LoadLibrary('/usr/lib/libobjc.A.dylib')
+        objc.sel_registerName.restype = ctypes.c_void_p
+        objc.sel_registerName.argtypes = [ctypes.c_char_p]
+        objc.objc_getClass.restype = ctypes.c_void_p
+        objc.objc_getClass.argtypes = [ctypes.c_char_p]
+        def sel(n): return objc.sel_registerName(n.encode())
+        def msg(restype, obj, sel_name, *args):
+            f = objc.objc_msgSend
+            f.restype = restype
+            f.argtypes = [ctypes.c_void_p, ctypes.c_void_p] + [type(a) for a in args]
+            return f(obj, sel(sel_name), *args)
+        ns_app = msg(ctypes.c_void_p, objc.objc_getClass(b'NSApplication'), 'sharedApplication')
+        if not ns_app:
+            return
+        name = b'NSAppearanceNameDarkAqua' if is_dark() else b'NSAppearanceNameAqua'
+        ns_str = msg(ctypes.c_void_p, objc.objc_getClass(b'NSString'),
+                     'stringWithUTF8String:', ctypes.c_char_p(name))
+        appearance = msg(ctypes.c_void_p, objc.objc_getClass(b'NSAppearance'),
+                         'appearanceNamed:', ctypes.c_void_p(ns_str))
+        if appearance:
+            msg(None, ns_app, 'setAppearance:', ctypes.c_void_p(appearance))
+        try: _diag('app_appearance', theme=theme(), ok=bool(appearance))
+        except Exception: pass
+    except Exception as e:
+        try: _diag('app_appearance_fail', err=str(e))
+        except Exception: pass
+
+
+def _apply_windows_titlebar_dark(win):
+    """Windows: 네이티브 타이틀바를 앱 테마에 맞춰 다크/라이트로(DWM immersive dark mode).
+    맥의 통합 타이틀바처럼 본문과 완전히 합쳐지진 않지만, 어두운 앱 위에 흰 타이틀바가
+    뜨는 충돌을 없앤다. 비-Windows에선 no-op. winId() 유효해야 하므로 show() 이후 호출."""
+    if _pl.system() != 'Windows':
+        return
+    try:
+        import ctypes
+        hwnd = int(win.winId())
+        val = ctypes.c_int(1 if is_dark() else 0)
+        dwm = ctypes.windll.dwmapi
+        # DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Win10 20H1+/Win11). 구버전 빌드는 19.
+        res = dwm.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(val), ctypes.sizeof(val))
+        if res != 0:
+            dwm.DwmSetWindowAttribute(hwnd, 19, ctypes.byref(val), ctypes.sizeof(val))
+        _diag('win_titlebar_dark', dark=(is_dark()), res=int(res))
+    except Exception as e:
+        try: _diag('win_titlebar_dark_fail', err=str(e))
+        except Exception: pass
+        try: _alog.debug(f'native titlebar dark 실패: {e}')
+        except Exception: pass
+
+
+def _brand_logo_html(subtitle):
+    """브랜드 헤더 워드마크 RichText — SPECTRA(accent) + 부제(text_dim). 테마색 반영."""
+    # ⚠️ font-family는 <span>에선 무시되고 <div>(블록)에서만 상속됨(Qt 리치텍스트 특성) → div로 감싼다.
+    return (f'<div style="font-family:\'{FONT_FAMILY}\';">'
+            f'<span style="font-size:14px;font-weight:700;color:{T("accent")};'
+            f'letter-spacing:3px;">SPECTRA</span>'
+            f'&nbsp;&nbsp;<span style="font-size:11px;color:{T("text_dim")};">{subtitle}</span></div>')
+
+
+# _CollapseBtn — v2.0 분해: spectra/ui/widgets.py 로 이동, re-import
+from spectra.ui.widgets import _CollapseBtn
+class _BrandHeaderBar(QWidget):
+    """팝아웃 상단 브랜드 헤더 — 더블클릭 시 창 최대화↔복원 토글(메인 창 헤더와 동일 UX)."""
+    def mouseDoubleClickEvent(self, e):
+        w = self.window()
+        if w is not None:
+            w.showNormal() if w.isMaximized() else w.showMaximized()
+        super().mouseDoubleClickEvent(e)
+
+
+def _make_brand_header(subtitle):
+    """팝아웃 본문 상단 브랜드 헤더 — 그라디언트 마크 + SPECTRA 워드마크 + 탭 이름(가운데),
+    우측에 툴바 접기 토글(_toggle_btn). 더블클릭=최대화/복원. (TF self._hdr와 동일 높이 40)."""
+    bar = _BrandHeaderBar(); bar.setFixedHeight(40); bar.setObjectName('popoutBrandHdr')
+    bar.setStyleSheet(f'#popoutBrandHdr{{background:{T("bg2")};}}')
+    bar._subtitle = subtitle
+    hl = QHBoxLayout(bar); hl.setContentsMargins(16, 0, 16, 0); hl.setSpacing(9)
+    mark = QLabel(); mark.setPixmap(_spectra_mark(20)); mark.setStyleSheet('background:transparent;')
+    logo = QLabel(); logo.setTextFormat(Qt.RichText); logo.setStyleSheet('background:transparent;')
+    logo.setText(_brand_logo_html(subtitle)); bar._logo = logo
+    # 라벨은 마우스 투명 → 헤더가 더블클릭을 받아 최대화 토글 (토글 버튼은 그대로 동작)
+    for _lb in (mark, logo):
+        _lb.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+    toggle = _CollapseBtn(); bar._toggle_btn = toggle
+    hl.addSpacing(30)          # 우측 토글 버튼 폭만큼 좌측 보정 → 로고 진짜 가운데
+    hl.addStretch(1); hl.addWidget(mark); hl.addWidget(logo); hl.addStretch(1)
+    hl.addWidget(toggle)
+    return bar
+
+
+def _restyle_brand_header(bar):
+    """테마 토글 시 브랜드 헤더 배경/워드마크 색 갱신 (팝아웃 타이틀바가 라이트에서 검게 남는 문제 방지)."""
+    try:
+        bar.setStyleSheet(f'#popoutBrandHdr{{background:{T("bg2")};}}')
+        if hasattr(bar, '_logo'):
+            bar._logo.setText(_brand_logo_html(getattr(bar, '_subtitle', '')))
+    except Exception:
+        pass
+
+
+def _dialog_brand_header(subtitle, mark_h=20):
+    """다이얼로그 상단 브랜드 헤더(가운데 정렬) — 그라디언트 웨이브 마크 + SPECTRA 워드마크
+    + 부제, 하단 시그니처 그라디언트 언더라인. 팝아웃 헤더와 톤 통일(라이브 렌더 아님)."""
+    box = QWidget(); box.setObjectName('dlgBrandHdr')
+    v = QVBoxLayout(box); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(0)
+    bar = QWidget(); bar.setObjectName('dlgBrandBar'); bar.setFixedHeight(46)
+    bar.setStyleSheet(f'#dlgBrandBar{{background:{T("panel")};}}')
+    h = QHBoxLayout(bar); h.setContentsMargins(16, 0, 16, 0); h.setSpacing(9)
+    mark = QLabel(); mark.setPixmap(_spectra_mark(mark_h)); mark.setStyleSheet('background:transparent;')
+    logo = QLabel(); logo.setTextFormat(Qt.RichText); logo.setStyleSheet('background:transparent;')
+    logo.setText(_brand_logo_html(subtitle))
+    h.addStretch(1); h.addWidget(mark); h.addWidget(logo); h.addStretch(1)
+    line = QFrame(); line.setObjectName('dlgBrandLine'); line.setFixedHeight(2)
+    line.setStyleSheet(f'#dlgBrandLine{{background:{_SPECTRA_GRAD_QSS};border:none;}}')
+    v.addWidget(bar); v.addWidget(line)
+    return box
+
+
+def _grad_topline():
+    """브랜드 다이얼로그 상단의 SPECTRA 그라디언트 3px 라인 QFrame."""
+    f = QFrame(); f.setFixedHeight(3)
+    f.setStyleSheet(f'background:{_SPECTRA_GRAD_QSS};border:none;')
+    return f
