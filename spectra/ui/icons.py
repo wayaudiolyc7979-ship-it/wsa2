@@ -2,8 +2,8 @@
 
 v2.0 분해: wayaudo2.py에서 이동(동작 0 변경).
 """
-from PyQt5.QtGui import QPainter, QPixmap
-from PyQt5.QtCore import Qt, QRectF
+from PyQt5.QtGui import QPainter, QPixmap, QColor, QPen, QRadialGradient
+from PyQt5.QtCore import Qt, QRectF, QPointF
 from spectra.core.config import T, is_dark
 
 
@@ -90,3 +90,29 @@ def _n2_icon_color(active=False):
 def _n2_led_color(on):
     if on: return T('accent')
     return '#3A3A42' if is_dark() else '#C7C7CC'
+
+
+def _led_power_pm(live, size=20, color='#6E9BFF'):
+    """카드별 Start 점(색 점 겸용) — 측정 중=카드색 채운 원+글로우 / 꺼짐=카드색 흐린 링.
+    항상 카드 색으로 정체성 유지. 안티앨리어싱 페인트 픽스맵."""
+    dpr = 3
+    pm = QPixmap(int(size * dpr), int(size * dpr)); pm.setDevicePixelRatio(dpr)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing, True)
+    cx = cy = size / 2.0
+    # 원 지름을 왼쪽 체크박스(13px 사각)와 맞춤 — 아이콘 캔버스 20px 기준 반지름 ~6.5px.
+    r_fill = size * 0.325
+    if live:
+        g = QRadialGradient(QPointF(cx, cy), size * 0.50)
+        c0 = QColor(color); c0.setAlpha(150); c1 = QColor(color); c1.setAlpha(0)
+        g.setColorAt(0.0, c0); g.setColorAt(1.0, c1)
+        p.setPen(Qt.NoPen); p.setBrush(g); p.drawEllipse(QPointF(cx, cy), size * 0.50, size * 0.50)
+        p.setBrush(QColor(color)); p.setPen(Qt.NoPen)
+        p.drawEllipse(QPointF(cx, cy), r_fill, r_fill)
+    else:
+        pen = QPen(); pen.setWidthF(size * 0.12)
+        c = QColor(color); c.setAlpha(125); pen.setColor(c)
+        p.setPen(pen); p.setBrush(Qt.NoBrush)
+        p.drawEllipse(QPointF(cx, cy), r_fill - size * 0.06, r_fill - size * 0.06)
+    p.end()
+    return pm
