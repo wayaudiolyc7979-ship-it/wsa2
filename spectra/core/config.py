@@ -152,3 +152,28 @@ def fmt_delay(ms, prec=2, unit=None, compact=False, sign=False):
     if u == 'both':
         return f'{ms:{s}.{prec}f} ms · {ms_to_m(ms):{s}.2f} m'
     return f'{ms:{s}.{prec}f} ms'
+
+
+# ───────────────────────────────────────────
+#  스펙트럼 상수·응답(ballistic) 튜닝  [찾기: SPEC_TUNING]
+#  v2.0 분해: wayaudo2.py 상단 상수부에서 이동(동작 0 변경).
+# ───────────────────────────────────────────
+MAX_DB = 0
+CAPTURE_COLORS = ['#69f0ae','#ffff00','#ff80ab','#ea80fc',
+                  '#ff6e6e','#80d8ff','#ffd740','#ccff90']
+SPEC_ATTACK  = 0.28   # 막대 상승 부드러움(값↑=즉각). 0.28=부드러움 · 0.5=빠름 · 0.7=즉각
+SPEC_FALL_MS = {'Slowest': 2500, 'Slow': 1500, 'Normal': 900, 'Fast': 600, 'Fastest': 400}
+
+def _fall_ms_to_s(ms):
+    """−12dB 하강시간(ms) → 릴리즈 평활계수 s (30fps 파워도메인). SPEC_FALL_MS에서 자동 계산."""
+    return 0.063 ** (33.0 / ms)        # s = 1-r,  r = 1 - 0.063**(33/ms)
+
+# (label, 릴리즈s[자동계산], col2/col3=레거시) — 순서 = 느림→빠름
+SPEED_LEVELS = [
+    (_n, _fall_ms_to_s(SPEC_FALL_MS[_n]), _c2, _c3)
+    for _n, _c2, _c3 in [
+        ('Slowest', 0.030, 0.05), ('Slow', 0.060, 0.10), ('Normal', 0.120, 0.20),
+        ('Fast', 0.200, 0.35), ('Fastest', 0.300, 0.55),
+    ]
+]
+FREQ_MARKS = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]

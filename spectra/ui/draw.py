@@ -3,10 +3,11 @@
 v2.0 분해: wayaudo2.py에서 이동(동작 0 변경). QPainter p를 받아 그림.
 """
 import math
-from PyQt5.QtGui import QColor, QPen, QBrush, QPainterPath, QPolygonF, QPainter, QFont
+from PyQt5.QtGui import QColor, QPen, QBrush, QPainterPath, QPolygonF, QPainter, QFont, QLinearGradient
 from PyQt5.QtCore import Qt, QPointF, QRectF
 from spectra.core.config import T, is_dark
-from spectra.ui.tokens import _qfont, _n2_val_font, CF_BADGE
+from spectra.ui.tokens import _qfont, _n2_val_font, CF_BADGE, CF_ANNO
+from spectra.ui.colors import _TF_SEL_GRAD_STOPS, _spectra_mark
 
 def freq_to_x(f, pad_l, usable, ny=24000, f_lo=20):
     if f <= 0: return pad_l
@@ -156,3 +157,74 @@ def _draw_zone_meter_h(p, W, H, db, db_min, db_max=0.0):
     if bar_w > gx: p.setBrush(QColor(T('yellow'))); p.drawRect(QRectF(gx, 0, yx - gx, H))
     if bar_w > yx: p.setBrush(QColor(T('red')));    p.drawRect(QRectF(yx, 0, bar_w - yx, H))
     p.restore()
+
+
+_NOTE_NAMES = ('C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B')
+
+def freq_to_note(f):
+    if f is None or f <= 0:
+        return ''
+    n = int(round(69.0 + 12.0 * math.log2(f / 440.0)))   # 69 = A4
+    return f'{_NOTE_NAMES[n % 12]}{n // 12 - 1}'
+
+# 딜레이/음속 단위 — v2.0 분해: spectra/core/config.py, 함수만 re-import(_SOUND_SPEED/_DELAY_UNIT은 config 소유)
+
+
+def _focused_capture_visible(c):
+    """캡쳐 포커스가 유효하고(인덱스 범위 내) 그 캡쳐가 보이는 상태인지 — 라이브 dim 판단용.
+    FFT/Octave/TF Phase/Mag/IR 캔버스가 공유하는 '_front_idx + _captures' 규약 기반."""
+    return (c._front_idx is not None
+            and 0 <= c._front_idx < len(c._captures)
+            and c._captures[c._front_idx].get('visible', True))
+
+
+# _grad_topline — v2.0 분해: widgets.py, re-import
+
+
+def _draw_idle_hint(p, pl, pt, dw, dh, text='Press  Start  to begin'):
+    """시작 전(무신호) 메인 그래프 중앙에 은은한 SPECTRA 마크 + 안내 — 브랜드 엠프티 스테이트."""
+    cx = pl + dw / 2.0; cy = pt + dh / 2.0
+    pm = _spectra_mark(50)
+    dpr = pm.devicePixelRatio() or 1.0
+    lw = pm.width() / dpr; lh = pm.height() / dpr
+    p.save()
+    p.setOpacity(0.15)
+    p.drawPixmap(int(cx - lw / 2), int(cy - lh / 2 - 12), int(lw), int(lh), pm)
+    p.restore()
+    p.save()
+    p.setOpacity(0.5)
+    p.setFont(_qfont(CF_ANNO))
+    p.setPen(QColor(T('graph_txt')))
+    p.drawText(QRectF(cx - 190, cy + lh / 2 - 2, 380, 22),
+               Qt.AlignHCenter | Qt.AlignVCenter, text)
+    p.restore()
+
+
+def _draw_tf_sel_border(widget, p):
+    """선택된 TF 분석창 표시 — 카드 상단에 SPECTRA 시그니처 그라디언트 엣지(헤더 언더라인과 동일 브랜드 언어).
+    그라디언트는 폭 바뀔 때만 재생성해 캐시(매프레임 생성 금지 규칙 준수)."""
+    if not getattr(widget, '_tf_selected', False):
+        return
+    W = widget.width(); H = widget.height(); m = 6; r = 11
+    inner = QRectF(m + 0.5, m + 0.5, W - 2*m - 1, H - 2*m - 1)
+    if getattr(widget, '_sel_grad_w', None) != W or getattr(widget, '_sel_grad', None) is None:
+        g = QLinearGradient(inner.left(), 0.0, inner.right(), 0.0)
+        n = len(_TF_SEL_GRAD_STOPS) - 1
+        for i, c in enumerate(_TF_SEL_GRAD_STOPS):
+            g.setColorAt(i / n, QColor(c))
+        widget._sel_grad = g; widget._sel_grad_w = W
+    p.save()
+    p.setRenderHint(QPainter.Antialiasing, True)
+    path = QPainterPath(); path.addRoundedRect(inner, r, r)
+    p.setClipPath(path)
+    p.setPen(Qt.NoPen); p.setBrush(QBrush(widget._sel_grad))
+    p.drawRect(QRectF(inner.left(), inner.top(), inner.width(), 3.0))
+    p.restore()
+
+
+# ───────────────────────────────────────────
+#  TF 매그/위상 주파수축 줌·팬 (공유 믹스인)
+#  프로 툴(REW/Smaart) 방식: 휠=커서기준 확대·축소 · 그냥드래그=박스줌 · Shift+드래그/두손가락=팬
+#  · Cmd±=단계 · 더블클릭/Cmd0=전대역 리셋. 매그·위상·코히런스는 창이 _fzoom_cb로 연동.
+#  각 캔버스는 좌표를 self._fx(freq→x)/self._xf(x→freq)로 매핑(줌 반영).
+# ───────────────────────────────────────────
