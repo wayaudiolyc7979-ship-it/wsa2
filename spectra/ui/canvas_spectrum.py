@@ -2,7 +2,7 @@
 
 v2.0 분해: wayaudo2.py에서 이동(동작 0 변경).
 """
-import math, time
+import math, time, threading
 import numpy as np
 from PyQt5.QtGui import (QBrush, QColor, QImage, QPainter, QPainterPath, QPen,
                          QPixmap, QPolygon, QPolygonF)

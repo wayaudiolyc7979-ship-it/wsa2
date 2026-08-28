@@ -1,6 +1,7 @@
 """UI 위젯 — 작은 커스텀 버튼/배지 (v2.0 분해, 동작 0 변경)."""
 import sys
-import time
+import time, math
+import sounddevice as sd
 from PyQt5.QtWidgets import (QPushButton, QLabel, QWidget, QSplitter, QSplitterHandle, QFrame,
     QHBoxLayout, QVBoxLayout, QApplication, QComboBox, QScrollArea, QScrollBar, QAbstractButton, QCheckBox, QGridLayout, QStyle, QStyleOptionComboBox, QStylePainter, QLineEdit, QMenu, QColorDialog, QDoubleSpinBox, QSizePolicy, QSizeGrip)
 from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF, QFont, QBrush, QLinearGradient, QPalette, QIcon

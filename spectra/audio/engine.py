@@ -4,6 +4,7 @@ v2.0 분해: wayaudo2.py에서 이동(동작 0 변경). WASAPI 헬퍼 + AudioThr
 MultiChannelAudioThread/Subscription/_DeviceStream/AudioEngine/_Engine*Source.
 Qt(QThread/QObject/pyqtSignal) 사용. TFDuplexThread는 별도(추후).
 """
+import sys
 import time
 import numpy as np
 import sounddevice as sd

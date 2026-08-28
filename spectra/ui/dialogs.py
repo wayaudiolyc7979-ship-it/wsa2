@@ -1,5 +1,7 @@
 """다이얼로그 — 설정/파인더/브랜드 다이얼로그 (v2.0 분해, 동작 0 변경)."""
 import sys
+import numpy as np
+import sounddevice as sd
 from PyQt5.QtWidgets import (QDialog, QDialogButtonBox, QDoubleSpinBox, QFrame, QHBoxLayout,
     QLabel, QPushButton, QRadioButton, QSpinBox, QVBoxLayout, QWidget,
     QAbstractItemView, QApplication, QComboBox, QGridLayout, QGroupBox, QLineEdit, QScrollArea, QMessageBox,
