@@ -17,7 +17,8 @@ from spectra.ui.draw import (freq_to_x, x_to_freq, db_to_y, draw_info_box, draw_
                              _draw_tf_sel_border)
 
 # 커서 리드아웃 값 평활 [RDOUT] — 값↓=더 느림/차분(읽기 편함), ↑=더 즉각. (기본 raw≈1.0였음)
-_RDOUT_ALPHA = 0.10
+# 0.10→너무 빠름(사용자) → 0.03(≈1초+ 시정수)로 더 차분하게. 커서 이동 시엔 즉시 스냅.
+_RDOUT_ALPHA = 0.03
 
 def _smooth_readout(cv, freq, db, thd):
     """커서 리드아웃(dB·THD%) 값 평활 — 매 프레임 raw면 너무 빨리 튀어 안 읽힘.
