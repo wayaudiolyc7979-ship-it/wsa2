@@ -16,18 +16,21 @@ from spectra.ui.draw import (freq_to_x, x_to_freq, db_to_y, draw_info_box, draw_
                              freq_to_note, _focused_capture_visible, _draw_idle_hint,
                              _draw_tf_sel_border)
 
-# 커서 리드아웃 값 평활 [RDOUT] — 값↓=더 느림/차분(읽기 편함), ↑=더 즉각. (기본 raw≈1.0였음)
-# 0.10→너무 빠름(사용자) → 0.03(≈1초+ 시정수)로 더 차분하게. 커서 이동 시엔 즉시 스냅.
-_RDOUT_ALPHA = 0.03
+# 커서 리드아웃 값 평활 [RDOUT] — 시정수(초). 값↑=더 느림/차분(읽기 편함), ↓=더 즉각.
+# ★시간기반: 페인트가 몇 fps든 체감 속도 일정(프레임당 계수는 페인트율 빠르면 더 빨리 수렴하는 버그).
+_RDOUT_TAU = 1.0
 
 def _smooth_readout(cv, freq, db, thd):
     """커서 리드아웃(dB·THD%) 값 평활 — 매 프레임 raw면 너무 빨리 튀어 안 읽힘.
-    커서 주파수가 바뀌면(>~1/33oct) 새 위치 값으로 즉시 스냅, 그 안에선 EMA로 느리게.
-    반환 (db_smooth, thd_smooth|None). cv._rd_db/_rd_thd/_rd_f 상태 사용."""
-    a = _RDOUT_ALPHA
+    커서 주파수가 바뀌면(>~1/33oct) 새 위치 값으로 즉시 스냅, 그 안에선 시간기반 EMA로 느리게.
+    반환 (db_smooth, thd_smooth|None). cv._rd_db/_rd_thd/_rd_f/_rd_t 상태 사용."""
+    now = time.time()
     if cv._rd_f is None or abs(math.log2(max(freq, 1e-9) / max(cv._rd_f, 1e-9))) > 0.03:
-        cv._rd_db = db; cv._rd_thd = thd
+        cv._rd_db = db; cv._rd_thd = thd; cv._rd_t = now          # 커서 이동 → 새 위치 값으로 스냅
     else:
+        dt = now - cv._rd_t if 0.0 < now - cv._rd_t < 1.0 else 0.033
+        cv._rd_t = now
+        a = 1.0 - math.exp(-dt / _RDOUT_TAU)                       # 페인트율 무관 체감 일정
         cv._rd_db += (db - cv._rd_db) * a
         cv._rd_thd = (None if thd is None else
                       thd if cv._rd_thd is None else cv._rd_thd + (thd - cv._rd_thd) * a)
@@ -564,7 +567,7 @@ class OctaveCanvas(QWidget):
         self.setMouseTracking(True); self.setAttribute(Qt.WA_OpaquePaintEvent,True)
         self.setFocusPolicy(Qt.StrongFocus)
         self._show_thd=False              # 커서 THD 표시(우클릭 'Show THD'로 토글) [THD]
-        self._rd_db=None; self._rd_thd=None; self._rd_f=None   # 리드아웃 값 평활 [RDOUT]
+        self._rd_db=None; self._rd_thd=None; self._rd_f=None; self._rd_t=0.0   # 리드아웃 값 평활(시간기반) [RDOUT]
         self.mode='oct3'
         self.title_text=''   # 설정 시 좌상단 제목 표시(TF의 RTA 칸용; Spectrum 옥타브는 빈값)
         self.smooth={k:np.full(len(v),-96.0) for k,v in BANDS.items()}
