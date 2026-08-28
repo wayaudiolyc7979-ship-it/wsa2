@@ -1254,24 +1254,8 @@ def _splitter_qss():
 # ── TF 3분석 패널 카드(영역 분리) — 떠 있는 둥근 카드 + 거터 + 패널별 컬러 제목 ──
 _TF_CARD_COL = {'ir': '#2DD4BF', 'phase': '#A78BFA', 'mag': '#4DA3FF'}   # 패널 정체성 색
 
-def _tf_card_palette():
-    """(gutter, card_bg, border) QColors — 테마 적응. 거터=스플리터 handle 색과 통일.
-    다크: 카드=순수 블랙(SPECTRA 정체성 유지) + 거터만 살짝 밝게 → '검은 카드가 옅은 틀에 박힘'."""
-    if (not is_dark()):
-        return QColor('#dcdde1'), QColor('#ffffff'), QColor(0, 0, 0, 30)
-    return QColor(T('bg2')), QColor('#000000'), QColor(255, 255, 255, 30)   # 거터=우측 패널 회색(#1C1C1E)과 통일
-
-def _tf_gutter():
-    return _tf_card_palette()[0]
-
-def _paint_tf_card(p, W, H, m=6, r=11):
-    """둥근 카드 본체(살짝 밝은 bg + 하어라인 테두리). 거터는 px.fill(_tf_gutter())로 이미 채워짐.
-    그리드/곡선은 PAD_*(>m)로 인셋돼 카드 안에 그려짐."""
-    _g, card, border = _tf_card_palette()
-    p.save(); p.setRenderHint(QPainter.Antialiasing, True)
-    p.setPen(QPen(border, 1)); p.setBrush(card)
-    p.drawRoundedRect(QRectF(m + 0.5, m + 0.5, W - 2*m - 1, H - 2*m - 1), r, r)
-    p.restore()
+# TF 카드 페인팅 — v2.0 분해: spectra/ui/draw.py 로 이동, re-import
+from spectra.ui.draw import _tf_card_palette, _tf_gutter, _paint_tf_card
 
 
 from PyQt5.QtWidgets import QSplitterHandle

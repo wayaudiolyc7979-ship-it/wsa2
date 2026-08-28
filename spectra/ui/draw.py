@@ -4,9 +4,9 @@ v2.0 분해: wayaudo2.py에서 이동(동작 0 변경). QPainter p를 받아 그
 """
 import math
 from PyQt5.QtGui import QColor, QPen, QBrush, QPainterPath, QPolygonF, QPainter, QFont
-from PyQt5.QtCore import Qt, QPointF
+from PyQt5.QtCore import Qt, QPointF, QRectF
 from spectra.core.config import T, is_dark
-from spectra.ui.tokens import _qfont, _n2_val_font
+from spectra.ui.tokens import _qfont, _n2_val_font, CF_BADGE
 
 def freq_to_x(f, pad_l, usable, ny=24000, f_lo=20):
     if f <= 0: return pad_l
@@ -98,3 +98,24 @@ def draw_dom_badge(p, plot_right, plot_top, dom_fs, dom_db, unit='dB'):
     p.drawRoundedRect(bx, by, bw, bh, 4, 4)
     p.setPen(QColor(T('accent')))
     p.drawText(bx, by, bw, bh, Qt.AlignHCenter | Qt.AlignVCenter, txt)
+
+
+# ── TF 카드 페인팅 ──
+def _tf_card_palette():
+    """(gutter, card_bg, border) QColors — 테마 적응. 거터=스플리터 handle 색과 통일.
+    다크: 카드=순수 블랙(SPECTRA 정체성 유지) + 거터만 살짝 밝게 → '검은 카드가 옅은 틀에 박힘'."""
+    if (not is_dark()):
+        return QColor('#dcdde1'), QColor('#ffffff'), QColor(0, 0, 0, 30)
+    return QColor(T('bg2')), QColor('#000000'), QColor(255, 255, 255, 30)   # 거터=우측 패널 회색(#1C1C1E)과 통일
+
+def _tf_gutter():
+    return _tf_card_palette()[0]
+
+def _paint_tf_card(p, W, H, m=6, r=11):
+    """둥근 카드 본체(살짝 밝은 bg + 하어라인 테두리). 거터는 px.fill(_tf_gutter())로 이미 채워짐.
+    그리드/곡선은 PAD_*(>m)로 인셋돼 카드 안에 그려짐."""
+    _g, card, border = _tf_card_palette()
+    p.save(); p.setRenderHint(QPainter.Antialiasing, True)
+    p.setPen(QPen(border, 1)); p.setBrush(card)
+    p.drawRoundedRect(QRectF(m + 0.5, m + 0.5, W - 2*m - 1, H - 2*m - 1), r, r)
+    p.restore()
