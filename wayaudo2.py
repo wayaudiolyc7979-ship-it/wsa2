@@ -1115,7 +1115,7 @@ class _ReloadBtn(QPushButton):
 
 # ── SPECTRA 로고 마크 (정적 그라디언트 웨이브 SVG → QPixmap 캐시; 라이브 렌더 아님 → 속도 무관)
 # 브랜드 마크 SVG — v2.0 분해: spectra/ui/colors.py 로 이동, re-import
-from spectra.ui.colors import _SPECTRA_MARK_SVG
+from spectra.ui.colors import _SPECTRA_MARK_SVG, _SPECTRA_GRAD_DEFS, _SPECTRA_GRAD_QSS
 # 시그니처 그라디언트 stops — QLinearGradient용 (스펙트럼 곡선 등 라이브 렌더; 브러시라 부담 0)
 # 브랜드 그라디언트 상수 — v2.0 분해: spectra/ui/colors.py 로 이동, re-import
 from spectra.ui.colors import _SPECTRA_GRAD_STOPS
