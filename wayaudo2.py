@@ -3560,21 +3560,26 @@ class FFTCanvas(QWidget):
         unit='dBSPL' if self.calib_offset else 'dB'
         draw_dom_badge(p, W-pr, pt, dom_fs, dom_db, unit)
 
-        # 커서
+        # 커서 — 포커스된 캡쳐가 있으면 그 값을, 없으면 라이브 값을 읽음
         if pl<=self._mx<=W-pr:
             cx=self._mx
-            freq=x_to_freq(cx,pl,uw,ny) if self.scale_log else (cx-pl)/uw*ny
-            fs=f'{freq/1000:.2f} kHz' if freq>=1000 else f'{freq:.0f} Hz'
-            fs=f'{fs}   {freq_to_note(freq)}'
-            idx=int(np.clip(np.argmin(np.abs(f_arr-freq)),0,len(a_arr)-1))
-            db=float(a_arr[idx])
-            # 가로선은 마우스 Y가 아니라 곡선 값 위치에 (매그니튜드 방식)
-            cy=int(pt+np.clip((self.db_max-db)/(self.db_max-self.db_min)*(H-pt-pb),0,H-pt-pb))
-            p.setPen(QPen(QColor(T('accent')).lighter(80) if _theme=='light' else QColor(T('accent')),
-                         1,Qt.DashLine))
-            p.drawLine(cx,pt,cx,H-pb); p.drawLine(pl,cy,W-pr,cy)
-            draw_info_box(p,W,fs,f'{db:.1f} {unit}', cx=cx, x_lo=pl, x_hi=W-pr, top=pt,
-                          val_color=QColor(*bar_top()[:3]))
+            _cf=f_arr; _ca=a_arr; _cap_col=None
+            if _focused_capture_visible(self):
+                _cap=self._captures[self._front_idx]
+                _cf=_cap.get('f'); _ca=_cap.get('db'); _cap_col=_cap.get('color')
+            if _cf is not None and _ca is not None and len(_cf)>0:
+                freq=x_to_freq(cx,pl,uw,ny) if self.scale_log else (cx-pl)/uw*ny
+                fs=f'{freq/1000:.2f} kHz' if freq>=1000 else f'{freq:.0f} Hz'
+                fs=f'{fs}   {freq_to_note(freq)}'
+                idx=int(np.clip(np.argmin(np.abs(_cf-freq)),0,len(_ca)-1))
+                db=float(_ca[idx])
+                # 가로선은 마우스 Y가 아니라 곡선 값 위치에 (매그니튜드 방식)
+                cy=int(pt+np.clip((self.db_max-db)/(self.db_max-self.db_min)*(H-pt-pb),0,H-pt-pb))
+                p.setPen(QPen(QColor(T('accent')).lighter(80) if _theme=='light' else QColor(T('accent')),
+                             1,Qt.DashLine))
+                p.drawLine(cx,pt,cx,H-pb); p.drawLine(pl,cy,W-pr,cy)
+                draw_info_box(p,W,fs,f'{db:.1f} {unit}', cx=cx, x_lo=pl, x_hi=W-pr, top=pt,
+                              val_color=_cap_col or QColor(*bar_top()[:3]))
         p.end()
 
 # ───────────────────────────────────────────
@@ -3994,7 +3999,11 @@ class OctaveCanvas(QWidget):
         if pl<=self._mx<=W-pr:
             cx,cy=self._mx,self._my
             bi=max(0,min(int((cx-pl)/bar_w),n-1)); fc=bands[bi]
-            db2=float(sm[bi])
+            db2=float(sm[bi]); _cap_col=None
+            if _focused_capture_visible(self):   # 포커스된 캡쳐(같은 모드) 값 우선
+                _cv=self._captures[self._front_idx].get('values')
+                if _cv is not None and len(_cv)==n:
+                    db2=float(_cv[bi]); _cap_col=self._captures[self._front_idx].get('color')
             bx2=int(pl+bi*bar_w+gap/2); bw2=max(1,int(bar_w-gap))
             p.setPen(QPen(QColor(T('accent')),2))
             p.setBrush(QBrush(QColor(T('accent')).lighter(200) if _theme=='light' else QColor(78,125,240,12)))
@@ -4002,7 +4011,7 @@ class OctaveCanvas(QWidget):
             fs=f'{fc/1000:.2f} kHz' if fc>=1000 else f'{fc:.0f} Hz'
             fs=f'{fs}   {freq_to_note(fc)}'
             draw_info_box(p,W,fs,f'{db2:.1f} {unit}', cx=cx, x_lo=pl, x_hi=W-pr, top=pt,
-                          val_color=QColor(*bar_top()[:3]))
+                          val_color=_cap_col or QColor(*bar_top()[:3]))
         if self._idle_hint:
             _draw_idle_hint(p, pl, pt, W-pl-pr, dh)
         _draw_tf_sel_border(self, p)   # TF의 RTA 칸 선택 시 파란 테두리(Spectrum 탭에선 무효)
@@ -9787,7 +9796,13 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
                     p.drawLine(pl,pcy,W-pr,pcy)
         # 자체 커서: 십자 + info box — 선택(front) 카드 우선 → primary → 아무 extra
         _fk = self._front_extra
-        if isinstance(_fk, int) and _fk != -1 and _fk in self._tf_extra_phase:
+        _cap_col = None
+        if _focused_capture_visible(self):   # 포커스된 캡쳐 값 우선
+            _cap = self._captures[self._front_idx]
+            _cf = _cap.get('f')
+            data = [_cap.get('ph_wrap'), _cap.get('ph_unwr'), _cap.get('grp_ms')][self.phase_mode]
+            _cmag = None; _cap_col = _cap.get('color')
+        elif isinstance(_fk, int) and _fk != -1 and _fk in self._tf_extra_phase:
             _ex = self._tf_extra_phase[_fk]
             _cf = _ex.get('f')
             data = [_ex.get('ph_wrap'), _ex.get('ph_unwr'), _ex.get('grp_ms')][self.phase_mode]
@@ -9831,7 +9846,9 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
                     ph_str=f'  {int(val_plot)}°'
                 else:
                     ph_str=f'  {val_plot:+.1f}°'
-                if isinstance(_fk, int) and _fk != -1 and _fk in self._tf_extra_phase:
+                if _cap_col is not None:
+                    _vcol = _cap_col
+                elif isinstance(_fk, int) and _fk != -1 and _fk in self._tf_extra_phase:
                     _vcol = self._tf_extra_phase[_fk].get('color')
                 else:
                     _vcol = self._live_color or T('green')
@@ -10409,9 +10426,14 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
                 pcy=int(pt+np.clip((self.db_max-float(self.mag[pidx]))/rng*dh,0,dh))
                 p.drawLine(pl,pcy,W-pr,pcy)
         # 자체 커서: 십자 + info box
-        # 커서 데이터: 선택(front) 카드 우선 → primary → 아무 extra (선택 카드 값이 뜨도록)
+        # 커서 데이터 우선순위: 포커스된 캡쳐 → 선택(front) 라이브카드 → primary → 아무 extra
         _fk = self._front_extra
-        if isinstance(_fk, int) and _fk != -1 and _fk in self._tf_extra:
+        _cap_col = None
+        if _focused_capture_visible(self):   # 캡쳐를 클릭해 포커스 → 그 캡쳐 값을 읽음
+            _cap = self._captures[self._front_idx]
+            _cf = _cap.get('f'); _cm = _cap.get('mag'); _cp = None; _cc = _cap.get('coh')
+            _cap_col = _cap.get('color')
+        elif isinstance(_fk, int) and _fk != -1 and _fk in self._tf_extra:
             _ex = self._tf_extra[_fk]
             _cf = _ex.get('f'); _cm = _ex.get('mag'); _cp = _ex.get('phase'); _cc = _ex.get('coh')
         else:
@@ -10438,7 +10460,9 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
             coh_str=''
             if _cc is not None and len(_cc)==len(_cf):
                 coh_str=f'  {_cc[idx]*100:.0f}%'
-            if isinstance(_fk, int) and _fk != -1 and _fk in self._tf_extra:
+            if _cap_col is not None:
+                _vcol = _cap_col
+            elif isinstance(_fk, int) and _fk != -1 and _fk in self._tf_extra:
                 _vcol = self._tf_extra[_fk].get('color')
             else:
                 _vcol = self._live_color or T('green')
@@ -11630,9 +11654,14 @@ class TFIRCanvas(QWidget):
                 p.setPen(Qt.NoPen); p.setBrush(QColor(T('bg')))
                 p.drawRect(_lx - 3, _ty - _fm.ascent() - 1, _tw2 + 6, _fm.height() + 2)
                 p.setPen(_c); p.drawText(_lx, _ty, _lbl)
-        # 커서: 선택(front) 카드 우선 → primary → 아무 extra
+        # 커서 우선순위: 포커스된 캡쳐 → 선택(front) 라이브카드 → primary → 아무 extra
         _fk = self._front_extra
-        if isinstance(_fk, int) and _fk != -1 and _fk in self._tf_extra:
+        _cap_col = None
+        if _focused_capture_visible(self):
+            _cap = self._captures[self._front_idx]
+            _ct = _cap.get('t'); _ch = _cap.get('h'); _cetc = _cap.get('etc_db')
+            _cap_col = _cap.get('color')
+        elif isinstance(_fk, int) and _fk != -1 and _fk in self._tf_extra:
             _ex = self._tf_extra[_fk]
             _ct = _ex.get('t'); _ch = _ex.get('h'); _cetc = _ex.get('etc_db')
         else:
@@ -11646,7 +11675,9 @@ class TFIRCanvas(QWidget):
             p.drawLine(cx, pt, cx, H - pb)
             t_cur = self.t_min + (cx - pl) / uw * t_range
             t_arr = _ct
-            if isinstance(_fk, int) and _fk != -1 and _fk in self._tf_extra:
+            if _cap_col is not None:
+                _vcol = _cap_col
+            elif isinstance(_fk, int) and _fk != -1 and _fk in self._tf_extra:
                 _vcol = self._tf_extra[_fk].get('color')
             else:
                 _vcol = self._live_color or T('green')

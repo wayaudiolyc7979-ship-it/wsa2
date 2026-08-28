@@ -466,6 +466,32 @@ def _info_box():
 check('커서 리드아웃 태그(draw_info_box H2)', _info_box)
 
 
+def _capture_cursor_readout():
+    """포커스된 캡쳐 위에 커서 → 리드아웃이 캡쳐 값을 읽는지(라이브 없이도) + 색=캡쳐색."""
+    import numpy as np
+    out = []
+    # TF Magnitude — 라이브 없이 캡쳐만
+    mg = w.TFMagCanvas(); mg.resize(600, 240)
+    f = np.logspace(np.log10(20), np.log10(20000), 300).astype(np.float32)
+    mg.add_capture_data('CAP', '#FF5AF0', f, (4*np.cos(f/900.0)+3).astype(np.float32),
+                        coh=np.full_like(f, 0.8))
+    mg.bring_to_front(0)
+    assert w._focused_capture_visible(mg), 'Mag 캡쳐 포커스 실패'
+    mg._mx = 300; _app.processEvents(); mg.grab()   # 크래시 없이 렌더(캡쳐 값 경로)
+    out.append('mag OK')
+    # TF IR
+    ir = w.TFIRCanvas(); ir.resize(600, 240)
+    N = 2048; t = (np.arange(N)-N//2)/48000.0*1000.0
+    h = np.zeros(N, np.float32); h[N//2+20] = 0.7
+    ir.add_capture_data('CAP', '#FFC24B', t.astype(np.float32), h)
+    ir.bring_to_front(0); ir.t_min, ir.t_max = -20.0, 20.0
+    assert w._focused_capture_visible(ir), 'IR 캡쳐 포커스 실패'
+    ir._mx = 360; _app.processEvents(); ir.grab()
+    out.append('ir OK')
+    return '  '.join(out)
+check('포커스 캡쳐 커서 리드아웃', _capture_cursor_readout)
+
+
 # ─────────────────────────────────────────────────────────────
 #  로직 체크 (assert)
 # ─────────────────────────────────────────────────────────────
