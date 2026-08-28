@@ -16,9 +16,23 @@ from spectra.ui.draw import (freq_to_x, x_to_freq, db_to_y, draw_info_box, draw_
                              freq_to_note, _focused_capture_visible, _draw_idle_hint,
                              _draw_tf_sel_border)
 
-# 커서 리드아웃 값 평활 [RDOUT] — 시정수(초). 값↑=더 느림/차분(읽기 편함), ↓=더 즉각.
+# 커서 리드아웃/도미넌트 배지 값 평활 [RDOUT] — 시정수(초). 값↑=더 느림/차분, ↓=더 즉각.
 # ★시간기반: 페인트가 몇 fps든 체감 속도 일정(프레임당 계수는 페인트율 빠르면 더 빨리 수렴하는 버그).
-_RDOUT_TAU = 1.0
+_RDOUT_TAU = 2.5
+
+def _smooth_dom(cv, f, db):
+    """도미넌트 배지(최대 주파수+레벨) 평활 — argmax가 프레임마다 튀어 배지가 깜빡임.
+    주파수가 크게(>~1/7oct) 바뀌면 다른 봉우리로 점프 → 스냅, 작은 흔들림은 시간기반 EMA로 느리게.
+    반환 (f_smooth, db_smooth). cv._dom_f/_dom_db/_dom_t 상태 사용."""
+    now = time.time()
+    if cv._dom_f is None or abs(math.log2(max(f, 1e-9) / max(cv._dom_f, 1e-9))) > 0.10:
+        cv._dom_f = f; cv._dom_db = db; cv._dom_t = now
+    else:
+        dt = now - cv._dom_t if 0.0 < now - cv._dom_t < 1.0 else 0.033
+        cv._dom_t = now; a = 1.0 - math.exp(-dt / _RDOUT_TAU)
+        cv._dom_f *= (f / cv._dom_f) ** a                # 주파수는 로그(기하) 보간
+        cv._dom_db += (db - cv._dom_db) * a
+    return cv._dom_f, cv._dom_db
 
 def _smooth_readout(cv, freq, db, thd):
     """커서 리드아웃(dB·THD%) 값 평활 — 매 프레임 raw면 너무 빨리 튀어 안 읽힘.
@@ -518,6 +532,7 @@ class FFTCanvas(QWidget):
         else:
             dom_idx=int(np.argmax(a_arr))
         dom_f=float(f_arr[dom_idx]); dom_db=float(a_arr[dom_idx])
+        dom_f, dom_db = _smooth_dom(self, dom_f, dom_db)   # [RDOUT] 배지 평활(느리게)
         dom_fs=f'{dom_f/1000:.2f} kHz' if dom_f>=1000 else f'{dom_f:.0f} Hz'
         unit='dBSPL' if self.calib_offset else 'dB'
         draw_dom_badge(p, W-pr, pt, dom_fs, dom_db, unit)
@@ -568,6 +583,7 @@ class OctaveCanvas(QWidget):
         self.setFocusPolicy(Qt.StrongFocus)
         self._show_thd=False              # 커서 THD 표시(우클릭 'Show THD'로 토글) [THD]
         self._rd_db=None; self._rd_thd=None; self._rd_f=None; self._rd_t=0.0   # 리드아웃 값 평활(시간기반) [RDOUT]
+        self._dom_f=None; self._dom_db=None; self._dom_t=0.0   # 도미넌트 배지 평활 [RDOUT]
         self.mode='oct3'
         self.title_text=''   # 설정 시 좌상단 제목 표시(TF의 RTA 칸용; Spectrum 옥타브는 빈값)
         self.smooth={k:np.full(len(v),-96.0) for k,v in BANDS.items()}
@@ -962,6 +978,7 @@ class OctaveCanvas(QWidget):
             else:
                 dom_idx=int(np.argmax(sm))
             dom_f=float(bands[dom_idx]); dom_db=float(sm[dom_idx])
+            dom_f, dom_db = _smooth_dom(self, dom_f, dom_db)   # [RDOUT] 배지 평활(느리게)
             dom_fs=f'{dom_f/1000:.2f} kHz' if dom_f>=1000 else f'{dom_f:.0f} Hz'
             draw_dom_badge(p, W-pr, pt, dom_fs, dom_db, unit)
         if self.title_text:
