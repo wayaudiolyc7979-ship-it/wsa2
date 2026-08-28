@@ -119,3 +119,40 @@ def _paint_tf_card(p, W, H, m=6, r=11):
     p.setPen(QPen(border, 1)); p.setBrush(card)
     p.drawRoundedRect(QRectF(m + 0.5, m + 0.5, W - 2*m - 1, H - 2*m - 1), r, r)
     p.restore()
+
+
+# ───────────────────────────────────────────
+#  레벨미터 구간(zone) — green/yellow/red 위치 기반 (M4/Smaart 하드웨어 미터식)
+#  여기 두 숫자만 바꾸면 모든 레벨미터(TF R/M, Spectrum 카드, 메인 SPL)에 반영  [찾기: METER_ZONES]
+#    값↑ = 그 색 구간이 더 위(0dBFS) 쪽으로 좁아짐
+# ───────────────────────────────────────────
+METER_DB_MIN    = -60.0   # 모든 레벨미터 바닥(dBFS) — 통일(카드/메인/TF가 같은 양으로 채워짐)
+METER_YELLOW_DB = -18.0   # 이 위로 노랑 구간 시작
+METER_RED_DB    = -6.0    # 이 위로 빨강 구간 시작(클립 근접)
+# 레벨미터 반응 속도 — 스펙트럼 Speed와 무관(독립). 미터=항상 실시간, 그래프=Speed 따로.
+METER_ATTACK    = 0.7     # (스펙트럼 메인/카드) 올라올 때 계수·즉각  — ~60fps 고정 프로듀서용
+METER_RELEASE   = 0.30    # (스펙트럼 메인/카드) 내려갈 때 계수·실시간 ~150ms. 값↑=더 빨리
+# TF 바(_HorizBarVU)는 업데이트율이 가변(M바 빠름/R바 10Hz)이라 시간기반 탄도(초 단위 시정수)로
+# 통일 — 업데이트율과 무관하게 일정한 실시간 반응.  값↑=더 천천히
+METER_TAU_ATTACK  = 0.015  # 올라올 때 시정수(초)·거의 즉각
+METER_TAU_RELEASE = 0.05   # 내려갈 때 시정수(초)·실시간(~0.15s 정착)
+METER_PEAK_DECAY  = 30.0   # peak tick 감쇠(dB/초) — 채움에 붙어 매끄럽게 따라내림(스펙트럼 카드 느낌)
+
+def _draw_zone_meter_h(p, W, H, db, db_min, db_max=0.0):
+    """수평 레벨바를 채움 폭 안에서 위치별 green/yellow/red 구간으로 칠한다(M4/Smaart 사다리).
+    채움 폭만큼 둥근 사각형으로 clip → 구간별 단색 사각형을 그 위에 그림(라이브 그라디언트 아님)."""
+    rng = db_max - db_min
+    if rng <= 0: return
+    def _x(v): return W * max(0.0, min(1.0, (v - db_min) / rng))
+    bar_w = _x(db)
+    if bar_w <= 1.5: return
+    rr = H / 2.0
+    p.save()
+    clip = QPainterPath(); clip.addRoundedRect(QRectF(0, 0, bar_w, H), rr, rr)
+    p.setClipPath(clip); p.setPen(Qt.NoPen)
+    gx = min(bar_w, _x(METER_YELLOW_DB))
+    yx = min(bar_w, _x(METER_RED_DB))
+    p.setBrush(QColor(T('green'))); p.drawRect(QRectF(0, 0, gx, H))
+    if bar_w > gx: p.setBrush(QColor(T('yellow'))); p.drawRect(QRectF(gx, 0, yx - gx, H))
+    if bar_w > yx: p.setBrush(QColor(T('red')));    p.drawRect(QRectF(yx, 0, bar_w - yx, H))
+    p.restore()
