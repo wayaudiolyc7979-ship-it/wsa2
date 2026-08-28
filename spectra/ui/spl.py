@@ -6,7 +6,7 @@ import sys, math, time, ctypes
 from collections import deque
 import numpy as np
 from PyQt5.QtGui import (QBrush, QColor, QCursor, QFont, QLinearGradient, QPainter,
-                         QPainterPath, QPen, QPolygonF, QRadialGradient)
+                         QPainterPath, QPen, QPixmap, QPolygonF, QRadialGradient)
 from PyQt5.QtCore import (Qt, QMutex, QMutexLocker, QPointF, QRectF, QTimer,
                           QEasingCurve, QVariantAnimation, pyqtSignal)
 from PyQt5.QtWidgets import (QDialog, QFrame, QGraphicsOpacityEffect, QGridLayout,
@@ -955,14 +955,15 @@ class ShowModeWindow(QWidget):
     """FOH 글랜스 풀스크린 쇼 모드 — 거대한 SPL + 라이브 스펙트럼 + 핵심 지표.
     객석 건너편에서도 한눈에 읽히게. _process_audio가 push()로 급전(표시 전용, 측정로직 독립).
     한계 대비 초록(여유)→노랑(접근)→빨강(초과) 신호색."""
-    _HEADLINE_TAU = 0.7   # 헤드라인 큰 숫자 평활 시정수(초) — 값↑=더 차분/느림, ↓=더 즉각.
-                          #   SPL Slow(1s) 계열. 프레임율 무관(시간기반). 글랜스 가독 튜닝 지점.
+    _HEADLINE_TAU = 2.5   # 헤드라인 큰 숫자 평활 시정수(초) — 값↑=더 차분/느림, ↓=더 즉각.
+                          #   프레임율 무관(시간기반). 글랜스 가독 튜닝 지점(멀리서도 안정적으로 읽히게 느리게).
     def __init__(self, main):
         super().__init__()
         self._main = main
         self.setWindowTitle('SPECTRA — Show Mode')
         self._spl = -120.0; self._unit = 'dBA'
         self._peak = -120.0; self._leq = -120.0; self._leq_e = None
+        self._num_pix = None; self._num_key = None   # 거대 숫자 픽스맵 캐시(문자열/색 바뀔 때만 재렌더)
         self._last_paint = 0.0          # 리페인트 throttle (글랜스 차분하게)
         self._last_push = 0.0           # 헤드라인 시간기반 평활용 (프레임율 무관)
         self._limit = 100.0; self._amber = 3.0
@@ -986,7 +987,7 @@ class ShowModeWindow(QWidget):
         e = 10.0 ** (raw / 10.0)
         self._leq_e = e if self._leq_e is None else self._leq_e + (e - self._leq_e) * 0.002
         self._leq = 10.0 * math.log10(max(self._leq_e, 1e-12))
-        if now - self._last_paint >= 0.066:     # 리페인트 ~15fps 제한 (글랜스 차분)
+        if now - self._last_paint >= 0.033:     # 리페인트 ~30fps (거대 숫자 캐시라 부담 적음)
             self._last_paint = now; self.update()
 
     def reset_hold(self):
@@ -1032,16 +1033,27 @@ class ShowModeWindow(QWidget):
         top = int(H * 0.17); bot = int(H * 0.78)
         left_w = int(W * 0.40)
         col = self._state_color()
-        # 왼쪽: 거대한 SPL 숫자
+        # 왼쪽: 거대한 SPL 숫자 — 픽스맵 캐시(문자열/색/크기 바뀔 때만 재렌더).
+        # 매프레임 거대 폰트 래스터라이즈가 풀스크린 버벅임의 주원인 → 대부분 프레임은 blit만.
         num = f'{self._spl:.1f}' if self._spl > -100 else '—'
-        avail_w = left_w - int(m * 1.5)
-        nf = QFont(FONT_NUM); nf.setBold(True)
-        size = int((bot - top) * 0.62); nf.setPixelSize(size); p.setFont(nf)
-        tw = p.fontMetrics().horizontalAdvance(num)
-        if tw > avail_w and tw > 0:                       # 3자리(100+)면 폭에 맞춰 축소
-            size = max(10, int(size * avail_w / tw)); nf.setPixelSize(size); p.setFont(nf)
-        p.setPen(col)
-        p.drawText(m, top, left_w - m, int((bot - top) * 0.74), Qt.AlignVCenter | Qt.AlignHCenter, num)
+        box_w = max(1, left_w - m); box_h = max(1, int((bot - top) * 0.74))
+        _nkey = (num, col.name(), box_w, box_h)
+        if self._num_key != _nkey or self._num_pix is None:
+            self._num_key = _nkey
+            pix = QPixmap(box_w, box_h); pix.fill(Qt.transparent)
+            pp = QPainter(pix)
+            pp.setRenderHint(QPainter.Antialiasing); pp.setRenderHint(QPainter.TextAntialiasing)
+            avail_w = left_w - int(m * 1.5)
+            nf = QFont(FONT_NUM); nf.setBold(True)
+            size = int((bot - top) * 0.62); nf.setPixelSize(size); pp.setFont(nf)
+            tw = pp.fontMetrics().horizontalAdvance(num)
+            if tw > avail_w and tw > 0:                    # 3자리(100+)면 폭에 맞춰 축소
+                size = max(10, int(size * avail_w / tw)); nf.setPixelSize(size); pp.setFont(nf)
+            pp.setPen(col)
+            pp.drawText(0, 0, box_w, box_h, Qt.AlignVCenter | Qt.AlignHCenter, num)
+            pp.end()
+            self._num_pix = pix
+        p.drawPixmap(m, top, self._num_pix)
         uf = QFont(FONT_SANS); uf.setPixelSize(max(14, int(H * 0.040)))
         uf.setLetterSpacing(QFont.AbsoluteSpacing, 2)
         p.setFont(uf); p.setPen(QColor('#8B93A2'))
