@@ -2279,11 +2279,11 @@ def draw_info_box(p, W, title_str, val_str, pk_str=None, cx=None, x_lo=0, x_hi=N
                   top=6, val_color=None):
     # 커서 리드아웃 = 커서에 붙는 태그(H2). 위치(제목)는 흐리게 위, 값은 곡선색으로 아래.
     # cx 지정 시 커서 x 에 태그를 물리고 아래 노치(▽)로 그 지점을 가리킴(플롯 안으로 클램프);
-    # cx=None 이면 상단 중앙 폴백. 글로우/굵은 테두리/주황값(구식) 폐지 → N2 모노+하어라인.
+    # cx=None 이면 상단 중앙 폴백. 글로우/굵은 테두리/주황값(구식) 폐지 → 브랜드 폰트(축 라벨과 동일)+하어라인.
     if x_hi is None: x_hi = W
     p.setRenderHint(QPainter.Antialiasing, True)
-    p.setFont(_n2_mono_font(13, QFont.DemiBold)); tw = p.fontMetrics().horizontalAdvance(title_str)
-    p.setFont(_n2_mono_font(15, QFont.Bold));     vw = p.fontMetrics().horizontalAdvance(val_str)
+    p.setFont(_n2_val_font(13, QFont.DemiBold));tw = p.fontMetrics().horizontalAdvance(title_str)
+    p.setFont(_n2_val_font(16, QFont.Bold));     vw = p.fontMetrics().horizontalAdvance(val_str)
     pw = p.fontMetrics().horizontalAdvance(pk_str) if pk_str else 0
     bw = max(tw, vw, pw) + 22
     bh = 66 if pk_str else 44
@@ -2300,9 +2300,9 @@ def draw_info_box(p, W, title_str, val_str, pk_str=None, cx=None, x_lo=0, x_hi=N
         p.drawPolygon(QPolygonF([QPointF(nx - 6, by + bh - 0.5),
                                  QPointF(nx + 6, by + bh - 0.5), QPointF(nx, by + bh + 8)]))
     p.setPen(QPen(QColor(T('border')), 1)); p.setBrush(Qt.NoBrush); p.drawPath(path)
-    p.setFont(_n2_mono_font(13, QFont.DemiBold)); p.setPen(QColor(T('text_dim')))
+    p.setFont(_n2_val_font(13, QFont.DemiBold));p.setPen(QColor(T('text_dim')))
     p.drawText(bx, by + 4, bw, 18, Qt.AlignHCenter | Qt.AlignVCenter, title_str)
-    p.setFont(_n2_mono_font(15, QFont.Bold)); p.setPen(QColor(val_color or T('text')))
+    p.setFont(_n2_val_font(16, QFont.Bold)); p.setPen(QColor(val_color or T('text')))
     p.drawText(bx, by + 21, bw, 20, Qt.AlignHCenter | Qt.AlignVCenter, val_str)
     if pk_str:
         p.setPen(QColor('#FFB300'))
