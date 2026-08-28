@@ -839,26 +839,8 @@ def fmt_delay(ms, prec=2, unit=None, compact=False, sign=False):
         return f'{ms:{s}.{prec}f} ms · {ms_to_m(ms):{s}.2f} m'
     return f'{ms:{s}.{prec}f} ms'
 
-_HANN_CACHE = {}   # {n: (hanning_win, Σw²)} — power_spectrum_db 윈도우 메모이즈
-def power_spectrum_db(buf):
-    """단측(one-sided) 파워 스펙트럼 → 빈별 dBFS 배열.
-    Hanning 윈도우 파워 보정(Σw², ENBW) + 단측 ×2 정규화 → 밴드 파워 합산값이
-    실제 RMS 파워와 정합(Parseval). 톤/광대역 정규화가 일치하고 FFT 해상도·
-    윈도우 종류에 무관 → Smaart 등 표준 RTA와 절대 레벨이 맞음.
-    (FS 사인파 = -3 dBFS, 즉 RMS 기준)"""
-    n = len(buf)
-    cached = _HANN_CACHE.get(n)                 # n별 윈도우·Σw² 캐시 (매 청크 재계산 방지)
-    if cached is None:
-        win = np.hanning(n).astype(np.float32)
-        cached = (win, float(np.dot(win, win)))  # Σw² (Hanning ≈ 0.375·n)
-        _HANN_CACHE[n] = cached
-    win, win_pow = cached
-    ps = np.abs(np.fft.rfft(buf * win)) ** 2
-    ps *= 2.0 / (n * win_pow)                   # 단측 파워 정규화 (윈도우/해상도 무관)
-    ps[0] *= 0.5
-    if n % 2 == 0: ps[-1] *= 0.5               # DC·Nyquist는 단측 ×2 제외
-    np.maximum(ps, 1e-20, out=ps)
-    return 10.0 * np.log10(ps)
+# power_spectrum_db — v2.0 분해: spectra/dsp/weighting.py 로 이동, re-import(동작 불변)
+from spectra.dsp.weighting import power_spectrum_db
 
 
 _OCT_MASK_CACHE = {}   # (len(freqs), nyquist반올림, mode) → 밴드별 인덱스 캐시(매 프레임 마스크 재계산 방지)
