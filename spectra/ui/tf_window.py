@@ -76,7 +76,6 @@ def _popout_toggle_ss():
             f'QPushButton:hover{{border-color:{accent};}}'
             f'QPushButton:checked{{background:{accent};color:#FFFFFF;border:1px solid {accent};}}')
 
-# 디자인 토큰 — v2.0 분해: spectra/ui/tokens.py 로 이동, re-import(동작 불변)
 
 
 def _db_ctrl_btn_style(locked):
@@ -92,7 +91,6 @@ def _db_ctrl_btn_style(locked):
             f'padding:2px 12px;font-size:12px;}}'
             f'QPushButton:hover{{border-color:{T("accent")};}}')
 
-# _ask_db_range — v2.0 분해: spectra/ui/canvas_tf.py, re-import
 
 
 def _sep_line_color():
@@ -115,7 +113,6 @@ class _VScrollArea(QScrollArea):
 # ───────────────────────────────────────────
 #  Bar gradient presets
 # ───────────────────────────────────────────
-# BAR_PRESETS/bar 색 — v2.0 분해: spectra/ui/colors.py, re-import
 
 
 def _capture_palette(count=48):
@@ -155,7 +152,6 @@ def _auto_capture_color(n):
     pal = _capture_palette()
     return pal[n % len(pal)]
 
-# _catmull_seg — v2.0 분해: spectra/ui/canvas_tf.py, re-import
 
 
 def _text_input_dialog(parent, title, label, default=''):
@@ -188,7 +184,6 @@ def _text_input_dialog(parent, title, label, default=''):
     return le.text(), ok
 
 
-# _brand_msg/_BrandBox — v2.0 분해: spectra/ui/dialogs.py, re-import
 
 
 def _gen_log_sweep(n, sr, f_lo=20.0, f_hi=20000.0):
@@ -215,7 +210,6 @@ def _gen_pink_noise(n):
     rms = float(np.sqrt(np.mean(sig ** 2)))
     return sig / rms if rms > 0 else sig
 
-# MTWEngine — v2.0 분해: spectra/dsp/tf.py 로 이동, 여기로 re-import(동작 불변)
 
 
 def _ir_from_mag_phase(f_hz, mag_db, phase_deg, fs=48000, N=16384):
@@ -239,7 +233,6 @@ def _ir_from_mag_phase(f_hz, mag_db, phase_deg, fs=48000, N=16384):
     return t_ms.astype(np.float32), h
 
 
-# TFIRCanvas — v2.0 분해: spectra/ui/canvas_tf.py, re-import
 
 
 class TFDuplexThread(QThread):
@@ -431,7 +424,6 @@ class TFDuplexThread(QThread):
 # ───────────────────────────────────────────
 #  Delay Finder Dialog
 # ───────────────────────────────────────────
-# 설정 다이얼로그 — v2.0 분해: spectra/ui/dialogs.py, re-import
 
 
 def _shortcut_should_yield():
@@ -485,7 +477,6 @@ class _TFTitleHotspot(QWidget):
         self._on_click(e.globalPos())
 
 
-# _ConvWorker — v2.0 분해: spectra/ui/dialogs.py, re-import
 
 
 class TransferFunctionWindow(QWidget):
@@ -5026,4 +5017,3 @@ class TransferFunctionWindow(QWidget):
 # ───────────────────────────────────────────
 #  캔버스 키/마우스 라우터 (앱 레벨 이벤트 필터)
 # ───────────────────────────────────────────
-# _CanvasKeyRouter — v2.0 분해: spectra/ui/stereo_page.py, re-import

@@ -1260,4 +1260,3 @@ class SpectrogramCanvas(QWidget):
                 draw_info_box(p,W,fs,'', cx=cx, x_lo=pl, x_hi=pl+dw, top=pt)
         p.end()
 
-# 레벨미터 상수/존 드로잉 — v2.0 분해: spectra/ui/draw.py, re-import

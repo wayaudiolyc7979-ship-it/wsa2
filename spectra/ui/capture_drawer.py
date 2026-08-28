@@ -30,7 +30,6 @@ def _cap_dot_pm(color, filled, size=11):
     return pm
 
 
-# 파워 LED 아이콘 — v2.0 분해: spectra/ui/icons.py 로 이동, re-import
 
 
 class _DragGrip(QLabel):
@@ -777,4 +776,3 @@ class _CaptureDrawer(QWidget):
         menu.exec_(global_pos)
 
 
-# RoundComboBox — v2.0 분해: spectra/ui/widgets.py, re-import

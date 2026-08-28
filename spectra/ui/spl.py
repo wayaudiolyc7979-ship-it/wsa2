@@ -61,7 +61,6 @@ def _apply_txn(btn, playing):
         btn.setStyleSheet(_txn_style('accent')); btn.setIcon(_icon('play', 14, color=T('accent')))
 
 
-# 윈도우 크롬(타이틀바/브랜드헤더) — v2.0 분해: spectra/ui/widgets.py, re-import
 
 
 def _apply_on_top(win, on):
@@ -196,7 +195,6 @@ class _ReloadBtn(QPushButton):
 
 
 # ── SPECTRA 로고 마크 (정적 그라디언트 웨이브 SVG → QPixmap 캐시; 라이브 렌더 아님 → 속도 무관)
-# 브랜드 마크 SVG — v2.0 분해: spectra/ui/colors.py 로 이동, re-import
 
 
 class LeqWindow(QWidget):
@@ -1459,4 +1457,3 @@ class SplMeterWindow(QWidget):
         e.accept()
 
 
-# SplLayoutDialog — v2.0 분해: spectra/ui/dialogs.py, re-import

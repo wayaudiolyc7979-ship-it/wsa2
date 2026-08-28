@@ -162,7 +162,6 @@ class StereoAudioThread(QThread):
             _alog.warning('StereoAudioThread stop(): wait timeout — stream forced abort')
 
 
-# Loudness DSP — v2.0 분해: spectra/dsp/loudness.py 로 이동, 여기로 re-import(동작 불변)
 
 
 class StereoLoudnessPage(QWidget):

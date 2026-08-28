@@ -167,7 +167,6 @@ def freq_to_note(f):
     n = int(round(69.0 + 12.0 * math.log2(f / 440.0)))   # 69 = A4
     return f'{_NOTE_NAMES[n % 12]}{n // 12 - 1}'
 
-# 딜레이/음속 단위 — v2.0 분해: spectra/core/config.py, 함수만 re-import(_SOUND_SPEED/_DELAY_UNIT은 config 소유)
 
 
 def _focused_capture_visible(c):
@@ -178,7 +177,6 @@ def _focused_capture_visible(c):
             and c._captures[c._front_idx].get('visible', True))
 
 
-# _grad_topline — v2.0 분해: widgets.py, re-import
 
 
 def _draw_idle_hint(p, pl, pt, dw, dh, text='Press  Start  to begin'):
