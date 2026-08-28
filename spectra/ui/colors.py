@@ -114,3 +114,5 @@ def _spectra_mark(h=22):
         pm = QPixmap(1, 1); pm.fill(Qt.transparent)   # QtSvg 없으면 빈 마크(워드마크만 표시)
     _spectra_mark_cache[key] = pm
     return pm
+
+_TF_SEL_GRAD_STOPS = ('#1FA2FF', '#4E7DF0', '#9B5DE5', '#F15BB5', '#FF9F0A', '#FF453A')  # SPECTRA 시그니처

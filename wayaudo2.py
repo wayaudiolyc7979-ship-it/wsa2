@@ -1187,32 +1187,8 @@ from spectra.ui.draw import _tf_card_palette, _tf_gutter, _paint_tf_card
 
 from PyQt5.QtWidgets import QSplitterHandle
 
-class _GradSplitterHandle(QSplitterHandle):
-    """카드 사이 거터 handle — 거터색 + 옅은 SPECTRA 시그니처 그라디언트 1px 라인(브랜드 속삭임).
-    그라디언트는 handle 폭 바뀔 때만 재생성 캐시(매프레임 생성 금지)."""
-    def paintEvent(self, e):
-        p = QPainter(self)
-        p.fillRect(self.rect(), _tf_card_palette()[0])   # 거터색
-        if self.orientation() == Qt.Vertical:            # 세로 스플리터 → 가로 handle
-            w = self.width()
-            if getattr(self, '_grad_w', None) != w or getattr(self, '_grad', None) is None:
-                g = QLinearGradient(0.0, 0.0, float(w), 0.0)
-                n = len(_TF_SEL_GRAD_STOPS) - 1
-                for i, c in enumerate(_TF_SEL_GRAD_STOPS):
-                    q = QColor(c); q.setAlpha(60); g.setColorAt(i / n, q)
-                self._grad = g; self._grad_w = w
-            p.setRenderHint(QPainter.Antialiasing, True)
-            y = int(self.height() / 2)
-            p.setPen(QPen(QBrush(self._grad), 1.0))
-            p.drawLine(8, y, w - 8, y)
-        p.end()
-
-class _CardSplitter(QSplitter):
-    """TF 3분석 카드 스플리터 — 거터에 옅은 그라디언트 경계선(_GradSplitterHandle)."""
-    def createHandle(self):
-        return _GradSplitterHandle(self.orientation(), self)
-
-
+# 스플리터 — v2.0 분해: spectra/ui/widgets.py, re-import
+from spectra.ui.widgets import _GradSplitterHandle, _CardSplitter
 class _VScrollArea(QScrollArea):
     """세로 전용 스크롤 영역 — 내부 위젯 폭을 뷰포트 폭에 고정.
     setWidgetResizable+ScrollBarAlwaysOff만으론 콘텐츠 최소폭이 뷰포트보다 넓을 때
@@ -6785,7 +6761,8 @@ from spectra.dsp.farina import (_gen_ess, _ess_inverse, _fft_convolve,
                                 _band_taper, _wiener_match_scale, farina_analyze)
 
 
-_TF_SEL_GRAD_STOPS = ('#1FA2FF', '#4E7DF0', '#9B5DE5', '#F15BB5', '#FF9F0A', '#FF453A')  # SPECTRA 시그니처
+# _TF_SEL_GRAD_STOPS — v2.0 분해: spectra/ui/colors.py, re-import
+from spectra.ui.colors import _TF_SEL_GRAD_STOPS
 
 def _draw_tf_sel_border(widget, p):
     """선택된 TF 분석창 표시 — 카드 상단에 SPECTRA 시그니처 그라디언트 엣지(헤더 언더라인과 동일 브랜드 언어).

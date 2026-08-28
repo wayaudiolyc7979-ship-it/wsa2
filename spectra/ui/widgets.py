@@ -1,11 +1,13 @@
 """UI 위젯 — 작은 커스텀 버튼/배지 (v2.0 분해, 동작 0 변경)."""
 import time
-from PyQt5.QtWidgets import QPushButton, QLabel, QWidget
-from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF, QFont
+from PyQt5.QtWidgets import QPushButton, QLabel, QWidget, QSplitter, QSplitterHandle
+from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF, QFont, QBrush, QLinearGradient
 from PyQt5.QtCore import Qt, QPointF, QRectF, pyqtSignal
 from spectra.core.config import T, is_dark
 from spectra.core.i18n import _tx
 from spectra.ui.draw import (METER_DB_MIN, METER_PEAK_DECAY, METER_TAU_ATTACK, METER_TAU_RELEASE, _draw_zone_meter_h)
+from spectra.ui.colors import _TF_SEL_GRAD_STOPS
+from spectra.ui.draw import _tf_card_palette
 from spectra.ui.tokens import FONT_FAMILY, FS_BODY, RADIUS_SM, CF_ANNO, _qfont
 
 
@@ -404,3 +406,29 @@ class _HorizBarVU(QWidget):
         _draw_zone_meter_h(p, W, H, self._db, DB_MIN, DB_MAX)
         # peak tick(흰색 바) 제거 — TF 카드 미터는 RMS 채움만 (사용자 요청 2026-06-26)
         p.end()
+
+
+class _GradSplitterHandle(QSplitterHandle):
+    """카드 사이 거터 handle — 거터색 + 옅은 SPECTRA 시그니처 그라디언트 1px 라인(브랜드 속삭임).
+    그라디언트는 handle 폭 바뀔 때만 재생성 캐시(매프레임 생성 금지)."""
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.fillRect(self.rect(), _tf_card_palette()[0])   # 거터색
+        if self.orientation() == Qt.Vertical:            # 세로 스플리터 → 가로 handle
+            w = self.width()
+            if getattr(self, '_grad_w', None) != w or getattr(self, '_grad', None) is None:
+                g = QLinearGradient(0.0, 0.0, float(w), 0.0)
+                n = len(_TF_SEL_GRAD_STOPS) - 1
+                for i, c in enumerate(_TF_SEL_GRAD_STOPS):
+                    q = QColor(c); q.setAlpha(60); g.setColorAt(i / n, q)
+                self._grad = g; self._grad_w = w
+            p.setRenderHint(QPainter.Antialiasing, True)
+            y = int(self.height() / 2)
+            p.setPen(QPen(QBrush(self._grad), 1.0))
+            p.drawLine(8, y, w - 8, y)
+        p.end()
+
+class _CardSplitter(QSplitter):
+    """TF 3분석 카드 스플리터 — 거터에 옅은 그라디언트 경계선(_GradSplitterHandle)."""
+    def createHandle(self):
+        return _GradSplitterHandle(self.orientation(), self)
