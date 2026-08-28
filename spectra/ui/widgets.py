@@ -1853,9 +1853,9 @@ class _MeasCard(QFrame):
                 f'QComboBox::down-arrow{{width:0;height:0;image:none;}}')
 
     def _delay_spin_ss(self):
-        _bd = '#34343B' if is_dark() else T('border')
+        _bd = '#34343B' if is_dark() else T('border')   # 폰트는 setFont(_n2_mono_font)로 — FFT '16K'과 통일
         return (f'QDoubleSpinBox{{background:transparent;color:{T("text")};border:1px solid {_bd};'
-                f'border-radius:8px;padding:{PAD_SM};font-family:Menlo;font-size:{FS_SM}px;}}')
+                f'border-radius:8px;padding:{PAD_SM};}}')
 
     def _auto_btn_ss(self):
         _bd = '#34343B' if is_dark() else T('border')
@@ -1908,6 +1908,7 @@ class _MeasCard(QFrame):
         self._delay_spin.setMinimumWidth(82); self._delay_spin.setFixedHeight(22)
         self._delay_spin.setButtonSymbols(QDoubleSpinBox.NoButtons)
         self._delay_spin.setAlignment(Qt.AlignCenter)
+        self._delay_spin.setFont(_n2_mono_font())        # FFT '16K'과 동일 폰트(Menlo DemiBold)
         self._delay_spin.setStyleSheet(self._delay_spin_ss())
         # 거리(m) 보조 라벨 — _DELAY_UNIT 이 m/both 일 때만 노출. 입력은 ms 유지.
         self._m_lbl = QLabel(''); self._m_lbl.setStyleSheet(ss_text(FS_XS))

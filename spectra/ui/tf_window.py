@@ -792,8 +792,8 @@ class TransferFunctionWindow(QWidget):
         self.sig_lvl_sp.setDecimals(1); self.sig_lvl_sp.setFixedHeight(30); self.sig_lvl_sp.setMinimumWidth(60)
         self.sig_lvl_sp.setAlignment(Qt.AlignCenter); self.sig_lvl_sp.setButtonSymbols(QDoubleSpinBox.NoButtons)
         self.sig_lvl_sp.setKeyboardTracking(False)   # 타이핑 중 즉시 적용 방지
-        self.sig_lvl_sp.setStyleSheet(
-            f'QDoubleSpinBox{{{_c_cell}padding:2px 4px;font-family:Menlo;font-size:12px;font-weight:600;}}')
+        self.sig_lvl_sp.setFont(_n2_mono_font())     # FFT '16K'과 동일 폰트(Menlo DemiBold)로 통일
+        self.sig_lvl_sp.setStyleSheet(f'QDoubleSpinBox{{{_c_cell}padding:2px 4px;}}')
         self.sig_lvl_sp.valueChanged.connect(self._sig_level_changed)
         self.sig_lvl_btn_p = QPushButton('+'); self.sig_lvl_btn_p.setFixedSize(28, 30); self.sig_lvl_btn_p.setFocusPolicy(Qt.NoFocus); self.sig_lvl_btn_p.setStyleSheet(_step_ss)
         self.sig_lvl_btn_m.clicked.connect(self.sig_lvl_sp.stepDown)
