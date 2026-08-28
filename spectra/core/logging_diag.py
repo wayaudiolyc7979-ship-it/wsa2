@@ -7,6 +7,7 @@ import os, sys, logging
 import datetime as _dt
 import platform as _pl
 import traceback as _tb
+from contextlib import contextmanager
 
 # ─── 세션 로그 (macOS: ~/Library/Logs/WSA2 / Windows: %LOCALAPPDATA%\WSA2\Logs) ───
 # WSA2_LOG_DIR 로 위치 오버라이드 가능 — Parallels 등 VM에서 공유폴더로 로그를 빼
@@ -62,3 +63,13 @@ def _crash_handler(exc_type, exc_val, exc_tb):
     _alog.critical(f'Log file: {_LOG_PATH}')
     sys.__excepthook__(exc_type, exc_val, exc_tb)
 sys.excepthook = _crash_handler
+
+
+@contextmanager
+def _no_stderr():
+    """C 레벨 AUHAL/PortAudio 경고 메시지를 억제하는 컨텍스트 매니저.
+    v2.0: engine·tf_window 양쪽이 써서 저수준 공용 모듈에 배치(순환 회피)."""
+    _fd = os.open(os.devnull, os.O_WRONLY)
+    _sv = os.dup(2); os.dup2(_fd, 2); os.close(_fd)
+    try: yield
+    finally: os.dup2(_sv, 2); os.close(_sv)

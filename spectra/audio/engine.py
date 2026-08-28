@@ -11,7 +11,13 @@ import sounddevice as sd
 import platform as _pl
 import ctypes
 from PyQt5.QtCore import QThread, QObject, pyqtSignal, Qt
-from spectra.core.logging_diag import _alog, _diag
+from spectra.core.logging_diag import _alog, _diag, _no_stderr
+
+
+class _DeadCallbackError(Exception):
+    """스트림은 열렸는데 AUHAL 콜백이 안 시작된 '죽은 스트림' — 같은 config로 재오픈해야 함
+    (open 실패=다음 config와 구분). M4 출력+입력 경합 시 간헐 발생."""
+    pass
 
 
 # ── Windows 오디오 호스트 API 선택 (WASAPI 우선) ───────────────────────────

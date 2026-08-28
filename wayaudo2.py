@@ -398,10 +398,7 @@ from spectra.ui.tf_window import _capture_palette
 # _auto_capture_color — v2.0 분해: spectra/ui/tf_window.py, re-import
 from spectra.ui.tf_window import _auto_capture_color
 from spectra.ui.canvas_tf import _catmull_seg
-class _DeadCallbackError(Exception):
-    """스트림은 열렸는데 AUHAL 콜백이 안 시작된 '죽은 스트림' — 같은 config로 재오픈해야 함
-    (open 실패=다음 config와 구분). M4 출력+입력 경합 시 간헐 발생."""
-    pass
+# 죽은콜백 예외 — v2.0 분해: spectra/audio/engine.py 내부(엔진 전용)
 
 
 # (오디오 엔진 클래스는 위에서 spectra.audio.engine 로 일괄 re-import됨)

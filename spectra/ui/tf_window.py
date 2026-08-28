@@ -4,6 +4,7 @@ v2.0 분해: wayaudo2.py에서 이동(동작 0 변경). embedded 탭/standalone 
 TF 생태계(듀플렉스·키필터·제너레이터·캡쳐)를 통째 이관.
 """
 import math, os, time, threading, datetime, collections, random
+import math as _math
 from collections import deque
 from contextlib import contextmanager
 import random
@@ -24,7 +25,7 @@ from spectra.core.config import (SPEED_LEVELS, T, _CAPTURES_LOCK, _load_captures
                                  _save_captures_file, _save_settings, delay_unit, is_dark,
                                  set_delay_unit)
 from spectra.core.i18n import _tx
-from spectra.core.logging_diag import _alog, _diag
+from spectra.core.logging_diag import _alog, _diag, _no_stderr
 from spectra.dsp.farina import _wiener_match_scale, farina_analyze
 from spectra.dsp.tf import MTWEngine, _hilbert_env, _multimic_average, _tf_smooth
 from spectra.dsp.weighting import _octave_bands, power_spectrum_db
@@ -55,13 +56,6 @@ TF_PHASE_MODES   = ['Wrapped', 'Unwrapped', 'Group Delay']
 TF_IR_MODES      = ['Lin', 'ETC', 'Log']
 
 
-@contextmanager
-def _no_stderr():
-    """C 레벨 AUHAL/PortAudio 경고 메시지를 억제하는 컨텍스트 매니저."""
-    _fd = os.open(os.devnull, os.O_WRONLY)
-    _sv = os.dup(2); os.dup2(_fd, 2); os.close(_fd)
-    try: yield
-    finally: os.dup2(_sv, 2); os.close(_sv)
 # (import 시 로그셋업·excepthook·로그정리 실행 — 종전과 동일 시점)
 
 
