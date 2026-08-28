@@ -18,6 +18,7 @@ os.environ['WSA2_CAPTURES_PATH'] = '/tmp/wsa2_pytest_captures.json'
 import importlib.util
 import numpy as np
 import pytest
+from scipy.signal import butter, lfilter, freqz
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _spec = importlib.util.spec_from_file_location('wayaudo2_dsp', os.path.join(_ROOT, 'wayaudo2.py'))
@@ -25,6 +26,11 @@ w = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(w)
 
 SR = 48000
+
+# 알려진 시스템(모양 락용): 2차 버터워스 저역통과 2kHz
+_LP_B, _LP_A = butter(2, 2000/(SR/2), 'low')
+_TEST_F = np.array([200.0, 1000.0, 4000.0])
+_LP_TRUTH_DB = 20*np.log10(np.abs(freqz(_LP_B, _LP_A, worN=_TEST_F*2*np.pi/SR)[1]))  # ≈[0,-0.26,-12.59]
 
 
 # ── 1. A/C 가중 (IEC 61672 표준 물리 앵커) ────────────────────────────
@@ -116,3 +122,57 @@ def test_loudness_1khz_tone():
     assert m._S == pytest.approx(-6.01, abs=0.1)   # Short-term
     assert m._I == pytest.approx(-6.01, abs=0.1)   # Integrated
     assert m._TP == pytest.approx(-6.02, abs=0.1)  # True Peak = 20log10(0.5)
+
+
+# ── 8. MTW — 알려진 저역통과 필터를 truth 대비 0.1dB 안에서 복원(모양 락) ─
+def test_mtw_recovers_lowpass():
+    eng = w.MTWEngine(SR, n_fft=4096, n_stages=5)
+    rng = np.random.RandomState(11); ml = eng.master_len
+    for _ in range(40):
+        ref = rng.randn(ml)
+        eng.push(ref, lfilter(_LP_B, _LP_A, ref))
+    fm, Hm, _ = eng.result()
+    est = 20*np.log10(np.abs(np.interp(_TEST_F, fm, Hm)))
+    assert est == pytest.approx(_LP_TRUTH_DB, abs=0.1)
+
+
+# ── 9. Farina — 알려진 저역통과 필터를 truth 대비 0.1dB 안에서 복원 ─────
+def test_farina_recovers_lowpass():
+    T, f1, f2 = 0.5, 20.0, 20000.0
+    x = w._gen_ess(T, f1, f2, SR)
+    res = w.farina_analyze(lfilter(_LP_B, _LP_A, x), x, SR, T, f1, f2)
+    ff, Hf = res['freqs'], res['H']
+    est = 20*np.log10(np.abs(np.interp(_TEST_F, ff, Hf)) + 1e-12)
+    assert est == pytest.approx(_LP_TRUTH_DB, abs=0.1)
+
+
+# ── 10. _tf_smooth — 저역통과 H 모양 유지(회귀 락) ────────────────────
+def test_tf_smooth_lowpass_shape():
+    fz = np.linspace(20, 20000, 4000)
+    _, hz = freqz(_LP_B, _LP_A, worN=fz*2*np.pi/SR)
+    fo, mago, _, _, _ = w._tf_smooth(fz.astype(np.float64), hz.astype(np.complex128), 6)
+    got = [float(mago[int(np.argmin(np.abs(fo-f)))]) for f in _TEST_F]
+    assert got == pytest.approx([-0.0, -0.263, -12.633], abs=0.1)
+
+
+# ── 11. _biquad — 알려진 계수 임펄스응답 첫 5샘플(회귀 락) ─────────────
+def test_biquad_impulse():
+    out = w._biquad(np.array([1.0, 0, 0, 0, 0, 0, 0, 0]), _LP_B, _LP_A, np.zeros(2))
+    assert list(out[:5]) == pytest.approx(
+        [0.014401, 0.05232, 0.089895, 0.110665, 0.118634], abs=1e-5)
+
+
+# ── 12. _gen_ess — 스윕 길이·RMS 성질 ───────────────────────────────
+def test_gen_ess_properties():
+    x = w._gen_ess(0.5, 20.0, 20000.0, SR)
+    assert len(x) == int(0.5*SR)                       # T*sr
+    assert float(np.sqrt(np.mean(x**2))) == pytest.approx(0.70, abs=0.02)
+
+
+# ── 13. _KWeightFilter — BS.1770-4 계수 상수 락(오타/변조 방지) ────────
+def test_kweight_coefficients_48k():
+    k = w._KWeightFilter(48000)
+    assert list(k._pb) == pytest.approx([1.53512486, -2.69169619, 1.19839281], abs=1e-8)
+    assert list(k._pa) == pytest.approx([1.0, -1.69065929, 0.73248077], abs=1e-8)
+    assert list(k._rb) == pytest.approx([1.0, -2.0, 1.0], abs=1e-12)
+    assert list(k._ra) == pytest.approx([1.0, -1.99004745, 0.99007225], abs=1e-8)
