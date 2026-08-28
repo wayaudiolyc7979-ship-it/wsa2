@@ -3181,7 +3181,8 @@ class MainWindow(QMainWindow):
                 _sm_bands = np.interp(_lg, freqs, avg_cal).astype(np.float32)
             else:                                   # 옥타브 = 그 해상도로 FFT서 즉시 계산
                 _sm_bands = self._calc_oct(freqs, avg_cal, mode=_sp)
-            self.show_mode_win.push(_sv, _su, _sm_bands, self.db_min, self.db_max)
+            self.show_mode_win.push(_sv, _su, _sm_bands, self.db_min, self.db_max,
+                                    dba=raw_dba, dbc=raw_dbc)
 
     # ── 렌더링 타이머 (30fps)
     def _render_frame(self):

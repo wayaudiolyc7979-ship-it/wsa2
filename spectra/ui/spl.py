@@ -962,13 +962,16 @@ class ShowModeWindow(QWidget):
         self._main = main
         self.setWindowTitle('SPECTRA — Show Mode')
         self._spl = -120.0; self._unit = 'dBA'
-        self._peak = -120.0; self._leq = -120.0; self._leq_e = None
+        self._peak = -120.0; self._leq = -120.0
         self._num_pix = None; self._num_key = None   # 거대 숫자 픽스맵 캐시(문자열/색 바뀔 때만 재렌더)
         _st = getattr(main, '_settings', {}) or {}
         self._metric_mode = _st.get('show_metric', 'dba')   # 헤드라인 지표: dba/dbc/spl (드롭다운 선택)
         self._spec_mode   = _st.get('show_spec', 'oct24')   # 스펙트럼 해상도: oct3/oct12/oct24/fft
+        self._leq_wt      = _st.get('show_leq_wt', 'a')     # LEQ 가중: a(LAeq)/c(LCeq) (드롭다운)
+        self._leq_sec     = int(_st.get('show_leq_sec', 300))  # LEQ 시간창(초): 슬라이딩 적분
+        self._leq_bins = []             # LEQ 에너지 빈 [t_int, e_sum, count] (초 단위, 시간창만큼 보관)
         self._sm_prev = None            # 스펙트럼 막대 평활 상태(모드 바뀌면 리셋)
-        self._metric_rect = None; self._spec_rect = None    # 드롭다운 클릭 히트영역 (x,y,w,h)
+        self._metric_rect = None; self._spec_rect = None; self._leq_rect = None  # 드롭다운 히트영역 (x,y,w,h)
         self._last_paint = 0.0          # 리페인트 throttle (글랜스 차분하게)
         self._last_push = 0.0           # 헤드라인 시간기반 평활용 (프레임율 무관)
         self._limit = 100.0; self._amber = 3.0
@@ -977,9 +980,9 @@ class ShowModeWindow(QWidget):
         self.resize(1120, 630)
         self._clock = QTimer(self); self._clock.timeout.connect(self.update); self._clock.start(1000)
 
-    def push(self, raw, unit, bands, bmin, bmax):
-        """순간 SPL(raw) + 스펙트럼 급전. 헤드라인 큰 숫자는 Slow 평활(글랜스 가독),
-        PEAK(순간 홀드)·LEQ(긴 지수창)는 raw 기준. 리페인트는 ~15fps로 제한."""
+    def push(self, raw, unit, bands, bmin, bmax, dba=None, dbc=None):
+        """순간 SPL(raw) + 스펙트럼 급전. 헤드라인=Slow 평활, PEAK=순간홀드.
+        LEQ=선택 가중(A/C)·선택 시간창 슬라이딩 적분(dba/dbc 별도 급전). 리페인트 ~30fps."""
         self._unit = unit; self._bmin = bmin; self._bmax = bmax
         # 스펙트럼 막대 평활 — 해상도 모드가 raw(_calc_oct/FFT)로 와도 글랜스답게 차분히
         # (모드 바뀌어 길이 다르면 리셋). 채움만 평활, 스파이크는 어느정도 살림.
@@ -998,14 +1001,25 @@ class ShowModeWindow(QWidget):
         a = 1.0 - math.exp(-dt / self._HEADLINE_TAU)
         self._spl = raw if self._spl <= -100 else self._spl + (raw - self._spl) * a
         self._peak = raw if raw > self._peak else self._peak - 0.04   # 진짜 순간 피크 홀드
-        e = 10.0 ** (raw / 10.0)
-        self._leq_e = e if self._leq_e is None else self._leq_e + (e - self._leq_e) * 0.002
-        self._leq = 10.0 * math.log10(max(self._leq_e, 1e-12))
+        # LEQ — 선택 가중(A/C)·시간창 슬라이딩 적분. 초 단위 에너지 빈으로 메모리 바운드.
+        _lv = dbc if self._leq_wt == 'c' else dba
+        if _lv is None: _lv = raw                        # dba/dbc 미급전 폴백
+        if _lv > -100:
+            _ts = int(now); _le = 10.0 ** (_lv / 10.0)
+            if self._leq_bins and self._leq_bins[-1][0] == _ts:
+                self._leq_bins[-1][1] += _le; self._leq_bins[-1][2] += 1
+            else:
+                self._leq_bins.append([_ts, _le, 1])
+            _cut = _ts - self._leq_sec
+            while self._leq_bins and self._leq_bins[0][0] < _cut:
+                self._leq_bins.pop(0)
+            _es = sum(b[1] for b in self._leq_bins); _cn = sum(b[2] for b in self._leq_bins)
+            self._leq = 10.0 * math.log10(max(_es / max(_cn, 1), 1e-12))
         if now - self._last_paint >= 0.033:     # 리페인트 ~30fps (거대 숫자 캐시라 부담 적음)
             self._last_paint = now; self.update()
 
     def reset_hold(self):
-        self._peak = -120.0; self._leq_e = None; self._leq = -120.0; self.update()
+        self._peak = -120.0; self._leq_bins = []; self._leq = -120.0; self.update()
 
     def set_limit(self, limit, amber):
         self._limit = float(limit); self._amber = float(amber)
@@ -1021,8 +1035,17 @@ class ShowModeWindow(QWidget):
             self._pick(e.globalPos(), '_spec_mode',
                        [('oct3', '1/3 oct'), ('oct12', '1/12 oct'),
                         ('oct24', '1/24 oct'), ('fft', 'FFT')], reset_bands=True)
+        elif _in(self._leq_rect):
+            self._leq_menu(e.globalPos())
         else:
             super().mousePressEvent(e)
+
+    def _save_show_settings(self):
+        st = getattr(self._main, '_settings', None)
+        if st is not None:
+            st['show_metric'] = self._metric_mode; st['show_spec'] = self._spec_mode
+            st['show_leq_wt'] = self._leq_wt; st['show_leq_sec'] = self._leq_sec
+            _save_settings(st)
 
     def _pick(self, gpos, attr, opts, reset_bands=False):
         """공용 드롭다운(QMenu) — 현재값 체크, 선택 시 저장+재렌더."""
@@ -1035,11 +1058,25 @@ class ShowModeWindow(QWidget):
         if act in acts and acts[act] != cur:
             setattr(self, attr, acts[act])
             if reset_bands: self._sm_prev = None       # 해상도 바뀜 → 막대 평활 리셋
-            st = getattr(self._main, '_settings', None)
-            if st is not None:
-                st['show_metric'] = self._metric_mode; st['show_spec'] = self._spec_mode
-                _save_settings(st)
-            self.update()
+            self._save_show_settings(); self.update()
+
+    def _leq_menu(self, gpos):
+        """LEQ 드롭다운 — 가중(A/C) + 시간창(1/5/10/15분). 가중 바뀌면 적분 리셋."""
+        mnu = QMenu(self)
+        _wa = mnu.addAction('A 가중 (LAeq)'); _wa.setCheckable(True); _wa.setChecked(self._leq_wt == 'a')
+        _wc = mnu.addAction('C 가중 (LCeq)'); _wc.setCheckable(True); _wc.setChecked(self._leq_wt == 'c')
+        mnu.addSeparator()
+        _tacts = {}
+        for sec, lbl in [(60, '1분'), (300, '5분'), (600, '10분'), (900, '15분')]:
+            a = mnu.addAction(lbl); a.setCheckable(True); a.setChecked(self._leq_sec == sec)
+            _tacts[a] = sec
+        act = mnu.exec_(gpos)
+        if act is None: return
+        if act is _wa and self._leq_wt != 'a':   self._leq_wt = 'a'; self._leq_bins = []
+        elif act is _wc and self._leq_wt != 'c': self._leq_wt = 'c'; self._leq_bins = []
+        elif act in _tacts:                       self._leq_sec = _tacts[act]   # 재윈도우(적분 유지)
+        else: return
+        self._save_show_settings(); self.update()
 
     def _state_color(self):
         if self._spl >= self._limit:            return QColor(T('red'))
@@ -1137,7 +1174,8 @@ class ShowModeWindow(QWidget):
         p.setPen(QColor('#9CA3B2')); p.drawText(_rx, _ry, _rw, _rh, Qt.AlignCenter, _rl)
         self._spec_rect = (_rx, _ry, _rw, _rh)   # 해상도 드롭다운 클릭영역
         # ── 하단: 지표 칩 ──
-        chips = [('PEAK', f'{self._peak:.0f}'), ('LEQ', f'{self._leq:.1f}'),
+        _leq_lab = f'L{self._leq_wt.upper()}eq · {self._leq_sec // 60}m  ▾'   # 예: LAeq · 5m ▾
+        chips = [('PEAK', f'{self._peak:.0f}'), (_leq_lab, f'{self._leq:.1f}'),
                  ('HEADROOM', f'{self._limit - self._spl:+.0f} dB')]
         cy = int(H * 0.86); ch_h = int(H * 0.09)
         cw = (W - 2 * m) // len(chips); gap = int(W * 0.012)
@@ -1148,6 +1186,7 @@ class ShowModeWindow(QWidget):
             x = m + i * cw
             p.setBrush(QColor('#101218')); p.setPen(QPen(QColor(255, 255, 255, 16), 1))
             p.drawRoundedRect(QRectF(x, cy, cw - gap, ch_h), 10, 10)
+            if i == 1: self._leq_rect = (int(x), cy, int(cw - gap), ch_h)   # LEQ 드롭다운 클릭영역
             p.setFont(lf); p.setPen(QColor('#6E7585'))
             p.drawText(int(x + 18), cy, cw - gap - 18, ch_h, Qt.AlignLeft | Qt.AlignVCenter, lab)
             p.setFont(vf); p.setPen(QColor('#E6E9F0'))
