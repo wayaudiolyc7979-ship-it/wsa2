@@ -137,13 +137,22 @@ def _fft_thd():
     db = np.full(len(f), -90.0)
     for fc, lv in [(1000, -6), (2000, -46), (3000, -54), (4000, -62)]:
         db = np.maximum(db, lv - 9000 * (np.log10(f / fc)) ** 2)
-    cv.set_data(f, db.astype(np.float32))
+    cv.set_data(f, db.astype(np.float32))          # _ds_f 채움 → 도미넌트 배지/평활 경로 활성
     pl = cv.PAD_L; uw = cv.width() - cv.PAD_L - cv.PAD_R; ny = min(cv.sample_rate / 2, 20000)
     cv._mx = int(w.freq_to_x(1000, pl, uw, ny))    # 커서 = 기본파(1kHz)
+    # ⚠️ paintEvent 예외는 Qt가 삼켜(grab은 정상 반환) — sys.excepthook으로 붙잡아 회귀 차단.
+    # (FFTCanvas _dom_* 미초기화 크리티컬이 이 사각으로 새어나갔던 이력. 2026-08-29 심층리뷰)
+    _errs = []; _old = sys.excepthook
+    sys.excepthook = lambda t, v, tb: _errs.append(f'{t.__name__}: {v}')
+    try:
+        out = _save(cv, 'fft_thd.png')
+    finally:
+        sys.excepthook = _old
+    assert not _errs, f'paintEvent 예외(삼켜짐): {_errs}'
     r = w.thd_from_spectrum(cv._ds_f, cv._ds_avg, 1000.0)
     assert r is not None and 0.7 < r[0] < 1.6, f'THD 계산 이상: {r}'
-    return _save(cv, 'fft_thd.png') + f'  THD={r[0]:.2f}%'
-check('FFTCanvas THD 커서 리드아웃', _fft_thd)
+    return out + f'  THD={r[0]:.2f}%'
+check('FFTCanvas THD 커서 리드아웃 + paint 예외 가드', _fft_thd)
 
 
 def _level_meters():

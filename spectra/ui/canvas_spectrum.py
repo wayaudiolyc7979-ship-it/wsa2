@@ -72,7 +72,8 @@ class FFTCanvas(QWidget):
         self.peak_hold=True; self.scale_log=True
         self.sample_rate=48000; self.fft_size=16384
         self._show_thd=False              # 커서 THD 표시(우클릭 'Show THD'로 토글) [THD]
-        self._rd_db=None; self._rd_thd=None; self._rd_f=None   # 리드아웃 값 평활(느리게) [RDOUT]
+        self._rd_db=None; self._rd_thd=None; self._rd_f=None; self._rd_t=0.0   # 리드아웃 값 평활(시간기반) [RDOUT]
+        self._dom_f=None; self._dom_db=None; self._dom_t=0.0   # 도미넌트 배지 평활 [RDOUT]
         self._mx=-1; self._my=-1
         self.peak_hold_frames=30         # 기본 1초 홀드 (30fps 기준)
         self.peak_decay_rate_pk=20.0/30.0  # 20 dB/s 고정 낙하
@@ -550,9 +551,9 @@ class FFTCanvas(QWidget):
                 fs=f'{fs}   {freq_to_note(freq)}'
                 idx=int(np.clip(np.argmin(np.abs(_cf-freq)),0,len(_ca)-1))
                 db=float(_ca[idx])
-                _thd_val=None                          # [THD] 커서=기본파 가정, 라이브 스펙트럼서 계산
-                if self._show_thd:
-                    _r=thd_from_spectrum(f_arr, a_arr, freq)
+                _thd_val=None                          # [THD] 커서=기본파 가정. 표시 db와 같은 소스로
+                if self._show_thd:                     # 계산(캡쳐 포커스면 캡쳐, 아니면 라이브 — 값 불일치 방지)
+                    _r=thd_from_spectrum(_cf, _ca, freq)
                     if _r is not None: _thd_val=_r[0]
                 db, _thd_v = _smooth_readout(self, freq, db, _thd_val)   # [RDOUT] 값 평활(느리게)
                 _thd_str=f'THD {_thd_v:.2f}%' if _thd_v is not None else None
@@ -988,20 +989,21 @@ class OctaveCanvas(QWidget):
         if pl<=self._mx<=W-pr:
             cx,cy=self._mx,self._my
             bi=max(0,min(int((cx-pl)/bar_w),n-1)); fc=bands[bi]
-            db2=float(sm[bi]); _cap_col=None
+            db2=float(sm[bi]); _cap_col=None; _thd_src=sm   # THD도 표시값과 같은 소스로
             if _focused_capture_visible(self):   # 포커스된 캡쳐(같은 모드) 값 우선
                 _cv=self._captures[self._front_idx].get('values')
                 if _cv is not None and len(_cv)==n:
-                    db2=float(_cv[bi]); _cap_col=self._captures[self._front_idx].get('color')
+                    db2=float(_cv[bi]); _cap_col=self._captures[self._front_idx].get('color'); _thd_src=_cv
             bx2=int(pl+bi*bar_w+gap/2); bw2=max(1,int(bar_w-gap))
             p.setPen(QPen(QColor(T('accent')),2))
             p.setBrush(QBrush(QColor(T('accent')).lighter(200) if (not is_dark()) else QColor(78,125,240,12)))
             p.drawRect(bx2,pt,bw2,dh)
             fs=f'{fc/1000:.2f} kHz' if fc>=1000 else f'{fc:.0f} Hz'
             fs=f'{fs}   {freq_to_note(fc)}'
-            _thd_val=None                          # [THD] RTA 밴드 데이터서 계산(커서=기본파)
-            if self._show_thd:
-                _r=thd_from_spectrum(bands, sm, fc)
+            _thd_val=None                          # [THD] RTA 밴드 데이터(커서=기본파). 배음 탐색창을
+            if self._show_thd:                     # 밴드간격 절반+로 넓혀 k·f0가 밴드중심 아닐 때도 포착
+                _wv = 0.6*math.log2(bands[1]/bands[0]) if len(bands) > 1 else 0.04
+                _r=thd_from_spectrum(bands, _thd_src, fc, win_oct=_wv)
                 if _r is not None: _thd_val=_r[0]
             db2, _thd_v = _smooth_readout(self, fc, db2, _thd_val)   # [RDOUT] 값 평활(느리게)
             _thd_str=f'THD {_thd_v:.2f}%' if _thd_v is not None else None
