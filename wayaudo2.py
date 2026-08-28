@@ -948,13 +948,24 @@ THEMES = {
 }
 _theme = 'dark'
 def T(key): return THEMES[_theme][key]
+# 테마 접근자 — 모듈 분해(v2.0) 대비 가변 전역 `_theme`을 직접 참조하지 말고 이 함수로만.
+# (직접 `from ... import _theme`는 값을 복사해 토글이 안 퍼짐 → 반드시 함수 경유. 2.0_MODULE_PLAN §결합지점1)
+def theme(): return _theme
+def is_dark(): return _theme == 'dark'
+def set_theme(v):
+    global _theme
+    _theme = v
+def toggle_theme():
+    global _theme
+    _theme = 'light' if _theme == 'dark' else 'dark'
+    return _theme
 
 def _popout_toggle_ss():
     """팝아웃/툴바 토글 버튼 공용 스타일시트 (테마 인식). 다크는 기존 하드코딩과 바이트 동일."""
     # text_dim 다크값(#8E8E93)·border 다크값(#38383A)이 기존 하드코딩(#9A9AA0/#48484A)과 달라 다크는 옛 hex 유지
     bg3 = T('bg3'); accent = T('accent')
-    txt = '#9A9AA0' if _theme == 'dark' else T('text_dim')
-    bd  = '#48484A' if _theme == 'dark' else T('border')
+    txt = '#9A9AA0' if is_dark() else T('text_dim')
+    bd  = '#48484A' if is_dark() else T('border')
     return (f'QPushButton{{background:{bg3};color:{txt};border:1px solid {bd};'
             'border-radius:7px;font-size:14px;font-weight:bold;}'
             f'QPushButton:hover{{border-color:{accent};}}'
@@ -1058,7 +1069,7 @@ def _icon(name, size=16, color=None):
     from PyQt5.QtSvg import QSvgRenderer
     from PyQt5.QtCore import QByteArray
     if color is None:
-        color = '#C7CAD1' if _theme == 'dark' else '#46566e'
+        color = '#C7CAD1' if is_dark() else '#46566e'
     s = size; dpr = 3   # 레티나에서 크게 렌더(작은 아이콘 계단현상 완화)
     pm = QPixmap(s * dpr, s * dpr); pm.setDevicePixelRatio(dpr); pm.fill(Qt.transparent)
     entry = _LUCIDE_ICONS.get(name)
@@ -1141,7 +1152,7 @@ class _DarkTitleBar(QWidget):
                 b.setParent(self); lay.addWidget(b)
             lay.addSpacing(6)
         self._x = QPushButton('✕'); self._x.setFixedSize(24, 24); self._x.setCursor(Qt.PointingHandCursor)
-        _x_col = '#9A9AA0' if _theme == 'dark' else T('text_dim')
+        _x_col = '#9A9AA0' if is_dark() else T('text_dim')
         self._x.setStyleSheet(f'QPushButton{{border:none;background:transparent;color:{_x_col};font-size:13px;border-radius:6px;}}'
                               'QPushButton:hover{background:#FF453A;color:#FFFFFF;}')
         self._x.clicked.connect(self._close)
@@ -1248,7 +1259,7 @@ def _apply_native_titlebar_dark(win):
         msg(None, ns_window, 'setTitlebarAppearsTransparent:', ctypes.c_bool(True))
         # (2) 네이티브 제목 텍스트 숨김 (NSWindowTitleHidden=1)
         msg(None, ns_window, 'setTitleVisibility:', ctypes.c_long(1))
-        name = b'NSAppearanceNameDarkAqua' if _theme == 'dark' else b'NSAppearanceNameAqua'
+        name = b'NSAppearanceNameDarkAqua' if is_dark() else b'NSAppearanceNameAqua'
         ns_str = msg(ctypes.c_void_p, objc.objc_getClass(b'NSString'),
                      'stringWithUTF8String:', ctypes.c_char_p(name))
         appearance = msg(ctypes.c_void_p, objc.objc_getClass(b'NSAppearance'),
@@ -1287,14 +1298,14 @@ def _apply_app_dark_appearance():
         ns_app = msg(ctypes.c_void_p, objc.objc_getClass(b'NSApplication'), 'sharedApplication')
         if not ns_app:
             return
-        name = b'NSAppearanceNameDarkAqua' if _theme == 'dark' else b'NSAppearanceNameAqua'
+        name = b'NSAppearanceNameDarkAqua' if is_dark() else b'NSAppearanceNameAqua'
         ns_str = msg(ctypes.c_void_p, objc.objc_getClass(b'NSString'),
                      'stringWithUTF8String:', ctypes.c_char_p(name))
         appearance = msg(ctypes.c_void_p, objc.objc_getClass(b'NSAppearance'),
                          'appearanceNamed:', ctypes.c_void_p(ns_str))
         if appearance:
             msg(None, ns_app, 'setAppearance:', ctypes.c_void_p(appearance))
-        try: _diag('app_appearance', theme=_theme, ok=bool(appearance))
+        try: _diag('app_appearance', theme=theme(), ok=bool(appearance))
         except Exception: pass
     except Exception as e:
         try: _diag('app_appearance_fail', err=str(e))
@@ -1310,13 +1321,13 @@ def _apply_windows_titlebar_dark(win):
     try:
         import ctypes
         hwnd = int(win.winId())
-        val = ctypes.c_int(1 if _theme == 'dark' else 0)
+        val = ctypes.c_int(1 if is_dark() else 0)
         dwm = ctypes.windll.dwmapi
         # DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Win10 20H1+/Win11). 구버전 빌드는 19.
         res = dwm.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(val), ctypes.sizeof(val))
         if res != 0:
             dwm.DwmSetWindowAttribute(hwnd, 19, ctypes.byref(val), ctypes.sizeof(val))
-        _diag('win_titlebar_dark', dark=(_theme == 'dark'), res=int(res))
+        _diag('win_titlebar_dark', dark=(is_dark()), res=int(res))
     except Exception as e:
         try: _diag('win_titlebar_dark_fail', err=str(e))
         except Exception: pass
@@ -1795,7 +1806,7 @@ class _ReloadBtn(QPushButton):
 
     def paintEvent(self, e):
         super().paintEvent(e)   # 투명 배경(배경칠 안 함)
-        base = QColor(self._col) if self._col else QColor('#C7CAD1' if _theme == 'dark' else '#46566e')
+        base = QColor(self._col) if self._col else QColor('#C7CAD1' if is_dark() else '#46566e')
         col = QColor('#9DB7E0') if self._hover else base   # hover=소프트블루, 배경칠 없음
         p = QPainter(self)
         d = float(min(self.width(), self.height()))
@@ -1916,7 +1927,7 @@ def _wave_toggle_icon(on, size=16):
     from PyQt5.QtGui import QIcon
     from PyQt5.QtSvg import QSvgRenderer
     from PyQt5.QtCore import QByteArray
-    key = (on, size, _theme)
+    key = (on, size, theme())
     ic = _wave_toggle_icon_cache.get(key)
     if ic is not None:
         return ic
@@ -1925,8 +1936,8 @@ def _wave_toggle_icon(on, size=16):
                 f'<path d="{_WAVE_TOGGLE_PATH}" fill="none" stroke="url(#g)" stroke-width="2.4" '
                 f'stroke-linecap="round" stroke-linejoin="round"/>')
     else:
-        gray  = '#6B6B70' if _theme == 'dark' else '#9AA0AA'
-        slash = '#9A9AA0' if _theme == 'dark' else '#6B7280'
+        gray  = '#6B6B70' if is_dark() else '#9AA0AA'
+        slash = '#9A9AA0' if is_dark() else '#6B7280'
         body = (f'<path d="{_WAVE_TOGGLE_PATH}" fill="none" stroke="{gray}" stroke-width="2.2" '
                 f'stroke-linecap="round" stroke-linejoin="round"/>'
                 f'<line x1="5" y1="19" x2="19" y2="5" stroke="{slash}" stroke-width="2.2" stroke-linecap="round"/>')
@@ -2114,7 +2125,7 @@ def _draw_lock_badge(p, x, y, color, open_=False, op=1.0):
 
 
 def _sep_line_color():
-    return '#4A4A4A' if _theme == 'dark' else T('border')
+    return '#4A4A4A' if is_dark() else T('border')
 
 
 def _splitter_qss():
@@ -2132,7 +2143,7 @@ _TF_CARD_COL = {'ir': '#2DD4BF', 'phase': '#A78BFA', 'mag': '#4DA3FF'}   # 패�
 def _tf_card_palette():
     """(gutter, card_bg, border) QColors — 테마 적응. 거터=스플리터 handle 색과 통일.
     다크: 카드=순수 블랙(SPECTRA 정체성 유지) + 거터만 살짝 밝게 → '검은 카드가 옅은 틀에 박힘'."""
-    if _theme == 'light':
+    if (not is_dark()):
         return QColor('#dcdde1'), QColor('#ffffff'), QColor(0, 0, 0, 30)
     return QColor(T('bg2')), QColor('#000000'), QColor(255, 255, 255, 30)   # 거터=우측 패널 회색(#1C1C1E)과 통일
 
@@ -2252,7 +2263,7 @@ def draw_freq_minor_grid(p, pl, pr, uw, pt, pb, W, H, ny, f_lo=20):
     """1/3옥타브 보조 세로 그리드선 — 옥타브선보다 '흐리게'(behind). FREQ_MARKS 주선 직전 호출.
     '흐리게'의 방향은 배경에 따라 반대: 다크=어둡게(검정쪽), 라이트=밝게(흰쪽). 안 그러면 라이트에서
     보조선이 옥타브선보다 진해져 위계가 뒤집힘. f_lo=줌 좌하한(주파수축 확대 반영)."""
-    minor = QColor(T('grid')).lighter(116) if _theme == 'light' else QColor(T('grid')).darker(150)
+    minor = QColor(T('grid')).lighter(116) if (not is_dark()) else QColor(T('grid')).darker(150)
     p.setPen(QPen(minor, 1, Qt.SolidLine))
     for f in FREQ_MARKS_MINOR:
         if f < f_lo or f > ny: continue
@@ -2292,7 +2303,7 @@ def draw_info_box(p, W, title_str, val_str, pk_str=None, cx=None, x_lo=0, x_hi=N
         bx = W // 2 - bw // 2
     else:
         bx = int(min(max(cx - bw / 2, x_lo + 3), x_hi - bw - 3))
-    fill = QColor(T('panel')) if _theme == 'light' else QColor(16, 16, 18, 240)
+    fill = QColor(T('panel')) if (not is_dark()) else QColor(16, 16, 18, 240)
     path = QPainterPath(); path.addRoundedRect(bx, by, bw, bh, 7, 7)
     p.setPen(Qt.NoPen); p.setBrush(QBrush(fill)); p.drawPath(path)
     if cx is not None:   # 노치 — 커서 지점을 가리킴(태그 밑변 안으로 클램프)
@@ -2315,7 +2326,7 @@ def draw_dom_badge(p, plot_right, plot_top, dom_fs, dom_db, unit='dB'):
     tw = p.fontMetrics().horizontalAdvance(txt)
     bw = tw + 24; bh = 36
     bx = plot_right - bw - 6; by = plot_top + 5
-    if _theme == 'light':
+    if (not is_dark()):
         # 라이트: 흰 카드 + 은은한 보더 (검정 박스 대신)
         p.setPen(QPen(QColor(T('border')), 1)); p.setBrush(QBrush(QColor(T('panel'))))
     else:
@@ -3575,7 +3586,7 @@ class FFTCanvas(QWidget):
                 db=float(_ca[idx])
                 # 가로선은 마우스 Y가 아니라 곡선 값 위치에 (매그니튜드 방식)
                 cy=int(pt+np.clip((self.db_max-db)/(self.db_max-self.db_min)*(H-pt-pb),0,H-pt-pb))
-                p.setPen(QPen(QColor(T('accent')).lighter(80) if _theme=='light' else QColor(T('accent')),
+                p.setPen(QPen(QColor(T('accent')).lighter(80) if (not is_dark()) else QColor(T('accent')),
                              1,Qt.DashLine))
                 p.drawLine(cx,pt,cx,H-pb); p.drawLine(pl,cy,W-pr,cy)
                 draw_info_box(p,W,fs,f'{db:.1f} {unit}', cx=cx, x_lo=pl, x_hi=W-pr, top=pt,
@@ -4006,7 +4017,7 @@ class OctaveCanvas(QWidget):
                     db2=float(_cv[bi]); _cap_col=self._captures[self._front_idx].get('color')
             bx2=int(pl+bi*bar_w+gap/2); bw2=max(1,int(bar_w-gap))
             p.setPen(QPen(QColor(T('accent')),2))
-            p.setBrush(QBrush(QColor(T('accent')).lighter(200) if _theme=='light' else QColor(78,125,240,12)))
+            p.setBrush(QBrush(QColor(T('accent')).lighter(200) if (not is_dark()) else QColor(78,125,240,12)))
             p.drawRect(bx2,pt,bw2,dh)
             fs=f'{fc/1000:.2f} kHz' if fc>=1000 else f'{fc:.0f} Hz'
             fs=f'{fs}   {freq_to_note(fc)}'
@@ -4282,7 +4293,7 @@ class SpectrogramCanvas(QWidget):
         if pl<=self._mx<=W-pr and self._n>0:
             cx=self._mx; cy=self._my
             # vertical line (라이트=흰 그래프 → 어두운 크로스헤어)
-            _xh = QColor(20,33,58,120) if _theme=='light' else QColor(255,255,255,100)
+            _xh = QColor(20,33,58,120) if (not is_dark()) else QColor(255,255,255,100)
             p.setPen(QPen(_xh,1,Qt.DashLine))
             p.drawLine(cx,pt,cx,H-pb)
             # horizontal line (only inside data area)
@@ -4309,7 +4320,7 @@ class SpectrogramCanvas(QWidget):
                     # small time label beside cursor Y
                     t_lbl=f'{t_ago:.1f}s'
                     p.setFont(_qfont(CF_ANNO))
-                    p.setPen(QColor(20,33,58,200) if _theme=='light' else QColor(255,255,255,160))
+                    p.setPen(QColor(20,33,58,200) if (not is_dark()) else QColor(255,255,255,160))
                     p.drawText(pl+4,cy-3,t_lbl)
                 else:
                     draw_info_box(p,W,fs,'', cx=cx, x_lo=pl, x_hi=pl+dw, top=pt)
@@ -4926,7 +4937,7 @@ class LeqWindow(QWidget):
 def _clock_colors():
     """시계 카드 색 — 제목=소프트블루 / 숫자=소프트화이트(보조 정보, 측정값과 안 싸움).
     라이트 테마에선 흰 패널 위 가독 위해 어두운 텍스트로 파생."""
-    if _theme == 'dark':
+    if is_dark():
         return '#9DB7E0', '#E9ECF3'
     return T('accent'), T('text')
 
@@ -4934,7 +4945,7 @@ def _clock_colors():
 def _spl_card_bg():
     """SPL 미터 카드 배경 — 창(bg2 회색)보다 어둡게 '반전'. 다크=검정 / 라이트=회색(bg3).
     기존(검정 창·회색 카드)에서 뒤집어 다른 탭과 통일감(회색 크롬·어두운 콘텐츠)."""
-    return QColor('#000000') if _theme == 'dark' else QColor(T('bg3'))
+    return QColor('#000000') if is_dark() else QColor(T('bg3'))
 
 
 class _SplPanel(QWidget):
@@ -6642,7 +6653,7 @@ class _MiniMeterBar(QWidget):
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
         W = self.width(); H = self.height(); rr = H / 2.0
         # 은은한 둥근 트랙 (까만 공백 대신). 라이트(near-white)에선 밝히면 사라짐 → 어둡게 파생.
-        bg = QColor(T('bg')); d = -20 if _theme == 'light' else 14
+        bg = QColor(T('bg')); d = -20 if (not is_dark()) else 14
         track = QColor(max(0, min(bg.red()+d, 255)), max(0, min(bg.green()+d, 255)), max(0, min(bg.blue()+d+2, 255)))
         p.setPen(Qt.NoPen); p.setBrush(track); p.drawRoundedRect(QRectF(0, 0, W, H), rr, rr)
         DB_MIN = METER_DB_MIN; DB_MAX = 0.0   # 모든 미터와 동일 스케일(통일)
@@ -6983,9 +6994,9 @@ class _SpecCard(QFrame):
     def _apply_border(self):
         # E안: 중립 카드(테두리 회색·배경 서브틀), 정체성은 스와치·번호·미터색. 선택 시 채널색 테두리로 front 표시.
         c = QColor(self._color); r, g, b = c.red(), c.green(), c.blue()
-        _bg  = '#1E1E22' if _theme == 'dark' else '#F3F5FA'
-        _bd  = '#34343B' if _theme == 'dark' else T('border')
-        _bd_s = '#4A4A54' if _theme == 'dark' else T('accent')   # 선택 = 밝은 중립 테두리(채널색 대신)
+        _bg  = '#1E1E22' if is_dark() else '#F3F5FA'
+        _bd  = '#34343B' if is_dark() else T('border')
+        _bd_s = '#4A4A54' if is_dark() else T('accent')   # 선택 = 밝은 중립 테두리(채널색 대신)
         if self._is_selected:
             # front 표시 = 채널색 은은한 배경 틴트 + 밝은 중립 테두리 (테두리는 중립 유지 = E안)
             self.setStyleSheet(f'#specCard{{border:1px solid {_bd_s};'
@@ -7260,7 +7271,7 @@ class _SegmentedControl(QWidget):
         return None
 
     def apply_theme(self):
-        bg = '#252527' if _theme == 'dark' else T('bg3')
+        bg = '#252527' if is_dark() else T('bg3')
         self.setStyleSheet(f'#segCtl{{background:{bg};border-radius:8px;}}')
         for b in self._btns.values(): b.update()
 
@@ -7600,7 +7611,7 @@ class _CaptureDrawer(QWidget):
         acc = T('accent'); bd = T('border')
         if hasattr(self, '_hdr_lbl'):
             self._hdr_lbl.setStyleSheet(f'color:{acc};font-size:11px;font-weight:bold;')
-        if _theme == 'dark':
+        if is_dark():
             btn_bg, grp_bg, grp_fg, dis_bg = '#1C1C1E', '#2C2C2E', '#8E8E93', '#161618'
         else:
             btn_bg, grp_bg, grp_fg, dis_bg = T('panel'), T('bg3'), T('text_dim'), T('bg2')
@@ -7617,7 +7628,7 @@ class _CaptureDrawer(QWidget):
         self._import_btn.setStyleSheet(
             f'font-size:12px;font-weight:600;border:1px solid {bd};border-radius:5px;'
             f'background:{btn_bg};color:{acc};padding:0;')
-        if _theme == 'dark':
+        if is_dark():
             self._grp_btn.setStyleSheet(
                 'QPushButton{font-size:9px;font-weight:600;border:none;border-radius:6px;'
                 'background:transparent;color:#C8C8CE;padding:0 5px;}'
@@ -7684,8 +7695,8 @@ class _CaptureDrawer(QWidget):
         if tgt:
             chip.setText(f'  ▸  Capture Target   {tgt}     ✕')
             chip.setEnabled(True)
-            _tint = ('rgba(78,125,240,28)' if _theme == 'dark' else T("bg3"))
-            _tint_h = ('rgba(78,125,240,52)' if _theme == 'dark' else T("bg2"))
+            _tint = ('rgba(78,125,240,28)' if is_dark() else T("bg3"))
+            _tint_h = ('rgba(78,125,240,52)' if is_dark() else T("bg2"))
             chip.setStyleSheet(
                 f'QPushButton{{text-align:left;font-size:11px;font-weight:600;'
                 f'color:{T("accent")};background:{_tint};'
@@ -8004,7 +8015,7 @@ class _CaptureDrawer(QWidget):
             ref_btn.setFixedSize(18, 18)
             ref_btn.setFocusPolicy(Qt.NoFocus)   # macOS 파란 포커스 링 제거
             ref_btn.setToolTip(_tx('Set as Δ reference (one at a time)'))
-            _rb_bg, _rb_bd = (('#1C1C1E', '#48484A') if _theme == 'dark' else (T('panel'), '#C4CCD8'))
+            _rb_bg, _rb_bd = (('#1C1C1E', '#48484A') if is_dark() else (T('panel'), '#C4CCD8'))
             ref_btn.setStyleSheet(
                 f'QPushButton{{font-size:10px;font-weight:bold;border:1px solid {_rb_bd};'
                 f'border-radius:4px;background:{_rb_bg};color:{T("text_dim")};padding:0;}}'
@@ -8039,8 +8050,8 @@ class _CaptureDrawer(QWidget):
         # 선택행 = 폭 전체 틴트 + 흰 볼드 이름으로 표시. (좌측 액센트 바는 둥근 리스트 카드
         # 모서리를 따라 "(" 곡선처럼 휘어 보여 제거 — border-left는 투명으로 남겨 정렬만 유지.)
         if is_front:
-            _sel_bg = 'rgba(78,125,240,34)' if _theme == 'dark' else 'rgba(78,125,240,26)'
-            _sel_hv = 'rgba(78,125,240,48)' if _theme == 'dark' else 'rgba(78,125,240,38)'
+            _sel_bg = 'rgba(78,125,240,34)' if is_dark() else 'rgba(78,125,240,26)'
+            _sel_hv = 'rgba(78,125,240,48)' if is_dark() else 'rgba(78,125,240,38)'
             row.setStyleSheet(
                 f'#capRow{{background:{_sel_bg};border-left:2px solid transparent;}}'
                 f'#capRow:hover{{background:{_sel_hv};}}')
@@ -8213,7 +8224,7 @@ def _icon_pm(name, size=16, color=None):
     from PyQt5.QtSvg import QSvgRenderer
     from PyQt5.QtCore import QByteArray
     if color is None:
-        color = '#C7CAD1' if _theme == 'dark' else '#46566e'
+        color = '#C7CAD1' if is_dark() else '#46566e'
     entry = _LUCIDE_ICONS.get(name)
     dpr = 3
     pm = QPixmap(size * dpr, size * dpr); pm.setDevicePixelRatio(dpr); pm.fill(Qt.transparent)
@@ -8230,17 +8241,17 @@ def _icon_pm(name, size=16, color=None):
     return pm
 
 def _n2_hover_ss(obj='n2cell', radius=7):
-    hov = 'rgba(255,255,255,0.07)' if _theme == 'dark' else 'rgba(0,0,0,0.06)'
+    hov = 'rgba(255,255,255,0.07)' if is_dark() else 'rgba(0,0,0,0.06)'
     return (f'#{obj}{{background:transparent;border-radius:{radius}px;}}'
             f'#{obj}:hover{{background:{hov};}}')
 
 def _n2_icon_color(active=False):
     if active: return T('accent')
-    return '#C7CAD1' if _theme == 'dark' else '#5A6B86'
+    return '#C7CAD1' if is_dark() else '#5A6B86'
 
 def _n2_led_color(on):
     if on: return T('accent')
-    return '#3A3A42' if _theme == 'dark' else '#C7C7CC'
+    return '#3A3A42' if is_dark() else '#C7C7CC'
 
 def _n2_mono_font(size=12, weight=QFont.DemiBold):
     f = QFont(); f.setStyleHint(QFont.Monospace); f.setFamily('Menlo')
@@ -8559,13 +8570,13 @@ class _N2Segmented(QFrame):
 
 def _n2_divider():
     f = QFrame(); f.setFrameShape(QFrame.VLine); f.setFixedWidth(1); f.setFixedHeight(26)
-    hair = '#3E3E46' if _theme == 'dark' else T('border')   # 또렷하게(기존 #232329 너무 흐림)
+    hair = '#3E3E46' if is_dark() else T('border')   # 또렷하게(기존 #232329 너무 흐림)
     f.setStyleSheet(f'color:{hair};background:{hair};border:none;')
     return f
 
 
 def _n2_tab_ss():
-    hov = 'rgba(255,255,255,0.05)' if _theme == 'dark' else 'rgba(0,0,0,0.05)'
+    hov = 'rgba(255,255,255,0.05)' if is_dark() else 'rgba(0,0,0,0.05)'
     return (f'#n2tab{{background:transparent;border-radius:7px;}}'
             f'#n2tab:hover{{background:{hov};}}')
 
@@ -8573,7 +8584,7 @@ def _n2_tab_ss():
 def _sec_hairline():
     """사이드 패널 섹션 헤더 아래 하어라인 구분선."""
     f = QFrame(); f.setFixedHeight(1)
-    c = '#33333A' if _theme == 'dark' else '#D5DBE6'
+    c = '#33333A' if is_dark() else '#D5DBE6'
     f.setStyleSheet(f'background:{c};border:none;')
     return f
 
@@ -10605,7 +10616,7 @@ class _HorizBarVU(QWidget):
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
         W = self.width(); H = self.height(); rr = H / 2.0
         DB_MIN = METER_DB_MIN; DB_MAX = 0.0; rng = DB_MAX - DB_MIN
-        bg = QColor(T('bg')); d = -20 if _theme == 'light' else 14   # 라이트 near-white → 어둡게
+        bg = QColor(T('bg')); d = -20 if (not is_dark()) else 14   # 라이트 near-white → 어둡게
         track = QColor(max(0, min(bg.red()+d, 255)), max(0, min(bg.green()+d, 255)), max(0, min(bg.blue()+d+2, 255)))
         p.setPen(Qt.NoPen); p.setBrush(track); p.drawRoundedRect(QRectF(0, 0, W, H), rr, rr)
         # 위치 기반 green/yellow/red 구간 채움 (M4/Smaart 사다리)
@@ -10788,19 +10799,19 @@ class _MeasCard(QFrame):
 
     def _cb_style(self):
         # B안 flat 셀 — Fusion 회색 배경 없이 투명+테두리(콤보 자체는 _flat_cell 페인트가 담당)
-        _bd = '#34343B' if _theme == 'dark' else T('border')
+        _bd = '#34343B' if is_dark() else T('border')
         return (f'QComboBox{{background:transparent;color:{T("text")};border:1px solid {_bd};'
                 f'border-radius:8px;padding:1px 8px;font-size:{FS_SM}px;min-height:22px;}}'
                 f'QComboBox::drop-down{{width:0;border:none;}}'
                 f'QComboBox::down-arrow{{width:0;height:0;image:none;}}')
 
     def _delay_spin_ss(self):
-        _bd = '#34343B' if _theme == 'dark' else T('border')
+        _bd = '#34343B' if is_dark() else T('border')
         return (f'QDoubleSpinBox{{background:transparent;color:{T("text")};border:1px solid {_bd};'
                 f'border-radius:8px;padding:{PAD_SM};font-family:Menlo;font-size:{FS_SM}px;}}')
 
     def _auto_btn_ss(self):
-        _bd = '#34343B' if _theme == 'dark' else T('border')
+        _bd = '#34343B' if is_dark() else T('border')
         return (f'QPushButton{{background:transparent;color:{T("text_dim")};'
                 f'border:1px solid {_bd};font-size:{FS_XS}px;padding:0 6px;border-radius:8px;}}'
                 f'QPushButton:hover{{color:{T("text")};border-color:#4A4A54;}}')
@@ -10829,7 +10840,7 @@ class _MeasCard(QFrame):
         # 카드와 어울리는 불투명 배경으로 덮어쓴다. (restyle()로 테마 토글 시 재적용)
         self._meas_cb = meas_cb; self._meas_ch_cb = meas_ch_cb
         _cb_ss = self._cb_style()
-        _bd = '#34343B' if _theme == 'dark' else T('border')
+        _bd = '#34343B' if is_dark() else T('border')
         for _cb in (meas_cb, meas_ch_cb):
             _cb.setStyleSheet(_cb_ss)
             if isinstance(_cb, RoundComboBox):
@@ -10910,9 +10921,9 @@ class _MeasCard(QFrame):
     def _apply_card_style(self):
         # B안 — 중립 테두리(색 식별은 스와치·색점·번호·미터). 선택=밝은 중립+색 틴트(스펙트럼 카드와 통일).
         _c = QColor(self._color); _r, _g, _b = _c.red(), _c.green(), _c.blue()
-        _bg  = '#1E1E22' if _theme == 'dark' else '#F3F5FA'
-        _bd  = '#34343B' if _theme == 'dark' else T('border')
-        _bd_s = '#4A4A54' if _theme == 'dark' else T('accent')
+        _bg  = '#1E1E22' if is_dark() else '#F3F5FA'
+        _bd  = '#34343B' if is_dark() else T('border')
+        _bd_s = '#4A4A54' if is_dark() else T('accent')
         if self._is_selected:
             self.setStyleSheet(
                 f'QFrame#measCard{{border:1px solid {_bd_s};border-radius:10px;'
@@ -12511,7 +12522,7 @@ class _TFAverageDialog(QDialog):
         lay.addWidget(hint)
 
         # 체크박스 — 테마 적응 (다크/라이트)
-        if _theme == 'dark':
+        if is_dark():
             _ck_bg, _ck_bd, _ck_on = '#0c0c20', '#5060a0', '#0c1830'
         else:
             _ck_bg, _ck_bd, _ck_on = T('panel'), '#C4CCD8', '#E3ECFF'
@@ -13200,7 +13211,7 @@ class TransferFunctionWindow(QWidget):
         sgl.addWidget(_n2_group_header('SIGNAL GENERATOR'))
         # 신호 타입 = 드롭다운으로 통합. 아래 버튼들은 상태 보관용(숨김) — 다운스트림
         # isChecked() 로직(어느 타입인지 판별)을 그대로 보존.
-        _tk_bg, _tk_bd = ('#141416', '#34343B') if _theme == 'dark' else (T('bg3'), T('border'))
+        _tk_bg, _tk_bd = ('#141416', '#34343B') if is_dark() else (T('bg3'), T('border'))
         self.sig_pink_btn  = _CheckBtn('Pink');  self.sig_pink_btn.setChecked(True)
         self.sig_white_btn = _CheckBtn('White')
         self.sig_sine_btn  = _CheckBtn('Sine')
@@ -13381,8 +13392,8 @@ class TransferFunctionWindow(QWidget):
         # Reference도 측정 카드와 동일한 카드 박스로 — R/M 레벨 바가 동일 컨테이너·
         # 동일 내부여백에 놓여 구조적으로 좌우 정렬됨(가로폭·세로 위치 통일, v1.9 #4).
         ref_sec = QFrame(); ref_sec.setObjectName('refCard'); self._ref_sec = ref_sec
-        _ref_bd = '#34343B' if _theme == 'dark' else T('border')
-        _ref_bg = '#1E1E22' if _theme == 'dark' else '#F3F5FA'
+        _ref_bd = '#34343B' if is_dark() else T('border')
+        _ref_bg = '#1E1E22' if is_dark() else '#F3F5FA'
         ref_sec.setStyleSheet(f'QFrame#refCard{{border:1px solid {_ref_bd};border-radius:10px;background:{_ref_bg};padding:2px;}}')
         ref_sl = QVBoxLayout(ref_sec); ref_sl.setContentsMargins(6,5,6,6); ref_sl.setSpacing(3)
         ref_hdr = QHBoxLayout(); ref_hdr.setContentsMargins(0,0,0,0); ref_hdr.setSpacing(4)
@@ -13935,11 +13946,11 @@ class TransferFunctionWindow(QWidget):
 
     def _style_avg_card(self):
         if not hasattr(self, '_avg_card'): return
-        _bg = '#1E1E22' if _theme == 'dark' else '#F3F5FA'
-        _bd = '#34343B' if _theme == 'dark' else T('border')
+        _bg = '#1E1E22' if is_dark() else '#F3F5FA'
+        _bd = '#34343B' if is_dark() else T('border')
         col = self._avg_curve_color()
         if getattr(self, '_avg_card_selected', False):   # 선택 = 색 틴트 채움(마이크 카드와 동일)
-            _c = QColor(col); _bd_s = '#4A4A54' if _theme == 'dark' else T('accent')
+            _c = QColor(col); _bd_s = '#4A4A54' if is_dark() else T('accent')
             self._avg_card.setStyleSheet(
                 f'QFrame#measCard{{border:1px solid {_bd_s};border-radius:10px;'
                 f'background:rgba({_c.red()},{_c.green()},{_c.blue()},20);padding:2px;}}')
@@ -15607,7 +15618,7 @@ class TransferFunctionWindow(QWidget):
         # 사용자 지정색 우선, 없으면 다색 개별 위 도드라지는 테마 대응 고대비
         if getattr(self, '_avg_color', None):
             return self._avg_color
-        return '#FFFFFF' if _theme == 'dark' else '#1A1A1A'
+        return '#FFFFFF' if is_dark() else '#1A1A1A'
 
     def _render_average(self, freqs, t_ms):
         """참여 카드(정렬된 표시 H) 수집 → _multimic_average → 3캔버스 AVG 슬롯.
@@ -17014,7 +17025,7 @@ class TransferFunctionWindow(QWidget):
             _bg, _bg_h = '#3A2A2C', '#453032'
             _b.setIcon(_icon('stop', 14, color=T('red')))
         else:
-            _bg, _bg_h = ('#3A3A42', '#44444C') if _theme == 'dark' else (T('bg3'), T('panel'))
+            _bg, _bg_h = ('#3A3A42', '#44444C') if is_dark() else (T('bg3'), T('panel'))
             _b.setIcon(_icon('play', 14, color=T('accent')))
         _b.setStyleSheet(
             f'QPushButton{{background:{_bg};color:{T("text")};border:none;border-radius:8px;'
@@ -17023,8 +17034,8 @@ class TransferFunctionWindow(QWidget):
 
     def _restyle_sig_gen_theme(self):
         """테마 토글(다크↔라이트) 시 TF 신호발생기/측정 패널 N2 컨트롤 재스타일."""
-        _bd = '#34343B' if _theme == 'dark' else T('border')
-        _bd_h = '#4A4A54' if _theme == 'dark' else '#B7B7C0'
+        _bd = '#34343B' if is_dark() else T('border')
+        _bd_h = '#4A4A54' if is_dark() else '#B7B7C0'
         if hasattr(self, '_sig_type_cell'):
             self._sig_type_cell.setStyleSheet(
                 f'#sigTypeCell{{border:1px solid {_bd};background:transparent;border-radius:8px;}}'
@@ -17036,7 +17047,7 @@ class TransferFunctionWindow(QWidget):
             if cb is not None:
                 cb._flat_border = _bd; cb.update()
         if hasattr(self, '_ref_sec'):
-            _rbg = '#1E1E22' if _theme == 'dark' else '#F3F5FA'
+            _rbg = '#1E1E22' if is_dark() else '#F3F5FA'
             self._ref_sec.setStyleSheet(f'QFrame#refCard{{border:1px solid {_bd};border-radius:10px;background:{_rbg};padding:2px;}}')
         if hasattr(self, '_ref_db_lbl'):
             self._ref_db_lbl.setStyleSheet(f'color:{T("accent")};background:transparent;')
@@ -17833,7 +17844,7 @@ def _spec_color(frac: float, lightness: int = 160, alpha: int = 255) -> 'QColor'
     """frac 0→1 을 violet(260°)→red(0°) HSL 스펙트럼 QColor로 변환.
     라이트 테마: 흰 배경 대비 위해 명도를 낮춰 진하고 채도 높은 보석톤으로 (스코프 가독성)."""
     hue = int((1.0 - max(0.0, min(1.0, frac))) * 260)
-    if _theme == 'light':
+    if (not is_dark()):
         lightness = max(55, min(135, int(lightness * 0.52)))
     c = QColor.fromHsl(hue, 255, lightness)
     c.setAlpha(alpha)
@@ -17857,7 +17868,7 @@ def _brand_color(frac, lightness=160, alpha=255):
             break
     h, s, l, _ = col.getHsl()
     nl = max(0, min(255, int(l * (lightness / 160.0))))
-    if _theme == 'light':
+    if (not is_dark()):
         nl = max(40, min(150, int(nl * 0.6)))
     c = QColor.fromHsl(h, s, nl); c.setAlpha(alpha)
     return c
@@ -17869,7 +17880,7 @@ def _rgba_css(hexcol, alpha):
 
 def _metric_col(hue, light=160):
     """라우드니스 메트릭 값 색 (HSL). 라이트 테마: 흰 바 대비 위해 명도 낮춤."""
-    if _theme == 'light':
+    if (not is_dark()):
         light = max(70, min(150, int(light * 0.6)))
     return QColor.fromHsl(hue, 255, light).name()
 
@@ -17900,7 +17911,7 @@ class VectorscopeCanvas(QWidget):
         _spec_color = _brand_color   # SPECTRA 브랜드 그라디언트로 스코프 재색 (이 메서드 한정)
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
         W, H = self.width(), self.height()
-        dark = (_theme != 'light')
+        dark = (is_dark())
         def ov(a): return QColor(255, 255, 255, a) if dark else QColor(26, 38, 62, a)
         p.fillRect(0, 0, W, H, QColor(2, 2, 4) if dark else QColor(T('bg')))
         # 하단에 상관(correlation) 바+라벨이 있어 레이더보다 바닥 여유를 더 줌(작은 창 잘림 방지)
@@ -18127,7 +18138,7 @@ class LoudnessRadarCanvas(QWidget):
     def paintEvent(self, ev):
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
         W, H = self.width(), self.height()
-        dark = (_theme != 'light')
+        dark = (is_dark())
         def ov(a): return QColor(255, 255, 255, a) if dark else QColor(26, 38, 62, a)
         p.fillRect(0, 0, W, H, QColor(1, 1, 3) if dark else QColor(T('bg')))
         _spec_color = _brand_color   # SPECTRA 브랜드 그라디언트로 레이더 재색 (이 메서드 한정)
@@ -18458,7 +18469,7 @@ class LoudnessHistoryCanvas(QWidget):
     def reset(self): self._vals.clear(); self._last_t = 0.0; self.update()
     def paintEvent(self, e):
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        dark = (_theme != 'light'); W, H = self.width(), self.height()
+        dark = (is_dark()); W, H = self.width(), self.height()
         p.fillRect(0, 0, W, H, QColor(8, 8, 10) if dark else QColor(T('bg')))
         pad = 8
         def y(v):
@@ -18525,7 +18536,7 @@ class StereoLoudnessPage(QWidget):
     def _build_ui(self):
         # 시안C 카드형 레이아웃: 모든 요소를 둥근 카드에 배치 (검정 배경 위 카드 부유)
         root=QVBoxLayout(self); root.setContentsMargins(12,12,12,12); root.setSpacing(12)
-        self.setStyleSheet('StereoLoudnessPage{background:%s;}' % (T('bg') if _theme!='light' else T('bg')))
+        self.setStyleSheet('StereoLoudnessPage{background:%s;}' % (T('bg') if is_dark() else T('bg')))
         self._vseps = []; self._metric_meta = []
 
         # ── Row 1: 벡터스코프 | 레이더 | PROGRAM 히어로 ──
@@ -18577,7 +18588,7 @@ class StereoLoudnessPage(QWidget):
     # ── 카드 헬퍼 ────────────────────────────────────────────────
     def _card_bg_ss(self, obj='stCard', radius=14):
         """카드 배경 스타일 — 다크 고정 hex / 라이트는 T() 토큰. 테마 토글 시 재적용용."""
-        dark=(_theme!='light')
+        dark=(is_dark())
         return '#%s{background:%s;border:1px solid %s;border-radius:%dpx;}' % (
             obj, ('#141416' if dark else T('panel')),
             ('#2A2A2C' if dark else T('border')), radius)
@@ -18649,7 +18660,7 @@ class StereoLoudnessPage(QWidget):
             f'letter-spacing:1.5px;background:transparent;')
 
     def _metric_lbl_col(self):
-        return '#E2E4E9' if _theme != 'light' else T('text_dim')
+        return '#E2E4E9' if is_dark() else T('text_dim')
 
     def _build_hero_panel(self):
         """시안C 히어로 — PROGRAM LOUDNESS. AVG(Integrated) | LIVE(Short-term) 양쪽 동시 표기."""
@@ -18745,9 +18756,9 @@ class StereoLoudnessPage(QWidget):
 
     def _lu_btn_ss(self):
         # N2 — 투명+서브틀 테두리 / 활성=회색 채움(파랑 필 폐지, 세그먼트 트랙과 통일)
-        _bd = '#34343B' if _theme == 'dark' else T('border')
-        _fill, _fg = ('#42424A', '#FFFFFF') if _theme == 'dark' else ('#3A3A42', '#FFFFFF')
-        _bd_h = '#4A4A54' if _theme == 'dark' else '#B7B7C0'
+        _bd = '#34343B' if is_dark() else T('border')
+        _fill, _fg = ('#42424A', '#FFFFFF') if is_dark() else ('#3A3A42', '#FFFFFF')
+        _bd_h = '#4A4A54' if is_dark() else '#B7B7C0'
         return (f"QPushButton{{background:transparent;color:{T('text_dim')};border:1px solid {_bd};"
                 f"border-radius:7px;font-size:11px;font-weight:bold;}}"
                 f"QPushButton:hover{{color:{T('text')};border-color:{_bd_h};}}"
@@ -19706,8 +19717,8 @@ class MainWindow(QMainWindow):
         level_lay.addWidget(_sec_hairline()); level_lay.addSpacing(2)
 
         refs={}
-        _soft_a = '#9DB7E0' if _theme != 'light' else '#5A78B0'   # A가중 = 소프트 화이트블루
-        _soft_c = '#C98B96' if _theme != 'light' else '#9A5E6A'   # C가중 = 소프트 와인
+        _soft_a = '#9DB7E0' if is_dark() else '#5A78B0'   # A가중 = 소프트 화이트블루
+        _soft_c = '#C98B96' if is_dark() else '#9A5E6A'   # C가중 = 소프트 와인
         broad_col = T('text')                                      # 광대역 값(SPL/Peak/Dom) = 흰색(중성)
         for k,init in [('SPL','—'),('Peak Hold','—'),('Dominant','—')]:
             row=QHBoxLayout()
@@ -19879,7 +19890,7 @@ class MainWindow(QMainWindow):
         bg3_c = QColor(bg3);   b3R,b3G,b3B   = bg3_c.red(),bg3_c.green(),bg3_c.blue()
         pn_c  = QColor(panel); pnR,pnG,pnB   = pn_c.red(),pn_c.green(),pn_c.blue()
         # glass overlay — dark: white-overlay glass; light: panel-based solid
-        if _theme == 'dark':
+        if is_dark():
             btn_bg0 = 'rgba(255,255,255,14)'; btn_bg1 = 'rgba(255,255,255,5)'
             btn_bd  = 'rgba(255,255,255,20)'
             cb_bg0  = 'rgba(255,255,255,12)'; cb_bg1  = 'rgba(255,255,255,4)'
@@ -20028,13 +20039,13 @@ class MainWindow(QMainWindow):
             }}
         """)
         # 헤더 — 상단 유리 패널
-        drw_alpha = 245 if _theme == 'dark' else 255
+        drw_alpha = 245 if is_dark() else 255
         self._capture_drawer._panel.setStyleSheet(
             f'#capturePanel {{ background: qlineargradient(x1:0,y1:0,x2:0,y2:1,'
             f'stop:0 rgba({pnR},{pnG},{pnB},{drw_alpha}), stop:1 rgba({b2R},{b2G},{b2B},{drw_alpha}));'
             f'border: 1px solid {border}; border-radius: 8px; }}')
         # update drawer segmented control for current theme
-        if _theme == 'dark':
+        if is_dark():
             seg_pill_bg   = '#3A3A3C'
             seg_chk_bg    = '#636366'
             seg_chk_txt   = '#FFFFFF'
@@ -20059,7 +20070,7 @@ class MainWindow(QMainWindow):
         for _ul in getattr(self._capture_drawer, '_dtab_uls', {}).values():
             _ul.setStyleSheet(f'background:{T("accent")};border:none;border-radius:1px;')
         # 리스트 영역 배경 = 툴바/패널과 통일(bg2), 순검정(bg) 제거
-        _sc_bd = '#2E2E34' if _theme == 'dark' else border
+        _sc_bd = '#2E2E34' if is_dark() else border
         self._capture_drawer._scroll.setStyleSheet(
             f'#capScroll {{ background:{bg2}; border:1px solid {_sc_bd}; border-radius:10px; }}'
             f'QScrollBar:vertical{{width:5px;background:transparent;}}'
@@ -20069,7 +20080,7 @@ class MainWindow(QMainWindow):
         # 헤더 버튼 테마색 + 행/칩 재빌드 (라이트에서 검정 배경 잔재 제거)
         self._capture_drawer._restyle_chrome()
         self._capture_drawer._redraw()
-        sep_line = '#4A4A4A' if _theme == 'dark' else border
+        sep_line = '#4A4A4A' if is_dark() else border
         self.hdr.setStyleSheet(f'#mainHdr {{ background: {bg2}; border: none; }}')
         self.hdr_sep.setStyleSheet(f'#hdrSep {{ background: {_SPECTRA_GRAD_QSS}; border: none; }}')
         self.tab_bar.setStyleSheet(
@@ -20085,7 +20096,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'tab_menu_sep'):
             self.tab_menu_sep.setStyleSheet(f'#tabMenuSep {{ background: {accent}; border: none; }}')
         # 툴바 하단 구분선 — 큰 틀 구분(회색 하어라인). 툴바↔콘텐츠 분리.
-        _tbline = '#54545E' if _theme == 'dark' else border
+        _tbline = '#54545E' if is_dark() else border
         self.toolbar_underline.setStyleSheet(
             f'#toolbarUnderline {{ background: {_tbline}; border: none; }}')
         if hasattr(self, '_view_seg'):
@@ -20230,12 +20241,12 @@ class MainWindow(QMainWindow):
         # 시작 버튼
         self._go_style(self.start_btn)
         # ── 상단 헤더 컨트롤 = N2(테두리리스 + hover 배경, 중립 아이콘) — 파란 필/테두리 폐지
-        _hov = 'rgba(255,255,255,0.07)' if _theme == 'dark' else 'rgba(0,0,0,0.06)'
+        _hov = 'rgba(255,255,255,0.07)' if is_dark() else 'rgba(0,0,0,0.06)'
         _icc = _n2_icon_color()
         # 테마 버튼 (Light/Dark)
-        lbl = 'Dark' if _theme == 'light' else 'Light'
+        lbl = 'Dark' if (not is_dark()) else 'Light'
         self.theme_btn.setText(lbl)
-        self.theme_btn.setIcon(_icon('moon' if _theme == 'light' else 'sun', 15, _icc))
+        self.theme_btn.setIcon(_icon('moon' if (not is_dark()) else 'sun', 15, _icc))
         self.theme_btn.setStyleSheet(
             f'QPushButton{{border:none;background:transparent;color:{text};'
             f'border-radius:8px;padding:3px 10px;font-size:11px;}}'
@@ -20266,8 +20277,8 @@ class MainWindow(QMainWindow):
                 f'QComboBox::down-arrow{{width:0;height:0;image:none;}}')
         # 오른쪽 사이드 패널 배경 + 왼쪽 경계선 (셀렉터 지정으로 자식 위젯 미영향)
         if hasattr(self, '_info_panel'):
-            _frame_bd = '#3A3A42' if _theme == 'dark' else border    # 외곽 프레임 테두리(개별 박스 없음)
-            _pan_bd   = '#54545E' if _theme == 'dark' else sep_line   # 그래프↔패널 세로 구분선(또렷)
+            _frame_bd = '#3A3A42' if is_dark() else border    # 외곽 프레임 테두리(개별 박스 없음)
+            _pan_bd   = '#54545E' if is_dark() else sep_line   # 그래프↔패널 세로 구분선(또렷)
             self._info_panel.setStyleSheet(
                 f'#infoPanel {{ background:{bg2}; border-left:2px solid {_pan_bd}; }}'   # 툴바(bg2)와 배경 통일
                 f'#rpFrame {{ background:transparent; border:1px solid {_frame_bd}; border-radius:11px; }}'
@@ -20283,8 +20294,8 @@ class MainWindow(QMainWindow):
                     _v.setStyleSheet(f'color:{_bcol};background:transparent;font-size:{FS_BODY}px;font-weight:bold;')
                 for _v in (self.i_sr, self.i_fft, self.i_res, self.i_calib, self.i_spd):
                     _v.setStyleSheet(f'color:{_bcol};background:transparent;')   # 모노 폰트는 setFont로 유지
-                self._i_dba_base = '#9DB7E0' if _theme != 'light' else '#5A78B0'
-                self._i_dbc_base = '#C98B96' if _theme != 'light' else '#9A5E6A'
+                self._i_dba_base = '#9DB7E0' if is_dark() else '#5A78B0'
+                self._i_dbc_base = '#C98B96' if is_dark() else '#9A5E6A'
                 self._i_laeq_base = self._i_dba_base; self._i_lceq_base = self._i_dbc_base
                 for _v, _b, _fs in ((self.i_dba, self._i_dba_base, FS_DISP), (self.i_dbc, self._i_dbc_base, FS_DISP),
                                     (self.i_laeq, self._i_laeq_base, FS_VAL), (self.i_lceq, self._i_lceq_base, FS_VAL)):
@@ -20303,7 +20314,7 @@ class MainWindow(QMainWindow):
             f'background:{bg2};border-top:1px solid {sep_line};')
         # Level 스핀박스 + ±버튼 + Play + 그룹박스 (tf_win 소속) — direction C(서브틀 보더)
         if self.tf_win is not None:
-            _c_bd = '#34343B' if _theme == 'dark' else border
+            _c_bd = '#34343B' if is_dark() else border
             self.tf_win.sig_lvl_sp.setStyleSheet(
                 f'QDoubleSpinBox{{border:1px solid {_c_bd};background:transparent;color:{text};'
                 f'border-radius:8px;padding:2px 6px;font-family:Menlo;font-size:12px;font-weight:600;}}'
@@ -20443,14 +20454,13 @@ class MainWindow(QMainWindow):
 
     def _st_dev_lbl_ss(self):
         # N2 flat 셀 — 투명 배경 + 서브틀 테두리(다른 N2 컨트롤과 통일).
-        _bd = '#34343B' if _theme == 'dark' else T('border')
+        _bd = '#34343B' if is_dark() else T('border')
         return (f'font-size:{FS_BODY}px;font-weight:600;color:{T("text")};'
                 f'background:transparent;border:1px solid {_bd};'
                 f'border-radius:8px;padding:2px 8px;')
 
     def _toggle_theme(self):
-        global _theme
-        _theme='light' if _theme=='dark' else 'dark'
+        toggle_theme()   # 전역 _theme 토글은 접근자로(모듈 분해 대비 교차모듈 쓰기 제거)
         self._apply_theme()
         _apply_windows_titlebar_dark(self)   # 윈도우: 메인 타이틀바도 새 테마로(맥은 no-op)
         # 열려있는 팝아웃 창들: 컨트롤 스타일시트 + 네이티브 타이틀바 + 브랜드 헤더 재적용
