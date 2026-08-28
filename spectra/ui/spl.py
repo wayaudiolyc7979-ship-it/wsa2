@@ -955,6 +955,8 @@ class ShowModeWindow(QWidget):
     """FOH 글랜스 풀스크린 쇼 모드 — 거대한 SPL + 라이브 스펙트럼 + 핵심 지표.
     객석 건너편에서도 한눈에 읽히게. _process_audio가 push()로 급전(표시 전용, 측정로직 독립).
     한계 대비 초록(여유)→노랑(접근)→빨강(초과) 신호색."""
+    _HEADLINE_TAU = 0.7   # 헤드라인 큰 숫자 평활 시정수(초) — 값↑=더 차분/느림, ↓=더 즉각.
+                          #   SPL Slow(1s) 계열. 프레임율 무관(시간기반). 글랜스 가독 튜닝 지점.
     def __init__(self, main):
         super().__init__()
         self._main = main
@@ -962,6 +964,7 @@ class ShowModeWindow(QWidget):
         self._spl = -120.0; self._unit = 'dBA'
         self._peak = -120.0; self._leq = -120.0; self._leq_e = None
         self._last_paint = 0.0          # 리페인트 throttle (글랜스 차분하게)
+        self._last_push = 0.0           # 헤드라인 시간기반 평활용 (프레임율 무관)
         self._limit = 100.0; self._amber = 3.0
         self._bands = None              # np.array octave dB
         self._bmin = -60.0; self._bmax = 0.0
@@ -972,13 +975,17 @@ class ShowModeWindow(QWidget):
         """순간 SPL(raw) + 스펙트럼 급전. 헤드라인 큰 숫자는 Slow 평활(글랜스 가독),
         PEAK(순간 홀드)·LEQ(긴 지수창)는 raw 기준. 리페인트는 ~15fps로 제한."""
         self._unit = unit; self._bands = bands; self._bmin = bmin; self._bmax = bmax
-        # 헤드라인 = Slow 평활 (raw가 60fps로 튀면 안 읽혀서)
-        self._spl = raw if self._spl <= -100 else self._spl + (raw - self._spl) * 0.05
+        now = time.time()
+        # 헤드라인 = Slow 평활 (raw가 60fps로 튀면 안 읽혀서). 시간기반 EMA →
+        # push 호출율이 달라도 체감 속도 일정. dt 첫 프레임/큰 갭은 33ms로 클램프.
+        dt = now - self._last_push if 0.0 < now - self._last_push < 0.5 else 0.033
+        self._last_push = now
+        a = 1.0 - math.exp(-dt / self._HEADLINE_TAU)
+        self._spl = raw if self._spl <= -100 else self._spl + (raw - self._spl) * a
         self._peak = raw if raw > self._peak else self._peak - 0.04   # 진짜 순간 피크 홀드
         e = 10.0 ** (raw / 10.0)
         self._leq_e = e if self._leq_e is None else self._leq_e + (e - self._leq_e) * 0.002
         self._leq = 10.0 * math.log10(max(self._leq_e, 1e-12))
-        now = time.time()
         if now - self._last_paint >= 0.066:     # 리페인트 ~15fps 제한 (글랜스 차분)
             self._last_paint = now; self.update()
 

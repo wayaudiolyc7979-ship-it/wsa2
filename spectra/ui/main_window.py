@@ -4312,11 +4312,10 @@ class MainWindow(QMainWindow):
         spl_act.triggered.connect(self._open_spl_meter); view_menu.addAction(spl_act)
         alarm_act = QAction('SPL Alarm', self)
         alarm_act.triggered.connect(self._open_spl_alarm); view_menu.addAction(alarm_act)
-        # [v1.7 보류] FOH 글랜스 쇼 모드 — 코드(ShowModeWindow/_open_show_mode/_process_audio 급전)는
-        # 보존하되 진입점(메뉴+단축키)만 숨김. v1.7에서 재개 시 아래 3줄 복구하면 즉시 활성화.
-        #   show_act = QAction('Show Mode (Full Screen)', self)
-        #   show_act.setShortcut('Ctrl+Shift+F')   # macOS에선 Cmd+Shift+F
-        #   show_act.triggered.connect(self._open_show_mode); view_menu.addAction(show_act)
+        # FOH 글랜스 쇼 모드 — 풀스크린 거대 SPL+스펙트럼(v2.0 재개, 2026-08-29).
+        show_act = QAction('Show Mode (Full Screen)', self)
+        show_act.setShortcut('Ctrl+Shift+F')   # macOS에선 Cmd+Shift+F
+        show_act.triggered.connect(self._open_show_mode); view_menu.addAction(show_act)
         view_menu.addSeparator()
         spec_pop_act = QAction('Spectrum in Separate Window', self)
         spec_pop_act.setShortcut('Ctrl+Shift+S')   # macOS에선 Cmd+Shift+S로 매핑
