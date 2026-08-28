@@ -1,9 +1,11 @@
 """UI 위젯 — 작은 커스텀 버튼/배지 (v2.0 분해, 동작 0 변경)."""
+import time
 from PyQt5.QtWidgets import QPushButton, QLabel, QWidget
 from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF, QFont
 from PyQt5.QtCore import Qt, QPointF, QRectF, pyqtSignal
-from spectra.core.config import T
+from spectra.core.config import T, is_dark
 from spectra.core.i18n import _tx
+from spectra.ui.draw import (METER_DB_MIN, METER_PEAK_DECAY, METER_TAU_ATTACK, METER_TAU_RELEASE, _draw_zone_meter_h)
 from spectra.ui.tokens import FONT_FAMILY, FS_BODY, RADIUS_SM, CF_ANNO, _qfont
 
 
@@ -364,4 +366,41 @@ class _MiniVU(QWidget):
         p.drawText(0, txt_top, W, 18, Qt.AlignHCenter|Qt.AlignVCenter, f'{self._db:.0f}')
         p.setFont(_qfont(CF_ANNO)); p.setPen(QColor(T('text_dim')))
         p.drawText(0, txt_top+18, W, 14, Qt.AlignHCenter|Qt.AlignVCenter, 'dBFS')
+        p.end()
+
+
+class _HorizBarVU(QWidget):
+    """Smaart 스타일 수평 레벨 바."""
+    def __init__(self):
+        super().__init__(); self.setFixedHeight(8)
+        self._db = -80.0; self._pk = -80.0; self._pk_hold = 0; self._last_t = 0.0
+
+    def set_rms(self, db, peak_db=None):
+        # 시간 기반 탄도(빠른 어택/실시간 릴리즈) — 업데이트율 무관하게 일정한 실시간 반응
+        now = time.monotonic()
+        dt = (now - self._last_t) if self._last_t else 0.0
+        self._last_t = now
+        tau = METER_TAU_ATTACK if db > self._db else METER_TAU_RELEASE
+        a = (1.0 - math.exp(-dt / tau)) if dt > 0 else 1.0
+        self._db += (db - self._db) * a
+        # peak tick: 실제 peak(있으면) 즉시 올리고, 시간기반 감쇠로 채움(_db)까지 매끄럽게 따라내림
+        pk = peak_db if peak_db is not None else db
+        if pk > self._pk: self._pk = pk
+        elif dt > 0: self._pk = max(self._pk - METER_PEAK_DECAY * dt, self._db)
+        self.update()
+
+    def reset(self):
+        self._db = -80.0; self._pk = -80.0; self._pk_hold = 0; self._last_t = 0.0; self.update()
+
+    def paintEvent(self, ev):
+        # _MiniMeterBar(Spectrum 카드)와 동일한 모던 룩: 둥근 트랙 + 둥근 채움 + peak tick.
+        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
+        W = self.width(); H = self.height(); rr = H / 2.0
+        DB_MIN = METER_DB_MIN; DB_MAX = 0.0; rng = DB_MAX - DB_MIN
+        bg = QColor(T('bg')); d = -20 if (not is_dark()) else 14   # 라이트 near-white → 어둡게
+        track = QColor(max(0, min(bg.red()+d, 255)), max(0, min(bg.green()+d, 255)), max(0, min(bg.blue()+d+2, 255)))
+        p.setPen(Qt.NoPen); p.setBrush(track); p.drawRoundedRect(QRectF(0, 0, W, H), rr, rr)
+        # 위치 기반 green/yellow/red 구간 채움 (M4/Smaart 사다리)
+        _draw_zone_meter_h(p, W, H, self._db, DB_MIN, DB_MAX)
+        # peak tick(흰색 바) 제거 — TF 카드 미터는 RMS 채움만 (사용자 요청 2026-06-26)
         p.end()
