@@ -2,15 +2,18 @@
 import sys
 from PyQt5.QtWidgets import (QDialog, QDialogButtonBox, QDoubleSpinBox, QFrame, QHBoxLayout,
     QLabel, QPushButton, QRadioButton, QSpinBox, QVBoxLayout, QWidget,
-    QAbstractItemView, QApplication, QComboBox, QGridLayout, QGroupBox, QLineEdit, QScrollArea, QMessageBox)
-from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
-from PyQt5.QtGui import QColor
-from spectra.core.config import T, is_dark
+    QAbstractItemView, QApplication, QComboBox, QGridLayout, QGroupBox, QLineEdit, QScrollArea, QMessageBox,
+    QCheckBox, QFileDialog, QProgressBar)
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, QMutexLocker, QPointF
+from PyQt5.QtGui import QColor, QPainter, QPen, QPixmap, QPolygonF
+from spectra.core.config import T, is_dark, fmt_delay, sound_speed, set_sound_speed
 from spectra.core.i18n import _tx
 from spectra.core.logging_diag import _alog
 from spectra.core.license import _get_machine_id, save_license, verify_license
-from spectra.ui.tokens import ss_btn_neutral, ss_btn_primary, ss_btn_danger, ss_dialog_btns, ss_spin, FS_LG, FONT_FAMILY
-from spectra.ui.widgets import _apply_dark_titlebar, _grad_topline, hsep, _dialog_brand_header, _icon
+from spectra.dsp.tf import _hilbert_env
+from spectra.ui.colors import BAR_PRESETS
+from spectra.ui.tokens import _qfont, ss_btn_neutral, ss_btn_primary, ss_btn_danger, ss_dialog_btns, ss_spin, FS_LG, FONT_FAMILY
+from spectra.ui.widgets import _apply_dark_titlebar, _grad_topline, hsep, _dialog_brand_header, _icon, RoundComboBox
 
 
 class _DelayAdvancedDialog(QDialog):
@@ -874,3 +877,755 @@ class _ConvWorker(QThread):
         pk = float(np.max(np.abs(wet))) if len(wet) else 0.0
         if pk > 1e-6: wet = wet / pk * 0.9
         self.done.emit(wet.astype(np.float32))
+
+
+class DelayFinderDialog(QDialog):
+    _result_sig = pyqtSignal(float)
+
+    def __init__(self, tw, parent=None):
+        super().__init__(parent)
+        self._tw = tw
+        self._speed_ms = sound_speed()   # 전역 음속 단일 소스 미러
+        self._measured_ms = None
+        self._tick_count = 0
+        self._prog_timer = None
+        self.setWindowTitle(_tx('Delay Finder')); _apply_dark_titlebar(self)
+        self.setFixedWidth(460)   # 높이는 브랜드 헤더 포함해 콘텐츠에 맞춰 자동
+        self.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
+        self._build_ui()
+        self._result_sig.connect(self._on_result)
+        self._start_find()
+
+    def _build_ui(self):
+        _outer = QVBoxLayout(self); _outer.setSpacing(0); _outer.setContentsMargins(0, 0, 0, 0)
+        _outer.addWidget(_dialog_brand_header(_tx('Delay Finder')))
+        lay = QVBoxLayout(); lay.setContentsMargins(16,14,16,14); lay.setSpacing(8)
+        _outer.addLayout(lay)
+
+        # Progress bar
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 100); self._progress.setValue(0)
+        self._progress.setFixedHeight(16); self._progress.setTextVisible(False)
+        self._progress.setStyleSheet(
+            f'QProgressBar{{background:{T("panel")};border:1px solid {T("border")};border-radius:4px;}}'
+            f'QProgressBar::chunk{{background:{T("accent")};border-radius:3px;}}')
+        lay.addWidget(self._progress)
+
+        # FFT info row + ETC checkbox
+        info_row = QHBoxLayout(); info_row.setSpacing(10)
+        self._fft_lbl = QLabel(_tx('FFT Size: —'))
+        self._fft_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:11px;')
+        info_row.addWidget(self._fft_lbl, 1)
+        self._etc_chk = QCheckBox('ETC')
+        self._etc_chk.setStyleSheet(f'color:{T("text")};font-size:11px;')
+        self._etc_chk.stateChanged.connect(self._on_etc_changed)
+        info_row.addWidget(self._etc_chk)
+        lay.addLayout(info_row)
+
+        # Delay readout grid
+        grid = QGridLayout(); grid.setSpacing(6)
+        hdr_style  = f'color:{T("text_dim")};font-size:10px;font-weight:bold;'
+        val_style  = f'color:{T("text")};font-size:11px;font-weight:bold;'
+        dlta_style = f'color:{T("green")};font-size:11px;font-weight:bold;'
+        lbl_style  = f'color:{T("text")};font-size:11px;'
+        for col, txt in enumerate(['', 'ms', 'ft', 'm']):
+            lbl = QLabel(txt); lbl.setAlignment(Qt.AlignCenter); lbl.setStyleSheet(hdr_style)
+            grid.addWidget(lbl, 0, col)
+        rows_def = [
+            ('Measured Delay',         '_meas_ms',   '_meas_ft',   '_meas_m',   False),
+            ('Current Delay Setting',  '_cur_ms',    '_cur_ft',    '_cur_m',    False),
+            ('Delta Delay',            '_delta_ms',  '_delta_ft',  '_delta_m',  True),
+        ]
+        for r, (name, ms_attr, ft_attr, m_attr, is_delta) in enumerate(rows_def, start=1):
+            vstyle = dlta_style if is_delta else val_style
+            nl = QLabel(name); nl.setStyleSheet(lbl_style); grid.addWidget(nl, r, 0)
+            for c, attr in enumerate([ms_attr, ft_attr, m_attr], start=1):
+                lbl = QLabel('—'); lbl.setAlignment(Qt.AlignCenter); lbl.setStyleSheet(vstyle)
+                setattr(self, attr + '_lbl', lbl); grid.addWidget(lbl, r, c)
+        sep = QFrame(); sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet(f'color:{T("border")};'); lay.addWidget(sep)
+        lay.addLayout(grid)
+
+        lay.addStretch()
+
+        # Buttons
+        btn_row = QHBoxLayout(); btn_row.setSpacing(6)
+        btn_style = ss_btn_neutral()   # 다이얼로그 버튼 통일
+        self.insert_btn   = QPushButton(_tx('Insert'));     self.insert_btn.setEnabled(False)
+        self.find_btn     = QPushButton(_tx('Find Delay'))
+        self.advanced_btn = QPushButton(_tx('Advanced'))
+        self.cancel_btn   = QPushButton(_tx('Cancel'))
+        for b in (self.insert_btn, self.find_btn, self.advanced_btn, self.cancel_btn):
+            b.setStyleSheet(btn_style); btn_row.addWidget(b)
+        self.find_btn.setStyleSheet(ss_btn_primary())   # 주동작 강조
+        self.insert_btn.clicked.connect(self._on_insert)
+        self.find_btn.clicked.connect(self._on_find_delay)
+        self.advanced_btn.clicked.connect(self._on_advanced)
+        self.cancel_btn.clicked.connect(self.reject)
+        lay.addLayout(btn_row)
+
+        self._refresh_fft_label()
+
+    def _refresh_fft_label(self):
+        tw = self._tw
+        fs = tw.fft_size; sr = tw.sample_rate
+        size_k = fs // 1024
+        dur_ms = round(fs / sr * 1000.0, 1)
+        n_avg = tw._n_avg
+        self._fft_lbl.setText(f'FFT Size: {size_k}k / {dur_ms}ms  (Avg: {n_avg})')
+
+    def _start_find(self):
+        if not self._tw._running:
+            from PyQt5.QtWidgets import QMessageBox
+            _BrandBox.information(self, _tx('Delay Finder'), _tx('Press Start first, then use this once signal is present.'))
+            return
+        self._tick_count = 0
+        self._progress.setValue(0)
+        self.find_btn.setEnabled(False)
+        self.insert_btn.setEnabled(False)
+        if self._prog_timer is not None:
+            self._prog_timer.stop()
+        self._prog_timer = QTimer(self)
+        self._prog_timer.timeout.connect(self._tick)
+        self._prog_timer.start(100)
+
+    def _tick(self):
+        self._tick_count += 1
+        self._progress.setValue(min(self._tick_count * 5, 100))
+        self._refresh_fft_label()
+        if self._tick_count >= 20:
+            self._prog_timer.stop()
+            self._do_compute()
+
+    def _do_compute(self):
+        import threading
+        from PyQt5.QtWidgets import QMessageBox
+        tw = self._tw
+        with QMutexLocker(tw._mutex):
+            cross  = tw._cross_acc.copy()  if tw._cross_acc  is not None else None
+            auto_x = tw._auto_acc_x.copy() if tw._auto_acc_x is not None else None
+        if cross is None or auto_x is None:
+            self.find_btn.setEnabled(True)
+            sig_on = (tw._duplex_thread is not None and tw._duplex_thread.isRunning() and not tw._duplex_thread._muted) or \
+                     (tw._sig_stream is not None)
+            if not sig_on:
+                _BrandBox.information(self, _tx('Delay Finder'),
+                    _tx('No signal detected.\nTurn on Play (signal generator) and try again.'))
+            else:
+                _BrandBox.information(self, _tx('Delay Finder'),
+                    _tx('Not enough data yet.\nCheck that signal is present and try again.'))
+            return
+        fft_size = tw.fft_size; sr = tw.sample_rate
+
+        def _worker():
+            H = cross / np.maximum(auto_x, 1e-30)
+            h = np.fft.irfft(H, n=fft_size)
+            env = _hilbert_env(h)
+            peak = int(np.argmax(env))
+            if 0 < peak < len(env) - 1:
+                y0, y1, y2 = float(env[peak-1]), float(env[peak]), float(env[peak+1])
+                denom = 2*(2*y1 - y0 - y2)
+                if denom > 0: peak += (y2 - y0) / denom
+            if peak > fft_size // 2: peak -= fft_size
+            d_ms = round(float(peak) / sr * 1000.0, 2)
+            self._result_sig.emit(d_ms)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_result(self, d_ms):
+        self.find_btn.setEnabled(True)
+        self._measured_ms = d_ms
+        m_factor  = self._speed_ms / 1000.0
+        ft_factor = m_factor * 3.28084
+        cur_ms = self._tw.delay_spin.value()
+        delta_ms = d_ms - cur_ms
+        self._meas_ms_lbl.setText(f'{d_ms:.2f}')
+        self._meas_ft_lbl.setText(f'{d_ms * ft_factor:.2f}')
+        self._meas_m_lbl.setText(f'{d_ms * m_factor:.2f}')
+        self._cur_ms_lbl.setText(f'{cur_ms:.2f}')
+        self._cur_ft_lbl.setText(f'{cur_ms * ft_factor:.2f}')
+        self._cur_m_lbl.setText(f'{cur_ms * m_factor:.2f}')
+        self._delta_ms_lbl.setText(f'{delta_ms:+.2f}')
+        self._delta_ft_lbl.setText(f'{delta_ms * ft_factor:+.2f}')
+        self._delta_m_lbl.setText(f'{delta_ms * m_factor:+.2f}')
+        self.insert_btn.setEnabled(True)
+        self._refresh_fft_label()
+
+    def _on_insert(self):
+        if self._measured_ms is not None:
+            d_ms = self._measured_ms
+            self._tw.delay_spin.setValue(d_ms)
+            self._tw.mag_cvs.fit_y()   # 보정 IR: 뷰는 건드리지 않음 (다른 카드 불변)
+        self.accept()
+
+    def _on_find_delay(self):
+        self._start_find()
+
+    def _on_advanced(self):
+        dlg = _DelayAdvancedDialog(self, self._speed_ms)
+        if dlg.exec_() == QDialog.Accepted:
+            set_sound_speed(dlg.speed())     # 전역 단일 소스 갱신 → IR 마커/커서 m 환산 일치
+            self._speed_ms = sound_speed()
+            if self._measured_ms is not None:
+                self._on_result(self._measured_ms)
+
+    def _on_etc_changed(self, state):
+        mode = 1 if state == Qt.Checked else 0
+        self._tw.ir_cvs.set_mode(mode)
+
+    def closeEvent(self, e):
+        if self._prog_timer is not None and self._prog_timer.isActive():
+            self._prog_timer.stop()
+        super().closeEvent(e)
+
+
+class AllDelayFinderDialog(QDialog):
+    """L키: 활성화된 모든 카드 딜레이를 동시에 찾아 표시."""
+    _results_sig = pyqtSignal(list)   # [(label, pair_idx_enc, d_ms), ...]
+
+    def __init__(self, tw, parent=None):
+        super().__init__(parent)
+        self._tw = tw
+        self._results = []
+        self._tick_count = 0
+        self._prog_timer = None
+        self.setWindowTitle(_tx('Delay Finder') + ' — All Channels'); _apply_dark_titlebar(self)
+        self.setFixedWidth(500)
+        self.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
+        self._build_ui()
+        self._results_sig.connect(self._on_results)
+        self._start_find()
+
+    def _build_ui(self):
+        import math as _math2
+        _outer = QVBoxLayout(self); _outer.setSpacing(0); _outer.setContentsMargins(0, 0, 0, 0)
+        _outer.addWidget(_dialog_brand_header(_tx('Delay Finder')))
+        lay = QVBoxLayout(); lay.setContentsMargins(16,14,16,14); lay.setSpacing(8)
+        _outer.addLayout(lay)
+
+        self._progress = QProgressBar()
+        self._progress.setRange(0,100); self._progress.setValue(0)
+        self._progress.setFixedHeight(14); self._progress.setTextVisible(False)
+        self._progress.setStyleSheet(
+            f'QProgressBar{{background:{T("panel")};border:1px solid {T("border")};border-radius:4px;}}'
+            f'QProgressBar::chunk{{background:{T("accent")};border-radius:3px;}}')
+        lay.addWidget(self._progress)
+
+        # 결과 테이블 헤더
+        hdr_style = f'color:{T("text_dim")};font-size:10px;font-weight:bold;'
+        val_style = f'color:{T("text")};font-size:11px;'
+        g = QGridLayout(); g.setSpacing(5)
+        for col, txt in enumerate(['Card', 'Measured', 'Current', 'Delta']):
+            l = QLabel(txt); l.setAlignment(Qt.AlignCenter); l.setStyleSheet(hdr_style)
+            g.addWidget(l, 0, col)
+        sep = QFrame(); sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet(f'color:{T("border")};')
+        g.addWidget(sep, 1, 0, 1, 4)
+        self._grid = g; self._grid_row_offset = 2
+        self._row_widgets = []   # [(card_lbl, meas_lbl, cur_lbl, delta_lbl)]
+        lay.addLayout(g)
+        lay.addStretch()
+
+        btn_row = QHBoxLayout(); btn_row.setSpacing(6)
+        btn_s = ss_btn_neutral()   # 다이얼로그 버튼 통일
+        self._insert_btn = QPushButton(_tx('Insert All (Enter)')); self._insert_btn.setEnabled(False)
+        self._find_btn   = QPushButton(_tx('Find Again (L)'))
+        self._cancel_btn = QPushButton(_tx('Cancel'))
+        for b in (self._insert_btn, self._find_btn, self._cancel_btn):
+            b.setStyleSheet(btn_s)
+            b.setAutoDefault(False); b.setDefault(False)   # Enter는 keyPressEvent에서 처리(항상 적용)
+            btn_row.addWidget(b)
+        self._find_btn.setStyleSheet(ss_btn_primary())   # 주동작 강조
+        self._insert_btn.clicked.connect(self._on_insert_all)
+        self._find_btn.clicked.connect(self._start_find)
+        self._cancel_btn.clicked.connect(self.reject)
+        lay.addLayout(btn_row)
+
+    def _start_find(self):
+        if not self._tw._running:
+            from PyQt5.QtWidgets import QMessageBox
+            _BrandBox.information(self, _tx('Delay Finder'),
+                _tx('Press Start first, then use this once signal is present.'))
+            return
+        self._results = []
+        self._insert_btn.setEnabled(False)
+        self._tick_count = 0; self._progress.setValue(0)
+        # 행 초기화
+        for ws in self._row_widgets:
+            for w in ws: w.setText('—')
+        if self._prog_timer: self._prog_timer.stop()
+        self._prog_timer = QTimer(self)
+        self._prog_timer.timeout.connect(self._tick)
+        self._prog_timer.start(100)
+
+    def _tick(self):
+        self._tick_count += 1
+        self._progress.setValue(min(self._tick_count * 5, 100))
+        if self._tick_count >= 20:
+            self._prog_timer.stop(); self._do_compute()
+
+    def _do_compute(self):
+        import threading, math as _m
+        tw = self._tw
+        # 활성화된 pair 수집
+        pairs = []
+        if not getattr(tw, '_primary_deleted', False):
+            if tw._level_cards and tw._level_cards[0]._display_on:
+                pairs.append((-1, 'Card 1', None, None))  # (enc, label, cross, auto_x)
+        for i, pair in enumerate(tw._extra_pairs):
+            if not pair.get('display', False): continue
+            p_meas_idx = pair['meas_cb'].currentData()
+            ref_idx = tw.ref_cb.currentData()
+            if p_meas_idx is not None and ref_idx is not None and p_meas_idx != ref_idx:
+                pairs.append((i, f'Card {i+2}', 'cross_device', None))
+                continue
+            cb = pair.get('meas_cb')
+            dev_txt = cb.currentText() if cb else '?'
+            ch_cb = pair.get('meas_ch_cb')
+            ch_txt = ch_cb.currentText() if ch_cb else '?'
+            pairs.append((i, f'Card {i+2}', None, None))
+
+        # 기존 행 재사용 또는 추가
+        val_style = f'color:{T("text")};font-size:11px;'
+        dim_style = f'color:{T("text_dim")};font-size:11px;'
+        while len(self._row_widgets) < len(pairs):
+            r = self._grid_row_offset + len(self._row_widgets)
+            ws = []
+            for c in range(4):
+                l = QLabel('—'); l.setAlignment(Qt.AlignCenter); l.setStyleSheet(val_style)
+                self._grid.addWidget(l, r, c); ws.append(l)
+            self._row_widgets.append(ws)
+
+        # 라벨 설정
+        for idx, (enc, label, cross_flag, _) in enumerate(pairs):
+            if idx < len(self._row_widgets):
+                self._row_widgets[idx][0].setText(label)
+
+        # 누적값 수집 — primary는 헬퍼로(Single=누적, MTW=버퍼 산출). 자체 락 사용.
+        prim_cross, prim_auto = tw._primary_delay_cross_auto()
+        tasks = []
+        with QMutexLocker(tw._mutex):
+            for enc, label, cross_flag, _ in pairs:
+                if cross_flag == 'cross_device':
+                    tasks.append((enc, label, None, None, 0.0))
+                    continue
+                if enc == -1:
+                    cross, auto_x = prim_cross, prim_auto
+                    base_ms = float(tw.delay_ms)
+                else:
+                    acc = tw._extra_pair_acc[enc] if enc < len(tw._extra_pair_acc) else None
+                    cross = acc['cross'].copy() if acc else None
+                    auto_x = acc['auto_x'].copy() if acc else None
+                    base_ms = float(tw._extra_pairs[enc].get('delay_ms', 0.0)) \
+                              if enc < len(tw._extra_pairs) else 0.0
+                # 누적은 현재 딜레이로 이미 정렬됨 → 잔여+base=참값 [DELAY_FIND_ABS]
+                tasks.append((enc, label, cross, auto_x, base_ms))
+
+        fft_size = tw.fft_size; sr = tw.sample_rate
+
+        def _worker():
+            out = []
+            for enc, label, cross, auto_x, base_ms in tasks:
+                if cross is None:
+                    out.append((label, enc, None)); continue
+                H = cross / np.maximum(auto_x, 1e-30)
+                h = np.fft.irfft(H, n=fft_size)
+                env = _hilbert_env(h)
+                peak = int(np.argmax(env))
+                if 0 < peak < len(env) - 1:
+                    y0, y1, y2 = float(env[peak-1]), float(env[peak]), float(env[peak+1])
+                    denom = 2*(2*y1 - y0 - y2)
+                    if denom > 0: peak += (y2 - y0) / denom
+                if peak > fft_size // 2: peak -= fft_size
+                d_ms = round(base_ms + float(peak) / sr * 1000.0, 2)   # 잔여+현재딜레이=참 딜레이
+                out.append((label, enc, d_ms))
+            self._results_sig.emit(out)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_results(self, results):
+        self._results = results
+        tw = self._tw
+        val_s  = f'color:{T("text")};font-size:11px;'
+        g_s    = f'color:{T("green")};font-size:11px;font-weight:bold;'
+        dim_s  = f'color:{T("text_dim")};font-size:11px;'
+        any_valid = False
+        for idx, (label, enc, d_ms) in enumerate(results):
+            if idx >= len(self._row_widgets): break
+            ws = self._row_widgets[idx]
+            if d_ms is None:
+                ws[1].setText('N/A'); ws[1].setStyleSheet(dim_s)
+                ws[2].setText('—');   ws[3].setText('—')
+                continue
+            # current delay
+            if enc == -1:
+                cur = tw.delay_ms
+            else:
+                cur = tw._extra_pairs[enc].get('delay_ms', 0.0) if enc < len(tw._extra_pairs) else 0.0
+            delta = d_ms - cur
+            ws[1].setText(fmt_delay(d_ms)); ws[1].setStyleSheet(val_s)
+            ws[2].setText(fmt_delay(cur));  ws[2].setStyleSheet(val_s)
+            ws[3].setText(fmt_delay(delta, sign=True))
+            ws[3].setStyleSheet(g_s if abs(delta) < 1.0 else val_s)
+            any_valid = True
+        self._insert_btn.setEnabled(any_valid)
+        self.adjustSize()
+
+    def _on_insert_all(self):
+        tw = self._tw
+        for label, enc, d_ms in self._results:
+            if d_ms is None: continue
+            if enc == -1:
+                if tw._level_cards and hasattr(tw._level_cards[0], '_delay_spin'):
+                    tw._level_cards[0]._delay_spin.setValue(d_ms)
+            else:
+                if enc < len(tw._extra_pairs):
+                    card = tw._extra_pairs[enc].get('card')
+                    if card and hasattr(card, 'set_delay'):
+                        card.set_delay(d_ms)
+                        tw._extra_pairs[enc]['delay_ms'] = d_ms
+        self.accept()
+
+    def keyPressEvent(self, e):
+        # L = 다시 탐색,  Enter = 딜레이값 적용(Insert All)
+        k = e.key()
+        if k == Qt.Key_L:
+            self._start_find(); e.accept(); return
+        if k in (Qt.Key_Return, Qt.Key_Enter):
+            if self._insert_btn.isEnabled():
+                self._on_insert_all()
+            e.accept(); return
+        super().keyPressEvent(e)   # Esc 등 기본 동작 유지
+
+    def closeEvent(self, e):
+        if self._prog_timer and self._prog_timer.isActive():
+            self._prog_timer.stop()
+        super().closeEvent(e)
+
+
+class _AuralizeDialog(QDialog):
+    """오라리제이션 — 측정한 IR로 '그 자리 소리'를 헤드폰으로 듣기.
+
+    아무 음악 파일을 측정 IR과 컨볼루션해 재생. 원음(Dry) vs 공간(Room) A/B.
+    ⚠️헤드폰/노트북 출력으로 들을 것(측정한 PA로 내보내면 룸이 두 번 걸림).
+    측정 엔진과 격리(자체 sd.play).
+    """
+    def __init__(self, tf_win, parent=None):
+        super().__init__(parent)
+        self._tf = tf_win
+        self._music = None          # 모노 float32, tf.sample_rate
+        self._music_sr = None       # _music이 리샘플된 SR (장치 SR 바뀌면 재리샘플 판정)
+        self._wet = None            # 컨볼루션 결과 캐시
+        self._wet_sig = None        # _wet가 어느 IR로 빌드됐는지(재측정 stale 방지)
+        self._conv = None; self._pending_play = False
+        self._music_name = ''
+        self.setWindowTitle(_tx('Auralization'))
+        _apply_dark_titlebar(self)
+        self.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
+        self.setMinimumWidth(340)
+        _dim = T('text_dim'); _bd = T('border')
+
+        outer = QVBoxLayout(self); outer.setSpacing(0); outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(_grad_topline())               # SPECTRA 브랜드 헤어라인(정적)
+        body = QWidget(); lay = QVBoxLayout(body); lay.setSpacing(10); lay.setContentsMargins(16, 14, 16, 16)
+        outer.addWidget(body)
+
+        hint = QLabel(_tx('Hear music through the measured space.  Use headphones.'))
+        hint.setStyleSheet(f'color:{_dim};font-size:11px;background:transparent;'); hint.setWordWrap(True)
+        lay.addWidget(hint)
+
+        # 측정한 방(IR) 미리보기 + 소스 선택(라이브/캡처) — 시그니처(진짜 측정 데이터)
+        caprow = QHBoxLayout(); caprow.setSpacing(8)
+        cap = QLabel(_tx('MEASURED ROOM'))
+        cap.setStyleSheet(f'color:{_dim};font-size:9px;font-weight:bold;letter-spacing:1px;background:transparent;')
+        self._ir_cb = RoundComboBox(); self._ir_cb.setFixedHeight(24); self._ir_cb.setMinimumWidth(140)
+        self._populate_ir_sources()
+        self._ir_cb.currentIndexChanged.connect(self._on_ir_src_changed)
+        caprow.addWidget(cap); caprow.addStretch(); caprow.addWidget(self._ir_cb)
+        lay.addLayout(caprow)
+        self._ir_view = QLabel(); self._ir_view.setFixedHeight(54)
+        self._ir_view.setStyleSheet(f'background:{T("bg")};border:1px solid {_bd};border-radius:6px;')
+        lay.addWidget(self._ir_view)
+
+        row1 = QHBoxLayout(); row1.setSpacing(8)
+        self._load_btn = QPushButton(_tx('Load music…')); self._load_btn.setStyleSheet(ss_btn_neutral())
+        self._load_btn.clicked.connect(self._load_music)
+        self._music_lbl = QLabel(_tx('no file')); self._music_lbl.setStyleSheet(f'color:{_dim};font-size:11px;background:transparent;')
+        row1.addWidget(self._load_btn); row1.addWidget(self._music_lbl, 1)
+        lay.addLayout(row1)
+
+        row2 = QHBoxLayout(); row2.setSpacing(8)
+        _ol = QLabel(_tx('Output')); _ol.setStyleSheet(f'color:{_dim};font-size:11px;background:transparent;'); _ol.setFixedWidth(46)
+        self._out_cb = RoundComboBox(); self._populate_outputs()
+        row2.addWidget(_ol); row2.addWidget(self._out_cb, 1)
+        lay.addLayout(row2)
+
+        lay.addSpacing(2); lay.addWidget(hsep())
+        row3 = QHBoxLayout(); row3.setSpacing(8)
+        self._dry_btn = QPushButton('  ' + _tx('Dry'));  self._dry_btn.setIcon(_icon('play', 13, color='#FFFFFF'))
+        self._room_btn = QPushButton('  ' + _tx('Room')); self._room_btn.setIcon(_icon('play', 13, color='#FFFFFF'))
+        self._stop_btn = QPushButton(''); self._stop_btn.setIcon(_icon('stop', 15, color=T('red'))); self._stop_btn.setFixedWidth(46)
+        self._stop_btn.setToolTip(_tx('Stop playback'))
+        self._stop_btn.setStyleSheet(ss_btn_neutral())
+        self._dry_btn.clicked.connect(lambda: self._play('dry'))
+        self._room_btn.clicked.connect(lambda: self._play('room'))
+        self._stop_btn.clicked.connect(self._stop)
+        row3.addWidget(self._dry_btn, 1); row3.addWidget(self._room_btn, 1); row3.addWidget(self._stop_btn)
+        lay.addLayout(row3)
+        # 재생 중인 쪽만 파란불 — 재생 끝나면 폴 타이머가 자동으로 끔
+        self._playing = None; self._set_active(None)
+        self._poll_t = QTimer(self); self._poll_t.setInterval(200); self._poll_t.timeout.connect(self._poll_playing)
+
+        self._refresh_ir_state()
+        self._set_playable(False)
+
+    def _set_active(self, which):
+        """재생 중인 버튼만 파란불(primary), 나머지는 중립."""
+        self._playing = which
+        self._dry_btn.setStyleSheet(ss_btn_primary() if which == 'dry' else ss_btn_neutral())
+        self._room_btn.setStyleSheet(ss_btn_primary() if which == 'room' else ss_btn_neutral())
+
+    def _poll_playing(self):
+        try:
+            st = sd.get_stream(); active = st is not None and st.active
+        except Exception:
+            active = False
+        if not active:
+            self._poll_t.stop(); self._set_active(None)
+
+    def _render_ir_view(self):
+        """측정 IR을 앱 IR 캔버스 스타일(얇은 청록 트레이스)로 그려 넣기 — 방의 지문."""
+        w_, h_ = 306, 54
+        pm = QPixmap(w_, h_); pm.fill(QColor(T('bg')))
+        p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing, True)
+        p.setPen(QPen(QColor(T('border')), 1)); p.drawLine(8, h_ // 2, w_ - 8, h_ // 2)
+        ir, _ = self._current_ir()
+        if ir is not None and len(ir) > 4:
+            h = np.asarray(ir, dtype=float)
+            pk = int(np.argmax(np.abs(h)))
+            b = min(len(h), pk + int(0.05 * self._sr()))
+            seg = h[max(0, pk - 16):b]
+            if len(seg) >= 2:
+                seg = seg / (np.max(np.abs(seg)) or 1.0)
+                n = len(seg); xs = 8 + np.arange(n) / max(n - 1, 1) * (w_ - 16)
+                ys = h_ / 2 - seg * (h_ / 2) * 0.82
+                p.setPen(QPen(QColor('#2DD4BF'), 1.6)); p.setBrush(Qt.NoBrush)   # 앱 IR 색(teal)
+                p.drawPolyline(QPolygonF([QPointF(float(x), float(y)) for x, y in zip(xs, ys)]))
+        else:
+            p.setPen(QColor(T('text_dim'))); p.setFont(_qfont(11))
+            p.drawText(pm.rect(), Qt.AlignCenter, _tx('measure first (TF / sweep)'))
+        p.end()
+        self._ir_view.setPixmap(pm)
+
+    def _populate_outputs(self):
+        self._out_cb.clear()
+        try:
+            devs = sd.query_devices()
+            default_out = sd.default.device[1] if sd.default.device else -1
+        except Exception:
+            devs = []; default_out = -1
+        sel = 0
+        for i, d in enumerate(devs):
+            if int(d.get('max_output_channels', 0)) > 0:
+                self._out_cb.addItem(d['name'], i)
+                if i == default_out:
+                    sel = self._out_cb.count() - 1
+        if self._out_cb.count() == 0:
+            self._out_cb.addItem(_tx('(default)'), None)
+        self._out_cb.setCurrentIndex(sel)
+
+    def _populate_ir_sources(self):
+        """IR 소스 목록 — 라이브 측정 + IR 있는 캡처들(캡처 데이터도 들을 수 있게)."""
+        self._ir_cb.blockSignals(True)
+        self._ir_cb.clear()
+        ir = getattr(self._tf, 'ir_cvs', None)
+        if ir is not None and getattr(ir, 'h_raw', None) is not None and len(ir.h_raw) > 4:
+            self._ir_cb.addItem(_tx('Live'), ('live', -1))
+        for i, c in enumerate(getattr(ir, '_captures', []) if ir else []):
+            if c.get('h') is not None and len(c['h']) > 4:
+                self._ir_cb.addItem(c.get('label', f'Capture {i+1}'), ('cap', i))
+        if self._ir_cb.count() == 0:
+            self._ir_cb.addItem(_tx('— none —'), (None, -1))
+        self._ir_cb.blockSignals(False)
+
+    def _on_ir_src_changed(self, *_):
+        self._wet = None                # 소스 바뀌면 컨볼루션 캐시 무효화
+        self._refresh_ir_state()
+        self._set_playable()
+
+    def _current_ir(self):
+        """선택된 IR(h) — 드롭다운(라이브/캡처)."""
+        ir = getattr(self._tf, 'ir_cvs', None)
+        if ir is None: return None, ''
+        data = self._ir_cb.currentData() if hasattr(self, '_ir_cb') else ('live', -1)
+        if not data: return None, ''
+        kind, idx = data
+        if kind == 'live' and getattr(ir, 'h_raw', None) is not None and len(ir.h_raw) > 4:
+            return np.asarray(ir.h_raw, dtype=np.float32), _tx('Live')
+        if kind == 'cap':
+            caps = getattr(ir, '_captures', [])
+            if 0 <= idx < len(caps) and caps[idx].get('h') is not None:
+                return np.asarray(caps[idx]['h'], dtype=np.float32), caps[idx].get('label', 'capture')
+        return None, ''
+
+    def _refresh_ir_state(self):
+        ir, name = self._current_ir()
+        self._has_ir = ir is not None
+        self._render_ir_view()
+
+    def _set_playable(self, on=True):
+        has_music = self._music is not None
+        self._dry_btn.setEnabled(has_music)
+        self._room_btn.setEnabled(has_music and self._has_ir)
+
+    def _sr(self):
+        return int(getattr(self._tf, 'sample_rate', 48000) or 48000)
+
+    def _load_music(self):
+        from PyQt5.QtWidgets import QFileDialog
+        import os
+        path, _ = QFileDialog.getOpenFileName(
+            self, _tx('Select music file'), '',
+            'Audio (*.wav *.flac *.aiff *.aif *.ogg *.mp3 *.m4a *.caf);;All Files (*)')
+        if not path:
+            return
+        data = sr = None
+        try:
+            import soundfile as sf
+            data, sr = sf.read(path, dtype='float32', always_2d=False)
+        except ImportError:
+            try:
+                from scipy.io import wavfile as wf
+                sr, raw = wf.read(path)
+                data = raw.astype(np.float32) / (32768.0 if raw.dtype == np.int16 else 1.0)
+            except Exception as e:
+                _BrandBox.warning(self, _tx('Auralization'), _tx('Cannot read file:\n{e}').format(e=e)); return
+        except Exception as e:
+            _BrandBox.warning(self, _tx('Auralization'), _tx('Cannot read file:\n{e}').format(e=e)); return
+        if data.ndim == 2:
+            data = data.mean(axis=1)
+        srr = self._sr()
+        if sr != srr:
+            n_new = max(1, int(len(data) * srr / sr))
+            data = np.interp(np.linspace(0, len(data)-1, n_new), np.arange(len(data)), data)
+        data = np.asarray(data, dtype=np.float32)
+        pk = float(np.max(np.abs(data))) if len(data) else 0.0
+        if pk > 1e-6: data = (data / pk * 0.9).astype(np.float32)
+        self._music = data; self._music_sr = srr; self._wet = None; self._wet_sig = None
+        self._music_name = os.path.basename(path)
+        self._music_lbl.setText(self._music_name[:22] + ('…' if len(self._music_name) > 22 else ''))
+        self._refresh_ir_state()
+        self._set_playable(True)
+
+    @staticmethod
+    def _ir_sig(ir):
+        # IR 식별 시그니처 — 재측정(Live IR 교체) 감지해 stale wet 캐시 무효화.
+        # ⚠️캡처는 SR 미저장 → 다른 SR로 측정된 옛 캡처는 타이밍 어긋날 수 있음
+        #   (현 세션 캡처·Live IR은 항상 현재 SR이라 정상).
+        return (len(ir), round(float(ir.sum()), 5), round(float(np.abs(ir).max()), 5))
+
+    def _ensure_music_sr(self):
+        """재생 직전, TF 장치 SR이 로드 시점과 달라졌으면 음악을 현재 SR로 재리샘플.
+        (SR 바뀐 뒤 옛 SR 버퍼를 그대로 재생하면 피치가 틀어지고 Room 컨볼루션도 오염됨.)"""
+        if self._music is None: return
+        cur = self._sr(); old = getattr(self, '_music_sr', None)
+        if old and old != cur and len(self._music) > 1:
+            n_new = max(1, int(len(self._music) * cur / old))
+            self._music = np.interp(np.linspace(0, len(self._music)-1, n_new),
+                                    np.arange(len(self._music)), self._music).astype(np.float32)
+            self._music_sr = cur
+            self._wet = None; self._wet_sig = None   # 옛 SR 컨볼루션 캐시 무효화
+
+    def _play(self, which):
+        self._ensure_music_sr()
+        if which == 'dry':
+            self._pending_play = False
+            self._set_active('dry'); self._start_playback(self._music); return
+        ir, _ = self._current_ir()
+        if ir is None or self._music is None: return
+        sig = self._ir_sig(ir)
+        if self._wet is not None and self._wet_sig == sig:   # 유효 캐시 → 즉시 재생
+            self._pending_play = False
+            self._set_active('room'); self._start_playback(self._wet); return
+        if self._conv is not None and self._conv.isRunning(): return
+        # 캐시 없음/stale → 백그라운드 컨볼루션 후 재생 (긴 곡에서 UI 프리즈 방지)
+        self._pending_play = True
+        self._room_btn.setEnabled(False); self._room_btn.setText('  …')
+        self._conv = _ConvWorker(self._music, ir, sig)
+        self._conv.done.connect(self._on_conv_done)
+        self._conv.start()
+
+    def _on_conv_done(self, wet):
+        cur, _ = self._current_ir()
+        cur_sig = self._ir_sig(cur) if cur is not None else None
+        self._wet = wet; self._wet_sig = getattr(self._conv, 'sig', None)
+        self._room_btn.setText('  ' + _tx('Room')); self._set_playable()
+        if self._pending_play and cur_sig == self._wet_sig:  # 대기 중 소스 안 바뀌었으면 재생
+            self._pending_play = False
+            self._set_active('room'); self._start_playback(wet)
+
+    def _start_playback(self, buf):
+        if buf is None: return
+        if buf.dtype != np.float32: buf = buf.astype(np.float32)
+        stereo = np.column_stack([buf, buf])                 # 양 귀로 (buf는 이미 float32)
+        dev = self._out_cb.currentData()
+        try:
+            sd.stop(); sd.play(stereo, self._sr(), device=dev)
+            self._poll_t.start()                             # 재생 끝나면 불 자동 끔
+        except Exception as e:
+            self._set_active(None)
+            _BrandBox.warning(self, _tx('Auralization'), _tx('Playback failed:\n{e}').format(e=e))
+
+    def _stop(self):
+        self._pending_play = False
+        self._poll_t.stop(); self._set_active(None)
+        try: sd.stop()
+        except Exception: pass
+
+    def closeEvent(self, e):
+        self._stop()
+        if self._conv is not None and self._conv.isRunning():
+            self._conv.wait(2000)
+        super().closeEvent(e)
+
+
+class ColorPickerDialog(QDialog):
+    preset_chosen = pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(_tx('Bar Color'))
+        # WA_TranslucentBackground 제거 — Intel Mac에서 클릭 이벤트를 삼킴
+        self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
+        # 불투명 배경을 palette로 지정 (DropdownPopup과 동일 방식)
+        self.setAutoFillBackground(True)
+        pal = self.palette()
+        pal.setColor(self.backgroundRole(), QColor(T('panel')))
+        self.setPalette(pal)
+
+        lay = QVBoxLayout(self); lay.setContentsMargins(8,8,8,8); lay.setSpacing(6)
+        brd = T('border')
+        for i, (name, top, bot) in enumerate(BAR_PRESETS):
+            btn = QPushButton()
+            btn.setFixedSize(180, 32)
+            # clicked 대신 mousePressEvent 사용 — macOS Popup이 mouseRelease 전에 닫혀 clicked가 안 오는 문제 우회
+            btn.mousePressEvent = lambda e, idx=i: self._pick(idx)
+            r0,g0,b0,_ = top
+            r1,g1,b1,_ = bot
+            selected = (i == _bar_preset_idx)
+            border_css = f'2px solid {T("text")}' if selected else f'1px solid {brd}'
+            btn.setStyleSheet(
+                f'QPushButton {{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,'
+                f'stop:0 rgba({r0},{g0},{b0},220),stop:1 rgba({r1},{g1},{b1},60));'
+                f'border:{border_css};'
+                f'border-radius:6px;color:white;font-size:11px;font-weight:bold;'
+                f'text-align:left;padding-left:8px;}}'
+            )
+            btn.setText(('✓ ' if selected else '  ') + name)
+            lay.addWidget(btn)
+
+    def _pick(self, idx):
+        global _bar_preset_idx
+        _bar_preset_idx = idx
+        self.preset_chosen.emit(idx)
+        self.close()
