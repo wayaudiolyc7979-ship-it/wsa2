@@ -31,6 +31,16 @@ _spec = importlib.util.spec_from_file_location('wayaudo2', os.path.join(_HERE, '
 w = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(w)          # 모듈 import 자체가 1차 검증(문법/구조)
 
+# v2.0 분해: 위젯/다이얼로그가 spectra/ 로 이동 → wayaudo에 없는 심볼은 spectra 모듈에서 백필
+# (wayaudo 자체 심볼은 절대 덮어쓰지 않음). 테스트 하네스가 이동에 견디도록.
+import spectra.ui.widgets, spectra.ui.dialogs, spectra.ui.spl
+import spectra.ui.draw, spectra.ui.colors, spectra.ui.tokens, spectra.ui.icons
+for _m in (spectra.ui.widgets, spectra.ui.dialogs, spectra.ui.spl,
+           spectra.ui.draw, spectra.ui.colors, spectra.ui.tokens, spectra.ui.icons):
+    for _n in dir(_m):
+        if not _n.startswith('__') and not hasattr(w, _n):
+            setattr(w, _n, getattr(_m, _n))
+
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtGui import QPixmap, QPainter, QColor
 _app = QApplication.instance() or QApplication(sys.argv)
