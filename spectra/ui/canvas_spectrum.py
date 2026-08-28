@@ -16,6 +16,23 @@ from spectra.ui.draw import (freq_to_x, x_to_freq, db_to_y, draw_info_box, draw_
                              freq_to_note, _focused_capture_visible, _draw_idle_hint,
                              _draw_tf_sel_border)
 
+# 커서 리드아웃 값 평활 [RDOUT] — 값↓=더 느림/차분(읽기 편함), ↑=더 즉각. (기본 raw≈1.0였음)
+_RDOUT_ALPHA = 0.10
+
+def _smooth_readout(cv, freq, db, thd):
+    """커서 리드아웃(dB·THD%) 값 평활 — 매 프레임 raw면 너무 빨리 튀어 안 읽힘.
+    커서 주파수가 바뀌면(>~1/33oct) 새 위치 값으로 즉시 스냅, 그 안에선 EMA로 느리게.
+    반환 (db_smooth, thd_smooth|None). cv._rd_db/_rd_thd/_rd_f 상태 사용."""
+    a = _RDOUT_ALPHA
+    if cv._rd_f is None or abs(math.log2(max(freq, 1e-9) / max(cv._rd_f, 1e-9))) > 0.03:
+        cv._rd_db = db; cv._rd_thd = thd
+    else:
+        cv._rd_db += (db - cv._rd_db) * a
+        cv._rd_thd = (None if thd is None else
+                      thd if cv._rd_thd is None else cv._rd_thd + (thd - cv._rd_thd) * a)
+    cv._rd_f = freq
+    return cv._rd_db, cv._rd_thd
+
 
 class FFTCanvas(QWidget):
     PAD_L=40; PAD_R=10; PAD_T=12; PAD_B=28
@@ -37,6 +54,7 @@ class FFTCanvas(QWidget):
         self.peak_hold=True; self.scale_log=True
         self.sample_rate=48000; self.fft_size=16384
         self._show_thd=False              # 커서 THD 표시(우클릭 'Show THD'로 토글) [THD]
+        self._rd_db=None; self._rd_thd=None; self._rd_f=None   # 리드아웃 값 평활(느리게) [RDOUT]
         self._mx=-1; self._my=-1
         self.peak_hold_frames=30         # 기본 1초 홀드 (30fps 기준)
         self.peak_decay_rate_pk=20.0/30.0  # 20 dB/s 고정 낙하
@@ -513,15 +531,17 @@ class FFTCanvas(QWidget):
                 fs=f'{fs}   {freq_to_note(freq)}'
                 idx=int(np.clip(np.argmin(np.abs(_cf-freq)),0,len(_ca)-1))
                 db=float(_ca[idx])
-                # 가로선은 마우스 Y가 아니라 곡선 값 위치에 (매그니튜드 방식)
+                _thd_val=None                          # [THD] 커서=기본파 가정, 라이브 스펙트럼서 계산
+                if self._show_thd:
+                    _r=thd_from_spectrum(f_arr, a_arr, freq)
+                    if _r is not None: _thd_val=_r[0]
+                db, _thd_v = _smooth_readout(self, freq, db, _thd_val)   # [RDOUT] 값 평활(느리게)
+                _thd_str=f'THD {_thd_v:.2f}%' if _thd_v is not None else None
+                # 가로선은 마우스 Y가 아니라 곡선 값 위치에 (매그니튜드 방식) — 평활된 값 사용
                 cy=int(pt+np.clip((self.db_max-db)/(self.db_max-self.db_min)*(H-pt-pb),0,H-pt-pb))
                 p.setPen(QPen(QColor(T('accent')).lighter(80) if (not is_dark()) else QColor(T('accent')),
                              1,Qt.DashLine))
                 p.drawLine(cx,pt,cx,H-pb); p.drawLine(pl,cy,W-pr,cy)
-                _thd_str=None                          # [THD] 커서=기본파 가정, 라이브 스펙트럼서 계산
-                if self._show_thd:
-                    _r=thd_from_spectrum(f_arr, a_arr, freq)
-                    if _r is not None: _thd_str=f'THD {_r[0]:.2f}%'
                 draw_info_box(p,W,fs,f'{db:.1f} {unit}', pk_str=_thd_str, cx=cx, x_lo=pl, x_hi=W-pr, top=pt,
                               val_color=_cap_col or QColor(*bar_top()[:3]))
         p.end()
@@ -543,6 +563,7 @@ class OctaveCanvas(QWidget):
         self.setMouseTracking(True); self.setAttribute(Qt.WA_OpaquePaintEvent,True)
         self.setFocusPolicy(Qt.StrongFocus)
         self._show_thd=False              # 커서 THD 표시(우클릭 'Show THD'로 토글) [THD]
+        self._rd_db=None; self._rd_thd=None; self._rd_f=None   # 리드아웃 값 평활 [RDOUT]
         self.mode='oct3'
         self.title_text=''   # 설정 시 좌상단 제목 표시(TF의 RTA 칸용; Spectrum 옥타브는 빈값)
         self.smooth={k:np.full(len(v),-96.0) for k,v in BANDS.items()}
@@ -957,10 +978,12 @@ class OctaveCanvas(QWidget):
             p.drawRect(bx2,pt,bw2,dh)
             fs=f'{fc/1000:.2f} kHz' if fc>=1000 else f'{fc:.0f} Hz'
             fs=f'{fs}   {freq_to_note(fc)}'
-            _thd_str=None                          # [THD] RTA 밴드 데이터서 계산(커서=기본파)
+            _thd_val=None                          # [THD] RTA 밴드 데이터서 계산(커서=기본파)
             if self._show_thd:
                 _r=thd_from_spectrum(bands, sm, fc)
-                if _r is not None: _thd_str=f'THD {_r[0]:.2f}%'
+                if _r is not None: _thd_val=_r[0]
+            db2, _thd_v = _smooth_readout(self, fc, db2, _thd_val)   # [RDOUT] 값 평활(느리게)
+            _thd_str=f'THD {_thd_v:.2f}%' if _thd_v is not None else None
             draw_info_box(p,W,fs,f'{db2:.1f} {unit}', pk_str=_thd_str, cx=cx, x_lo=pl, x_hi=W-pr, top=pt,
                           val_color=_cap_col or QColor(*bar_top()[:3]))
         if self._idle_hint:
