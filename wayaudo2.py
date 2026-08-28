@@ -2685,75 +2685,8 @@ from spectra.ui.draw import (METER_DB_MIN, METER_YELLOW_DB, METER_RED_DB, METER_
 # ───────────────────────────────────────────
 #  VU 미터
 # ───────────────────────────────────────────
-class VUMeter(QWidget):
-    """
-    ★ VU 미터는 항상 raw dBFS 기준으로 표시
-       캘리브레이션 오프셋은 그래프/수치에만 적용되고 VU 게인에는 영향 없음
-    """
-    clicked = pyqtSignal()
-
-    def __init__(self):
-        super().__init__()
-        self.setFixedWidth(68); self.setAttribute(Qt.WA_OpaquePaintEvent,True)
-        self.raw_spl  = -100.0   # dBFS (캘리브 오프셋 미적용)
-        self.raw_peak = -100.0   # dBFS
-        self.cal_spl  = -100.0   # dBSPL (캘리브 오프셋 적용, 숫자 표시용)
-        self.cal_peak = -100.0
-
-    def mousePressEvent(self, e): self.clicked.emit(); super().mousePressEvent(e)
-
-    def update_level(self, raw_spl, raw_peak, cal_spl, cal_peak):
-        self.raw_spl  = raw_spl;  self.raw_peak  = raw_peak
-        self.cal_spl  = cal_spl;  self.cal_peak  = cal_peak
-        self.update()
-
-    def paintEvent(self,ev):
-        p=QPainter(self); W,H=self.width(),self.height()
-        p.fillRect(0,0,W,H,QColor(T('bg2')))
-        DB_MIN = METER_DB_MIN; DB_RANGE = -METER_DB_MIN   # 모든 미터와 동일 스케일
-
-        # Title: Input / Meter (two lines)
-        p.setFont(_qfont(CF_TINY, True)); p.setPen(QColor(T('text_dim')))
-        p.drawText(0,6,W,12,Qt.AlignHCenter,'INPUT')
-        p.drawText(0,17,W,12,Qt.AlignHCenter,'METER')
-
-        # Bar — taller, starts lower
-        bx=W//2-14; bw=28; by=32; bh=max(0, min(H-110, 220))
-        p.fillRect(bx,by,bw,bh,QColor(T('bg')))
-        p.setPen(QColor(T('border'))); p.drawRect(bx,by,bw,bh)
-        lv=max(0.0,min(1.0,(self.raw_spl-DB_MIN)/DB_RANGE)); fh=int(lv*bh)
-        if fh>0:
-            base=by+bh
-            # 구간 경계를 dBFS 기준(METER_*)으로 — 수평 미터와 동일한 분포
-            y_b=int(max(0.0,min(1.0,(METER_YELLOW_DB-DB_MIN)/DB_RANGE))*bh)
-            r_b=int(max(0.0,min(1.0,(METER_RED_DB-DB_MIN)/DB_RANGE))*bh)
-            gh=min(fh,y_b); yh=min(max(0,fh-y_b),r_b-y_b); rh=max(0,fh-r_b)
-            if gh: p.fillRect(bx+1,base-gh,bw-2,gh,QColor(T('green')))
-            if yh: p.fillRect(bx+1,base-gh-yh,bw-2,yh,QColor(T('yellow')))
-            if rh: p.fillRect(bx+1,base-fh,bw-2,rh,QColor(T('red')))
-        pk_lv=max(0.0,min(1.0,(self.raw_peak-DB_MIN)/DB_RANGE))
-        p.fillRect(bx+1,by+bh-int(pk_lv*bh)-1,bw-2,2,QColor(T('red')))
-
-        # Values below bar
-        y0=by+bh+6
-        p.setFont(_qfont(CF_AXIS, True))
-        c=T('red') if self.raw_spl>METER_RED_DB else T('yellow') if self.raw_spl>METER_YELLOW_DB else T('accent')
-        p.setPen(QColor(c)); p.drawText(0,y0,W,16,Qt.AlignHCenter,f'{self.cal_spl:.1f}')
-        p.setFont(_qfont(CF_ANNO)); p.setPen(QColor(T('text_dim')))
-        p.drawText(0,y0+16,W,12,Qt.AlignHCenter,'dB')
-        p.setFont(_qfont(CF_ANNO, True)); p.setPen(QColor(T('text_dim')))
-        p.drawText(0,y0+32,W,12,Qt.AlignHCenter,'PEAK')
-        p.setFont(_qfont(CF_ANNO, True)); p.setPen(QColor(T('yellow')))
-        p.drawText(0,y0+46,W,14,Qt.AlignHCenter,f'{self.cal_peak:.1f}')
-        p.setFont(_qfont(CF_ANNO, True)); p.setPen(QColor(T('text_dim')))
-        p.drawText(0,y0+64,W,12,Qt.AlignHCenter,'CLIP')
-        p.fillRect(W//2-13,y0+78,26,12,QColor(T('red') if self.raw_spl>-3 else T('border')))
-        # section border
-        p.setPen(QPen(QColor(T('border')), 1))
-        p.setBrush(Qt.NoBrush)
-        p.drawRoundedRect(1, 1, W-2, H-2, 8, 8)
-        p.end()
-
+# VUMeter — v2.0 분해: spectra/ui/widgets.py, re-import
+from spectra.ui.widgets import VUMeter
 # ───────────────────────────────────────────
 #  캘리브레이션 다이얼로그
 # ───────────────────────────────────────────
@@ -4827,41 +4760,8 @@ from spectra.ui.widgets import _DrawerToggleBtn
 from spectra.ui.widgets import _RightPanelToggleBtn
 # _ToolbarToggleBtn — v2.0 분해: spectra/ui/widgets.py, re-import
 from spectra.ui.widgets import _ToolbarToggleBtn
-class _MiniMeterBar(QWidget):
-    """채널 팝업 안의 미니 수평 레벨 미터."""
-    def __init__(self):
-        super().__init__()
-        self._level = -100.0
-        self._peak  = -100.0
-        self.setFixedHeight(8)
-
-    def set_level(self, db, peak_db=None):
-        self._level = db
-        pk = peak_db if peak_db is not None else db   # 실제 peak(있으면) — 바=RMS·tick=true peak
-        if pk > self._peak: self._peak = pk
-        else: self._peak = max(self._peak - 0.8, self._level)
-        self.update()
-
-    def reset(self):
-        self._level = -100.0; self._peak = -100.0; self.update()
-
-    def paintEvent(self, ev):
-        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        W = self.width(); H = self.height(); rr = H / 2.0
-        # 은은한 둥근 트랙 (까만 공백 대신). 라이트(near-white)에선 밝히면 사라짐 → 어둡게 파생.
-        bg = QColor(T('bg')); d = -20 if (not is_dark()) else 14
-        track = QColor(max(0, min(bg.red()+d, 255)), max(0, min(bg.green()+d, 255)), max(0, min(bg.blue()+d+2, 255)))
-        p.setPen(Qt.NoPen); p.setBrush(track); p.drawRoundedRect(QRectF(0, 0, W, H), rr, rr)
-        DB_MIN = METER_DB_MIN; DB_MAX = 0.0   # 모든 미터와 동일 스케일(통일)
-        # 위치 기반 green/yellow/red 구간 채움 (M4/Smaart 사다리)
-        _draw_zone_meter_h(p, W, H, self._level, DB_MIN, DB_MAX)
-        # peak tick
-        if self._peak > DB_MIN:
-            px = W * max(0.0, min(1.0, (self._peak - DB_MIN) / (DB_MAX - DB_MIN)))
-            p.setPen(QPen(QColor(T('text')), 1)); p.drawLine(int(px), 1, int(px), int(H - 1))
-        p.end()
-
-
+# _MiniMeterBar — v2.0 분해: spectra/ui/widgets.py, re-import
+from spectra.ui.widgets import _MiniMeterBar
 class ChannelPopup(QFrame):
     """[+] 버튼으로 열리는 멀티채널 선택 팝업.
     체크박스로 추가 채널을 활성화하고, 각 채널의 실시간 레벨을 미니 미터로 표시."""
@@ -5321,39 +5221,8 @@ from spectra.ui.widgets import _ComplianceBadge
 from spectra.ui.widgets import _CheckBtn
 # _SegBtn — v2.0 분해: spectra/ui/widgets.py, re-import
 from spectra.ui.widgets import _SegBtn
-class _SegmentedControl(QWidget):
-    """모던 세그먼트 컨트롤 — 하나의 펄 안에 옵션들, 활성만 블루 강조 (iOS식)."""
-    changed = pyqtSignal(str)
-    def __init__(self, items, height=30, parent=None):   # items = [(key, label, width|None), ...]
-        super().__init__(parent)
-        self.setObjectName('segCtl'); self.setFixedHeight(height)
-        lay = QHBoxLayout(self); lay.setContentsMargins(3, 0, 3, 0); lay.setSpacing(2)
-        self._btns = {}
-        for key, label, w in items:
-            b = _SegBtn(label); b.setFixedHeight(height - 6)
-            if w: b.setFixedWidth(w)
-            b.clicked.connect(lambda _=False, k=key: self._on_click(k))
-            lay.addWidget(b); self._btns[key] = b
-        self.apply_theme()
-
-    def _on_click(self, key):
-        self.set_active(key); self.changed.emit(key)
-
-    def set_active(self, key):
-        for k, b in self._btns.items():
-            b.setChecked(k == key); b.update()
-
-    def active(self):
-        for k, b in self._btns.items():
-            if b.isChecked(): return k
-        return None
-
-    def apply_theme(self):
-        bg = '#252527' if is_dark() else T('bg3')
-        self.setStyleSheet(f'#segCtl{{background:{bg};border-radius:8px;}}')
-        for b in self._btns.values(): b.update()
-
-
+# _SegmentedControl — v2.0 분해: spectra/ui/widgets.py, re-import
+from spectra.ui.widgets import _SegmentedControl
 class _CaptureBar(QWidget):
     """캡처 트레이스 목록 수평 바.
     라벨 클릭 → selected(idx) — 해당 캡처를 맨 앞으로
