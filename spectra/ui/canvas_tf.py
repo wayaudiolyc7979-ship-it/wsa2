@@ -75,9 +75,11 @@ def _ask_db_range(parent, cur_top, cur_bot):
 
 
 def _db_axis_context_menu(widget, gpos, cur_top, cur_bot, is_locked,
-                          on_apply, on_autofit, on_toggle_lock):
+                          on_apply, on_autofit, on_toggle_lock,
+                          coh_blank=None, on_toggle_coh_blank=None):
     """dB 축 우클릭 메뉴 (스펙트럼·TF 공용). 더블클릭 자동맞춤은 그대로 두고 여기에 수동고정 추가.
-    on_apply(top,bot)=입력값으로 고정 / on_autofit()=자동맞춤+락해제 / on_toggle_lock()=현재범위 고정↔해제."""
+    on_apply(top,bot)=입력값으로 고정 / on_autofit()=자동맞춤+락해제 / on_toggle_lock()=현재범위 고정↔해제.
+    coh_blank(bool)+on_toggle_coh_blank 지정 시(TF Mag 전용) '코히런스 블랭킹' 체크 항목 추가."""
     from PyQt5.QtWidgets import QMenu
     m = QMenu(widget)
     a_in  = m.addAction(_tx('Set dB range…'))
@@ -85,6 +87,11 @@ def _db_axis_context_menu(widget, gpos, cur_top, cur_bot, is_locked,
     m.addSeparator()
     a_lock = m.addAction(_tx('Unlock dB axis (back to auto)') if is_locked
                          else _tx('Lock dB axis to current range'))
+    a_coh = None
+    if on_toggle_coh_blank is not None:
+        m.addSeparator()
+        a_coh = m.addAction(_tx('Coherence blanking'))
+        a_coh.setCheckable(True); a_coh.setChecked(bool(coh_blank))
     act = m.exec_(gpos)
     if act is a_in:
         r = _ask_db_range(widget, cur_top, cur_bot)
@@ -96,6 +103,8 @@ def _db_axis_context_menu(widget, gpos, cur_top, cur_bot, is_locked,
         on_autofit()
     elif act is a_lock:
         on_toggle_lock()
+    elif a_coh is not None and act is a_coh:
+        on_toggle_coh_blank()
 
 
 def _catmull_seg(px, py):
@@ -1216,7 +1225,16 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
     def contextMenuEvent(self,e):
         _db_axis_context_menu(self, e.globalPos(), self.db_max, self.db_min, self._db_lock,
                               on_apply=self._db_apply, on_autofit=self._db_autofit,
-                              on_toggle_lock=self._db_toggle)
+                              on_toggle_lock=self._db_toggle,
+                              coh_blank=self._coh_blank_on,
+                              on_toggle_coh_blank=self._toggle_coh_blank)
+
+    def _toggle_coh_blank(self):
+        """코히런스 블랭킹(연속 페이드) 켜기/끄기. [COH_BLANK] 상태변경 콜백으로 설정 저장."""
+        self._coh_blank_on = not self._coh_blank_on
+        self._cache = None; self.update()
+        if callable(getattr(self, '_on_coh_blank_change', None)):
+            self._on_coh_blank_change(self._coh_blank_on)
 
     def _notify_db_lock(self):
         if callable(self._on_lock_change):

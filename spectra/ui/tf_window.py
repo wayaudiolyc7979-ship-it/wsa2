@@ -625,6 +625,9 @@ class TransferFunctionWindow(QWidget):
             self.mag_cvs.db_max = float(self._settings.get('tf_db_top', self.mag_cvs.db_max))
             self.mag_cvs.db_min = float(self._settings.get('tf_db_bot', self.mag_cvs.db_min))
             self.mag_cvs._cache = None
+        # 코히런스 블랭킹 on/off → 저장 + 재시작 복원 (기본 ON) [COH_BLANK]
+        self.mag_cvs._on_coh_blank_change = self._on_tf_coh_blank_change
+        self.mag_cvs._coh_blank_on = bool(self._settings.get('tf_coh_blank', True))
         # 주파수축 줌/팬 연동: 한쪽에서 줌 → 매그·위상 둘 다 같은 f_lo/f_hi (같은 주파수축)
         self.mag_cvs._fzoom_cb = self.phase_cvs._fzoom_cb = self._sync_freq_zoom
         # 분석창 클릭 → 그 창 외곽 하이라이트 (이벤트필터로 감지, 기존 마우스 동작 유지)
@@ -1712,6 +1715,11 @@ class TransferFunctionWindow(QWidget):
 
     def _on_tf_db_change(self):
         self._persist_tf_db(); self._update_tf_db_btn()
+
+    def _on_tf_coh_blank_change(self, on):
+        """코히런스 블랭킹 on/off → 설정 저장(재시작 복원용). [COH_BLANK]"""
+        self._settings['tf_coh_blank'] = bool(on)
+        _save_settings(self._settings)
 
     def _tf_db_control(self):
         """툴바 dB 버튼 클릭 → 범위 대화상자 (자동/적용·고정)."""
