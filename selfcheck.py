@@ -345,6 +345,25 @@ def _tf_mag():
 check('TFMagCanvas (Mag+Coherence, 코히 기준선 제거)', _tf_mag)
 
 
+def _tf_coh_blank():
+    """코히런스 블랭킹(연속 페이드) — 저역·2kHz노치·고역 저코히에서 크기곡선이 흐려지고
+    미드 고코히에서 진해지는지(Smaart식 trace blanking, 옵션 B). ON/OFF 둘 다 렌더."""
+    f = np.logspace(np.log10(20), np.log10(20000), 400).astype(np.float32)
+    lf = np.log10(f)
+    mag = (-1 - 3*np.exp(-((lf-3.3)**2)/0.006)).astype(np.float32)   # 2kHz 노치
+    coh = np.clip(0.97 - 0.8*np.clip((np.log10(70)-lf)/0.6, 0, 1)
+                  - 0.7*np.clip((lf-np.log10(11000))/0.35, 0, 1)
+                  - 0.7*np.exp(-((lf-3.3)**2)/0.004), 0.03, 0.99).astype(np.float32)
+    cv = w.TFMagCanvas(); cv.resize(1000, 300); cv.db_min = -15; cv.db_max = 6
+    assert cv._coh_blank_on, '코히런스 블랭킹 기본 ON 이어야'
+    cv.set_data(f, mag, coh, None); cv.show()
+    out = _save(cv, 'tf_coh_blank_on.png')
+    cv._coh_blank_on = False; cv._cache = None; cv.update()
+    _save(cv, 'tf_coh_blank_off.png')
+    return out
+check('TFMagCanvas 코히런스 블랭킹(연속 페이드 ON/OFF)', _tf_coh_blank)
+
+
 def _tf_freq_zoom():
     """주파수축 줌/팬 — Mag를 100~500Hz로 확대 렌더 + 줌 로직·클램프·연동 검증.
     곡선/그리드/코히가 f_lo~f_hi 따라가는지 + 최소스팬 클램프 + 매그↔위상 동기화."""

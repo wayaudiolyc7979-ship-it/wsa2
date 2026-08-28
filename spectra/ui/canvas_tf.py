@@ -886,6 +886,10 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
     PAD_L=40; PAD_R=15; PAD_T=16; PAD_B=28   # PAD_T: 맨위 라벨이 카드 상단에 안 잘리게
     _COH_COLOR=(77,163,255)   # γ² 코히런스 = 블루 채움 밴드(#4DA3FF). 기존 주황(255,107,53)은 초록 마그니튜드와 충돌
     _COH_BAND=0.5   # γ² 트레이스가 차지하는 플롯 높이 비율 (위=1.0, 아래=0) — Smaart식 디테일
+    # 코히런스 블랭킹(연속 페이드) — 크기곡선을 신뢰도에 비례해 진하게/흐리게. [찾기: COH_BLANK]
+    _COH_FADE_LO=0.20   # 이 이하 코히런스 = 가장 흐림(_COH_FADE_MIN 배율)
+    _COH_FADE_HI=0.70   # 이 이상 코히런스 = 완전 불투명
+    _COH_FADE_MIN=0.15  # 최저 알파 배율(저코히 구간도 완전히 사라지진 않게 — 연속성 유지)
     cursor_x_changed = pyqtSignal(int)
     cursor_left      = pyqtSignal()
     _cap_built       = pyqtSignal()
@@ -901,6 +905,7 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
         self._db_lock=False   # dB축 수동 고정 (우클릭 메뉴로 설정, 더블클릭=자동 복귀)
         self._on_lock_change=None   # 락 변경 시 콜백(TF 창이 설정 저장에 연결)
         self.coh_blank=0.5
+        self._coh_blank_on=True   # 코히런스 블랭킹(연속 페이드) ON — 신뢰도 낮은 구간 흐리게 [COH_BLANK]
         self._autofit_armed=False   # 측정 시작 후 첫 유효 데이터에 1회 자동 Y맞춤(아래로 깔리는 것 방지)
         self._mx=-1; self._peer_mx=-1; self._cache=None
         self._captures=[]
@@ -938,6 +943,29 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
         p.setRenderHint(QPainter.Antialiasing,False)   # [TF_LIVE_CURVE_PERF] 라이브 강조 곡선도 AA off
         p.setPen(QPen(QColor(color),width)); p.setBrush(Qt.NoBrush)
         p.drawPath(_catmull_seg(xs, ys))
+
+    def _draw_curve_coh(self, p, xs, ys, coh, color, width, base_alpha):
+        """크기곡선 그리기 — 코히런스 블랭킹 ON + coh 있으면 신뢰도에 비례해 '연속 페이드'
+        (고코히=불투명, 저코히=흐림). 아니면 기존 단일 catmull 실선. [COH_BLANK]
+        성능: 알파를 11단계 양자화 → 같은 단계 연속 세그먼트만 폴리라인으로 배칭(펜 교체 최소).
+        xs·ys·coh 는 이미 같은 인덱스로 다운샘플된 동일 길이 배열."""
+        if not self._coh_blank_on or coh is None or len(coh)!=len(xs) or len(xs)<2:
+            qc=QColor(color); qc.setAlpha(base_alpha)
+            p.setPen(QPen(qc,width)); p.setBrush(Qt.NoBrush)
+            p.drawPath(_catmull_seg(xs, ys)); return
+        lo=self._COH_FADE_LO; hi=self._COH_FADE_HI; amin=self._COH_FADE_MIN
+        fac=np.clip((np.asarray(coh,dtype=float)-lo)/max(hi-lo,1e-6),0.0,1.0)
+        fac=amin+(1.0-amin)*fac                        # 알파 배율 amin..1.0
+        seg=(fac[:-1]+fac[1:])*0.5                      # 세그먼트별(점 사이) 배율
+        lvl=np.clip((seg*10.0+0.5).astype(int),0,10)    # 11단계 양자화
+        p.setBrush(Qt.NoBrush); m=len(lvl); i=0
+        while i<m:
+            j=i
+            while j+1<m and lvl[j+1]==lvl[i]: j+=1       # 같은 알파 단계 연속 세그먼트
+            qc=QColor(color); qc.setAlpha(max(int(base_alpha*(lvl[i]/10.0)),0))
+            p.setPen(QPen(qc,width))
+            p.drawPolyline(QPolygonF([QPointF(float(xs[k]),float(ys[k])) for k in range(i,j+2)]))
+            i=j+1
 
     def set_reference(self, f, mag):
         self._ref_f  = np.asarray(f, dtype=np.float32)   if f   is not None else None
@@ -1332,8 +1360,11 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
             # AA 래스터 비용이 폭증(측정 52→22ms/프레임)해 오디오 콜백을 굶겨 핑크 끊김·전체 버벅임.
             # 포인트 수·스플라인은 그대로 유지(1/48 디테일 보존). float 좌표라 계단현상 미미. 뒤에서 AA 복원.
             p.setRenderHint(QPainter.Antialiasing,False)
-            p.setPen(QPen(_col(self._live_color or T('green'), None),2.5)); p.setBrush(Qt.NoBrush)
-            p.drawPath(_catmull_seg(xs_d, ys_ms))
+            _coh_d=None                                    # [COH_BLANK] 곡선 좌표와 같은 인덱스로 다운샘플
+            if self.coh is not None and len(self.coh)==len(f_arr):
+                _coh_d=self.coh[_ids] if len(xs)>max_pts else self.coh
+            _base_a=255 if _is_focus(None) else 140
+            self._draw_curve_coh(p, xs_d, ys_ms, _coh_d, self._live_color or T('green'), 2.5, _base_a)
             if self.coh is not None and len(self.coh)==len(f_arr):
                 cr,cg,cb_=self._COH_COLOR
                 coh_h=dh*self._COH_BAND
@@ -1368,8 +1399,11 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
                 else:
                     ex_xs_d=ex_xs
                 p.setRenderHint(QPainter.Antialiasing,False)   # [TF_LIVE_CURVE_PERF]
-                p.setPen(QPen(_col(ex['color'], _exk),2.0)); p.setBrush(Qt.NoBrush)
-                p.drawPath(_catmull_seg(ex_xs_d, ex_ys_s))
+                _ex_coh=ex.get('coh'); _ex_coh_d=None          # [COH_BLANK] 코히런스 페이드
+                if _ex_coh is not None and len(_ex_coh)==len(ex_f):
+                    _ex_coh_d=_ex_coh[_ei] if len(ex_xs)>_ex_max_pts else _ex_coh
+                self._draw_curve_coh(p, ex_xs_d, ex_ys_s, _ex_coh_d, ex['color'], 2.0,
+                                     255 if _is_focus(_exk) else 140)
         # front(포커스) 라이브 곡선 맨 앞 굵게 재드로우 — 캡쳐 포커스 시엔 생략
         if self._tf_extra and not _capf and not _hide:
             fk=self._front_extra
