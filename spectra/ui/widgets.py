@@ -410,9 +410,16 @@ class _HorizBarVU(QWidget):
         bg = QColor(T('bg')); d = -20 if (not is_dark()) else 14   # 라이트 near-white → 어둡게
         track = QColor(max(0, min(bg.red()+d, 255)), max(0, min(bg.green()+d, 255)), max(0, min(bg.blue()+d+2, 255)))
         p.setPen(Qt.NoPen); p.setBrush(track); p.drawRoundedRect(QRectF(0, 0, W, H), rr, rr)
-        # 위치 기반 green/yellow/red 구간 채움 (M4/Smaart 사다리)
+        # 위치 기반 green/yellow/red 구간 채움 (M4/Smaart 사다리) = RMS(평균)
         _draw_zone_meter_h(p, W, H, self._db, DB_MIN, DB_MAX)
-        # peak tick(흰색 바) 제거 — TF 카드 미터는 RMS 채움만 (사용자 요청 2026-06-26)
+        # Peak 틱 — 순간최대(Peak, 진짜 샘플 피크)를 밝은 틱으로 (옵션 C, 2026-08-29 재도입)
+        # 채움=평균 / 틱=순간최대 → 클리핑 근접이 바로 보임(Smaart식). [TF_PEAK_TICK]
+        if self._pk > DB_MIN:
+            px = W * max(0.0, min(1.0, (self._pk - DB_MIN) / rng))
+            px = max(1.5, min(px, W - 1.5)); tw = 2.5
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(255, 255, 255, 235) if is_dark() else QColor(20, 22, 26, 210))
+            p.drawRoundedRect(QRectF(px - tw / 2, -0.5, tw, H + 1), 1.0, 1.0)
         p.end()
 
 

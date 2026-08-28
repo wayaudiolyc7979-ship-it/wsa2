@@ -156,7 +156,8 @@ def _level_meters():
     root = QVBoxLayout(cont); root.setContentsMargins(6, 6, 6, 6); root.setSpacing(5)
     for v in vals:
         row = QWidget(); rl = QHBoxLayout(row); rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(8)
-        b1 = w._HorizBarVU(); b1.setFixedSize(300, 12); b1.set_rms(v)
+        b1 = w._HorizBarVU(); b1.setFixedSize(300, 12)
+        b1.set_rms(v, min(v + 8, 0.0)); b1._pk = min(v + 8, 0.0)   # Peak 틱=RMS+8dB(옵션 C)
         b2 = w._MiniMeterBar(); b2.setFixedSize(300, 12); b2.set_level(v)
         rl.addWidget(b1); rl.addWidget(b2)
         root.addWidget(row)
