@@ -791,19 +791,8 @@ def _save_captures_file(data):
     except Exception as e:
         _alog.warning(f'캡처 저장 실패: {e}')
 
-# A-가중치 계수 (IEC 61672)
-def a_weight_db(f):
-    if f < 10: return -100
-    f2 = f*f; f4 = f2*f2
-    ra = (12200**2 * f4) / ((f2+20.6**2)*math.sqrt((f2+107.7**2)*(f2+737.9**2))*(f2+12200**2))
-    return 20*math.log10(max(ra,1e-20)) + 2.0
-
-# C-가중치 계수
-def c_weight_db(f):
-    if f < 10: return -100
-    f2 = f*f
-    rc = (12200**2 * f2) / ((f2+20.6**2)*(f2+12200**2))
-    return 20*math.log10(max(rc,1e-20)) + 0.06
+# A/C 가중(IEC 61672) — v2.0 분해: spectra/dsp/weighting.py 로 이동, 여기로 re-import(동작 불변)
+from spectra.dsp.weighting import a_weight_db, c_weight_db
 
 # 주파수 → 음이름 (커서 리드아웃용). A4=440Hz 기준 12평균율. (센트 단위는 사용자 요청으로 제거)
 _NOTE_NAMES = ('C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B')
