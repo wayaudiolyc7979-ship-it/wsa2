@@ -399,20 +399,8 @@ SPEED_LEVELS = [
         ('Fast', 0.200, 0.35), ('Fastest', 0.300, 0.55),
     ]
 ]
-THIRD_OCT = [
-    20,25,31.5,40,50,63,80,100,125,160,200,250,
-    315,400,500,630,800,1000,1250,1600,2000,2500,
-    3150,4000,5000,6300,8000,10000,12500,16000,20000
-]
-def make_oct_bands(bpo):
-    bands, ratio = [], 2**(1/bpo)
-    fc = 1000.0
-    while fc/ratio > 15: fc /= ratio
-    while fc <= 22000:
-        if 18 <= fc <= 20000: bands.append(round(fc,4))
-        fc *= ratio
-    return bands
-BANDS = {'oct3':THIRD_OCT,'oct12':make_oct_bands(12),'oct24':make_oct_bands(24)}
+# 옥타브 밴드 정의 — v2.0 분해: spectra/dsp/weighting.py 로 이동, re-import(동작 불변)
+from spectra.dsp.weighting import THIRD_OCT, make_oct_bands, BANDS
 FREQ_MARKS = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
 
 # ───────────────────────────────────────────
@@ -843,41 +831,8 @@ def fmt_delay(ms, prec=2, unit=None, compact=False, sign=False):
 from spectra.dsp.weighting import power_spectrum_db
 
 
-_OCT_MASK_CACHE = {}   # (len(freqs), nyquist반올림, mode) → 밴드별 인덱스 캐시(매 프레임 마스크 재계산 방지)
-def _octave_bands(freqs, db_vals, mode):
-    """빈별 dB → 옥타브 밴드 dB (IEC 61260 파워 합산). MainWindow._calc_oct의 모듈판 — TF RTA용.
-    밴드별 빈 인덱스를 그리드별로 캐시해 매 프레임 마스크 재계산을 피함(렌더 부하 절감)."""
-    key = (len(freqs), int(round(float(freqs[-1]))), mode)
-    plan = _OCT_MASK_CACHE.get(key)
-    if plan is None:
-        bands = BANDS[mode]
-        bpo = 3 if mode == 'oct3' else 12 if mode == 'oct12' else 24
-        half = 1 / (2 * bpo)
-        plan = []
-        for fc in bands:
-            fl, fh = fc / 2 ** half, fc * 2 ** half
-            idxs = np.where((freqs >= fl) & (freqs <= fh))[0]
-            if len(idxs):
-                plan.append(('sum', idxs))
-            else:
-                idx = int(np.argmin(np.abs(freqs - fc)))
-                if 0 < idx < len(freqs) - 1:
-                    f0, f1 = float(freqs[idx - 1]), float(freqs[idx])
-                    t = max(0.0, min(1.0, (fc - f0) / (f1 - f0) if f1 > f0 else 0.5))
-                    plan.append(('interp', idx, t))
-                else:
-                    plan.append(('one', idx))
-        _OCT_MASK_CACHE[key] = plan
-    res = []
-    for item in plan:
-        if item[0] == 'sum':
-            res.append(float(10 * np.log10(np.sum(10 ** (db_vals[item[1]] / 10)))))
-        elif item[0] == 'interp':
-            _, idx, t = item
-            res.append(float(db_vals[idx - 1]) * (1 - t) + float(db_vals[idx]) * t)
-        else:
-            res.append(float(db_vals[item[1]]))
-    return res
+# _octave_bands — v2.0 분해: spectra/dsp/weighting.py 로 이동, re-import(동작 불변)
+from spectra.dsp.weighting import _octave_bands
 
 # ───────────────────────────────────────────
 #  테마
