@@ -380,10 +380,12 @@ class _MiniVU(QWidget):
 
 
 class _HorizBarVU(QWidget):
-    """Smaart 스타일 수평 레벨 바."""
+    """Smaart 스타일 수평 레벨 바 (채움=RMS, 틱=Peak-hold)."""
+    _PK_HOLD_S = 1.4    # Peak 틱 홀드 시간(초) — 최고치를 이만큼 멈춰 읽기 편하게. [TF_PEAK_TICK]
+    _PK_DECAY  = 6.0    # 홀드 후 하강 속도(dB/초) — 값↓=더 느리게/차분. (기존 30은 너무 빨랐음)
     def __init__(self):
         super().__init__(); self.setFixedHeight(8)
-        self._db = -80.0; self._pk = -80.0; self._pk_hold = 0; self._last_t = 0.0
+        self._db = -80.0; self._pk = -80.0; self._pk_hold = 0.0; self._last_t = 0.0
 
     def set_rms(self, db, peak_db=None):
         # 시간 기반 탄도(빠른 어택/실시간 릴리즈) — 업데이트율 무관하게 일정한 실시간 반응
@@ -393,10 +395,13 @@ class _HorizBarVU(QWidget):
         tau = METER_TAU_ATTACK if db > self._db else METER_TAU_RELEASE
         a = (1.0 - math.exp(-dt / tau)) if dt > 0 else 1.0
         self._db += (db - self._db) * a
-        # peak tick: 실제 peak(있으면) 즉시 올리고, 시간기반 감쇠로 채움(_db)까지 매끄럽게 따라내림
+        # Peak 틱: 새 최고치는 즉시 포착(어택) → _PK_HOLD_S 동안 그대로 홀드 → 이후 _PK_DECAY 로 천천히
+        # 하강(채움 _db 아래로는 안 내려감). 홀드+느린하강이라 트랜지언트마다 튀지 않고 차분히 읽힘.
         pk = peak_db if peak_db is not None else db
-        if pk > self._pk: self._pk = pk
-        elif dt > 0: self._pk = max(self._pk - METER_PEAK_DECAY * dt, self._db)
+        if pk >= self._pk:
+            self._pk = pk; self._pk_hold = now
+        elif dt > 0 and (now - self._pk_hold) > self._PK_HOLD_S:
+            self._pk = max(self._pk - self._PK_DECAY * dt, self._db)
         self.update()
 
     def reset(self):
