@@ -7,7 +7,7 @@ from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF, QFont, 
 from PyQt5.QtCore import Qt, QPointF, QRectF, pyqtSignal, QPoint, QSize, QTimer, QEvent, QObject
 from spectra.core.config import T, is_dark, theme, delay_unit, ms_to_m
 from spectra.core.logging_diag import _alog, _diag
-from spectra.ui.colors import _SPECTRA_GRAD_QSS, _spectra_mark
+from spectra.ui.colors import _SPECTRA_GRAD_QSS, _spectra_mark, _spectra_grad_brush
 from spectra.ui.colors import _MC_COLORS
 from spectra.ui.icons import _icon, _icon_pm, _led_power_pm, _n2_hover_ss, _n2_icon_color, _n2_led_color, _n2_tab_ss
 from spectra.core.i18n import _tx
@@ -2322,3 +2322,117 @@ def _grad_topline():
     f = QFrame(); f.setFixedHeight(3)
     f.setStyleSheet(f'background:{_SPECTRA_GRAD_QSS};border:none;')
     return f
+
+
+class _SidebarIcon(QWidget):
+    """사이드바 섹션 헤더(LEVEL/INFO/INPUT) — 단색 액센트 세로 바(아이브로우).
+    제각각 그림 아이콘 대신 통일된 단색 바로 깔끔하게. icon_type/color/size 인자는 호환용(미사용)."""
+    def __init__(self, icon_type='', color=None, size=15, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(4, 16)
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(Qt.NoPen); p.setBrush(QColor(T('accent')))
+        p.drawRoundedRect(QRectF(0.5, 0.5, self.width() - 1, self.height() - 1), 1.5, 1.5)
+        p.end()
+
+
+class _GradTimeBar(QWidget):
+    """SPECTRA 그라디언트 시간 진행 미터 — set_progress(0..1)로 왼쪽부터 채움."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._p = 0.0
+        self.setFixedHeight(6)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    def set_progress(self, p):
+        p = max(0.0, min(1.0, float(p)))
+        if abs(p - self._p) > 0.002:
+            self._p = p; self.update()
+    def paintEvent(self, e):
+        W = self.width(); H = self.height()
+        if W <= 0: return
+        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing, True)
+        r = H / 2.0
+        track = QPainterPath(); track.addRoundedRect(QRectF(0, 0, W, H), r, r)
+        p.fillPath(track, QColor(T('bg3')))
+        fw = int(W * self._p)
+        if fw > 1:
+            p.save()
+            clip = QPainterPath(); clip.addRoundedRect(QRectF(0, 0, fw, H), r, r)
+            p.setClipPath(clip)
+            p.fillRect(0, 0, W, H, _spectra_grad_brush(0, W, 255))   # 전폭 그라디언트를 진행도만큼 노출
+            p.restore()
+        p.end()
+
+
+class _CaptureBar(QWidget):
+    """캡처 트레이스 목록 수평 바.
+    라벨 클릭 → selected(idx) — 해당 캡처를 맨 앞으로
+    × 클릭   → delete_requested(idx)
+    """
+    delete_requested = pyqtSignal(int)
+    selected = pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(26)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(6, 2, 6, 2)
+        lay.setSpacing(2)
+        self._widgets = []
+        self.setVisible(False)
+
+    def refresh(self, captures):
+        lay = self.layout()
+        while lay.count():
+            item = lay.takeAt(0)
+            w = item.widget()
+            if w: w.deleteLater()
+        self._widgets = []
+
+        for i, cap in enumerate(captures):
+            dot = QLabel('■')
+            dot.setStyleSheet(f'color:{cap["color"]};font-size:14px;padding:0 1px;')
+            lbl = QPushButton(cap['label'])
+            lbl.setFlat(True)
+            lbl.setStyleSheet(
+                f'color:#ccc;font-size:10px;border:none;background:transparent;'
+                f'padding:0 3px;font-weight:{"bold" if i==len(captures)-1 else "normal"};')
+            lbl.setToolTip(_tx('Click → bring to front'))
+            lbl.clicked.connect(lambda _, idx=i: self.selected.emit(idx))
+            del_btn = QPushButton('×')
+            del_btn.setFixedSize(15, 15)
+            del_btn.setStyleSheet('border:none;color:#666;font-size:12px;background:transparent;padding:0;')
+            del_btn.clicked.connect(lambda _, idx=i: self.delete_requested.emit(idx))
+            lay.addWidget(dot); lay.addWidget(lbl); lay.addWidget(del_btn)
+            if i < len(captures) - 1:
+                sep = QLabel('|'); sep.setStyleSheet('color:#333;font-size:10px;padding:0 2px;')
+                lay.addWidget(sep)
+            self._widgets.append((dot, lbl, del_btn))
+
+        lay.addStretch()
+        self.setVisible(len(captures) > 0)
+
+
+class _VUProxy:
+    """_MiniVU를 대체하는 경량 프록시 — 기존 코드 변경 없이 카드로 포워딩."""
+    def __init__(self):
+        self._db = -80.0; self._pk = -80.0; self._pk_hold = 0
+        self._card_fn = None
+
+    class _FakeSig:
+        def connect(self, *a): pass
+        def disconnect(self, *a): pass
+
+    clicked = _FakeSig()
+
+    def set_rms(self, db, peak_db=None):
+        self._db = db; self._pk_hold += 1
+        if db > self._pk or self._pk_hold > 40: self._pk = db; self._pk_hold = 0
+        if self._card_fn:
+            try: self._card_fn(db, peak_db)
+            except TypeError: self._card_fn(db)   # peak 미지원 콜백 하위호환
+
+    def update(self): pass
