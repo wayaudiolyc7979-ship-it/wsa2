@@ -5487,107 +5487,16 @@ class _SidebarIcon(QWidget):
         p.end()
 
 
-class _SplMeterBtn(QPushButton):
-    """Open SPL Meter — "dB" 텍스트 아이콘(SPL=데시벨). LEVEL 섹션 막대 아이콘과 중복 회피."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(28, 28)
-        self.setCursor(Qt.PointingHandCursor)
-        self.setToolTip(_tx('Open SPL Meter'))
-
-    def enterEvent(self, e): self.update()
-    def leaveEvent(self, e): self.update()
-
-    def paintEvent(self, e):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-
-        # 조용한 유틸 버튼: 기본 투명 → hover/press 때만 옅은 배경
-        hot = self.underMouse() or self.isDown()
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor(T('bg3')) if hot else QColor(0, 0, 0, 0))
-        p.drawRoundedRect(QRectF(self.rect()), 5, 5)
-
-        # Icon: "dB" — 기본 dim 회색 → hover/press 소프트블루(값 톤과 일치)
-        col = QColor('#9DB7E0') if hot else QColor(T('text_dim'))
-        f = QFont(FONT_FAMILY); f.setPixelSize(13); f.setBold(True); p.setFont(f)
-        p.setPen(col)
-        p.drawText(self.rect(), Qt.AlignCenter, 'dB')
-        p.end()
-
-
-class _SplAlarmBtn(QPushButton):
-    """LEVEL 패널 헤더용 — SPL 알람 창 열기. 미니 신호등(3구) 아이콘."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(28, 28)
-        self.setCursor(Qt.PointingHandCursor)
-        self.setToolTip(_tx('Open SPL Alarm'))
-
-    def enterEvent(self, e): self.update()
-    def leaveEvent(self, e): self.update()
-
-    def paintEvent(self, e):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        # 조용한 유틸 버튼: 기본 투명 → hover/press 때만 옅은 배경
-        hot = self.underMouse() or self.isDown()
-        p.setPen(Qt.NoPen); p.setBrush(QColor(T('bg3')) if hot else QColor(0, 0, 0, 0))
-        p.drawRoundedRect(QRectF(self.rect()), 5, 5)
-
-        # 미니 신호등 — 기본 dim 회색(틀+점) → hover 소프트블루 틀 + 살짝 죽인 컬러 점(알람 의미)
-        cx = self.width() / 2.0
-        hw, hh = 11.0, 18.0
-        hx = cx - hw / 2.0; hy = (self.height() - hh) / 2.0
-        housing = QColor('#9DB7E0') if hot else QColor(T('text_dim'))
-        p.setPen(QPen(housing, 1.4)); p.setBrush(Qt.NoBrush)
-        p.drawRoundedRect(QRectF(hx, hy, hw, hh), 3.2, 3.2)
-        if hot:
-            cols = (QColor(52, 199, 89, 210), QColor(255, 214, 10, 210), QColor(255, 69, 58, 210))
-        else:
-            d = QColor(T('text_dim')); cols = (d, d, d)
-        r = 2.1
-        for i, c in enumerate(cols):
-            dy = hy + hh * (0.24 + i * 0.26)
-            p.setBrush(c); p.setPen(Qt.NoPen)
-            p.drawEllipse(QPointF(cx, dy), r, r)
-        p.end()
-
-
+# _SplMeterBtn — v2.0 분해: spectra/ui/widgets.py, re-import
+from spectra.ui.widgets import _SplMeterBtn
+# _SplAlarmBtn — v2.0 분해: spectra/ui/widgets.py, re-import
+from spectra.ui.widgets import _SplAlarmBtn
 # _ComplianceBadge — v2.0 분해: spectra/ui/widgets.py 로 이동, re-import
 from spectra.ui.widgets import _ComplianceBadge
-class _CheckBtn(QPushButton):
-    """Checkable QPushButton — CSS :checked border는 macOS에서 클리핑되므로
-    paintEvent에서 QPainter로 직접 테두리를 그린다."""
-    def __init__(self, text='', parent=None):
-        super().__init__(text, parent)
-        self.setCheckable(True)
-
-    # 활성 필은 스타일시트 :checked{background}로 처리(셀 폭 꽉 채움) — 네이티브 체크
-    # 렌더가 텍스트를 좁게 감싸던 문제 회피. paintEvent 커스텀 드로잉 없음.
-
-
-class _SegBtn(QPushButton):
-    """세그먼트 컨트롤 내부 버튼 — 활성 시 블루 채움(직접 페인트). 모던 툴바용."""
-    def __init__(self, text='', parent=None):
-        super().__init__(text, parent)
-        self.setCheckable(True); self.setFlat(True)
-        self.setCursor(Qt.PointingHandCursor)
-
-    def paintEvent(self, e):
-        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        on = self.isChecked(); en = self.isEnabled()
-        if on:
-            ac = QColor(T('accent')); ac.setAlpha(70)
-            p.setBrush(ac); p.setPen(Qt.NoPen)
-            p.drawRoundedRect(self.rect().adjusted(1, 2, -1, -2), 6, 6)
-        col = (T('text') if on else T('text_dim')) if en else T('border')
-        p.setPen(QColor(col))
-        f = self.font(); f.setBold(on); p.setFont(f)
-        p.drawText(self.rect(), Qt.AlignCenter, self.text())
-        p.end()
-
-
+# _CheckBtn — v2.0 분해: spectra/ui/widgets.py, re-import
+from spectra.ui.widgets import _CheckBtn
+# _SegBtn — v2.0 분해: spectra/ui/widgets.py, re-import
+from spectra.ui.widgets import _SegBtn
 class _SegmentedControl(QWidget):
     """모던 세그먼트 컨트롤 — 하나의 펄 안에 옵션들, 활성만 블루 강조 (iOS식)."""
     changed = pyqtSignal(str)
