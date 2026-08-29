@@ -16,7 +16,7 @@ from spectra.core.i18n import _tx
 from spectra.ui.draw import (METER_DB_MIN, METER_YELLOW_DB, METER_RED_DB, METER_PEAK_DECAY, METER_TAU_ATTACK, METER_TAU_RELEASE, _draw_zone_meter_h)
 from spectra.ui.colors import _TF_SEL_GRAD_STOPS
 from spectra.ui.draw import _tf_card_palette
-from spectra.ui.tokens import FONT_FAMILY, FS_BODY, FS_SM, FS_XS, FS_LG, RADIUS_SM, PAD_SM, CF_ANNO, CF_AXIS, CF_TINY, ss_text, _qfont, _n2_caps_font, _n2_mono_font, _n2_val_font
+from spectra.ui.tokens import FONT_FAMILY, FONT_NUM, FS_BODY, FS_SM, FS_XS, FS_LG, RADIUS_SM, PAD_SM, CF_ANNO, CF_AXIS, CF_TINY, ss_text, _qfont, _n2_caps_font, _n2_mono_font, _n2_val_font
 
 
 class _SettingsBtn(QPushButton):
@@ -1855,7 +1855,7 @@ class _MeasCard(QFrame):
     def _delay_spin_ss(self):
         _bd = '#34343B' if is_dark() else T('border')   # 폰트는 setFont(_n2_mono_font)로 — FFT '16K'과 통일
         return (f'QDoubleSpinBox{{background:transparent;color:{T("text")};border:1px solid {_bd};'
-                f'border-radius:8px;padding:{PAD_SM};}}')
+                f'border-radius:8px;padding:{PAD_SM};font-family:{FONT_NUM};font-size:{FS_SM}px;}}')
 
     def _auto_btn_ss(self):
         _bd = '#34343B' if is_dark() else T('border')
@@ -1908,7 +1908,6 @@ class _MeasCard(QFrame):
         self._delay_spin.setMinimumWidth(82); self._delay_spin.setFixedHeight(22)
         self._delay_spin.setButtonSymbols(QDoubleSpinBox.NoButtons)
         self._delay_spin.setAlignment(Qt.AlignCenter)
-        self._delay_spin.setFont(_n2_mono_font())        # FFT '16K'과 동일 폰트(Menlo DemiBold)
         self._delay_spin.setStyleSheet(self._delay_spin_ss())
         # 거리(m) 보조 라벨 — _DELAY_UNIT 이 m/both 일 때만 노출. 입력은 ms 유지.
         self._m_lbl = QLabel(''); self._m_lbl.setStyleSheet(ss_text(FS_XS))

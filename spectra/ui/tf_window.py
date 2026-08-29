@@ -37,7 +37,7 @@ from spectra.ui.dialogs import (AllDelayFinderDialog, DelayFinderDialog, SineCon
 from spectra.ui.draw import METER_RED_DB, METER_YELLOW_DB
 from spectra.ui.icons import (_icon, _icon_pm, _n2_divider, _n2_group_header, _n2_icon_color)
 from spectra.ui.spl import _apply_txn
-from spectra.ui.tokens import (FS_BODY, FS_SM, FS_XS, RADIUS_CTRL, _n2_caps_font, _n2_mono_font,
+from spectra.ui.tokens import (FONT_NUM, FS_BODY, FS_SM, FS_XS, RADIUS_CTRL, _n2_caps_font, _n2_mono_font,
                                _n2_val_font, ss_btn_neutral, ss_btn_primary, ss_input, ss_text)
 from spectra.ui.widgets import (RoundComboBox, _BrandHeaderBar, _CardSplitter, _CheckBtn,
                                 _DashedAddButton, _HorizBarVU, _MeasCard, _N2Button, _N2IconBtn,
@@ -792,8 +792,8 @@ class TransferFunctionWindow(QWidget):
         self.sig_lvl_sp.setDecimals(1); self.sig_lvl_sp.setFixedHeight(30); self.sig_lvl_sp.setMinimumWidth(60)
         self.sig_lvl_sp.setAlignment(Qt.AlignCenter); self.sig_lvl_sp.setButtonSymbols(QDoubleSpinBox.NoButtons)
         self.sig_lvl_sp.setKeyboardTracking(False)   # 타이핑 중 즉시 적용 방지
-        self.sig_lvl_sp.setFont(_n2_mono_font())     # FFT '16K'과 동일 폰트(Menlo DemiBold)로 통일
-        self.sig_lvl_sp.setStyleSheet(f'QDoubleSpinBox{{{_c_cell}padding:2px 4px;}}')
+        self.sig_lvl_sp.setStyleSheet(
+            f'QDoubleSpinBox{{{_c_cell}padding:2px 4px;font-family:{FONT_NUM};font-size:12px;}}')
         self.sig_lvl_sp.valueChanged.connect(self._sig_level_changed)
         self.sig_lvl_btn_p = QPushButton('+'); self.sig_lvl_btn_p.setFixedSize(28, 30); self.sig_lvl_btn_p.setFocusPolicy(Qt.NoFocus); self.sig_lvl_btn_p.setStyleSheet(_step_ss)
         self.sig_lvl_btn_m.clicked.connect(self.sig_lvl_sp.stepDown)
