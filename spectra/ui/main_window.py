@@ -40,7 +40,7 @@ from spectra.ui.stereo_page import StereoLoudnessPage, _StereoPopoutWindow
 from spectra.ui.tf_window import (TransferFunctionWindow, _auto_capture_color, _db_ctrl_btn_style,
                                   _popout_toggle_ss, _sep_line_color, _shortcut_should_yield,
                                   _text_input_dialog)
-from spectra.ui.tokens import (FONT_FAMILY, FS_BODY, FS_DISP, FS_LG, FS_SM, FS_VAL, FS_XS,
+from spectra.ui.tokens import (FONT_FAMILY, FONT_NUM, FS_BODY, FS_DISP, FS_LG, FS_SM, FS_VAL, FS_XS,
                                RADIUS_CTRL, RADIUS_SM, _n2_caps_font, _n2_mono_font, _n2_val_font,
                                ss_btn_neutral, ss_btn_primary, ss_text)
 from spectra.ui.widgets import (DeviceCardPopup, RoundComboBox, VUMeter, _CollapseBtn,
@@ -1563,7 +1563,7 @@ class MainWindow(QMainWindow):
             _c_bd = '#34343B' if is_dark() else border
             self.tf_win.sig_lvl_sp.setStyleSheet(
                 f'QDoubleSpinBox{{border:1px solid {_c_bd};background:transparent;color:{text};'
-                f'border-radius:8px;padding:2px 6px;font-family:Menlo;font-size:12px;font-weight:600;}}'
+                f'border-radius:8px;padding:2px 6px;font-family:{FONT_NUM};font-size:13px;}}'
                 f'QDoubleSpinBox::up-button,QDoubleSpinBox::down-button{{width:0;border:none;}}')
             _btn_s = (
                 f'QPushButton{{border:1px solid {_c_bd};background:transparent;color:{text_dim};'
