@@ -7,6 +7,9 @@
 
 ---
 
+## 🎨 2026-08-30 (v2.0.1)
+- [x] **[요청] SPL Alarm 창 리디자인 (C안 "정제된 신호")** — 개념·기능 유지, 룩만 새로. 신호등 글로우 제거→**또렷한 3분할 상태 바**, 카드 상단 **은은한 상태 워시**(과한 초록 틴트 제거), 숫자 세리프→**sans(FONT_NUM)**, LEQ 진행 바→**세그먼트**, 타이틀바 핀·설정→**Lucide 라인 아이콘**(`settings`·`pin` 신설, 앱 통일). 목업 3안 렌더→사용자 C선택. `_SplAlarmDisplay.paintEvent`·`_PinBtn`·`_SettingsBtn`·`icons.py`. selfcheck 44/44.
+
 ## 🐛 2026-08-29 수정 (v2.0, 미커밋·HW 실측 대기)
 - [ ] **[버그] 측정 마이크 장시간(1시간+) 뒤 조용히 멈춤** — 캡처 스레드 워치독이 "콜백 2초+ 정지"를 무조건 **물리적 제거(device removed)로 단정**하고 스레드를 종료 → 장치는 그대로인데(절전/App Nap/일시 글리치) `_on_tf_disconnect`가 "가짜 끊김(장치 개수 유지)"으로 무시 → **아무도 재시작 안 함 → 마이크 정지.** 시작-죽음(startup dead)엔 재오픈 복구가 있었으나 **running-stall엔 없던 미처리 케이스.** **2겹 수정:** ①`spectra/audio/watchdog.py` 신설 — 측정 중 `caffeinate -i`로 **idle 시스템 절전 차단**(트리거 원천 제거, refcount 다중스레드 안전). ②running-stall 시 disconnected 대신 **같은 장치 재오픈**(콜백 재개 시 예산 리셋, 연속 `MAX_DEAD_REOPENS=6`회 실패해야 진짜 제거 판정). 3경로(`MultiChannelAudioThread`·`TFSyncThread`·`TFDuplexThread`) + 진단 로그 `eng_cb_stall`/`tf_sync_cb_stall`/`tf_duplex_cb_stall`/`no_sleep_begin`. AST OK·selfcheck 44/44·caffeinate 실기동 검증. ⏳**HW 1시간+ 실측 대기** — 재발 시 로그 `[DIAG]`로 어느 워치독·절전 여부 확증. *(상세: project_bug_v2_mic_stall_long_run)*
 

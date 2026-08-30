@@ -679,6 +679,8 @@ class _SplAlarmDisplay(QWidget):
         return 0, self.GREEN, False
 
     def paintEvent(self, e):
+        # ── Concept C "정제된 신호"(2026-08-30 리디자인) — 중립 다크 카드 + 상단 은은한
+        #    상태 워시 + 또렷한 3분할 상태 바(글로우 제거) + sans 대형 숫자 + 세그먼트 LEQ 바.
         idx, color, over = self._state()
         dim_blink = over and ((self._blink_n // 2) % 2 == 0)
         p = QPainter(self)
@@ -686,50 +688,60 @@ class _SplAlarmDisplay(QWidget):
         W = self.width(); H = self.height()
         m = max(8, int(min(W, H) * 0.05))
         x, y, w, h = m, m, W - 2 * m, H - 2 * m
-        path = QPainterPath(); path.addRoundedRect(QRectF(x, y, w, h), 18, 18)
-        p.fillPath(path, QColor(color.red(), color.green(), color.blue(), 26 if not dim_blink else 52))
-        p.setPen(QPen(QColor(color.red(), color.green(), color.blue(), 160 if not dim_blink else 230), 2.5))
+        cr, cg, cb = color.red(), color.green(), color.blue()
+        path = QPainterPath(); path.addRoundedRect(QRectF(x, y, w, h), 16, 16)
+        # 카드 바탕 = 중립 다크(살짝 떠 보이는 elevation). 초록 과다 틴트 제거.
+        p.fillPath(path, QColor(T('bg3')))
+        # 상단 상태 워시 — 카드 위쪽 중앙에서 옅게 퍼지는 상태색(글로우 대체, 은은).
+        wash_a = 44 if not dim_blink else 14
+        gw = QRadialGradient(x + w / 2, y, w * 0.78)
+        gw.setColorAt(0.0, QColor(cr, cg, cb, wash_a))
+        gw.setColorAt(1.0, QColor(cr, cg, cb, 0))
+        p.save(); p.setClipPath(path); p.fillRect(QRectF(x, y, w, h), QBrush(gw)); p.restore()
+        # 얇은 테두리 — 상태색 아주 옅게(강한 컬러 보더 제거)
+        p.setPen(QPen(QColor(cr, cg, cb, 90 if not dim_blink else 45), 1.3))
         p.setBrush(Qt.NoBrush); p.drawPath(path)
+
         cx = W / 2
         # LEQ 진행 바가 있으면 텍스트 영역(ch)을 상단 85%로 줄여 하단 스트립에 바+리셋을 카드 안에 넣음
         ch = h * 0.85 if self._show_timebar else h
 
-        def pf(px, bold=True):
-            f = QFont(FONT_FAMILY); f.setPixelSize(max(8, int(px))); f.setBold(bold); return f
+        def pf(px, bold=True, num=False):
+            f = QFont(FONT_NUM if num else FONT_SANS); f.setPixelSize(max(8, int(px))); f.setBold(bold); return f
 
-        R = max(7, ch * 0.072); gap = R * 1.4; ly = y + ch * 0.15
+        # ── 3분할 상태 바 — 신호등을 또렷한 pill로. 활성만 채도 有, 비활성=중립 회색(글로우 없음)
+        seg_w = w * 0.20; seg_gap = w * 0.035
+        seg_h = max(4.5, ch * 0.030)
+        total = seg_w * 3 + seg_gap * 2
+        sx0 = cx - total / 2; sy = y + ch * 0.12
         for i, c in enumerate((self.GREEN, self.YELLOW, self.RED)):
             on = (i == idx) and not dim_blink
-            cxp = cx + (i - 1) * (2 * R + gap)
+            rx = sx0 + i * (seg_w + seg_gap)
+            seg = QPainterPath(); seg.addRoundedRect(QRectF(rx, sy, seg_w, seg_h), seg_h / 2, seg_h / 2)
             if on:
-                gr = QRadialGradient(cxp, ly, R * 2.4)
-                gr.setColorAt(0, QColor(c.red(), c.green(), c.blue(), 130))
-                gr.setColorAt(1, QColor(c.red(), c.green(), c.blue(), 0))
-                p.setPen(Qt.NoPen); p.setBrush(QBrush(gr)); p.drawEllipse(QPointF(cxp, ly), R * 2.4, R * 2.4)
-                p.setBrush(QBrush(c)); p.setPen(QPen(c.lighter(130), 1.6))
+                p.fillPath(seg, QBrush(c))
+                p.setPen(QPen(QColor(255, 255, 255, 30), 1.0)); p.setBrush(Qt.NoBrush); p.drawPath(seg)
             else:
-                d = QColor(c.red(), c.green(), c.blue(), 50)
-                p.setBrush(QBrush(d)); p.setPen(QPen(QColor(255, 255, 255, 18), 1))
-            p.drawEllipse(QPointF(cxp, ly), R, R)
+                p.fillPath(seg, QColor(88, 88, 92, 140))
 
         vstr = '—' if self._value is None else f'{self._value:.1f}'
-        vpx = ch * 0.24; fv = pf(vpx); p.setFont(fv)
-        while p.fontMetrics().horizontalAdvance(vstr) > w * 0.86 and vpx > 12:
-            vpx *= 0.92; fv = pf(vpx); p.setFont(fv)
+        vpx = ch * 0.27; fv = pf(vpx, num=True); p.setFont(fv)
+        while p.fontMetrics().horizontalAdvance(vstr) > w * 0.84 and vpx > 12:
+            vpx *= 0.92; fv = pf(vpx, num=True); p.setFont(fv)
         p.setPen(QPen(QColor(T('text')) if idx == 0 else color))
-        p.drawText(QRectF(x, y + ch * 0.21, w, ch * 0.30), Qt.AlignHCenter | Qt.AlignVCenter, vstr)
+        p.drawText(QRectF(x, y + ch * 0.20, w, ch * 0.31), Qt.AlignHCenter | Qt.AlignVCenter, vstr)
 
         p.setFont(pf(ch * 0.082, bold=False)); p.setPen(QPen(QColor(T('text_dim'))))
-        p.drawText(QRectF(x, y + ch * 0.54, w, ch * 0.10), Qt.AlignHCenter | Qt.AlignVCenter,
+        p.drawText(QRectF(x, y + ch * 0.55, w, ch * 0.10), Qt.AlignHCenter | Qt.AlignVCenter,
                    f'/ {self._limit:.0f} {self._unit}')
 
         if self._value is not None:
-            p.setFont(pf(ch * 0.082))
+            p.setFont(pf(ch * 0.084))
             if over:
                 p.setPen(QPen(self.RED)); mtxt = f'▲ +{self._value - self._limit:.1f} dB over'
             else:
                 p.setPen(QPen(color)); mtxt = f'▼ {self._limit - self._value:.1f} dB headroom'
-            p.drawText(QRectF(x, y + ch * 0.66, w, ch * 0.10), Qt.AlignHCenter | Qt.AlignVCenter, mtxt)
+            p.drawText(QRectF(x, y + ch * 0.67, w, ch * 0.10), Qt.AlignHCenter | Qt.AlignVCenter, mtxt)
 
         status = ('OK', 'AMBER', 'OVER')[idx]
         if over and self._over_since is not None:
@@ -738,27 +750,32 @@ class _SplAlarmDisplay(QWidget):
             sub = ('Safe', 'Ease off', '')[idx]
             if sub:
                 status += f'  ·  {sub}'
-        p.setFont(pf(ch * 0.10)); p.setPen(QPen(color))
+        p.setFont(pf(ch * 0.098)); p.setPen(QPen(color))
         p.drawText(QRectF(x, y + ch * 0.80, w, ch * 0.15), Qt.AlignHCenter | Qt.AlignVCenter, status)
 
-        # ── LEQ 적분 진행 바 + 리셋(↻) — 카드 내부 하단 스트립 (미터 LEQ 카드와 동일 언어)
+        # ── LEQ 적분 진행 바(세그먼트) + 리셋(↻) — 카드 내부 하단 스트립
         self._reset_hit = None
         if self._show_timebar:
             strip_top = y + ch; strip_h = (y + h) - strip_top
-            bar_h = max(4.0, h * 0.018)
+            bar_h = max(5.0, h * 0.020)
             rb = max(7.0, strip_h * 0.30)            # 리셋 글리프 반경
             pad = 12.0
             rcx = x + w - pad - rb; rcy = strip_top + strip_h * 0.5
             bar_x = x + pad; bar_w = (rcx - rb - 10) - bar_x; bar_y = rcy - bar_h / 2
             if bar_w > 8:
-                rr = bar_h / 2
-                track = QPainterPath(); track.addRoundedRect(QRectF(bar_x, bar_y, bar_w, bar_h), rr, rr)
-                p.fillPath(track, QColor(T('bg3')))
-                fw = bar_w * max(0.0, min(1.0, self._progress))
-                if fw > 1:
-                    p.save(); cl = QPainterPath(); cl.addRoundedRect(QRectF(bar_x, bar_y, fw, bar_h), rr, rr)
-                    p.setClipPath(cl); p.fillRect(QRectF(bar_x, bar_y, bar_w, bar_h),
-                                                  _spectra_grad_brush(bar_x, bar_x + bar_w, 255)); p.restore()
+                nseg = 10; sgap = max(2.0, bar_w * 0.012)
+                sw = (bar_w - sgap * (nseg - 1)) / nseg
+                frac = max(0.0, min(1.0, self._progress))
+                non = int(round(frac * nseg))
+                grad = _spectra_grad_brush(bar_x, bar_x + bar_w, 255)  # 정적 캐시 브랜드 그라디언트
+                for i in range(nseg):
+                    segx = bar_x + i * (sw + sgap)
+                    sp = QPainterPath(); sp.addRoundedRect(QRectF(segx, bar_y, sw, bar_h), bar_h / 2, bar_h / 2)
+                    if i < non:
+                        p.save(); p.setClipPath(sp)
+                        p.fillRect(QRectF(bar_x, bar_y, bar_w, bar_h), grad); p.restore()
+                    else:
+                        p.fillPath(sp, QColor(T('bg')))   # 빈 슬롯=바탕보다 어둡게(오목)
             rcol = QColor('#9DB7E0') if self._reset_hover else QColor(T('text_dim'))
             _draw_reload_arrow(p, rcx, rcy, rb, rcol, max(1.3, rb * 0.22))
             self._reset_hit = QRectF(rcx - rb - 5, rcy - rb - 5, 2 * rb + 10, 2 * rb + 10)
