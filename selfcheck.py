@@ -579,6 +579,24 @@ def _ms_m():
 check('ms↔m 환산', _ms_m)
 
 
+def _cb_stall_watchdog():
+    # running-stall 복구: 연속 실패 재오픈이 임계 미만이면 같은 장치 재오픈, 이상이면 제거 판정.
+    import spectra.audio.watchdog as wd
+    assert wd.classify_stall(0) == 'reopen'
+    assert wd.classify_stall(wd.MAX_DEAD_REOPENS - 1) == 'reopen'
+    assert wd.classify_stall(wd.MAX_DEAD_REOPENS) == 'disconnect'
+    # 절전 차단 refcount 대칭 + 언더플로 방지 (측정 중 idle 시스템 절전 차단)
+    base = wd._sleep_refcount
+    wd.begin_no_sleep(); wd.begin_no_sleep()
+    assert wd._sleep_refcount == base + 2, wd._sleep_refcount
+    wd.end_no_sleep(); wd.end_no_sleep()
+    assert wd._sleep_refcount == base, wd._sleep_refcount
+    wd.end_no_sleep()   # 여분 end
+    assert wd._sleep_refcount == base, '언더플로 발생'
+    return f'classify(<{wd.MAX_DEAD_REOPENS}=reopen/≥=disconnect) + no_sleep refcount 대칭 OK'
+check('콜백 stall 워치독(재오픈/절전차단)', _cb_stall_watchdog)
+
+
 def _showmode_smooth():
     class _Dummy: pass
     sm = w.ShowModeWindow(_Dummy())

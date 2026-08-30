@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication, 
                              QWidget)
 from spectra.audio.engine import (_EngineChannelSource, _EngineMultiSource, _EngineSyncSource,
                                   _dev_hostapi_ok, _win_extra_settings, _win_preferred_hostapi)
+from spectra.audio.watchdog import StreamStalled, begin_no_sleep, classify_stall, end_no_sleep
 from spectra.core.config import (SPEED_LEVELS, T, _CAPTURES_LOCK, _load_captures_file,
                                  _save_captures_file, _save_settings, delay_unit, is_dark,
                                  set_delay_unit)
@@ -366,42 +367,60 @@ class TFDuplexThread(QThread):
             except Exception: pass
 
         _alog.debug(f'TFDuplexThread.run() opening sd.Stream  in={self.in_dev} out={self.out_dev} sr={self.sample_rate} bs={blocksize} n_in={n_in} ref_ch={self.ref_ch}')
+        _dead_reopens = 0   # 연속 실패 재오픈 — 콜백 재개 시 리셋
+        begin_no_sleep()    # 측정 중 idle 시스템 절전 차단(콜백 정지 트리거 제거)
         try:
-            with _no_stderr():
-                with sd.Stream(device=(self.in_dev, self.out_dev),
-                               samplerate=self.sample_rate,
-                               channels=(n_in, self.n_out),
-                               blocksize=blocksize, dtype='float32',
-                               callback=cb, latency='high',
-                               extra_settings=_win_extra_settings()) as stream:
-                    self._active_stream = stream
-                    _alog.debug(f'TFDuplexThread sd.Stream opened OK  latency={stream.latency}')
-                    _wd_last[0] = time.monotonic()
-                    _open_t = time.monotonic()          # [DIAG] 오픈 시각 — 첫 콜백 지연/미시작 계측
-                    _first_logged = False; _dead_logged = False
-                    while self.running:
-                        self.msleep(10)
-                        # [DIAG] AUHAL 콜백 시작 진단: 인터페이스 콜드오픈 시 스트림은 열려도 콜백이
-                        # 스케줄 안 되는 레이스(하드웨어 미터도 무음) 추적. 재현 로그로 재오픈 워치독 위치 확정.
-                        if _wd_got[0] and not _first_logged:
-                            _first_logged = True
-                            _diag('tf_duplex_first_cb', dev=self.out_dev,
-                                  dt_ms=round((time.monotonic() - _open_t) * 1000))
-                        if (not _wd_got[0]) and (not _dead_logged) and time.monotonic() - _open_t > 2.0:
-                            _dead_logged = True
-                            _diag('tf_duplex_cb_dead', dev=self.out_dev, in_dev=self.in_dev,
-                                  bs=blocksize)   # ⚠️콜백 2초간 미시작 = 무음 원인 후보
-                        # USB 입력 제거 시 콜백 정지 → 흐르다 2초 끊기면 끊김 판단
-                        # (첫 콜백 받은 뒤에만 — 같은장치 in/out 시작 지연 오판 방지)
-                        if _wd_got[0] and time.monotonic() - _wd_last[0] > 2.0:
-                            self.disconnected_signal.emit('device removed')
-                            break
-                    self.msleep(80)
+            while self.running:   # 같은 config 재오픈 루프 (running-stall 복구)
+                try:
+                    with _no_stderr():
+                        with sd.Stream(device=(self.in_dev, self.out_dev),
+                                       samplerate=self.sample_rate,
+                                       channels=(n_in, self.n_out),
+                                       blocksize=blocksize, dtype='float32',
+                                       callback=cb, latency='high',
+                                       extra_settings=_win_extra_settings()) as stream:
+                            self._active_stream = stream
+                            _alog.debug(f'TFDuplexThread sd.Stream opened OK  latency={stream.latency}')
+                            _wd_got[0] = False
+                            _wd_last[0] = time.monotonic()
+                            _open_t = time.monotonic()          # [DIAG] 오픈 시각 — 첫 콜백 지연/미시작 계측
+                            _first_logged = False
+                            while self.running:
+                                self.msleep(10)
+                                # [DIAG] AUHAL 콜백 시작 진단: 인터페이스 콜드오픈 시 스트림은 열려도 콜백이
+                                # 스케줄 안 되는 레이스(하드웨어 미터도 무음) 추적.
+                                if _wd_got[0] and not _first_logged:
+                                    _first_logged = True
+                                    _dead_reopens = 0   # 콜백 정상 재개 → 예산 회복
+                                    _diag('tf_duplex_first_cb', dev=self.out_dev,
+                                          dt_ms=round((time.monotonic() - _open_t) * 1000))
+                                # 스타트업 죽음: 열렸는데 첫 콜백 2초 미수신 → 같은 config 재오픈
+                                if (not _wd_got[0]) and time.monotonic() - _open_t > 2.0:
+                                    _diag('tf_duplex_cb_dead', dev=self.out_dev, in_dev=self.in_dev,
+                                          bs=blocksize)   # ⚠️콜백 2초간 미시작 = 무음 원인 후보
+                                    raise StreamStalled()
+                                # running-stall: 콜백 흐르다 2초 멈춤(절전/App Nap/글리치) →
+                                # 물리적 제거로 단정 말고 같은 장치 재오픈. [찾기: CB_STALL]
+                                if _wd_got[0] and time.monotonic() - _wd_last[0] > 2.0:
+                                    _diag('tf_duplex_cb_stall', dev=self.out_dev, in_dev=self.in_dev,
+                                          age_ms=round((time.monotonic() - _wd_last[0]) * 1000))
+                                    raise StreamStalled()
+                            self.msleep(80)
+                    return  # running False → 정상 종료
+                except StreamStalled:
+                    self._active_stream = None
+                    if not self.running: return
+                    _dead_reopens += 1
+                    if classify_stall(_dead_reopens) == 'disconnect':
+                        _diag('tf_duplex_stall_giveup', dev=self.out_dev, in_dev=self.in_dev)
+                        self.disconnected_signal.emit('device removed'); return
+                    self.msleep(150); continue   # 같은 config 재오픈
         except Exception as e:
             _alog.error(f'TFDuplexThread sd.Stream FAILED: {e}')
             self.error_signal.emit(str(e))
         finally:
             self._active_stream = None
+            end_no_sleep()
 
     def stop(self):
         self.running = False
@@ -5060,36 +5079,57 @@ class TFSyncThread(QThread):
             except Exception: pass
 
         last_err = None
-        for round_n in range(2):
-            for bs in (blocksize, 0):
-                try:
-                    with _no_stderr():
-                        with sd.InputStream(device=self.device_idx, samplerate=self.sample_rate,
-                                            channels=n_ch, blocksize=bs,
-                                            callback=cb, latency='high', dtype='float32',
-                                            extra_settings=_win_extra_settings()) as _s:
-                            self._active_stream = _s
-                            _last_cb[0] = time.monotonic()
-                            try:
-                                while self.running:
-                                    self.msleep(10)
-                                    # macOS AUHAL은 USB 제거 후에도 active=True 유지 →
-                                    # 콜백이 흐르다 2초 이상 끊기면 물리적 끊김으로 판단
-                                    # (첫 콜백 받은 뒤에만 — 같은장치 in/out 시작 지연 오판 방지)
-                                    if _got_cb[0] and time.monotonic() - _last_cb[0] > 2.0:
-                                        self.disconnected_signal.emit('device removed')
-                                        return
-                            finally:
-                                self._active_stream = None
-                    return  # 정상 종료
-                except Exception as e:
-                    last_err = e
-                    if not self.running: return
-            if round_n == 0:
-                for _ in range(15):   # AUHAL 해제 대기 (running 반응형)
-                    if not self.running: return
-                    self.msleep(100)
-        if last_err: self.error_signal.emit(str(last_err))
+        _dead_reopens = 0   # 연속 실패 재오픈 — 콜백 재개 시 리셋(장시간 세션 소진 방지)
+        begin_no_sleep()    # 측정 중 idle 시스템 절전 차단(콜백 정지 트리거 제거)
+        try:
+            for round_n in range(2):
+                for bs in (blocksize, 0):
+                    while self.running:   # 같은 config 재오픈 루프 (running-stall 복구)
+                        try:
+                            with _no_stderr():
+                                with sd.InputStream(device=self.device_idx, samplerate=self.sample_rate,
+                                                    channels=n_ch, blocksize=bs,
+                                                    callback=cb, latency='high', dtype='float32',
+                                                    extra_settings=_win_extra_settings()) as _s:
+                                    self._active_stream = _s
+                                    _got_cb[0] = False
+                                    _last_cb[0] = time.monotonic(); _open_t = time.monotonic()
+                                    try:
+                                        while self.running:
+                                            self.msleep(10)
+                                            if _got_cb[0] and _dead_reopens:
+                                                _dead_reopens = 0   # 콜백 정상 재개 → 예산 회복
+                                            # 스타트업 죽음: 열렸는데 첫 콜백 2초 미수신 → 같은 config 재오픈
+                                            if (not _got_cb[0]) and time.monotonic() - _open_t > 2.0:
+                                                _diag('tf_sync_cb_dead', dev=self.device_idx, bs=bs)
+                                                raise StreamStalled()
+                                            # running-stall: 콜백 흐르다 2초 멈춤(절전/App Nap/글리치) →
+                                            # 물리적 제거로 단정 말고 같은 장치 재오픈. [찾기: CB_STALL]
+                                            if _got_cb[0] and time.monotonic() - _last_cb[0] > 2.0:
+                                                _diag('tf_sync_cb_stall', dev=self.device_idx,
+                                                      age_ms=round((time.monotonic() - _last_cb[0]) * 1000))
+                                                raise StreamStalled()
+                                    finally:
+                                        self._active_stream = None
+                            return  # running False → 정상 종료
+                        except StreamStalled:
+                            if not self.running: return
+                            _dead_reopens += 1
+                            if classify_stall(_dead_reopens) == 'disconnect':
+                                _diag('tf_sync_stall_giveup', dev=self.device_idx)
+                                self.disconnected_signal.emit('device removed'); return
+                            self.msleep(150); continue   # 같은 config 재오픈
+                        except Exception as e:
+                            last_err = e
+                            if not self.running: return
+                            break   # open 실패 → 다음 bs
+                if round_n == 0:
+                    for _ in range(15):   # AUHAL 해제 대기 (running 반응형)
+                        if not self.running: return
+                        self.msleep(100)
+            if last_err: self.error_signal.emit(str(last_err))
+        finally:
+            end_no_sleep()
 
     def stop(self):
         self.running = False

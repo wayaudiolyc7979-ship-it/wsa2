@@ -7,6 +7,9 @@
 
 ---
 
+## 🐛 2026-08-29 수정 (v2.0, 미커밋·HW 실측 대기)
+- [ ] **[버그] 측정 마이크 장시간(1시간+) 뒤 조용히 멈춤** — 캡처 스레드 워치독이 "콜백 2초+ 정지"를 무조건 **물리적 제거(device removed)로 단정**하고 스레드를 종료 → 장치는 그대로인데(절전/App Nap/일시 글리치) `_on_tf_disconnect`가 "가짜 끊김(장치 개수 유지)"으로 무시 → **아무도 재시작 안 함 → 마이크 정지.** 시작-죽음(startup dead)엔 재오픈 복구가 있었으나 **running-stall엔 없던 미처리 케이스.** **2겹 수정:** ①`spectra/audio/watchdog.py` 신설 — 측정 중 `caffeinate -i`로 **idle 시스템 절전 차단**(트리거 원천 제거, refcount 다중스레드 안전). ②running-stall 시 disconnected 대신 **같은 장치 재오픈**(콜백 재개 시 예산 리셋, 연속 `MAX_DEAD_REOPENS=6`회 실패해야 진짜 제거 판정). 3경로(`MultiChannelAudioThread`·`TFSyncThread`·`TFDuplexThread`) + 진단 로그 `eng_cb_stall`/`tf_sync_cb_stall`/`tf_duplex_cb_stall`/`no_sleep_begin`. AST OK·selfcheck 44/44·caffeinate 실기동 검증. ⏳**HW 1시간+ 실측 대기** — 재발 시 로그 `[DIAG]`로 어느 워치독·절전 여부 확증. *(상세: project_bug_v2_mic_stall_long_run)*
+
 ## 🐛 2026-07-16 수정 (v1.9, 커밋 완료)
 - [x] **[버그] Auto 딜레이 파인더 값 튐(v1.9 회귀)** — 딜레이 시간정렬(`_align_pair`) 도입 후, 누적 스펙트럼이 이미 현재 딜레이로 정렬돼 파인더가 "잔여"만 보고 그걸 **덮어써** 참값 못 감(로그 `2.65↔0.46 ms` 핑퐁). **수정: `d_ms = 현재딜레이 + 잔여`** (3경로: `_find_delay_for_pair`·`_find_delay_compute`·`AllDelayFinderDialog`). M4 물리ref **실측 확정**(4.47ms 고정·잔여0·임펄스 명중). verify_finder.py로 핑퐁 재현→수렴 검증, selfcheck 39/39. `[DELAY_FIND_ABS]` *(상세: project_v19_delay_time_align)*
 - [x] **[버그] 내부(SigGen)·다른장치 ref 측정 위상/임펄스 어긋남** — 딜레이 정렬이 `_on_frame`(same-device duplex/sync)에만 걸리고 분리콜백 경로(Internal SigGen·diff-device primary=`_on_ref`+`_on_meas`)엔 빠져, `_render_primary_H`가 정수딜레이 제거 가정만 하다 위상 과다랩핑·IR 임펄스 2×딜레이. **수정: `_primary_upstream_aligned` 플래그로 미정렬 경로만 렌더 직전 정렬**(MTW=`_align_pair`, Single=`X·exp(-jωD)`), duplex 이중정렬 가드. 헤드리스 검증(verify_delay_align.py). ⏳실측=원래 스샷(맥스피커+맥마이크=diff-device)에서만 발동, M4는 duplex라 미발동. *(상세: project_v19_delay_time_align)*

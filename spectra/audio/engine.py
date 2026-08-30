@@ -12,6 +12,7 @@ import platform as _pl
 import ctypes
 from PyQt5.QtCore import QThread, QObject, pyqtSignal, Qt
 from spectra.core.logging_diag import _alog, _diag, _no_stderr
+from spectra.audio.watchdog import begin_no_sleep, end_no_sleep
 
 
 class _DeadCallbackError(Exception):
@@ -189,6 +190,7 @@ class MultiChannelAudioThread(QThread):
         _last_emit = [0.0]
         _last_cb   = [time.monotonic()]
         _got_cb    = [False]   # 첫 콜백 수신 여부 — 시작 지연을 끊김으로 오판 방지
+        _dead_retry = [0]      # 연속 실패 재오픈 횟수 — 콜백 재개 시 리셋(장시간 세션 소진 방지)
 
         def cb(indata, frames, ti, status):
             if not self.running: return
@@ -231,15 +233,21 @@ class MultiChannelAudioThread(QThread):
                     _last_cb[0] = time.monotonic(); _open_t = time.monotonic()
                     while self.running:
                         self.msleep(500)
+                        if _got_cb[0]:
+                            _dead_retry[0] = 0   # 콜백 정상 흐름 → 재시도 예산 회복
                         # 시작 워치독: 스트림은 열렸는데 첫 콜백이 2초 내 안 오면(AUHAL 콜백 미시작
                         # — M4 출력+입력 동시 경합 시 간헐 발생) 죽은 스트림 → _DeadCallbackError 로
                         # 같은 config 재시도 유도(저지연 유지). 전 스트림(스펙트럼/TF/카드) 공통. [찾기: CB_WATCHDOG]
                         if (not _got_cb[0]) and (time.monotonic() - _open_t > 2.0):
                             _diag('eng_cb_dead', dev=self.device_idx, bs=bs, lat=str(lat))
                             raise _DeadCallbackError()
+                        # 콜백이 흐르다 멈춤(running-stall) — 절전/App Nap/일시 글리치 가능. 물리적
+                        # 제거로 단정하지 말고 같은 장치를 재오픈해 마이크를 되살린다(가짜 device-removed
+                        # 방지). 연속 재오픈이 계속 콜백을 못 받으면 그때 진짜 제거로 판정. [찾기: CB_STALL]
                         if _got_cb[0] and time.monotonic() - _last_cb[0] > 2.0:
-                            self.disconnected_signal.emit('device removed')
-                            return True
+                            _diag('eng_cb_stall', dev=self.device_idx,
+                                  age_ms=round((time.monotonic() - _last_cb[0]) * 1000))
+                            raise _DeadCallbackError()
                 return False
             except Exception: raise
             finally:
@@ -249,27 +257,37 @@ class MultiChannelAudioThread(QThread):
         # → 공유 스트림을 TF와 함께 써도 Spectrum 청크당 스무딩 속도가 정상 유지됨.
         _attempts = [(512, self.force_latency), (2048, self.force_latency)] if self.force_latency else [(512,'low'),(512,'high'),(0,'high')]
         last_err = None
-        for round_n in range(2):
-            for (bs, lat) in _attempts:
-                # 죽은 콜백(스트림 열렸으나 첫 콜백 없음)=같은 config 재시도(최대3회) → 저지연 유지하며 복구.
-                # open 실패(예외)=다음 config로. (2026-06-28 스펙트럼/카드 간헐 무동작 수정)
-                _dead_retry = 0
-                while True:
-                    try:
-                        if _run(bs, lat): return
-                        return
-                    except _DeadCallbackError:
+        begin_no_sleep()   # 측정 중 idle 시스템 절전 차단(콜백 정지 트리거 제거)
+        try:
+            for round_n in range(2):
+                for (bs, lat) in _attempts:
+                    # 죽은 콜백(스트림 열렸으나 첫 콜백 없음)=같은 config 재시도 → 저지연 유지하며 복구.
+                    # running-stall(콜백 흐르다 멈춤)도 같은 경로로 재오픈. open 실패(예외)=다음 config로.
+                    _dead_retry[0] = 0
+                    while True:
+                        try:
+                            if _run(bs, lat): return
+                            return
+                        except _DeadCallbackError:
+                            if not self.running: return
+                            last_err = 'dead AUHAL callback'; _dead_retry[0] += 1
+                            if _dead_retry[0] >= 3:
+                                # 3회 재오픈해도 콜백 미수신 → 콜백을 한 번이라도 받았던 스트림이면
+                                # 물리적 제거로 판정(disconnected). 처음부터 죽은 스타트업이면 다음 config.
+                                if getattr(self, '_got_cb_flag', False):
+                                    self.disconnected_signal.emit('device removed')
+                                    return
+                                break                     # 같은 config 3회 죽음 → 다음 config
+                            continue                      # 같은 config 재오픈
+                        except Exception as e:
+                            last_err = e; break           # open 실패 → 다음 config
+                if round_n == 0:
+                    for _ in range(15):
                         if not self.running: return
-                        last_err = 'dead AUHAL callback'; _dead_retry += 1
-                        if _dead_retry >= 3: break   # 같은 config 3회 죽음 → 다음 config
-                        continue                      # 같은 config 재오픈
-                    except Exception as e:
-                        last_err = e; break           # open 실패 → 다음 config
-            if round_n == 0:
-                for _ in range(15):
-                    if not self.running: return
-                    self.msleep(100)
-        if last_err: self.error_signal.emit(str(last_err))
+                        self.msleep(100)
+            if last_err: self.error_signal.emit(str(last_err))
+        finally:
+            end_no_sleep()
 
     def stop(self):
         self.running = False
