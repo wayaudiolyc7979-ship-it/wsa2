@@ -391,9 +391,7 @@ class _SplPanel(QWidget):
         layout.addStretch(1)   # value 세로 중앙 정렬 (Smaart식)
         self._val_lbl = QLabel('—')
         self._val_lbl.setAlignment(Qt.AlignCenter)
-        self._val_lbl.setStyleSheet(
-            f'color:{vc};font-size:46px;font-weight:bold;'
-            f'background:transparent;')
+        self._val_lbl.setStyleSheet(self._val_ss(vc, 46))   # sans 숫자(FONT_NUM) — Alarm과 통일
         layout.addWidget(self._val_lbl)
         layout.addStretch(1)
 
@@ -458,24 +456,31 @@ class _SplPanel(QWidget):
         super().resizeEvent(e)
         self._relayout()
 
+    def _val_ss(self, color, size):
+        """값 라벨 스타일 — 숫자는 sans(FONT_NUM)로 통일(Alarm 창과 동일 언어)."""
+        return (f'color:{color};font-size:{size}px;font-weight:bold;'
+                f'font-family:"{FONT_NUM}";background:transparent;')
+
     def _zone_tint_color(self, val):
-        """하단 틴트용 신호등 색 — 안전=초록 / 주의=노랑 / 위험=빨강 (값색과 별개)."""
+        """하단 틴트용 신호등 색 — 주의=노랑 / 위험=빨강 (안전=틴트 없음, Alarm warn 방식)."""
         if val > self._peak_db:  return QColor('#FF453A')
-        if val > self._warn_db:  return QColor('#FF9F0A')
-        return QColor('#33FF66')
+        return QColor('#FF9F0A')
 
     def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         r = QRectF(self.rect()).adjusted(2, 2, -2, -2)   # 셀 전체 채움 (여백 없음)
+        rad = 12   # Alarm 창(16)과 결 맞춘 라운드 (기존 8 → 12)
         # 테마 토큰 사용 → 다크/라이트 토글 시 update()만으로 카드 배경이 따라감 (반전: 검정/회색)
         p.setPen(Qt.NoPen)
         p.setBrush(_spl_card_bg())
-        p.drawRoundedRect(r, 8, 8)
-        # ── 존 틴트 글로우(하단) — 값 있는 측정 카드만 (시계·dBFS 피크 제외)
-        if self.metric_id not in ('clock', 'fs_peak') and self._tint_val is not None:
+        p.drawRoundedRect(r, rad, rad)
+        # ── 존 틴트 글로우(하단) — 주의/위험(warn/peak) 존일 때만. 안전은 깔끔한 중립(Alarm과 통일).
+        #    시계·dBFS 피크 제외.
+        if (self.metric_id not in ('clock', 'fs_peak') and self._tint_val is not None
+                and self._tint_val > self._warn_db):
             zc = self._zone_tint_color(self._tint_val)
-            clip = QPainterPath(); clip.addRoundedRect(r, 8, 8)
+            clip = QPainterPath(); clip.addRoundedRect(r, rad, rad)
             p.save(); p.setClipPath(clip)
             g = QLinearGradient(0, r.bottom(), 0, r.bottom() - min(r.height() * 0.55, 90))
             g.setColorAt(0, QColor(zc.red(), zc.green(), zc.blue(), 70))
@@ -483,7 +488,7 @@ class _SplPanel(QWidget):
             p.fillRect(r, g); p.restore()
         pen = QPen(QColor(T('border')), 1.5)
         p.setPen(pen); p.setBrush(Qt.NoBrush)
-        p.drawRoundedRect(r, 8, 8)
+        p.drawRoundedRect(r, rad, rad)
         p.end()
         super().paintEvent(e)
 
@@ -521,9 +526,7 @@ class _SplPanel(QWidget):
         self._max_fs = ms
         self._title_lbl.setStyleSheet(
             f'color:{self._tc};font-size:{ts}px;font-weight:bold;background:transparent;')
-        self._val_lbl.setStyleSheet(
-            f'color:{self._vc};font-size:{vs}px;font-weight:bold;'
-            f'background:transparent;')
+        self._val_lbl.setStyleSheet(self._val_ss(self._vc, vs))
         self._dot.setStyleSheet(f'color:#00e676;font-size:{ms}px;background:transparent;')
         self._max_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:{ms}px;background:transparent;')
 
@@ -533,9 +536,7 @@ class _SplPanel(QWidget):
         vc = self._level_color(val)
         if vc != self._vc:
             self._vc = vc
-            self._val_lbl.setStyleSheet(
-                f'color:{vc};font-size:{self._val_fs}px;font-weight:bold;'
-                f'background:transparent;')
+            self._val_lbl.setStyleSheet(self._val_ss(vc, self._val_fs))
         self._val_lbl.setText(f'{val:.1f}')
         if max_val is not None:
             pc = self._peak_color(max_val)
@@ -549,9 +550,7 @@ class _SplPanel(QWidget):
             return   # 시계는 Reset Max 대상 아님 (다음 틱에 시간 그대로 유지)
         self._tint_val = None; self.update()   # 신호없음 → 틴트 제거
         self._vc = self._base_vc
-        self._val_lbl.setStyleSheet(
-            f'color:{self._base_vc};font-size:{self._val_fs}px;font-weight:bold;'
-            f'background:transparent;')
+        self._val_lbl.setStyleSheet(self._val_ss(self._base_vc, self._val_fs))
         self._val_lbl.setText('—'); self._max_lbl.setText('Max: —')
         self._dot.setStyleSheet(f'color:#33FF66;font-size:{self._max_fs}px;background:transparent;')
         self._max_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:{self._max_fs}px;background:transparent;')

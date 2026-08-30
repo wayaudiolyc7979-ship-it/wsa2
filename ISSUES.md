@@ -8,6 +8,7 @@
 ---
 
 ## 🎨 2026-08-30 (v2.0.1)
+- [x] **[요청] SPL 미터 카드 ↔ Alarm 디자인 통일** — 미터 카드(`_SplPanel`)를 새 Alarm과 한 가족으로: 값 숫자 세리프→**sans(`_val_ss`/FONT_NUM)**, 하단 존 글로우 **warn 방식**(안전=무틴트, 노랑/빨강만, `_zone_tint_color`+paintEvent 게이트), 카드 라운드 8→12. 지표색(A블루/C와인) 유지. selfcheck 44/44.
 - [x] **[요청] SPL Alarm 창 리디자인 (C안 "정제된 신호")** — 개념·기능 유지, 룩만 새로. 신호등 글로우 제거→**또렷한 3분할 상태 바**, 배경 워시=**warn 모드**(OK는 중립 다크, AMBER/OVER만 상태색 워시 — 초록 상시노출 제거, `_wash_mode`), 숫자 세리프→**sans(FONT_NUM)**, LEQ 진행 바→**세그먼트**, 타이틀바 핀·설정→**Lucide 라인 아이콘**(`settings`·`pin` 신설, 앱 통일). 목업 3안 렌더→사용자 C선택. `_SplAlarmDisplay.paintEvent`·`_PinBtn`·`_SettingsBtn`·`icons.py`. selfcheck 44/44.
 
 ## 🐛 2026-08-29 수정 (v2.0, 미커밋·HW 실측 대기)
