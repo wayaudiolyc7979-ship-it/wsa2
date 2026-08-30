@@ -2937,6 +2937,15 @@ class MainWindow(QMainWindow):
         if getattr(self, '_reiniting_audio', False): return
         self._reiniting_audio = True
         _alog.info(f'오디오 시스템 재초기화 시작  reason={reason}')
+        # 자동 복구용 스냅샷 — 멈추기 직전 '무엇이 돌고 있었는지' 기록(에피소드당 1회).
+        # device-change로 측정이 정지된 뒤 장치가 돌아오면 이 스냅샷으로 자동 재시작한다
+        # ('정전→자동 재가동'). 이후 replug tick 재초기화가 반복돼도(이미 정지됨) 덮어쓰지 않음.
+        if not getattr(self, '_reinit_restore_cards', None):
+            _run_ids = ([0] if self._primary_running() else []) + \
+                       [s['id'] for s in self._spec_extra if s.get('sub')]
+            if _run_ids:
+                self._reinit_restore_cards = _run_ids
+                _diag('audio_restore_snapshot', cards=len(_run_ids), reason=reason)
         try:
             # 1) 전 탭 스트림 정지 (스트림이 열려 있으면 _terminate 시 -10851)
             try: self._stop()
@@ -2971,6 +2980,35 @@ class MainWindow(QMainWindow):
         finally:
             self._reiniting_audio = False
         _alog.info('오디오 시스템 재초기화 완료')
+        # 장치가 돌아왔으면 직전 측정을 자동 재시작(정전→자동 재가동). 아직이면 no-op → 다음 tick 재시도.
+        self._try_restore_measurements()
+
+    def _try_restore_measurements(self):
+        """device-change로 자동 정지된 Spectrum 측정을, 장치가 돌아오면 자동 재시작.
+        _card_start는 장치가 없으면 내부에서 안전하게 no-op → 장치 복귀 전엔 스냅샷을 유지하고
+        replug 폴링이 2초마다 다시 호출한다. 되살아나면 _any_audio_active()가 참이 돼 폴링도 스스로 멎음.
+        [찾기: AUDIO_RESTORE]"""
+        ids = getattr(self, '_reinit_restore_cards', None)
+        if not ids:
+            return
+        def _running(cid):
+            return (self._primary_running() if cid == 0
+                    else any(s['id'] == cid and s.get('sub') for s in self._spec_extra))
+        remaining = []
+        for cid in ids:
+            if _running(cid):
+                continue
+            try:
+                self._card_start(cid)   # 장치 없으면 no-op(스트림 열기 실패)
+            except Exception as e:
+                _alog.warning(f'  카드{cid} 자동복구 재시작 실패: {e}')
+            if not _running(cid):
+                remaining.append(cid)   # 아직 장치 안 옴 → 다음 replug tick에서 재시도
+        if remaining:
+            self._reinit_restore_cards = remaining
+        else:
+            self._reinit_restore_cards = None
+            _diag('audio_restore_done', cards=len(ids))
 
     def _on_coreaudio_devices_changed(self):
         """CoreAudio가 하드웨어 장치 변경을 알림(메인 스레드). 짧게 디바운스 후,
@@ -3071,6 +3109,10 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(2000, self._replug_tick)
         else:
             _alog.info('  재연결 폴링 타임아웃(30초) — 종료')
+            # 30초 안에 장치가 안 돌아옴 → 자동복구 스냅샷 정리(뒤늦은 예기치 않은 재시작 방지)
+            if getattr(self, '_reinit_restore_cards', None):
+                _diag('audio_restore_giveup', cards=len(self._reinit_restore_cards))
+                self._reinit_restore_cards = None
 
     def _on_device_disconnected(self,msg):
         dev_name=self.dev_cb.currentText()
