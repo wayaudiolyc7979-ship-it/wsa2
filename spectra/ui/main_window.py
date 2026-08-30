@@ -2937,15 +2937,26 @@ class MainWindow(QMainWindow):
         if getattr(self, '_reiniting_audio', False): return
         self._reiniting_audio = True
         _alog.info(f'오디오 시스템 재초기화 시작  reason={reason}')
-        # 자동 복구용 스냅샷 — 멈추기 직전 '무엇이 돌고 있었는지' 기록(에피소드당 1회).
+        # 자동 복구용 스냅샷 — 멈추기 직전 '무엇이 돌고 있었는지'(3탭) 기록(에피소드당 1회).
         # device-change로 측정이 정지된 뒤 장치가 돌아오면 이 스냅샷으로 자동 재시작한다
-        # ('정전→자동 재가동'). 이후 replug tick 재초기화가 반복돼도(이미 정지됨) 덮어쓰지 않음.
-        if not getattr(self, '_reinit_restore_cards', None):
-            _run_ids = ([0] if self._primary_running() else []) + \
-                       [s['id'] for s in self._spec_extra if s.get('sub')]
-            if _run_ids:
-                self._reinit_restore_cards = _run_ids
-                _diag('audio_restore_snapshot', cards=len(_run_ids), reason=reason)
+        # ('정전→자동 재가동'). 반복 replug reinit이 덮어쓰지 않게 _reinit_restore_pending로 게이트.
+        if not getattr(self, '_reinit_restore_pending', False):
+            _cards = ([0] if self._primary_running() else []) + \
+                     [s['id'] for s in self._spec_extra if s.get('sub')]
+            tw = self.tf_win
+            _tf_on   = bool(tw is not None and getattr(tw, '_running', False))
+            _tf_dev  = (tw.meas_cb.currentText() if (_tf_on and getattr(tw, 'meas_cb', None) is not None) else None)
+            _tfsig   = bool(tw is not None and getattr(tw, 'sig_on_btn', None) is not None and tw.sig_on_btn.isChecked())
+            _st_on   = bool(self.stereo_page is not None and getattr(self.stereo_page, '_running', False))
+            if _cards or _tf_on or _tfsig or _st_on:
+                self._reinit_restore_cards  = _cards
+                self._reinit_restore_tf     = _tf_on
+                self._reinit_restore_tf_dev = _tf_dev
+                self._reinit_restore_tfsig  = _tfsig
+                self._reinit_restore_stereo = _st_on
+                self._reinit_restore_pending = True
+                _diag('audio_restore_snapshot', cards=len(_cards), tf=_tf_on, tfsig=_tfsig,
+                      stereo=_st_on, reason=reason)
         try:
             # 1) 전 탭 스트림 정지 (스트림이 열려 있으면 _terminate 시 -10851)
             try: self._stop()
@@ -2984,31 +2995,98 @@ class MainWindow(QMainWindow):
         self._try_restore_measurements()
 
     def _try_restore_measurements(self):
-        """device-change로 자동 정지된 Spectrum 측정을, 장치가 돌아오면 자동 재시작.
-        _card_start는 장치가 없으면 내부에서 안전하게 no-op → 장치 복귀 전엔 스냅샷을 유지하고
-        replug 폴링이 2초마다 다시 호출한다. 되살아나면 _any_audio_active()가 참이 돼 폴링도 스스로 멎음.
-        [찾기: AUDIO_RESTORE]"""
-        ids = getattr(self, '_reinit_restore_cards', None)
-        if not ids:
+        """device-change로 자동 정지된 측정(Spectrum·TF·Stereo)을, 장치가 돌아오면 자동 재시작.
+        장치 복귀 전엔 스냅샷을 유지하고 replug 폴링이 2초마다 다시 호출한다. 되살아나면
+        _any_audio_active()가 참이 돼 폴링도 스스로 멎음. TF는 '원래 측정 장치'가 이름으로 다시
+        잡혔을 때만 재시작(엉뚱한 장치로 켜짐 방지). [찾기: AUDIO_RESTORE]"""
+        cards  = getattr(self, '_reinit_restore_cards', None)
+        tf_on  = getattr(self, '_reinit_restore_tf', False)
+        tfsig  = getattr(self, '_reinit_restore_tfsig', False)
+        st_on  = getattr(self, '_reinit_restore_stereo', False)
+        if not (cards or tf_on or tfsig or st_on):
             return
-        def _running(cid):
-            return (self._primary_running() if cid == 0
-                    else any(s['id'] == cid and s.get('sub') for s in self._spec_extra))
-        remaining = []
-        for cid in ids:
-            if _running(cid):
-                continue
-            try:
-                self._card_start(cid)   # 장치 없으면 no-op(스트림 열기 실패)
-            except Exception as e:
-                _alog.warning(f'  카드{cid} 자동복구 재시작 실패: {e}')
-            if not _running(cid):
-                remaining.append(cid)   # 아직 장치 안 옴 → 다음 replug tick에서 재시도
-        if remaining:
-            self._reinit_restore_cards = remaining
-        else:
-            self._reinit_restore_cards = None
-            _diag('audio_restore_done', cards=len(ids))
+
+        # ── Spectrum ── (장치 없으면 _card_start가 내부 no-op)
+        if cards:
+            def _running(cid):
+                return (self._primary_running() if cid == 0
+                        else any(s['id'] == cid and s.get('sub') for s in self._spec_extra))
+            remaining = []
+            for cid in cards:
+                if _running(cid):
+                    continue
+                try:
+                    self._card_start(cid)
+                except Exception as e:
+                    _alog.warning(f'  카드{cid} 자동복구 재시작 실패: {e}')
+                if not _running(cid):
+                    remaining.append(cid)
+            self._reinit_restore_cards = remaining or None
+
+        # ── TF 분석 ── 원래 meas 장치가 이름으로 다시 잡혔을 때만(엉뚱한 장치 방지)
+        tw = getattr(self, 'tf_win', None)
+        if tf_on and tw is not None:
+            if getattr(tw, '_running', False):
+                self._reinit_restore_tf = False
+            elif self._select_combo_by_text(getattr(tw, 'meas_cb', None),
+                                             getattr(self, '_reinit_restore_tf_dev', None)):
+                try:
+                    tw._start()
+                except Exception as e:
+                    _alog.warning(f'  TF 자동복구 재시작 실패: {e}')
+                if getattr(tw, '_running', False):
+                    self._reinit_restore_tf = False
+
+        # ── TF 제너레이터(출력) ── 출력 장치가 잡혔을 때만
+        if tfsig and tw is not None:
+            btn = getattr(tw, 'sig_on_btn', None)
+            out_cb = getattr(tw, 'sig_out_cb', None)
+            if btn is None:
+                self._reinit_restore_tfsig = False
+            elif btn.isChecked():
+                self._reinit_restore_tfsig = False
+            elif out_cb is not None and out_cb.currentData() is not None:
+                try:
+                    btn.click()   # 토글 → 재생 ON
+                except Exception as e:
+                    _alog.warning(f'  TF 제너레이터 자동복구 실패: {e}')
+                if btn.isChecked():
+                    self._reinit_restore_tfsig = False
+
+        # ── Stereo ── spectrum과 같은 dev_cb 사용 → 장치 잡혔을 때만 토글로 시작
+        sp = getattr(self, 'stereo_page', None)
+        if st_on and sp is not None:
+            if getattr(sp, '_running', False):
+                self._reinit_restore_stereo = False
+            else:
+                _idx = self.dev_cb.currentData()
+                if _idx is not None and _idx >= 0:
+                    try:
+                        self._st_toggle()   # 정지 상태 → 시작
+                    except Exception as e:
+                        _alog.warning(f'  Stereo 자동복구 재시작 실패: {e}')
+                    if getattr(sp, '_running', False):
+                        self._reinit_restore_stereo = False
+
+        # ── 전부 복구됐으면 에피소드 종료 ──
+        if not (getattr(self, '_reinit_restore_cards', None) or getattr(self, '_reinit_restore_tf', False)
+                or getattr(self, '_reinit_restore_tfsig', False) or getattr(self, '_reinit_restore_stereo', False)):
+            self._reinit_restore_pending = False
+            _diag('audio_restore_done')
+
+    @staticmethod
+    def _select_combo_by_text(cb, text):
+        """콤보에서 text와 정확히 일치하는 항목을 찾아 선택. 성공 True(=장치 존재), 실패 False.
+        TF meas 콤보는 이름 복원이 아니라 기본 인덱스로 떨어질 수 있어, 원래 장치가 목록에
+        돌아왔을 때만 선택해 재시작하도록 하는 가드."""
+        if cb is None or not text:
+            return False
+        for i in range(cb.count()):
+            if cb.itemText(i) == text:
+                if cb.currentIndex() != i:
+                    cb.setCurrentIndex(i)
+                return True
+        return False
 
     def _on_coreaudio_devices_changed(self):
         """CoreAudio가 하드웨어 장치 변경을 알림(메인 스레드). 짧게 디바운스 후,
@@ -3109,10 +3187,17 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(2000, self._replug_tick)
         else:
             _alog.info('  재연결 폴링 타임아웃(30초) — 종료')
-            # 30초 안에 장치가 안 돌아옴 → 자동복구 스냅샷 정리(뒤늦은 예기치 않은 재시작 방지)
-            if getattr(self, '_reinit_restore_cards', None):
-                _diag('audio_restore_giveup', cards=len(self._reinit_restore_cards))
+            # 30초 안에 장치가 안 돌아옴 → 자동복구 스냅샷 전체 정리(뒤늦은 예기치 않은 재시작 방지)
+            if getattr(self, '_reinit_restore_pending', False) or getattr(self, '_reinit_restore_cards', None):
+                _diag('audio_restore_giveup', cards=len(getattr(self, '_reinit_restore_cards', None) or []),
+                      tf=getattr(self, '_reinit_restore_tf', False),
+                      tfsig=getattr(self, '_reinit_restore_tfsig', False),
+                      stereo=getattr(self, '_reinit_restore_stereo', False))
                 self._reinit_restore_cards = None
+                self._reinit_restore_tf = False
+                self._reinit_restore_tfsig = False
+                self._reinit_restore_stereo = False
+                self._reinit_restore_pending = False
 
     def _on_device_disconnected(self,msg):
         dev_name=self.dev_cb.currentText()
