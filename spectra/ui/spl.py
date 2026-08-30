@@ -693,14 +693,21 @@ class _SplAlarmDisplay(QWidget):
         # 카드 바탕 = 중립 다크(살짝 떠 보이는 elevation). 초록 과다 틴트 제거.
         p.fillPath(path, QColor(T('bg3')))
         # 상단 상태 워시 — 카드 위쪽 중앙에서 옅게 퍼지는 상태색(글로우 대체, 은은).
-        wash_a = 44 if not dim_blink else 14
-        gw = QRadialGradient(x + w / 2, y, w * 0.78)
-        gw.setColorAt(0.0, QColor(cr, cg, cb, wash_a))
-        gw.setColorAt(1.0, QColor(cr, cg, cb, 0))
-        p.save(); p.setClipPath(path); p.fillRect(QRectF(x, y, w, h), QBrush(gw)); p.restore()
-        # 얇은 테두리 — 상태색 아주 옅게(강한 컬러 보더 제거)
-        p.setPen(QPen(QColor(cr, cg, cb, 90 if not dim_blink else 45), 1.3))
-        p.setBrush(Qt.NoBrush); p.drawPath(path)
+        # _wash_mode: 'warn'=위험(AMBER/OVER)일 때만(기본, 평소 깔끔) / 'always'=항상 / 'none'=끔.
+        wash_mode = getattr(self, '_wash_mode', 'warn')
+        show_wash = (wash_mode == 'always') or (wash_mode == 'warn' and idx != 0)
+        if show_wash:
+            wash_a = 44 if not dim_blink else 14
+            gw = QRadialGradient(x + w / 2, y, w * 0.78)
+            gw.setColorAt(0.0, QColor(cr, cg, cb, wash_a))
+            gw.setColorAt(1.0, QColor(cr, cg, cb, 0))
+            p.save(); p.setClipPath(path); p.fillRect(QRectF(x, y, w, h), QBrush(gw)); p.restore()
+        # 얇은 테두리 — 워시 있을 때만 상태색 옅게, 평소엔 중립 헤어라인(초록 상시노출 제거)
+        if show_wash:
+            bpen = QColor(cr, cg, cb, 90 if not dim_blink else 45)
+        else:
+            bpen = QColor(255, 255, 255, 22)
+        p.setPen(QPen(bpen, 1.3)); p.setBrush(Qt.NoBrush); p.drawPath(path)
 
         cx = W / 2
         # LEQ 진행 바가 있으면 텍스트 영역(ch)을 상단 85%로 줄여 하단 스트립에 바+리셋을 카드 안에 넣음
