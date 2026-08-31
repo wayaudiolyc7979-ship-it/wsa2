@@ -109,6 +109,8 @@ class _VScrollArea(QScrollArea):
 #  Bar gradient presets
 # ───────────────────────────────────────────
 
+_capture_palette_cache = None
+
 
 def _capture_palette(count=48):
     """캡쳐 색 팔레트 — 라이브 카드 색(_MC_COLORS)과도, 서로와도 최대한 멀리 떨어지게.
