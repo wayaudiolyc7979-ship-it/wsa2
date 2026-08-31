@@ -7,6 +7,13 @@
 
 ---
 
+## 🎨 2026-08-31 (v2.0.1)
+- [x] **[버그] 캡쳐 전혀 안 됨 (Space NameError)** — 단일파일 분해 시 캡쳐 색 팔레트 함수가 `spectra/ui/tf_window.py`로 옮겨지며 모듈 전역 `_capture_palette_cache = None` 초기화 한 줄이 누락 → 캡쳐마다 `_auto_capture_color`→`_capture_palette`에서 `NameError`로 조용히 실패(원본 `wayaudo2.py:295` 존재). 초기화 복원. ✅**HW 실측 캡쳐 정상**. 커밋 `eb6ed18`.
+- [x] **[요청] 캡쳐 색이 현재 라이브 색 전부 회피** — 팔레트가 정적 `_MC_COLORS`만 피하고 실제 화면 라이브 색(스펙트럼 바 색·TF primary 초록 `T('green')`·모든 카드 색)은 안 피해 **2번째 캡쳐가 초록과 겹치던** 문제. `_capture_palette`/`_auto_capture_color`에 `avoid` 인자 추가 → 캡쳐 시점 라이브 색 전부를 farthest-point 시드로 넣어 회피. Spectrum(바색+추가카드)·TF(`_live_avoid_colors()` 헬퍼로 3개 캡쳐 경로 공통). 검증: 2번째 색 `#00d100`(라이브와 dist 75.9)→`#ff00ff`(399.3). 사용자 선택=라이브 색 전부 회피. selfcheck 44/44. 커밋 `6455224`.
+- [x] **[요청] 커서 리드아웃 주파수 메인 강조** — `draw_info_box`에서 예전엔 dB=곡선색 강조/주파수=흐림이던 것을 뒤집어 **주파수=메인(곡선색·18pt)**, dB=보조(흐림·15pt). 제목 폰트 높이 기준으로 행 위치·박스 높이 산출해 THD 유무 양쪽 정렬. Spectrum·TF magnitude·IR 리드아웃 공통. 목업 렌더→사용자 선택(색 B안=주파수 곡선색, 크기 18pt). selfcheck 44/44. 커밋 `6455224`.
+- [x] **[버그] 앱 내 릴리즈노트·매뉴얼 "파일 못 찾음"(분해 경로 회귀)** — `_show_release_notes`/Help(매뉴얼)가 `os.path.dirname(__file__)`로 리소스를 찾는데 분해 후 `spectra/ui/`를 가리켜 레포 루트의 `RELEASE_NOTES.md`·`MANUAL.html` 못 찾음. `_resource_base()` 헬퍼(번들=_MEIPASS/소스=레포루트) 신설. 커밋 `ea63929`. **문서 동기화**(RELEASE_NOTES.md 오늘 4건 + .html v2.0.1 승격 + MANUAL.html v2.0 신기능): `21c4e7b`+최종화.
+- [x] **[빌드전 심층리뷰] 다중에이전트 8레인+건별 스켑틱3인 적대검증 (5제기/0기각·확정2·죽은코드3)** — 확정 수정 커밋 `c935b03`: ①[MEDIUM] `engine.py` 공유엔진 마이크 running-stall 재오픈 포기 임계값이 인라인 `>=3`으로 남아 v2.0.1 중앙화(`watchdog.MAX_DEAD_REOPENS=6`)한 TF 경로와 드리프트 → `classify_stall`로 통일(마이크도 6회). ②[LOW] `config.py` `_save_captures_file` bare-dirname 가드 누락 → `if d:` 추가(헤드리스 재현·복구). ③[DEAD] `ColorPickerDialog._bar_preset_idx` 교차모듈 desync+열면 NameError(미인스턴스화) → `colors.set_bar_preset/bar_preset_idx` 세터·게터 경유로 안전화. 정적스캔 잔여 global-무초기화 0, selfcheck 44/44.
+
 ## 🎨 2026-08-30 (v2.0.1)
 - [x] **[요청] SPL 미터 카드 ↔ Alarm 디자인 통일** — 미터 카드(`_SplPanel`)를 새 Alarm과 한 가족으로: 값 숫자 세리프→**sans(`_val_ss`/FONT_NUM)**, 하단 존 글로우 **warn 방식**(안전=무틴트, 노랑/빨강만, `_zone_tint_color`+paintEvent 게이트), 카드 라운드 8→12. 지표색(A블루/C와인) 유지. selfcheck 44/44.
 - [x] **[요청] SPL Alarm 창 리디자인 (C안 "정제된 신호")** — 개념·기능 유지, 룩만 새로. 신호등 글로우 제거→**또렷한 3분할 상태 바**, 배경 워시=**warn 모드**(OK는 중립 다크, AMBER/OVER만 상태색 워시 — 초록 상시노출 제거, `_wash_mode`), 숫자 세리프→**sans(FONT_NUM)**, LEQ 진행 바→**세그먼트**, 타이틀바 핀·설정→**Lucide 라인 아이콘**(`settings`·`pin` 신설, 앱 통일). 목업 3안 렌더→사용자 C선택. `_SplAlarmDisplay.paintEvent`·`_PinBtn`·`_SettingsBtn`·`icons.py`. selfcheck 44/44.
