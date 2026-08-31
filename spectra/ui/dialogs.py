@@ -13,7 +13,7 @@ from spectra.core.i18n import _tx
 from spectra.core.logging_diag import _alog
 from spectra.core.license import _get_machine_id, save_license, verify_license
 from spectra.dsp.tf import _hilbert_env
-from spectra.ui.colors import BAR_PRESETS
+from spectra.ui.colors import BAR_PRESETS, bar_preset_idx, set_bar_preset
 from spectra.ui.tokens import _qfont, ss_btn_neutral, ss_btn_primary, ss_btn_danger, ss_dialog_btns, ss_spin, FS_LG, FONT_FAMILY
 from spectra.ui.widgets import _apply_dark_titlebar, _grad_topline, hsep, _dialog_brand_header, _icon, RoundComboBox
 
@@ -1614,7 +1614,7 @@ class ColorPickerDialog(QDialog):
             btn.mousePressEvent = lambda e, idx=i: self._pick(idx)
             r0,g0,b0,_ = top
             r1,g1,b1,_ = bot
-            selected = (i == _bar_preset_idx)
+            selected = (i == bar_preset_idx())
             border_css = f'2px solid {T("text")}' if selected else f'1px solid {brd}'
             btn.setStyleSheet(
                 f'QPushButton {{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,'
@@ -1627,7 +1627,6 @@ class ColorPickerDialog(QDialog):
             lay.addWidget(btn)
 
     def _pick(self, idx):
-        global _bar_preset_idx
-        _bar_preset_idx = idx
+        set_bar_preset(idx)          # colors.py 전역을 세터 경유로 갱신(교차모듈 desync 방지)
         self.preset_chosen.emit(idx)
         self.close()

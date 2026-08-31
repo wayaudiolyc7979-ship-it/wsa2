@@ -109,7 +109,8 @@ def _load_captures_file():
 
 def _save_captures_file(data):
     try:
-        os.makedirs(os.path.dirname(_CAPTURES_PATH), exist_ok=True)
+        d = os.path.dirname(_CAPTURES_PATH)
+        if d: os.makedirs(d, exist_ok=True)          # bare filename이면 dirname='' → makedirs 스킵(_save_settings와 통일)
         with open(_CAPTURES_PATH, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False)
     except Exception as e:

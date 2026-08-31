@@ -144,6 +144,16 @@ def set_bar_custom_color(rgb):
     _custom_color = rgb
     _bar_preset_idx = 0
 
+def bar_preset_idx():
+    return _bar_preset_idx
+
+def set_bar_preset(idx):
+    """막대 그라디언트 프리셋 선택(BAR_PRESETS 인덱스). 커스텀색 해제.
+    ⚠️전역은 이 모듈에만 있음 — 다른 모듈에서 직접 global 쓰기 금지, 반드시 이 세터 경유."""
+    global _bar_preset_idx, _custom_color
+    _custom_color = None
+    _bar_preset_idx = idx
+
 def bar_top():
     if _custom_color is not None:
         return (*_custom_color, 200)

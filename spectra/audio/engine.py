@@ -12,7 +12,7 @@ import platform as _pl
 import ctypes
 from PyQt5.QtCore import QThread, QObject, pyqtSignal, Qt
 from spectra.core.logging_diag import _alog, _diag, _no_stderr
-from spectra.audio.watchdog import begin_no_sleep, end_no_sleep
+from spectra.audio.watchdog import begin_no_sleep, classify_stall, end_no_sleep
 
 
 class _DeadCallbackError(Exception):
@@ -271,13 +271,15 @@ class MultiChannelAudioThread(QThread):
                         except _DeadCallbackError:
                             if not self.running: return
                             last_err = 'dead AUHAL callback'; _dead_retry[0] += 1
-                            if _dead_retry[0] >= 3:
-                                # 3회 재오픈해도 콜백 미수신 → 콜백을 한 번이라도 받았던 스트림이면
-                                # 물리적 제거로 판정(disconnected). 처음부터 죽은 스타트업이면 다음 config.
+                            if classify_stall(_dead_retry[0]) == 'disconnect':
+                                # MAX_DEAD_REOPENS(=6)회 재오픈해도 콜백 미수신 → 콜백을 한 번이라도
+                                # 받았던 스트림이면 물리적 제거로 판정(disconnected). TF duplex 경로와
+                                # 동일한 중앙 임계값(watchdog.classify_stall) — 예전 인라인 3에서 통일.
+                                # 처음부터 죽은 스타트업이면 다음 config.
                                 if getattr(self, '_got_cb_flag', False):
                                     self.disconnected_signal.emit('device removed')
                                     return
-                                break                     # 같은 config 3회 죽음 → 다음 config
+                                break                     # 같은 config 반복 죽음 → 다음 config
                             continue                      # 같은 config 재오픈
                         except Exception as e:
                             last_err = e; break           # open 실패 → 다음 config
