@@ -54,6 +54,16 @@ from spectra.ui.widgets import (DeviceCardPopup, RoundComboBox, VUMeter, _Collap
 APP_VERSION = ''   # wayaudo2.py 진입 시 _APP_VERSION 주입(About/푸터 표기용)
 
 
+def _resource_base():
+    """동봉 리소스(RELEASE_NOTES.md·MANUAL.html 등) 기준 폴더.
+    번들(.app/.exe)=PyInstaller _MEIPASS 루트, 소스 실행=레포 루트.
+    ⚠️분해 전 wayaudo2.py는 레포 루트에 있어 __file__ 폴더가 곧 루트였지만,
+    패키지화 후 이 파일은 spectra/ui/ 이므로 3단계 위로 올라가야 루트가 나온다."""
+    if hasattr(sys, '_MEIPASS'):
+        return sys._MEIPASS
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
 def _set_fullscreen_auxiliary(win):
     """창을 '풀스크린 보조창'으로 지정 — 부모 풀스크린 위에 정상 크기로 뜨고 자기는 풀스크린 안 됨.
     ⚠️show 전에 호출해야 함(show 시점 macOS 자동 풀스크린화를 막아야 검은 풀스크린 방지).
@@ -4495,7 +4505,7 @@ class MainWindow(QMainWindow):
         번들(.app/.exe)에선 _MEIPASS, 소스 실행 시엔 스크립트 폴더에서 찾는다."""
         from PyQt5.QtGui import QDesktopServices
         from PyQt5.QtCore import QUrl
-        base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+        base = _resource_base()
         path = os.path.join(base, 'MANUAL.html')
         if os.path.exists(path):
             QDesktopServices.openUrl(QUrl.fromLocalFile(path))
@@ -4505,7 +4515,7 @@ class MainWindow(QMainWindow):
     def _show_release_notes(self):
         """릴리즈 노트 — RELEASE_NOTES.md를 브랜드 창에 렌더해 표시."""
         from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QTextBrowser, QFrame, QPushButton
-        base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+        base = _resource_base()
         path = os.path.join(base, 'RELEASE_NOTES.md')
         try:
             md = open(path, encoding='utf-8').read()
