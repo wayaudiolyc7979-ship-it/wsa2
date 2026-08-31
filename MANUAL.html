@@ -263,6 +263,7 @@
     <tr><td><b>Transfer Function in Separate Window</b></td><td>TF 탭을 별도 창으로 분리</td><td><kbd>⌘⇧T</kbd></td></tr>
     <tr><td><b>Stereo Loudness in Separate Window</b></td><td>Stereo 탭을 별도 창으로 분리</td><td><kbd>⌘⇧L</kbd></td></tr>
     <tr><td><b>Split View (2 panes)</b></td><td>두 탭을 좌우로 동시에 보기</td><td><kbd>⌘⇧2</kbd></td></tr>
+    <tr><td><b>Show Mode</b> <span class="pill">v2.0</span></td><td>FOH 글랜스 풀스크린 — <b>거대한 SPL 숫자 + 라이브 스펙트럼</b>을 객석 건너편에서도 읽히게. 한계 대비 초록(여유)→노랑(접근)→빨강(초과) 신호색. 나가기 Esc/F</td><td><kbd>⌘⇧F</kbd></td></tr>
   </table>
   <div class="note">별도 창·동시 보기는 <b>듀얼 모니터</b>에서 특히 유용해요. 자세한 사용법은 <a href="#windows">5번</a>에 있습니다. (Windows에서는 단축키가 <kbd>Ctrl</kbd> 조합으로 동작)</div>
 
@@ -364,6 +365,8 @@
 
   <h3>화면 읽는 법</h3>
   <p>가로축이 주파수(저음 왼쪽 → 고음 오른쪽), 세로축이 크기(dB)예요. 소리가 들어오면 울퉁불퉁한 곡선이 춤춥니다. 봉우리가 솟은 곳 = 그 음이 강한 것.</p>
+  <div class="note">그래프에 <b>마우스를 올리면</b> 그 지점의 값이 커서 태그로 떠요. <b>주파수(음이름 포함)를 가장 크게, 곡선 색으로</b> 강조하고 dB는 아래 보조로 표시합니다 <span class="pill">v2.0</span> — 지금 보는 주파수가 한눈에.</div>
+  <div class="tip"><b>THD 측정 (총고조파왜곡)</b> <span class="pill">v2.0</span> — 사인 신호의 <b>배음 왜곡률(%)</b>을 볼 수 있어요. 스펙트럼을 <b>우클릭 → Show THD</b>로 켜고, 커서를 기본파 봉우리에 올리면 그 주파수 기준 <code>THD n%</code>가 한 줄 뜹니다(2·3·4·5차 배음 자동). 스피커·앰프의 왜곡 성능 확인용.</div>
   <div class="note">측정을 시작하기 전에는 그래프에 <b>"Press Start" 안내만</b> 깔끔하게 표시돼요 — 시작 전에는 막대·바닥선이 그려지지 않습니다(v1.8에서 정리).</div>
   <div class="tip">마우스를 그래프 위에 올리면 <b>그 지점의 주파수·dB(·음이름)</b>이 작은 정보창으로 떠요. <b>더블클릭</b>하면 세로축이 데이터에 맞게 자동 정렬됩니다. <kbd>↑</kbd><kbd>↓</kbd>로 dB 범위를 위아래로 옮길 수 있어요.</div>
 
@@ -421,7 +424,7 @@
   <h3>② 기준(Reference)과 측정(Measurement)</h3>
   <ul>
     <li><b>Reference</b> — "원본" 신호. 보통 <b>Internal (SigGen)</b>(방금 그 발생기 소리)로 둡니다.</li>
-    <li><b>Measurement</b> — 마이크로 받은 "실제" 소리. <b>Meas</b>에서 마이크 장치/채널을 고르세요. 각 카드에는 <b>레벨바</b>(초록≤−9 / 노랑 / 빨강&gt;−3 dBFS)가 있어 입력 크기를 확인할 수 있어요.</li>
+    <li><b>Measurement</b> — 마이크로 받은 "실제" 소리. <b>Meas</b>에서 마이크 장치/채널을 고르세요. 각 카드에는 <b>레벨바</b>(초록≤−9 / 노랑 / 빨강&gt;−3 dBFS)가 있어 입력 크기를 확인할 수 있어요. 채움 막대(평균 RMS)에 더해 <b>흰 틱으로 순간 최대(Peak)</b>도 함께 표시돼요 <span class="pill">v2.0</span> — 평균은 안전해 보여도 순간 피크가 클리핑 근처면 바로 보입니다.</li>
     <li><b>측정 카드 추가</b> — 여러 지점을 동시에 측정/비교(각 색으로 구분).</li>
   </ul>
   <div class="note">즉 SPECTRA가 <b>원본(Reference) ↔ 마이크 소리(Measurement)</b>를 비교해서 결과를 그립니다.</div>
@@ -440,6 +443,7 @@
     <tr><td><b>Magnitude + Coherence</b><br>(크기 + 신뢰도)</td><td>주파수별로 커졌나/작아졌나 + 그 측정이 믿을 만한가</td><td>맨 아래. 곡선이 평평하면 "착색 없이 고르게" = 좋음. <b>코히런스(γ²)</b>는 그래프 상단의 <b>블루 반투명 채움 밴드</b>로 표시 — 밴드가 <b>위로 높게 차오른 구간일수록 신뢰도가 높음</b>. 정확한 수치는 커서를 올리면 리드아웃에 <b>%</b>로 표시돼요.</td></tr>
   </table>
   <div class="tip"><b>코히어런스(Coherence)가 뭐예요?</b> — "이 측정값을 믿어도 되나"를 나타낸 점수예요(리드아웃에 0~100%). 주변이 시끄럽거나 신호가 약하면 낮아집니다. <b>높은(100%에 가까운) 구간의 결과만</b> 신뢰하세요. v1.8부터는 점선 기준선·우측 % 눈금 없이 <b>채움 밴드</b>로만 은은하게 보여줘서 응답 곡선과 부딪히지 않아요 — 수치가 궁금하면 커서를 올리세요.</div>
+  <div class="tip"><b>코히런스 블랭킹</b> <span class="pill">v2.0</span> — Magnitude 그래프를 <b>우클릭 → Coherence blanking</b>으로 켜면, 크기 곡선이 <b>신뢰도에 따라 진하게/흐리게</b> 그려져요. 믿을 수 있는 구간은 선명하게, 신뢰도 낮은 구간(저역·반사·측정 한계)은 자연스럽게 흐려져 — <b>어디를 믿고 어디를 걸러야 할지</b> 곡선만 봐도 바로 보입니다(Smaart의 trace blanking 방식, 연속 페이드).</div>
   <div class="tip"><b>자동 Y축 맞춤</b> (v1.8) — 측정(핑크/스윕)을 시작하면 Magnitude 그래프가 <b>첫 데이터에서 한 번 자동으로</b> 화면에 맞게 들어와요. 더블클릭할 필요 없이 곡선이 바로 보이고, <b>측정 중에는 점프하지 않습니다.</b> 이후 수동으로 맞추려면 그래프 <b>더블클릭</b>=자동 정렬, <kbd>↑</kbd><kbd>↓</kbd>=범위 이동.</div>
 
   <h3>🔍 그래프 확대·이동 (줌 / 팬) <span class="pill">v1.9</span></h3>
