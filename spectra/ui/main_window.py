@@ -4003,7 +4003,10 @@ class MainWindow(QMainWindow):
         label, ok = _text_input_dialog(self, _tx('Capture'), _tx('Name:'), default)
         if not ok: return
         label = label.strip() or default
-        color = _auto_capture_color(n)
+        # 회피할 라이브 색 = 현재 스펙트럼 바 색(사용자 Color 반영) + 표시중 추가 카드 색
+        avoid = [QColor(*bar_top()[:3]).name()]
+        avoid += [s.get('color') for s in self._spec_extra if s.get('color')]
+        color = _auto_capture_color(n, avoid=avoid)
         group = self._current_spec_group
         m = self.view_mode
         # primary — 표시 중일 때만 (TF 캡쳐와 동일 정책)
@@ -4020,7 +4023,7 @@ class MainWindow(QMainWindow):
             if not src.get('visible', True): continue
             card_no = src.get('num', 2)
             ex_label = f'{label} · Card{card_no}'
-            ex_color = src.get('color') or _auto_capture_color(n + added)
+            ex_color = src.get('color') or _auto_capture_color(n + added, avoid=avoid)
             if m == 'fft':
                 ch = self.fft_cvs._ch_curves.get(cid)
                 if ch and ch.get('ds_f') is not None:

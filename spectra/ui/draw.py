@@ -58,11 +58,14 @@ def draw_info_box(p, W, title_str, val_str, pk_str=None, cx=None, x_lo=0, x_hi=N
     # cx=None 이면 상단 중앙 폴백. 글로우/굵은 테두리/주황값(구식) 폐지 → 브랜드 폰트(축 라벨과 동일)+하어라인.
     if x_hi is None: x_hi = W
     p.setRenderHint(QPainter.Antialiasing, True)
-    p.setFont(_n2_val_font(13, QFont.DemiBold));tw = p.fontMetrics().horizontalAdvance(title_str)
-    p.setFont(_n2_val_font(16, QFont.Bold));     vw = p.fontMetrics().horizontalAdvance(val_str)
+    # 주파수(제목)=메인 → 18pt로 크게, dB/값=보조 15pt. 제목 높이 기준으로 행 위치 산출.
+    p.setFont(_n2_val_font(18, QFont.Bold));     tw = p.fontMetrics().horizontalAdvance(title_str)
+    _th = p.fontMetrics().height()
+    p.setFont(_n2_val_font(15, QFont.Bold));     vw = p.fontMetrics().horizontalAdvance(val_str)
     pw = p.fontMetrics().horizontalAdvance(pk_str) if pk_str else 0
     bw = max(tw, vw, pw) + 22
-    bh = 66 if pk_str else 44
+    _t_y = 3; _v_y = _t_y + _th - 1          # 제목/값 세로 오프셋(제목 폰트 높이 기준)
+    bh = (_v_y + 42) if pk_str else (_v_y + 22)
     by = top + 6
     if cx is None:
         bx = W // 2 - bw // 2
@@ -76,13 +79,14 @@ def draw_info_box(p, W, title_str, val_str, pk_str=None, cx=None, x_lo=0, x_hi=N
         p.drawPolygon(QPolygonF([QPointF(nx - 6, by + bh - 0.5),
                                  QPointF(nx + 6, by + bh - 0.5), QPointF(nx, by + bh + 8)]))
     p.setPen(QPen(QColor(T('border')), 1)); p.setBrush(Qt.NoBrush); p.drawPath(path)
-    p.setFont(_n2_val_font(13, QFont.DemiBold));p.setPen(QColor(T('text_dim')))
-    p.drawText(bx, by + 4, bw, 18, Qt.AlignHCenter | Qt.AlignVCenter, title_str)
-    p.setFont(_n2_val_font(16, QFont.Bold)); p.setPen(QColor(val_color or T('text')))
-    p.drawText(bx, by + 21, bw, 20, Qt.AlignHCenter | Qt.AlignVCenter, val_str)
+    # 주파수(제목)=메인 강조=곡선색·18pt, dB/값=보조=흐림·15pt  (예전엔 반대였음)
+    p.setFont(_n2_val_font(18, QFont.Bold)); p.setPen(QColor(val_color or T('text')))
+    p.drawText(bx, by + _t_y, bw, _th, Qt.AlignHCenter | Qt.AlignVCenter, title_str)
+    p.setFont(_n2_val_font(15, QFont.Bold)); p.setPen(QColor(T('text_dim')))
+    p.drawText(bx, by + _v_y, bw, 20, Qt.AlignHCenter | Qt.AlignVCenter, val_str)
     if pk_str:
         p.setPen(QColor('#FFB300'))
-        p.drawText(bx, by + 42, bw, 20, Qt.AlignHCenter | Qt.AlignVCenter, pk_str)
+        p.drawText(bx, by + _v_y + 20, bw, 20, Qt.AlignHCenter | Qt.AlignVCenter, pk_str)
 
 def draw_dom_badge(p, plot_right, plot_top, dom_fs, dom_db, unit='dB'):
     """우상단 고정 배지: 가장 큰 레벨의 주파수 + dB/dBSPL."""

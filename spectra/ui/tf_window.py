@@ -112,14 +112,17 @@ class _VScrollArea(QScrollArea):
 _capture_palette_cache = None
 
 
-def _capture_palette(count=48):
+def _capture_palette(count=48, avoid=()):
     """캡쳐 색 팔레트 — 라이브 카드 색(_MC_COLORS)과도, 서로와도 최대한 멀리 떨어지게.
     최원점(farthest-point) 선택: 색공간(hue+채도+밝기) 후보 중 '이미 뽑힌 색 + 라이브 색'과
     RGB 거리가 가장 먼 색을 차례로 고른다. 라이브 색을 시드로 넣어 캡쳐가 라이브를 회피.
     채도/밝기 하한을 둬 다크·라이트 양 테마에서 모두 잘 보이게. 1회 계산 후 캐시(결정론적).
-    color 그룹만으론 hue 공간이 부족해 22개+에서 비슷해지던 문제 해결."""
+    color 그룹만으론 hue 공간이 부족해 22개+에서 비슷해지던 문제 해결.
+    avoid: 사용자가 화면에서 실제로 쓰는 라이브 색(스펙트럼 바 색·추가 카드·TF 카드 등).
+    _MC_COLORS 기본 팔레트뿐 아니라 이 색들까지 시드에 넣어 캡쳐가 회피한다.
+    avoid가 있으면 세션마다 바뀔 수 있어 캐시하지 않고 매번 계산(수백×후보, 벡터화라 저렴)."""
     global _capture_palette_cache
-    if _capture_palette_cache is not None and len(_capture_palette_cache) >= count:
+    if not avoid and _capture_palette_cache is not None and len(_capture_palette_cache) >= count:
         return _capture_palette_cache
     # 후보 색공간 (hue×채도×밝기) 생성
     cand_rgb = []; cand_name = []
@@ -131,8 +134,9 @@ def _capture_palette(count=48):
                 c = QColor.fromHsvF(h, s, v)
                 cand_rgb.append((c.red(), c.green(), c.blue())); cand_name.append(c.name())
     cand = np.asarray(cand_rgb, dtype=np.float64)
+    seed = list(_MC_COLORS) + [c for c in avoid if c]
     live = np.asarray([[QColor(c).red(), QColor(c).green(), QColor(c).blue()]
-                       for c in _MC_COLORS], dtype=np.float64)
+                       for c in seed], dtype=np.float64)
     # 벡터화 farthest-point: 라이브 시드까지 최소거리²에서 시작 → 매 단계 argmax 선택 후 선택색 거리로 갱신
     min_d = ((cand[:, None, :] - live[None, :, :]) ** 2).sum(-1).min(axis=1)
     out = []
@@ -140,13 +144,15 @@ def _capture_palette(count=48):
         i = int(np.argmax(min_d))
         out.append(cand_name[i])
         min_d = np.minimum(min_d, ((cand - cand[i]) ** 2).sum(-1))
-    _capture_palette_cache = out
+    if not avoid:
+        _capture_palette_cache = out
     return out
 
 
-def _auto_capture_color(n):
-    """캡쳐 색 — 라이브 카드·다른 캡쳐와 최대한 구분되는 팔레트의 n번째(초과 시 순환)."""
-    pal = _capture_palette()
+def _auto_capture_color(n, avoid=()):
+    """캡쳐 색 — 라이브 카드·다른 캡쳐와 최대한 구분되는 팔레트의 n번째(초과 시 순환).
+    avoid: 회피할 라이브 색 목록(_capture_palette 참고)."""
+    pal = _capture_palette(avoid=avoid)
     return pal[n % len(pal)]
 
 
@@ -3469,6 +3475,12 @@ class TransferFunctionWindow(QWidget):
             if ref_idx is not None:
                 self._on_set_reference(ref_idx)
 
+    def _live_avoid_colors(self):
+        """캡쳐 색이 회피할 현재 라이브 색 = 카드 색 전부(primary=초록 포함) + extra pair 색."""
+        avoid = [getattr(c, '_color', None) for c in getattr(self, '_level_cards', [])]
+        avoid += [p.get('color') for p in getattr(self, '_extra_pairs', [])]
+        return [c for c in avoid if c]
+
     def _do_tf_capture(self, prompt=True):
         """현재 화면의 모든 활성 곡선(primary + 표시중 extra 카드)을 한 번에 캡쳐.
 
@@ -3502,10 +3514,11 @@ class TransferFunctionWindow(QWidget):
         group = getattr(self, '_current_tf_group', '')
         n = len(self._tf_captures)
         added = 0
+        avoid = self._live_avoid_colors()
         # primary — 표시 중일 때만 (꺼져 있으면 캔버스 데이터가 stale)
         primary_on = bool(self._level_cards) and self._level_cards[0]._display_on   # 카드 없으면(primary 삭제) 캡처 안 함(유령 방지)
         if primary_on:
-            color = _auto_capture_color(n)
+            color = _auto_capture_color(n, avoid=avoid)
             self.mag_cvs.add_capture(base, color)
             self.phase_cvs.add_capture(base, color)
             self.ir_cvs.add_capture(base, color, delay=self.delay_ms)
@@ -3801,7 +3814,7 @@ class TransferFunctionWindow(QWidget):
                 coh_a = arr[:, 3].astype(np.float32)
                 if np.all(np.isnan(coh_a)):
                     coh_a = None
-                color = _auto_capture_color(len(self._tf_captures))
+                color = _auto_capture_color(len(self._tf_captures), avoid=self._live_avoid_colors())
                 self.mag_cvs.add_capture_data(label, color, f_hz, mag, coh_a)
                 # Phase/IR — 위상 있을 때만 복원, 없으면 None(가짜 0° 곡선 방지)
                 if has_ph:
@@ -3867,7 +3880,7 @@ class TransferFunctionWindow(QWidget):
             grp = np.zeros(len(f_ref))
         n     = len(self._tf_captures)
         label = f'Avg({n})'
-        color = _auto_capture_color(n)
+        color = _auto_capture_color(n, avoid=self._live_avoid_colors())
         group = getattr(self, '_current_tf_group', '')
         self.mag_cvs._captures.append({
             'f': f_ref.copy(), 'mag': mag_avg, 'coh': None, 'color': color, 'label': label})
