@@ -227,6 +227,13 @@ class StereoLoudnessPage(QWidget):
         self._disp_timer.timeout.connect(self._refresh_display)
         self._disp_timer.start(80)
 
+        # 벡터스코프 고정 30fps 페인트 타이머 — raw 청크(무스로틀 ~90Hz)마다 직접 .update() 하던
+        # 안티패턴 제거. _on_chunk은 push_chunk로 롤링버퍼 축적만, 페인트는 이 타이머가 한다
+        # (레이더·스펙트럼과 동일한 producer/consumer 규약). 측정 중에만 돌도록 start/stop과 연동.
+        self._vs_timer=QTimer(self)
+        self._vs_timer.timeout.connect(lambda: self._vs.update())
+        self._vs_timer.setInterval(33)
+
     # ── 카드 헬퍼 ────────────────────────────────────────────────
     def _card_bg_ss(self, obj='stCard', radius=14):
         """카드 배경 스타일 — 다크 고정 hex / 라이트는 T() 토큰. 테마 토글 시 재적용용."""
@@ -539,6 +546,12 @@ class StereoLoudnessPage(QWidget):
         # 공유 오디오 엔진 구독 — 장치당 단일 스트림이라 Spectrum/TF와 같은 장치 동시 사용 가능.
         # Loudness 적분은 연속 샘플이 필요하므로 롤링 버퍼(chunk_ready)가 아닌 raw_ready 사용.
         self.stop()
+        # SR 합의: 다른 탭이 이 장치를 이미 다른 SR로 열었으면 그 SR을 따른다(장치당 SR 1개).
+        # meter 생성 전에 맞춰야 K-weighting 계수도 실제 스트림 SR과 일치. 예전엔 ValueError→시작 실패.
+        _open_sr=engine.current_sr(dev_idx)
+        if _open_sr is not None and _open_sr!=sr:
+            _alog.info(f'Stereo SR 합의 — device {dev_idx} 이미 {_open_sr}Hz 열림 → {sr}→{_open_sr}')
+            sr=_open_sr
         self._l_ch=l_ch; self._r_ch=r_ch
         self._meter=LoudnessMeter(sr); self._meter.start_integration()
         try:
@@ -550,6 +563,7 @@ class StereoLoudnessPage(QWidget):
         self._sub.error.connect(self._on_error,Qt.QueuedConnection)
         self._sub.disconnected.connect(self._on_error,Qt.QueuedConnection)
         self._radar.start(); self._running=True
+        self._vs_timer.start()            # 벡터스코프 30fps 페인트 시작
 
     def stop(self):
         if self._sub:
@@ -559,6 +573,8 @@ class StereoLoudnessPage(QWidget):
             except Exception: pass
             self._sub=None
         self._radar.stop(); self._running=False
+        self._vs_timer.stop()             # 벡터스코프 페인트 정지(측정 종료)
+        self._vs.update()                 # 마지막 상태 1회 반영(정지 후 잔상 갱신)
 
     def reset_integration(self):
         if self._meter: self._meter.start_integration()
@@ -578,7 +594,7 @@ class StereoLoudnessPage(QWidget):
     def _on_chunk(self,L,R):
         if not self._meter: return
         self._meter.push(L,R)
-        self._vs.push_chunk(L,R); self._vs.update()
+        self._vs.push_chunk(L,R)          # 축적만 — 페인트는 _vs_timer(30fps)가 담당(콜백서 페인트 금지)
         m=self._meter
         self._radar.update_loudness(m.M,m.S,m.I,m.LRA,m.TP,m.peak_hold)
         if m.S>-100: self._hist.push(m.S)
@@ -650,6 +666,11 @@ class _StereoPopoutWindow(QWidget):
         self.setMinimumSize(900, 520)
 
     def closeEvent(self, e):
+        # 타이머 정지(생명주기 대칭) — os._exit로 종료돼 무해했지만 명시 정지로 정리.
+        for _t in (getattr(self, '_disp_timer', None), getattr(self, '_vs_timer', None)):
+            try:
+                if _t is not None: _t.stop()
+            except Exception: pass
         if not self._docking and self._mainwin is not None:
             self._mainwin._dock_st(via_close=True)
         super().closeEvent(e)

@@ -2867,6 +2867,16 @@ class MainWindow(QMainWindow):
             self._raw_spl_smooth=-100.0; self._raw_peak_smooth=-100.0
             self._dba_smooth=-100.0; self._dbc_smooth=-100.0
         ch = self.in_ch_cb.currentData() or 0
+        # SR 합의: 다른 탭(TF/Stereo)이 이 장치를 이미 다른 SR로 열었으면 그 SR을 따른다
+        # (장치당 SR 1개). 예전엔 native SR로 그냥 구독해 ValueError→시작 실패하던 것 방지.
+        _open_sr = self.audio_engine.current_sr(idx)
+        if _open_sr is not None and _open_sr != self.sample_rate:
+            _alog.info(f'SR 합의 — device {idx} 이미 {_open_sr}Hz 열림 → app_sr {self.sample_rate}→{_open_sr}')
+            self.sample_rate = _open_sr
+            try:
+                if _open_sr in _SR_MAP:
+                    self.sr_cb.blockSignals(True); self.sr_cb.setCurrentIndex(_SR_MAP[_open_sr]); self.sr_cb.blockSignals(False)
+            except Exception: pass
         try:
             self._primary_sub = self.audio_engine.subscribe(idx, [ch], self.sample_rate)
         except Exception as e:
@@ -3180,9 +3190,17 @@ class MainWindow(QMainWindow):
         '나중에 다시 꽂은' 장치를 못 본다 → idle 동안 짧게 폴링해 재연결을 잡는다."""
         self._replug_base = self._device_count()
         self._replug_tries = 0
-        QTimer.singleShot(2000, self._replug_tick)
+        # 세대 가드: CoreAudio 경로와 스트림-disconnect 경로가 둘 다 호출하면 예전엔 취소 불가한
+        # singleShot 루프가 2개 동시에 돌아 재초기화·예산 소모가 2배였다. 세대를 올려 이전 루프의
+        # 다음 tick이 스스로 멎게 한다(새 _begin_replug_watch가 항상 대체).
+        self._replug_gen = getattr(self, '_replug_gen', 0) + 1
+        _gen = self._replug_gen
+        QTimer.singleShot(2000, lambda: self._replug_tick(_gen))
 
-    def _replug_tick(self):
+    def _replug_tick(self, gen=None):
+        # 오래된 폴링 루프(더 최근 _begin_replug_watch가 세대를 올림) → 조용히 종료
+        if gen is not None and gen != getattr(self, '_replug_gen', 0):
+            return
         # 사용자가 다른 장치로 측정을 시작했으면 폴링 중단 (재초기화가 측정을 끊지 않도록)
         if self._any_audio_active():
             _alog.info('  재연결 폴링 중단 — 오디오 활성 상태')
@@ -3194,7 +3212,7 @@ class MainWindow(QMainWindow):
             self._disconnected_dev_name = ''
             return
         if self._replug_tries < 15:   # 최대 ~30초
-            QTimer.singleShot(2000, self._replug_tick)
+            QTimer.singleShot(2000, lambda: self._replug_tick(gen))
         else:
             _alog.info('  재연결 폴링 타임아웃(30초) — 종료')
             # 30초 안에 장치가 안 돌아옴 → 자동복구 스냅샷 전체 정리(뒤늦은 예기치 않은 재시작 방지)
@@ -3212,6 +3230,16 @@ class MainWindow(QMainWindow):
     def _on_device_disconnected(self,msg):
         dev_name=self.dev_cb.currentText()
         if not dev_name: return   # 이미 Stop된 상태에서 중복 호출 방지
+        # '(stall)' 마커 = 엔진이 6회 재오픈까지 소진한 확정 죽음(절전/App Nap/드라이버 wedge).
+        # 이때 장치는 여전히 열거돼 개수가 안 줄지만 콜백은 진짜 죽었으므로 개수 가드로 무시하면 안 됨
+        # → 스냅샷-후-정지하는 reinit_audio_devices로 같은 장치에 재초기화+자동복구를 태운다.
+        _stall = isinstance(msg, str) and '(stall)' in msg
+        if _stall:
+            _alog.info('엔진 stall 확정(재오픈 소진) → 같은 장치 재초기화+자동복구')
+            _diag('spec_stall_recover', dev=dev_name)
+            self.reinit_audio_devices('stall recovery (spectrum)')
+            self._begin_replug_watch()   # 혹시 장치가 실제로 사라졌으면 폴링이 백업
+            return
         # 가짜 disconnect 방지: HAL 장치 개수가 안 줄었으면(M4 여전히 존재) 스트림 churn(채널변경/
         # 재구성으로 콜백 1.5s+ 멈춤)에 의한 오판 → 무시. 실제 제거는 개수 감소로 통과하고, 콜백을
         # 무음으로 흘리는 USB는 CoreAudio 리스너(_ca_apply_device_change, 개수 기반)가 잡는다.
@@ -3410,7 +3438,7 @@ class MainWindow(QMainWindow):
     def _on_extra_chunk(self, card_id, buf_dict):
         """추가 소스 구독 콜백 — 해당 카드 채널 버퍼만 처리."""
         src = next((s for s in self._spec_extra if s['id'] == card_id), None)
-        if src is None: return
+        if src is None or src.get('sub') is None: return   # 정지 후 큐에 남은 늦은 청크 → 무시(유령 1프레임 방지)
         buf = buf_dict.get(src['ch'])
         if buf is None or not np.isfinite(buf).all(): return
         self._process_extra_source(card_id, buf, src.get('sr', self.sample_rate), src.get('color', '#00D4FF'))

@@ -65,6 +65,10 @@ def _win_extra_settings():
 
 
 class AudioThread(QThread):
+    # ⚠️ 죽은 코드(v2.0): 라이브 경로는 전부 engine.subscribe/_EngineChannelSource를 쓴다.
+    #    재사용 금지 — 이 클래스의 워치독은 2초 stall을 즉시 device-removed로 단정하고 재오픈·
+    #    절전차단(caffeinate)이 없는 구(舊) 동작이라, 부활시키면 '장시간 마이크 조용히 멈춤' 버그가
+    #    되살아난다. 새 캡처가 필요하면 MultiChannelAudioThread(중앙 classify_stall/재오픈) 경로를 쓸 것.
     chunk_ready        = pyqtSignal(object)
     error_signal       = pyqtSignal(str)
     disconnected_signal= pyqtSignal(str)   # 정상 작동 중 물리적 연결 끊김
@@ -195,9 +199,10 @@ class MultiChannelAudioThread(QThread):
         def cb(indata, frames, ti, status):
             if not self.running: return
             try:
-                _last_cb[0] = time.monotonic(); _got_cb[0] = True
-                self._last_cb_mono = _last_cb[0]; self._got_cb_flag = True   # 외부 생존 판정용
-                if indata.shape[1] == 0: return
+                _got_cb[0] = True; self._got_cb_flag = True   # 콜백이 돌긴 함(스타트업-데드 아님)
+                if indata.shape[1] == 0:
+                    _last_cb[0] = time.monotonic(); self._last_cb_mono = _last_cb[0]
+                    return
                 raw = {}
                 for ch in self.channels:
                     src = min(ch, indata.shape[1] - 1)
@@ -206,6 +211,9 @@ class MultiChannelAudioThread(QThread):
                     n = min(len(chunk), self.fft_size)
                     bufs[ch][:-n] = bufs[ch][n:]
                     bufs[ch][-n:] = chunk[:n]
+                # 데이터 정상 처리 완료 후에만 liveness 갱신 — 매번 던지는 콜백(잘못된 shape/dtype 등)이
+                # 시작부에서 타임스탬프만 찍고 예외를 삼켜 stall 워치독을 눈멀게 하던 것 방지.
+                _last_cb[0] = time.monotonic(); self._last_cb_mono = _last_cb[0]
                 # 원시 연속 프레임 — 매 콜백 emit (샘플 손실 없이 → Loudness 적분 정확)
                 self.raw_ready.emit(raw)
                 now = time.monotonic()
@@ -277,7 +285,9 @@ class MultiChannelAudioThread(QThread):
                                 # 동일한 중앙 임계값(watchdog.classify_stall) — 예전 인라인 3에서 통일.
                                 # 처음부터 죽은 스타트업이면 다음 config.
                                 if getattr(self, '_got_cb_flag', False):
-                                    self.disconnected_signal.emit('device removed')
+                                    # '(stall)' 마커 = 6회 재오픈까지 소진한 확정 신호(단순 churn 아님).
+                                    # UI가 장치 개수 가드로 무시하면 안 됨 → 같은 장치 재초기화+자동복구 유발.
+                                    self.disconnected_signal.emit('device removed (stall)')
                                     return
                                 break                     # 같은 config 반복 죽음 → 다음 config
                             continue                      # 같은 config 재오픈
@@ -367,7 +377,16 @@ class _DeviceStream:
     def remove(self, sub):
         if sub in self.subs: self.subs.remove(sub)
         if not self.subs:       # 마지막 구독 해제 → 스트림 종료 (union 축소는 v1 생략)
-            self._close()
+            self._close(); return
+        # high 요청 구독자(TF)가 빠져 latency를 낮출 수 있으면 재해상해 low로 되돌린다 —
+        # add()의 '상승 시 재오픈'과 대칭. 예전엔 remove가 latency를 안 낮춰 TF 종료 후에도
+        # Spectrum이 세션 내내 _HI_LAT(40ms)로 둔하던 비대칭. union(채널)은 그대로 두고 latency만.
+        # (재오픈은 남은 Spectrum 스트림에 순간 글리치 가능 — add 경로가 이미 감수하는 것과 동종.)
+        need_lat = self._resolve_latency()
+        if need_lat != self.force_latency:
+            _diag('eng_remove_relat', dev=self.device_idx, n_subs=len(self.subs),
+                  lat=str(need_lat), was=str(self.force_latency))
+            self._open(self.union, need_lat)
 
     def _open(self, channels, force_latency=None):
         self._close_thread()

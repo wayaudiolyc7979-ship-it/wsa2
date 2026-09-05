@@ -421,7 +421,7 @@ class TFDuplexThread(QThread):
                     _dead_reopens += 1
                     if classify_stall(_dead_reopens) == 'disconnect':
                         _diag('tf_duplex_stall_giveup', dev=self.out_dev, in_dev=self.in_dev)
-                        self.disconnected_signal.emit('device removed'); return
+                        self.disconnected_signal.emit('device removed (stall)'); return  # '(stall)'=6회 소진 확정 → UI 개수가드 우회 복구
                     self.msleep(150); continue   # 같은 config 재오픈
         except Exception as e:
             _alog.error(f'TFDuplexThread sd.Stream FAILED: {e}')
@@ -513,7 +513,10 @@ class TransferFunctionWindow(QWidget):
             super().__init__(parent, Qt.Window)
             self.setWindowTitle('SPECTRA — Transfer Function')
             self.setMinimumSize(1020, 570)
-        self._settings = settings or {}
+        # settings가 dict면(빈 dict 포함) 그 참조를 그대로 공유 — 예전 `settings or {}`는 첫 실행 시
+        # _load_settings()가 빈 {}(falsy)를 주면 TF가 별개 dict를 만들어 메인과 갈라져, 서로의
+        # 첫 세션 키를 저장 때 덮어쓰던 버그. 참조 공유로 두 창이 항상 같은 dict를 본다.
+        self._settings = settings if isinstance(settings, dict) else {}
         self._tf_primary_name = self._settings.get('tf_primary_name', '')  # primary 카드 사용자 이름
         self._tf_primary_color = self._settings.get('tf_primary_color', '') or ''  # primary(1번) 곡선 사용자색. ''=기본 green
         self.sample_rate = 48000; self.fft_size = 16384
@@ -2752,6 +2755,17 @@ class TransferFunctionWindow(QWidget):
         """입력 장치(인터페이스) USB 끊김 감지 — 분석 + 제너레이터(출력) 모두 정지.
         출력 스트림을 닫지 않으면 핑크노이즈가 macOS 기본(내장) 출력으로 새므로 함께 정지."""
         if getattr(self, '_tf_disc_handling', False): return
+        # '(stall)' 마커 = 엔진이 6회 재오픈까지 소진한 확정 죽음(장치는 열거 유지, 개수 안 줆).
+        # 개수 가드로 무시하면 안 됨 → stop-먼저 경로(_after_tf_disconnect: 스냅샷이 비어 복구 실패)를
+        # 건너뛰고 스냅샷-후-정지하는 reinit_audio_devices로 직행해 같은 장치 자동복구를 태운다.
+        if isinstance(msg, str) and '(stall)' in msg:
+            mw = self.window()
+            if mw is not None and hasattr(mw, 'reinit_audio_devices'):
+                _alog.info('TF 엔진 stall 확정(재오픈 소진) → 같은 장치 재초기화+자동복구')
+                _diag('tf_stall_recover', dev=getattr(self, 'device_idx', -1))
+                mw.reinit_audio_devices('stall recovery (TF)')
+                mw._begin_replug_watch()
+            return
         # 가짜 disconnect 방지: HAL 장치 개수가 안 줄었으면(장치 그대로) 스트림 churn(채널변경/재구성)
         # 오판 → 무시. 실제 제거는 개수 감소로 통과 + CoreAudio 리스너(개수 기반)가 백업.
         try:
@@ -2858,6 +2872,9 @@ class TransferFunctionWindow(QWidget):
         avg = np.mean(self._rta_avg_buf, axis=0) if len(self._rta_avg_buf) > 1 else fft_smooth
         freqs = np.fft.rfftfreq(len(buf), 1.0 / self.sample_rate).astype(np.float32)
         # 옥타브 값만 산출해 적재 — repaint/캔버스 decay는 소비자(_rta_render_frame)에서.
+        # 뮤텍스 불필요: 생산자(_on_rta_chunk)·소비자(_rta_render_frame)가 모두 GUI 스레드(청크는
+        # Qt.QueuedConnection)라 동시 접근이 없고, 튜플 단일 참조 대입은 GIL 하에서 원자적.
+        # ※ 이 연결을 Direct로 바꾸면 QMutex로 보호해야 함(메인 _pending 패턴 참고).
         self._rta_pending = (rc.mode, _octave_bands(freqs, avg + calib, rc.mode), calib)
 
     def _rta_render_frame(self):
@@ -5132,7 +5149,7 @@ class TFSyncThread(QThread):
                             _dead_reopens += 1
                             if classify_stall(_dead_reopens) == 'disconnect':
                                 _diag('tf_sync_stall_giveup', dev=self.device_idx)
-                                self.disconnected_signal.emit('device removed'); return
+                                self.disconnected_signal.emit('device removed (stall)'); return  # '(stall)'=6회 소진 확정 → UI 개수가드 우회 복구
                             self.msleep(150); continue   # 같은 config 재오픈
                         except Exception as e:
                             last_err = e

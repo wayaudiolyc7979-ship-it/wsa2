@@ -20,18 +20,37 @@ def _biquad(x, b, a, z):
 
 class _KWeightFilter:
     """ITU-R BS.1770-4 K-weighting: pre-filter(high-shelf) → RLB(high-pass)."""
+    # 48000 = 규격 상수(골든 락). 그 외 SR(44.1/88.2/96/176.4/192k…)은 _gen_coeffs로 정확 생성.
+    # ※ 예전엔 44100 계수도 표에 있었으나 값이 오타로 틀려(pre-filter가 저역서 0dB가 아니고
+    #   @100Hz K-gain −3.12dB로 48k의 −1.14dB와 불일치) 44.1kHz 라우드니스가 원래부터 비규격이었다.
+    #   생성기는 48000을 오차 ~1e-14로 재현하고 44100을 규격값(@100Hz −1.13dB)으로 산출 → 표에서 제거.
     _C={
         48000:{
             'pre':([1.53512485958697,-2.69169618940638,1.19839281085285],
                    [1.0,-1.69065929318241,0.73248077421585]),
             'rlb':([1.0,-2.0,1.0],[1.0,-1.99004745483398,0.99007225036621])},
-        44100:{
-            'pre':([1.54652578710802,-2.70711510957900,1.20243471048052],
-                   [1.0,-1.66208978614539,0.71227099093282]),
-            'rlb':([1.0,-2.0,1.0],[1.0,-1.98921088568659,0.98922519346844])},
     }
+    @staticmethod
+    def _gen_coeffs(sr):
+        """표에 없는 샘플레이트용 K-weighting 계수 생성 — pyloudnorm/BS.1770 방식
+        (K=tan 프리워핑 bilinear). 예전엔 44.1/48k 외 전부 48k 계수로 폴백(리샘플 없음)해
+        88.2/96/176.4/192k에서 필터 코너가 어긋나 M/S/I/LRA가 비규격이던 것을 바로잡음.
+        48000에서 표값을 오차 ~1e-14로 재현하므로 경계 불연속 없음."""
+        # pre-filter: high-shelf
+        G=3.999843853973347; Q=0.7071752369554196; fc=1681.9744509555319
+        K=math.tan(math.pi*fc/sr); Vh=10.0**(G/20.0); Vb=Vh**0.499666774155
+        a0=1.0+K/Q+K*K
+        pre_b=[(Vh+Vb*K/Q+K*K)/a0, 2.0*(K*K-Vh)/a0, (Vh-Vb*K/Q+K*K)/a0]
+        pre_a=[1.0, 2.0*(K*K-1.0)/a0, (1.0-K/Q+K*K)/a0]
+        # RLB: high-pass
+        Q2=0.5003270373253953; fc2=38.13547087602444
+        K2=math.tan(math.pi*fc2/sr); a0b=1.0+K2/Q2+K2*K2
+        rlb_b=[1.0,-2.0,1.0]
+        rlb_a=[1.0, 2.0*(K2*K2-1.0)/a0b, (1.0-K2/Q2+K2*K2)/a0b]
+        return {'pre':(pre_b,pre_a), 'rlb':(rlb_b,rlb_a)}
+
     def __init__(self,sr):
-        c=self._C.get(sr,self._C[48000])
+        c=self._C.get(sr) or self._gen_coeffs(sr)   # 44.1/48k=검증된 표, 그 외=SR별 정확 생성
         self._pb=np.array(c['pre'][0],dtype=np.float64)
         self._pa=np.array(c['pre'][1],dtype=np.float64)
         self._rb=np.array(c['rlb'][0],dtype=np.float64)
@@ -122,14 +141,19 @@ class LoudnessMeter:
             self._compute_LRA()
 
     def _compute_I(self):
-        if not self._int_sq or len(self._int_sq)<10: return
-        arr=np.array(self._int_sq)
+        # BS.1770-4 게이팅: 400ms 블록 · 75% 오버랩(100ms마다 한 블록). _int_sq는 100ms 부분블록의
+        # 평균제곱 → 연속 4개(=400ms)를 평균하고 1개(100ms)씩 슬라이드해 규격 게이팅 블록을 만든다.
+        # (예전엔 100ms 블록을 그대로 게이팅 → 변동이 커 상대게이트가 다른 블록집합을 남겨 ~0.5 LU 오차.)
+        if len(self._int_sq)<4: return                    # 400ms(=게이팅 블록 1개) 미만이면 보류
+        arr=np.asarray(self._int_sq, dtype=np.float64)
+        csum=np.concatenate(([0.0], np.cumsum(arr)))
+        gb=(csum[4:]-csum[:-4])/4.0                        # 각 400ms 게이팅 블록의 평균제곱(겹침 슬라이딩)
         abs_gate=10**((-70+0.691)/10)
-        gated=arr[arr>abs_gate]
+        gated=gb[gb>abs_gate]                              # 절대 게이트 −70 LUFS
         if len(gated)==0: return
         ms_g=float(np.mean(gated))
-        rel_gate=10**((self._lufs(ms_g)-10+0.691)/10)
-        g2=arr[arr>rel_gate]
+        rel_gate=10**((self._lufs(ms_g)-10+0.691)/10)      # 상대 게이트 −10 LU
+        g2=gb[gb>rel_gate]
         if len(g2)>0: self._I=self._lufs(float(np.mean(g2)))
 
     def _compute_LRA(self):

@@ -7,6 +7,20 @@
 
 ---
 
+## 🔬 2026-09-06 (v2.0.2) 심층리뷰 — 4에이전트 병렬감사·위험도별 전건 수정
+> ⚠️ **v2.0.1은 이미 직원 배포 완료** → 이 수정들은 **v2.0.2**(신규). 오디오엔진/DSP/UI생명주기/코어 4영역 병렬 감사 → HIGH 2·MED 6·LOW 다수. **HIGH·MED 전건 수정+검증**(pytest 66/66·selfcheck 44/44). 값/동작 바뀌는 라우드니스·stall·레이턴시는 ⏳HW 실측 재검증 대기.
+
+- [x] **[HIGH][버그] 캡처 저장 비원자적 — 크래시 시 전체 소실** — `_save_captures_file`(`spectra/core/config.py:110`)이 인플레이스 `open('w')`라 dump 도중 크래시/os._exit 시 captures.json 잘려 저장 캡처 전부 소실. `_save_settings`와 동일 tmp+`os.replace`로 통일. 왕복/원자교체/ tmp잔존0 검증.
+- [x] **[HIGH][버그] 장시간 stall 침묵 방치(복구 안됨)** — 엔진이 6회 재오픈 소진 후 disconnect emit→스레드 종료하는데 `_on_device_disconnected`/`_on_tf_disconnect`가 장치개수 유지면 무시→아무도 재시작 안함(App Nap/절전/wedge). 확정 소진에 `(stall)` 마커(`engine.py:280`·`tf_window.py:424/5135`)→UI가 마커시 개수가드 우회하고 `reinit_audio_devices`(스냅샷-후-정지)로 같은 장치 자동복구. `_diag spec_stall_recover/tf_stall_recover`. ⏳HW 실측.
+- [x] **[MED][버그] BS.1770 게이팅 100ms→400ms/75%** — `_compute_I`(`loudness.py`)가 100ms 블록 직접 게이팅(규격=400ms·75%겹침). 4개 슬라이딩평균으로 규격화. 독립 레퍼런스와 **0.00000 LU 일치**, 골든 -16.98 유지. ⏳HW A/B.
+- [x] **[MED][버그] K-weighting 비48/44.1k 폴백 + 44.1k 표 오류** — 표에 없는 SR 전부 48k 폴백(리샘플X)→96/192k 코너 어긋남. `_gen_coeffs`(pyloudnorm식 bilinear) 신설, 48000 재현 1e-14. **추가 발견**: 표의 44100 계수가 오타로 틀려(@100Hz -3.12dB vs 48k -1.14dB) CD레이트 라우드니스가 원래부터 비규격 → 표에서 제거해 생성기로 정확화. 전 SR -1.14dB 일관. ⏳HW.
+- [x] **[MED][버그] 벡터스코프 raw콜백 직접 페인트** — `stereo_page.py _on_chunk`가 무스로틀 raw마다 `_vs.update()`(30fps 규약 위반). 전용 `_vs_timer`(33ms) 신설, push_chunk는 축적만. start/stop/close 연동.
+- [x] **[MED][버그] subscribe SR 불일치 하드 실패** — 같은 장치 다른 SR 구독시 ValueError로 탭 시작실패. Spectrum(`_open_primary_sub`)·Stereo(`start`)에 `current_sr` 합의 추가(TF `_resolve_shared_sr`·RTA는 이미 보유).
+- [x] **[MED][버그] 레이턴시 상승만 하고 하강 안함** — `_DeviceStream.remove`가 latency 재해상 안해 TF 종료후 Spectrum이 세션내내 40ms. add와 대칭으로 하강 재오픈(`eng_remove_relat`). 가짜스레드 검증. ⏳HW 글리치 확인.
+- [x] **[MED][버그] replug 폴링 루프 중복** — CoreAudio·disconnect 경로가 각각 `_begin_replug_watch`→취소불가 singleShot 2루프 동시(재초기화·예산 2배). 세대(`_replug_gen`) 가드로 stale tick 자동종료.
+- [x] **[LOW] 7건 수정** — 첫실행 settings dict 분리(`tf_window.py:516`)·liveness 타임스탬프 순서(`engine.py` cb)·정지카드 유령1프레임(`_on_extra_chunk` sub가드)·RTA pending 안전근거 주석·stereo disp/vs 타이머 close정지·죽은 AudioThread 경고주석·EMA 워밍업 주석정정. + **스테일 테스트**(`_FZ_MIN_DECADES` wayaudo2 재export) 해소로 pytest 실패 0.
+- [ ] **[판단상 미변경] 3건** — machine-ID hostname 폴백(라이선스 무효화 위험, 별도 설계 필요)·Short-term S 3초전 표시(라이브 미터 UX 트레이드오프)·`_DeviceStream` 비-QObject(현재 안전, 성능영향 큰 변경). 필요시 후속.
+
 ## 🎨 2026-08-31 (v2.0.1)
 - [x] **[버그] 캡쳐 전혀 안 됨 (Space NameError)** — 단일파일 분해 시 캡쳐 색 팔레트 함수가 `spectra/ui/tf_window.py`로 옮겨지며 모듈 전역 `_capture_palette_cache = None` 초기화 한 줄이 누락 → 캡쳐마다 `_auto_capture_color`→`_capture_palette`에서 `NameError`로 조용히 실패(원본 `wayaudo2.py:295` 존재). 초기화 복원. ✅**HW 실측 캡쳐 정상**. 커밋 `eb6ed18`.
 - [x] **[요청] 캡쳐 색이 현재 라이브 색 전부 회피** — 팔레트가 정적 `_MC_COLORS`만 피하고 실제 화면 라이브 색(스펙트럼 바 색·TF primary 초록 `T('green')`·모든 카드 색)은 안 피해 **2번째 캡쳐가 초록과 겹치던** 문제. `_capture_palette`/`_auto_capture_color`에 `avoid` 인자 추가 → 캡쳐 시점 라이브 색 전부를 farthest-point 시드로 넣어 회피. Spectrum(바색+추가카드)·TF(`_live_avoid_colors()` 헬퍼로 3개 캡쳐 경로 공통). 검증: 2번째 색 `#00d100`(라이브와 dist 75.9)→`#ff00ff`(399.3). 사용자 선택=라이브 색 전부 회피. selfcheck 44/44. 커밋 `6455224`.

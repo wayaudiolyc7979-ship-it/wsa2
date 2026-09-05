@@ -111,8 +111,10 @@ def _save_captures_file(data):
     try:
         d = os.path.dirname(_CAPTURES_PATH)
         if d: os.makedirs(d, exist_ok=True)          # bare filename이면 dirname='' → makedirs 스킵(_save_settings와 통일)
-        with open(_CAPTURES_PATH, 'w', encoding='utf-8') as f:
+        tmp = _CAPTURES_PATH + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False)
+        os.replace(tmp, _CAPTURES_PATH)              # 원자적 교체 — dump 도중 크래시/os._exit로 파일이 잘려 캡처 전체가 소실되던 것 방지(_save_settings와 동일)
     except Exception as e:
         _alog.warning(f'캡처 저장 실패: {e}')
 

@@ -68,7 +68,8 @@ class MTWEngine:
             if self._sxy[s] is None:
                 self._sxy[s] = sxy; self._sxx[s] = sxx; self._syy[s] = syy; self._n[s] = 1
             else:
-                # 목표 시정수에 ~10프레임 만에 도달(1씩 올리면 큰 avg에서 한참 동일하게 보임)
+                # 워밍업: n을 avg_target//10(최소 1)씩 올려 목표 시정수로 램프업(큰 avg에서 초기
+                # 몇 프레임이 똑같아 보이는 것 완화). avg_target=16이면 +1/프레임 → 16프레임에 도달.
                 self._n[s] = min(self._n[s] + max(1, self.avg_target // 10), self.avg_target)
                 a = 1.0 / self._n[s]
                 # 상승·하강 완전 대칭(Smaart식) — 위/아래 같은 시정수(=Response). fast-release 없음.
