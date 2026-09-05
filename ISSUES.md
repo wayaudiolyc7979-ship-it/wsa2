@@ -20,6 +20,7 @@
 - [x] **[MED][버그] replug 폴링 루프 중복** — CoreAudio·disconnect 경로가 각각 `_begin_replug_watch`→취소불가 singleShot 2루프 동시(재초기화·예산 2배). 세대(`_replug_gen`) 가드로 stale tick 자동종료.
 - [x] **[LOW] 7건 수정** — 첫실행 settings dict 분리(`tf_window.py:516`)·liveness 타임스탬프 순서(`engine.py` cb)·정지카드 유령1프레임(`_on_extra_chunk` sub가드)·RTA pending 안전근거 주석·stereo disp/vs 타이머 close정지·죽은 AudioThread 경고주석·EMA 워밍업 주석정정. + **스테일 테스트**(`_FZ_MIN_DECADES` wayaudo2 재export) 해소로 pytest 실패 0.
 - [ ] **[판단상 미변경] 3건** — machine-ID hostname 폴백(라이선스 무효화 위험, 별도 설계 필요)·Short-term S 3초전 표시(라이브 미터 UX 트레이드오프)·`_DeviceStream` 비-QObject(현재 안전, 성능영향 큰 변경). 필요시 후속.
+- [x] **[요청] 한국어 번역 누락 30건 보강(v2.0.2)** — 한글 모드서 영어로 새던 UI 문구 30개(`_tx` 리터럴 재감사) `_TR_KO` 채움. 오라제이션 다이얼로그·Stereo 상태·툴팁. Auralization="오라제이션" 표기. selfcheck 44/44. 커밋 `69a0862`(메시지 라벨만 v2.0.1, 실제 v2.0.2 내용).
 
 ## 🎨 2026-08-31 (v2.0.1)
 - [x] **[버그] 캡쳐 전혀 안 됨 (Space NameError)** — 단일파일 분해 시 캡쳐 색 팔레트 함수가 `spectra/ui/tf_window.py`로 옮겨지며 모듈 전역 `_capture_palette_cache = None` 초기화 한 줄이 누락 → 캡쳐마다 `_auto_capture_color`→`_capture_palette`에서 `NameError`로 조용히 실패(원본 `wayaudo2.py:295` 존재). 초기화 복원. ✅**HW 실측 캡쳐 정상**. 커밋 `eb6ed18`.
