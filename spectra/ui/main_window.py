@@ -249,9 +249,14 @@ class _MainKeyFilter(QObject):
         if _shortcut_should_yield():
             return False
         key = event.key()
-        # ? = 단축키 치트시트 (Shift+/). ⌘? 는 '매뉴얼 열기'라 여기서 가로채면 안 된다
+        # ? = 단축키 치트시트. ⌘? 는 '매뉴얼 열기'라 여기서 가로채면 안 된다
         # — S/R 과 달리 수식자 검사가 빠져 있어 ⌘? 가 치트시트를 열 여지가 있었다.
-        if key == Qt.Key_Question and not (event.modifiers() & Qt.ControlModifier):
+        #
+        # ⭐ Key_Slash 도 함께 받는다: **한글 입력기가 켜져 있으면** macOS/Qt가 Shift+/ 를
+        #    Key_Question 이 아니라 `Key_Slash · modifiers=0 · text=''` 로 흘려보낸다
+        #    (실측: 한글 상태에서 ? 를 눌러도 Key_Question 이 한 번도 도착하지 않음).
+        #    영문 상태에서만 동작하던 셈이라, 한국어 사용자에겐 ? 단축키가 사실상 없었다.
+        if key in (Qt.Key_Question, Qt.Key_Slash) and not (event.modifiers() & Qt.ControlModifier):
             self._mw._show_shortcuts(); return True
         if key in (Qt.Key_S, Qt.Key_R) and event.modifiers() == Qt.NoModifier:
             if key == Qt.Key_R:             # R = 선택 캡쳐 제자리 다시 캡쳐
@@ -4594,9 +4599,14 @@ class MainWindow(QMainWindow):
         help_menu = mb.addMenu('Help')
         about_act = QAction('About SPECTRA', self); about_act.setMenuRole(QAction.AboutRole)
         about_act.triggered.connect(self._show_license_info); help_menu.addAction(about_act)
-        man_act = QAction('Manual', self); man_act.setShortcut('Ctrl+?')
+        man_act = QAction('Manual', self)
+        # ⌘? 와 ⌘/ 를 모두 등록 — 한글 입력기에서는 Shift+/ 가 '?'로 오지 않는다(위 주석 참고).
+        man_act.setShortcuts([QKeySequence('Ctrl+?'), QKeySequence('Ctrl+/')])
         man_act.triggered.connect(self._open_manual); help_menu.addAction(man_act)
         sc_act = QAction('Keyboard Shortcuts', self); sc_act.setShortcut('?')
+        # 맨 '/' 는 메뉴 단축키로 등록하지 않는다 — 수식자가 없어 텍스트 입력 중의 '/' 를
+        # 가로챌 수 있다. 한글 입력기 경로는 _MainKeyFilter 가 처리한다(그쪽엔
+        # _shortcut_should_yield() 가드가 있어 입력칸에서는 양보한다).
         sc_act.triggered.connect(self._show_shortcuts); help_menu.addAction(sc_act)
         rn_act = QAction('Release Notes', self)
         rn_act.triggered.connect(self._show_release_notes); help_menu.addAction(rn_act)
