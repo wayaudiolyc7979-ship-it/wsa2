@@ -52,6 +52,20 @@ def _smooth_readout(cv, freq, db, thd):
     return cv._rd_db, cv._rd_thd
 
 
+def _canvas_mainwin(widget):
+    """캔버스에서 MainWindow를 안정적으로 찾는다.
+
+    self.window()는 Spectrum이 팝아웃되면 _SpectrumPopoutWindow(순수 QWidget)를 돌려주는데
+    거기엔 _spec_db_menu/_db_shift/_spec_db_autofit이 없다. 그래서 팝아웃 창에서는
+    **우클릭 dB 메뉴도, ↑↓ dB 이동도, 축 잠금·Show THD도 전부 무반응**이었다
+    (더블클릭만 폴백이 있었다). 팝아웃 창이 들고 있는 _mainwin을 한 단계 더 타고 올라간다."""
+    w = widget.window()
+    if w is not None and hasattr(w, '_spec_db_menu'):
+        return w
+    mw = getattr(w, '_mainwin', None)
+    return mw if mw is not None else w
+
+
 class FFTCanvas(QWidget):
     PAD_L=40; PAD_R=10; PAD_T=12; PAD_B=28
     _DB_LOCKABLE=True   # dB축 수동 고정 아이콘 표시
@@ -458,13 +472,13 @@ class FFTCanvas(QWidget):
     def leaveEvent(self,e): self._mx=-1; self.update()
     def enterEvent(self,e): self.setFocus()
     def keyPressEvent(self,e):
-        win=self.window()
+        win=_canvas_mainwin(self)
         if e.key()==Qt.Key_Up and hasattr(win,'_db_shift'): win._db_shift(6)
         elif e.key()==Qt.Key_Down and hasattr(win,'_db_shift'): win._db_shift(-6)
         else: super().keyPressEvent(e)
     def mouseDoubleClickEvent(self,e):
         if e.x()<self.PAD_L:
-            _w=self.window()
+            _w=_canvas_mainwin(self)
             if hasattr(_w,'_spec_db_autofit'):   # 창 상태(db_max/min·_pending_auto_fit·persist)까지 일원화
                 _w._spec_db_autofit(); return
             # 폴백(팝아웃 등 창 핸들러 없음) — 캔버스 로컬 자동맞춤
@@ -476,7 +490,7 @@ class FFTCanvas(QWidget):
             self.db_max=int(math.ceil((peak+12)/12))*12
             self.db_min=self.db_max-span; self._cache=None; self.update()
     def contextMenuEvent(self,e):
-        _w=self.window()
+        _w=_canvas_mainwin(self)
         if hasattr(_w,'_spec_db_menu'): _w._spec_db_menu(e.globalPos())
     def wheelEvent(self,e):
         if e.modifiers() & Qt.ControlModifier:
@@ -900,13 +914,13 @@ class OctaveCanvas(QWidget):
     def leaveEvent(self,e): self._mx=-1; self.update()
     def enterEvent(self,e): self.setFocus()
     def keyPressEvent(self,e):
-        win=self.window()
+        win=_canvas_mainwin(self)
         if e.key()==Qt.Key_Up and hasattr(win,'_db_shift'): win._db_shift(6)
         elif e.key()==Qt.Key_Down and hasattr(win,'_db_shift'): win._db_shift(-6)
         else: super().keyPressEvent(e)
     def mouseDoubleClickEvent(self,e):
         if e.x()<self.PAD_L:
-            _w=self.window()
+            _w=_canvas_mainwin(self)
             if hasattr(_w,'_spec_db_autofit'):   # 창 상태까지 일원화 (FFT 캔버스와 동일)
                 _w._spec_db_autofit(); return
             sm=self.smooth[self.mode]; valid=sm[sm>-90]
@@ -916,7 +930,7 @@ class OctaveCanvas(QWidget):
             self.db_max=int(math.ceil((peak+12)/12))*12
             self.db_min=self.db_max-span; self._cache=None; self.update()
     def contextMenuEvent(self,e):
-        _w=self.window()
+        _w=_canvas_mainwin(self)
         if hasattr(_w,'_spec_db_menu'): _w._spec_db_menu(e.globalPos())
     def wheelEvent(self,e):
         if e.modifiers() & Qt.ControlModifier:

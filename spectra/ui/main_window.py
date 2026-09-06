@@ -2089,11 +2089,27 @@ class MainWindow(QMainWindow):
         self.main_stack.setCurrentIndex(active)
         self.sub_stack.setCurrentIndex(active)
 
+    def _sync_popout_btns(self):
+        """팝아웃 체크버튼 3종을 '실제 팝아웃 상태'로 되돌린다.
+
+        _popout_* 는 분할 보기(_split_on)나 중복 호출이면 early return 하는데, 그 시점엔 Qt가
+        이미 checkable 버튼을 토글해 놓은 뒤다. 예전엔 복구를 안 해서 분할 보기에서 팝아웃을
+        누르면 아무 일도 없으면서 버튼만 켜진 채 남고, 이후 상태가 한 클릭씩 어긋났다."""
+        for _btn, _win in ((getattr(getattr(self, 'tf_win', None), '_popout_btn', None), self._tf_popout),
+                           (getattr(self, '_spec_popout_btn', None), self._spec_popout),
+                           (getattr(self, '_st_popout_btn', None), self._st_popout)):
+            if _btn is None: continue
+            try:
+                _btn.blockSignals(True); _btn.setChecked(_win is not None)
+            finally:
+                _btn.blockSignals(False)
+
     def _toggle_tf_popout(self):
         if self._tf_popout is not None:
             self._dock_tf()
         else:
             self._popout_tf()
+        self._sync_popout_btns()   # early return(분할보기 등)으로 안 바뀌었으면 버튼 원복
 
     def _popout_tf(self):
         """TF의 헤더+툴바+본체를 별도 창으로 모아 띄운다(멀티모니터). 오디오는
@@ -2226,6 +2242,7 @@ class MainWindow(QMainWindow):
             self._dock_spec()
         else:
             self._popout_spec()
+        self._sync_popout_btns()
 
     def _popout_spec(self):
         """Spectrum 본체(그래프+정보패널)+툴바를 별도 창으로. 오디오는 공유엔진이라 안 끊김."""
@@ -2322,6 +2339,7 @@ class MainWindow(QMainWindow):
             self._dock_st()
         else:
             self._popout_st()
+        self._sync_popout_btns()
 
     def _popout_st(self):
         page = self.stereo_page

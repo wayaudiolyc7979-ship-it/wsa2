@@ -9,7 +9,7 @@ from PyQt5.QtGui import (QBrush, QColor, QImage, QLinearGradient, QPainter,
 from PyQt5.QtCore import Qt, QPointF, QRectF, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (QDialog, QDoubleSpinBox, QHBoxLayout, QLabel, QMenu,
                              QPushButton, QSizePolicy, QVBoxLayout, QWidget)
-from spectra.core.config import T, theme, FREQ_MARKS, fmt_delay
+from spectra.core.config import T, theme, is_dark, FREQ_MARKS, fmt_delay
 from spectra.core.i18n import _tx
 from spectra.dsp.tf import _hilbert_env
 from spectra.ui.tokens import (CF_ANNO, CF_AXIS, CF_MODE, CF_TF_TITLE, _qfont,
@@ -818,8 +818,10 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
 
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B; uw=W-pl-pr; ny=20000
         dh=H-pt-pb; rng=max(self.ph_max-self.ph_min,1.0)
-        _CUR  = QColor(255,220,50,210)   # 밝은 황색
-        _PEER = QColor(255,220,50,100)
+        # 라이트 모드에선 카드 배경이 흰색이라 밝은 황색 커서가 사실상 안 보였다
+        # (측정 WCAG 대비 1.29:1, 비텍스트 UI 최소 3:1). 다크=기존 앰버, 라이트=진한 그래파이트.
+        _CUR, _PEER = ((QColor(255,220,50,210), QColor(255,220,50,100)) if is_dark()
+                       else (QColor(20,33,58,215), QColor(20,33,58,110)))
         # 피어 커서: 수직선 + 수평선 (자기 데이터로 y 계산)
         if pl<=self._peer_mx<=W-pr:
             p.setPen(QPen(_PEER,1,Qt.DashLine))
@@ -1513,8 +1515,9 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
         # 무신호(측정 곡선 없음) → 브랜드 엠프티 스테이트 안내
         if self.mag is None and not self._tf_extra:
             _draw_idle_hint(p, pl, pt, uw, dh, text='Play a signal to start measuring')
-        _CUR  = QColor(255,220,50,210)
-        _PEER = QColor(255,220,50,100)
+        # 라이트 모드 대비 확보 — Phase 캔버스와 동일 정책(다크=앰버 / 라이트=그래파이트)
+        _CUR, _PEER = ((QColor(255,220,50,210), QColor(255,220,50,100)) if is_dark()
+                       else (QColor(20,33,58,215), QColor(20,33,58,110)))
         # 피어 커서: 수직선 + 수평선 (자기 데이터로 y 계산)
         if pl<=self._peer_mx<=W-pr:
             p.setPen(QPen(_PEER,1,Qt.DashLine))

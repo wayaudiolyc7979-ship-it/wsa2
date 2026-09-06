@@ -530,8 +530,12 @@ class StereoLoudnessPage(QWidget):
         self._show_popout_normal(self._vs_win)
 
     def _return_vs(self):
-        if self._vs_win: self._vs_win.hide()
+        # 위젯을 카드로 되돌린 뒤 창은 **파괴**한다. 예전엔 hide()만 해서 열 때마다
+        # _make_popout_win이 새 창을 만들고 이전 창이 top-level로 남았다(4회 반복 시 1→5개).
+        # _add_resize_grip이 창을 캡처한 이벤트필터를 C++ 부모로 붙여 GC로도 회수되지 않는다.
         self._vs_card_l.addWidget(self._vs)
+        if self._vs_win:
+            self._vs_win.hide(); self._vs_win.deleteLater(); self._vs_win = None
 
     def _popout_radar(self):
         if self._radar_win and self._radar_win.isVisible(): return
@@ -542,8 +546,9 @@ class StereoLoudnessPage(QWidget):
         self._show_popout_normal(self._radar_win)
 
     def _return_radar(self):
-        if self._radar_win: self._radar_win.hide()
         self._radar_card_l.addWidget(self._radar)
+        if self._radar_win:
+            self._radar_win.hide(); self._radar_win.deleteLater(); self._radar_win = None
 
     def start(self,dev_idx,sr,l_ch,r_ch,engine):
         # 공유 오디오 엔진 구독 — 장치당 단일 스트림이라 Spectrum/TF와 같은 장치 동시 사용 가능.
