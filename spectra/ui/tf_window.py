@@ -472,6 +472,13 @@ class _TFKeyFilter(QObject):
         if event.type() == QEvent.KeyPress and self._tf.isVisible():
             if _shortcut_should_yield():     # 입력칸/다이얼로그에선 키를 그대로 통과
                 return False
+            # ★ TF 창이 '활성'일 때만 처리한다. 이 필터는 앱 전역에 설치돼 있고 유일한 조건이
+            #   isVisible()인데, TF를 팝아웃하거나 분할 보기로 두면 그 값이 항상 참이라
+            #   Spectrum 팝아웃·Stereo 창·SPL 미터에서 타이핑해도 G가 눌려 **PA로 핑크노이즈가
+            #   나갔다**(공연 중이면 사고). L(전체 딜레이 찾기)도 마찬가지.
+            _w = self._tf.window()
+            if _w is not None and not _w.isActiveWindow():
+                return False
             key = event.key()
             mods = event.modifiers()
             if mods == Qt.NoModifier:
@@ -2182,6 +2189,16 @@ class TransferFunctionWindow(QWidget):
             th.stop()
         self._extra_pair_threads[idx] = (None, None, None)
 
+    def _resolve_mw(self):
+        """MainWindow 안정 해석 — 팝아웃/분할 후에도 유효.
+        self.window()는 팝아웃 시 _TFPopoutWindow(순수 QWidget)를 반환해 MainWindow의 속성이
+        전부 사라진다. 생성 시점에 잡아둔 _mw가 reparent와 무관하게 불변이므로 그쪽을 우선."""
+        mw = getattr(self, '_mw', None)
+        if mw is not None and hasattr(mw, 'oct_cvs'):
+            return mw
+        w = self.window()
+        return w if (w is not None and hasattr(w, 'oct_cvs')) else mw or w
+
     def _hann(self, n):
         """길이별 Hanning 창 캐시.
 
@@ -2825,7 +2842,7 @@ class TransferFunctionWindow(QWidget):
         # 탭별이 아닌 앱 전역에서 재초기화해야 재연결 장치가 인식됨 (모든 탭 동시 해결).
         # 주의: QStackedWidget 에 addWidget 되며 parent()는 stack 으로 재지정됨 →
         # 최상위 윈도우(MainWindow)는 self.window() 로 얻어야 함.
-        mw = self.window()
+        mw = self._resolve_mw()
         if mw is not None and hasattr(mw, 'reinit_audio_devices'):
             mw.reinit_audio_devices('USB disconnect (TF)')
             mw._begin_replug_watch()
@@ -2886,7 +2903,10 @@ class TransferFunctionWindow(QWidget):
         buf = d.get(self._rta_ch)
         if buf is None or len(buf) < 8:
             return
-        rc = self.rta_cvs; mw = self.window()
+        # ★ self.window()가 아니라 _mw 우선 — 팝아웃되면 window()는 _TFPopoutWindow(순수 QWidget)라
+        #   avg_count/calib_offset/oct_cvs가 전부 없어 getattr 기본값으로 조용히 떨어졌다
+        #   (RTA가 SPL 캘리브 오프셋을 통째로 잃고, 평균 16·속도 기본값으로 되돌아감).
+        rc = self.rta_cvs; mw = self._resolve_mw()
         n_avg = int(getattr(mw, 'avg_count', 16) or 16) if mw is not None else 16
         if self._rta_avg_buf.maxlen != n_avg:
             self._rta_avg_buf = deque(self._rta_avg_buf, maxlen=max(1, n_avg))
@@ -2918,7 +2938,7 @@ class TransferFunctionWindow(QWidget):
         (스펙트럼 _render_frame과 동일 패턴). 콜백 지터와 무관한 일정 프레임 → 버벅임 제거."""
         if self._rta_sub is None or self._rta_pending is None:
             return
-        rc = self.rta_cvs; mw = self.window()
+        rc = self.rta_cvs; mw = self._resolve_mw()
         if mw is not None and hasattr(mw, 'oct_cvs'):
             oc = mw.oct_cvs   # 속도/피크홀드를 스펙트럼 옥타브와 동일하게(매 프레임 미러)
             rc.alpha = oc.alpha; rc.decay = oc.decay

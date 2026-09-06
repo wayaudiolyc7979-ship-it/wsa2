@@ -21,7 +21,7 @@ from spectra.audio.engine import (AudioEngine, _CoreAudioDeviceWatcher, _dev_hos
                                   _win_preferred_hostapi)
 from spectra.core.config import (MAX_DB, SPEC_ATTACK, SPEED_LEVELS, T, _CAPTURES_LOCK,
                                  _load_captures_file, _load_settings, _save_captures_file,
-                                 _save_settings, is_dark, toggle_theme)
+                                 _save_settings, is_dark, theme, set_theme, toggle_theme)
 from spectra.core.i18n import _tx, cur_lang
 from spectra.core.license import _get_machine_id, load_license, verify_license
 from spectra.core.logging_diag import _LOG_DIR, _alog, _diag
@@ -385,6 +385,9 @@ class MainWindow(QMainWindow):
         self._build_menubar()          # macOS 네이티브 메뉴바 (About/Quit/Help)
         self._load_devices()
         self._restore_spec_sources()   # 저장된 멀티-장치 추가 소스 카드 복원
+        try:                            # 저장된 테마 복원(없으면 dark)
+            set_theme(self._settings.get('theme', 'dark'))
+        except Exception: pass
         self._apply_theme()
 
         _sc = QShortcut(QKeySequence(Qt.Key_Space), self)
@@ -1718,6 +1721,13 @@ class MainWindow(QMainWindow):
 
     def _toggle_theme(self):
         toggle_theme()   # 전역 _theme 토글은 접근자로(모듈 분해 대비 교차모듈 쓰기 제거)
+        # 선택한 테마를 저장 — 예전엔 저장하지 않아 라이트 모드 사용자가 **매 실행 초기화**됐다
+        # (set_theme()는 어디서도 호출되지 않았고 _theme은 항상 'dark'로 시작).
+        try:
+            self._settings['theme'] = theme()
+            _save_settings(self._settings)
+        except Exception as e:
+            _alog.warning(f'테마 저장 실패: {e}')
         self._apply_theme()
         _apply_windows_titlebar_dark(self)   # 윈도우: 메인 타이틀바도 새 테마로(맥은 no-op)
         # 열려있는 팝아웃 창들: 컨트롤 스타일시트 + 네이티브 타이틀바 + 브랜드 헤더 재적용
