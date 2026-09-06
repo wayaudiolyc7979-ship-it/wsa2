@@ -30,24 +30,30 @@ class _RateEst:
     ~47Hz(48k)·~43Hz(44.1k)다. 50으로 나누면 창이 실제보다 **6~16% 길게** 잡혀
     LEQ가 그만큼 과적분되고 진행바도 같은 비율로 어긋났다.
     푸시 간격을 EMA로 추정해 창 길이를 실제 레이트로 계산한다(초기값은 공칭값)."""
-    __slots__ = ('_nominal', '_rate', '_last_t')
+    __slots__ = ('_nominal', '_dt', '_last_t')
 
     def __init__(self, nominal):
-        self._nominal = float(nominal); self._rate = float(nominal); self._last_t = None
+        self._nominal = float(nominal); self._dt = 1.0 / float(nominal); self._last_t = None
 
     def tick(self, now):
         if self._last_t is not None:
             dt = now - self._last_t
-            if 0.002 < dt < 0.5:                     # 비정상 간격(첫 푸시·스톨)은 무시
-                self._rate += (1.0 / dt - self._rate) * 0.02   # 느린 EMA(≈50샘플 시정수)
+            # ⚠️ **간격을 EMA 하고 역수를 취한다.** 레이트(1/dt)를 직접 EMA 하면
+            #    E[1/dt] ≥ 1/E[dt] (Jensen)라 지터가 클수록 레이트를 과대추정한다.
+            #    chunk_ready는 오디오 스레드에서 emit되므로 GUI가 잠깐 멈추면 큐잉된
+            #    시그널이 3ms 간격으로 몰려나오는데, 그때 역수 EMA는 크게 튄다
+            #    (실측: 스톨 반복 시 평균 62 Hz로 +33% 편향 → 15분 LEQ가 +2.0 dB).
+            if 0.005 < dt < 0.5:                     # 비정상 간격(첫 푸시·스톨·버스트) 무시
+                self._dt += (dt - self._dt) * 0.02   # 느린 EMA(≈50샘플 시정수)
         self._last_t = now
 
     @property
     def hz(self):
-        return self._rate if 5.0 < self._rate < 500.0 else self._nominal
+        r = 1.0 / self._dt if self._dt > 0 else self._nominal
+        return r if 5.0 < r < 500.0 else self._nominal
 
     def reset(self):
-        self._rate = self._nominal; self._last_t = None
+        self._dt = 1.0 / self._nominal; self._last_t = None
 
     def window_n(self, secs):
         """secs초에 해당하는 표본 수(실측 레이트 기준)."""
@@ -617,6 +623,7 @@ class _SplPanel(QWidget):
         self._val_lbl.setStyleSheet(self._val_ss(self._vc, vs))
         self._dot.setStyleSheet(f'color:#00e676;font-size:{ms}px;background:transparent;')
         self._max_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:{ms}px;background:transparent;')
+        self._pk_ss = None   # 스타일 메모 무효화 — 안 하면 리사이즈 뒤 경고색이 회색으로 굳는다
 
     def set_value(self, val, max_val):
         self._tint_val = val   # 하단 존 틴트 갱신 (paintEvent에서 신호등 글로우)
@@ -647,6 +654,7 @@ class _SplPanel(QWidget):
         self._val_lbl.setStyleSheet(self._val_ss(self._base_vc, self._val_fs))
         self._val_lbl.setText('—'); self._max_lbl.setText('Max: —')
         self._dot.setStyleSheet(f'color:#33FF66;font-size:{self._max_fs}px;background:transparent;')
+        self._pk_ss = None   # 스타일 메모 무효화 — 안 하면 다음 틱에 경고색이 복구되지 않는다
         self._max_lbl.setStyleSheet(f'color:{T("text_dim")};font-size:{self._max_fs}px;background:transparent;')
 
 

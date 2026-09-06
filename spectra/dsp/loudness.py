@@ -222,7 +222,10 @@ class LoudnessMeter:
         if gated.size==0: return
         ms_g=float(gated.mean())
         rel_gate=10**((self._lufs(ms_g)-10+0.691)/10)      # 상대 게이트 −10 LU
-        g2=gb[gb>rel_gate]
+        # 규격은 두 게이트의 **AND**(l_j > Γa AND l_j > Γr) — 절대게이트를 빠뜨리면
+        # 게이팅 평균이 −70에 가까울 때 Γr < Γa 가 되어 −70 이하 블록이 다시 섞인다
+        # (실측: −68 LUFS 프로그램 −0.84 LU, 랜덤 최악 −5.3 LU).
+        g2=gb[(gb>abs_gate)&(gb>rel_gate)]
         if g2.size>0: self._I=self._lufs(float(g2.mean()))
 
     def _compute_LRA(self):
@@ -267,9 +270,14 @@ class LoudnessMeter:
         self._lra_hist[:]=0; self._maxM=-100.0; self._maxS=-100.0
 
     def reset_peak(self):
-        """표시 피크 리셋 — _PH뿐 아니라 _TP도 함께 지운다.
-        예전엔 _TP가 남아 PLR/PSR(=TP−I, TP−S)이 리셋 후에도 옛 트랜지언트에 고착됐다."""
-        self._TP=-100.0; self._PH=-100.0
+        """표시 피크(peak-hold) 리셋.
+
+        ⚠️ `_TP`는 지우지 않는다. PLR = TP − I 는 **프로그램 단위** 지표라 TP와 I의
+        시간창이 같아야 한다. _TP만 리셋하면 창이 어긋나 PLR이 **음수**가 되는데,
+        이는 물리적으로 불가능한 값이다(실측: 리셋 직후 −9.76 LU, 정상 복귀까지 31초,
+        최악 −29.7 LU 오차). 화면의 TP 표시는 `_PH`를 쓰므로 UX 의도는 그대로 달성된다.
+        TP·I 창을 함께 되돌리려면 start_integration()으로 적분 자체를 재시작할 것."""
+        self._PH=-100.0
 
     @property
     def M(self): return self._M

@@ -1949,7 +1949,11 @@ class TFIRCanvas(QWidget):
 
     def mouseMoveEvent(self, e): self._mx = e.x(); self.update()
     def leaveEvent(self, e): self._mx = -1; self.update()
-    def resizeEvent(self, ev): self._cache = None; self.update()
+    def resizeEvent(self, ev):
+        # 타임스탬프가 없으면 캡처 합성 정착 가드(_last_resize_t)가 영영 발동하지 않아
+        # IR 패널만 드래그 리사이즈 중 합성 스래싱이 그대로 남는다.
+        self._last_resize_t = time.monotonic()
+        self._cache = None; self.update()
     def enterEvent(self, e): self.setFocus(); super().enterEvent(e)  # 호버 시 자동 포커스
 
     def wheelEvent(self, e):

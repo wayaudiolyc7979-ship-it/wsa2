@@ -1370,7 +1370,14 @@ class SpectrogramCanvas(QWidget):
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
         dw=W-pl-pr; dh=H-pt-pb
         dw_dev=max(1,int(round(dw*self._dpr())))
-        if dw<=0 or dh<=0 or self._rgba is None or self._rdw!=dw_dev or self._n==0:
+        # 폭이 어긋나 있으면 **여기서 직접 승계**한다. 예전엔 _ensure를 set_data에서만
+        # 불렀고 재시도 타이머는 update()만 해서, 측정이 멈춘 상태로 리사이즈하면
+        # 히스토리는 메모리에 살아있는데 화면은 **영구히 빈 채로** 남았다(재시도가 무의미).
+        if dw>0 and dh>0 and self._rgba is not None and (
+                self._rdw!=dw_dev or getattr(self,'_rdw_log',0)!=dw):
+            self._ensure(dw_dev, dw)
+        if (dw<=0 or dh<=0 or self._rgba is None or self._n==0
+                or self._rdw!=dw_dev or getattr(self,'_rdw_log',0)!=dw):
             self._draw_handles(p,H); p.end(); return
 
         # ── 1. Build pixel array from ring buffer ──────────────────────────
@@ -1456,7 +1463,7 @@ class SpectrogramCanvas(QWidget):
                 row_off=cy-pt                    # display row (0=top=newest visible)
                 frame_ago=self._scroll+row_off   # total frames back from latest
                 fi=(self._wi-1-frame_ago)%self.MAX_HIST
-                if 0<=frame_ago<self._n and 0<=col_x<dw:
+                if 0<=frame_ago<self._n and 0<=col_x<self._dbuf.shape[1]:
                     db_val=float(self._dbuf[fi,col_x])
                     t_ago=frame_ago/self.FPS
                     db_str=f'{db_val:.1f} dB'

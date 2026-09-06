@@ -2950,6 +2950,10 @@ class TransferFunctionWindow(QWidget):
         if 'RTA' not in self._tf_slot_plot:
             if self._rta_sub is not None:
                 self._rta_unsubscribe()
+            # ⚠️ 파킹도 함께 해제한다. 해제 조건이 '장치/채널 변경' 하나뿐이라, 슬롯을 껐다
+            #    다시 켜도 _rta_parked가 True로 남아 **영영 구독하지 않는** 닫힌 고리가 됐다
+            #    (구독이 없으니 _on_rta_chunk의 해제 경로에도 도달 못 함).
+            self._rta_parked = False; self._rta_stale_n = 0
             return
         cur_dev = self.meas_cb.currentData()
         cur_ch = self.meas_ch_cb.currentData() or 0

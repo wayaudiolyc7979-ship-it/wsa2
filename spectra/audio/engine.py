@@ -402,6 +402,11 @@ class _DeviceStream:
         #    ③Subscription.close()가 GUI 스레드라 _close_thread()의 wait(3000)에 UI가 묶인다.
         #    ⇒ TF 종료 후 Spectrum이 _HI_LAT(40ms)에 머무는 둔함은 감수하고, 낮추려면 스트림이
         #      완전히 닫힌 뒤(마지막 구독 해제) 다음 subscribe에서 자연히 low로 열리게 둔다.
+        #    단, **상태는 동기화한다.** force_latency를 _HI_LAT인 채로 남기면 다음 add()가
+        #    "요청 latency와 다르다"고 판단해 결국 재오픈하므로(_reopen=True) 위 ②③이 add
+        #    경로로 옮겨갈 뿐이다. 스트림은 그대로 두고 기록만 실제 요청값으로 맞춘다.
+        else:
+            self.force_latency = self._resolve_latency()
 
     def _open(self, channels, force_latency=None):
         self._close_thread()

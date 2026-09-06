@@ -110,8 +110,11 @@ class VectorscopeCanvas(QWidget):
                 lo = b*bsz; hi = min((b+1)*bsz, N_pts)
                 if lo >= hi: buckets.append(None); continue
                 buckets.append(QPolygon([QPoint(a, c) for a, c in zip(xl[lo:hi], yl[lo:hi])]))
-            _aa_prev = p.testRenderHint(QPainter.Antialiasing)
-            p.setRenderHint(QPainter.Antialiasing, False)
+            # ⚠️ AA는 끄지 않는다. "좌표가 int로 스냅됐으니 점 렌더에 AA는 무의미"라는
+            #    판단은 **1px 펜에만** 참이다. 아래 글로우(4.5px)·최신(2.8px) 펜은 AA를 끄면
+            #    커버 픽셀이 각각 36→16px, 16→4px로 줄어 궤적이 눈에 띄게 가늘고 어두워지고
+            #    리사주 주변 글로우 헤일로가 사라진다(위젯 전체 픽셀의 11.6%가 달라짐).
+            #    버킷 QPolygon 공유(0.70ms 절감)만 남기고 AA는 원복.
             # Pass 1 — glow (wide, semi-transparent)
             for b in range(N_BUCK):
                 pts = buckets[b]
@@ -126,7 +129,6 @@ class VectorscopeCanvas(QWidget):
                 col = _spec_color(frac, int(155 + frac*20), int(12 + frac*228))
                 pw = 2.8 if frac > 0.85 else 1.8 if frac > 0.62 else 1.2
                 p.setPen(QPen(col, pw)); p.drawPoints(pts)
-            p.setRenderHint(QPainter.Antialiasing, _aa_prev)   # 이후 팁/링/라벨은 AA 복원
             # Bright tip dot (newest sample)
             tip_x, tip_y = int(xi[-1]), int(yi[-1])
             tip_g = QRadialGradient(tip_x, tip_y, 7)

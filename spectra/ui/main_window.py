@@ -515,7 +515,7 @@ class MainWindow(QMainWindow):
         self.lang_btn.clicked.connect(self._on_lang_toggle)
         _right_lay.addWidget(self.lang_btn)
         # ── Preset 드롭다운 + Save + 삭제 (Calibration 앞)
-        self._preset_cb = RoundComboBox(); self._preset_cb._align_center = True
+        self._preset_cb = RoundComboBox(); self._preset_cb.setFocusPolicy(Qt.NoFocus)   # ↑↓가 콤보로 새서 프리셋이 무단 로드되던 것 차단; self._preset_cb._align_center = True
         self._preset_cb.setFixedHeight(28); self._preset_cb.setMinimumWidth(120); self._preset_cb.setMaximumWidth(180)
         self._preset_cb.setToolTip(_tx('Load preset (applies all 3 tabs at once)'))
         self._preset_cb.currentIndexChanged.connect(self._on_preset_selected)
@@ -3032,12 +3032,19 @@ class MainWindow(QMainWindow):
             _tf_on   = bool(tw is not None and getattr(tw, '_running', False))
             _tf_dev  = (tw.meas_cb.currentText() if (_tf_on and getattr(tw, 'meas_cb', None) is not None) else None)
             _tfsig   = bool(tw is not None and getattr(tw, 'sig_on_btn', None) is not None and tw.sig_on_btn.isChecked())
+            # ⚠️ 출력 장치 이름도 함께 스냅샷한다. 이게 없으면 인터페이스를 뽑았을 때
+            #    콤보가 index 0(대개 내장 스피커)으로 떨어진 상태에서 currentData()가
+            #    유효하다는 이유만으로 제너레이터를 켜서, **엉뚱한 출력으로 핑크노이즈**가
+            #    나간다(공연장 사고). 측정(meas)에는 이미 같은 가드가 있었다.
+            _tfsig_dev = (tw.sig_out_cb.currentText()
+                          if (_tfsig and getattr(tw, 'sig_out_cb', None) is not None) else None)
             _st_on   = bool(self.stereo_page is not None and getattr(self.stereo_page, '_running', False))
             if _cards or _tf_on or _tfsig or _st_on:
                 self._reinit_restore_cards  = _cards
                 self._reinit_restore_tf     = _tf_on
                 self._reinit_restore_tf_dev = _tf_dev
                 self._reinit_restore_tfsig  = _tfsig
+                self._reinit_restore_tfsig_dev = _tfsig_dev
                 self._reinit_restore_stereo = _st_on
                 self._reinit_restore_pending = True
                 _diag('audio_restore_snapshot', cards=len(_cards), tf=_tf_on, tfsig=_tfsig,
@@ -3130,7 +3137,9 @@ class MainWindow(QMainWindow):
                 self._reinit_restore_tfsig = False
             elif btn.isChecked():
                 self._reinit_restore_tfsig = False
-            elif out_cb is not None and out_cb.currentData() is not None:
+            elif (out_cb is not None and out_cb.currentData() is not None
+                  and self._select_combo_by_text(
+                      out_cb, getattr(self, '_reinit_restore_tfsig_dev', None))):
                 try:
                     btn.click()   # 토글 → 재생 ON
                 except Exception as e:
@@ -3269,6 +3278,10 @@ class MainWindow(QMainWindow):
         # 사용자가 다른 장치로 측정을 시작했으면 폴링 중단 (재초기화가 측정을 끊지 않도록)
         if self._any_audio_active():
             _alog.info('  재연결 폴링 중단 — 오디오 활성 상태')
+            # ⚠️ 여기서도 스냅샷을 비운다. 예전엔 타임아웃 분기에서만 정리해서,
+            #    '일부만 복구된' 상태(예: Spectrum만 살아남고 제너레이터는 못 켬)면
+            #    스냅샷이 영구 잔류했다 → 몇 시간 뒤 Refresh 한 번에 예고 없이 재생 시작.
+            self._clear_restore_snapshot('partial')
             return
         self._replug_tries = getattr(self, '_replug_tries', 0) + 1
         self.reinit_audio_devices(f'replug watch #{self._replug_tries}')
@@ -3281,16 +3294,22 @@ class MainWindow(QMainWindow):
         else:
             _alog.info('  재연결 폴링 타임아웃(30초) — 종료')
             # 30초 안에 장치가 안 돌아옴 → 자동복구 스냅샷 전체 정리(뒤늦은 예기치 않은 재시작 방지)
-            if getattr(self, '_reinit_restore_pending', False) or getattr(self, '_reinit_restore_cards', None):
-                _diag('audio_restore_giveup', cards=len(getattr(self, '_reinit_restore_cards', None) or []),
-                      tf=getattr(self, '_reinit_restore_tf', False),
-                      tfsig=getattr(self, '_reinit_restore_tfsig', False),
-                      stereo=getattr(self, '_reinit_restore_stereo', False))
-                self._reinit_restore_cards = None
-                self._reinit_restore_tf = False
-                self._reinit_restore_tfsig = False
-                self._reinit_restore_stereo = False
-                self._reinit_restore_pending = False
+            self._clear_restore_snapshot('timeout')
+
+    def _clear_restore_snapshot(self, why=''):
+        """자동복구 스냅샷 폐기 — 뒤늦은(예기치 않은) 재시작 방지."""
+        if getattr(self, '_reinit_restore_pending', False) or getattr(self, '_reinit_restore_cards', None):
+            _diag('audio_restore_giveup', why=why,
+                  cards=len(getattr(self, '_reinit_restore_cards', None) or []),
+                  tf=getattr(self, '_reinit_restore_tf', False),
+                  tfsig=getattr(self, '_reinit_restore_tfsig', False),
+                  stereo=getattr(self, '_reinit_restore_stereo', False))
+        self._reinit_restore_cards = None
+        self._reinit_restore_tf = False
+        self._reinit_restore_tfsig = False
+        self._reinit_restore_tfsig_dev = None
+        self._reinit_restore_stereo = False
+        self._reinit_restore_pending = False
 
     def _stall_recover(self, source=''):
         """'(stall)' 확정 신호 공용 복구 — 재초기화(스냅샷-후-정지)+재연결 폴링.
@@ -4740,8 +4759,12 @@ class MainWindow(QMainWindow):
         try:
             tw = self.tf_win
             if tw is not None:
+                # ⚠️ 순서 주의: **먼저 백그라운드 세이버를 기다린 뒤** 동기 flush.
+                #    반대로 하면 sync flush가 먼저 락을 잡아 최신 스냅샷을 쓰고, 그 뒤에
+                #    락을 얻은 **오래된** 백그라운드 스냅샷이 덮어써서 마지막 변경이 사라진다
+                #    (_caps_dirty는 이미 False라 재저장도 안 된다).
+                tw._wait_caps_saved()   # 진행 중인 idle flush 완료까지 대기
                 tw._flush_tf_captures(sync=True)
-                tw._wait_caps_saved()   # idle flush가 백그라운드로 돌던 중이면 완료까지 대기
         except Exception as ex:
             _alog.warning(f'close flush 실패: {ex}')
         e.accept()

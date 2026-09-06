@@ -84,12 +84,23 @@ class _CanvasKeyRouter(QObject):
         key = event.key()
         if key not in (Qt.Key_Up, Qt.Key_Down):
             return False
-        # 이 필터는 QApplication 전역이라, 가드가 없으면 스핀박스·콤보·리스트·모달의
-        # ↑↓까지 삼켜 버린다(값 조정이 안 되고 대신 Spectrum dB가 조용히 움직였다).
-        if _shortcut_should_yield():
-            return False
         mw = self._mw
+        # 이 필터는 QApplication 전역이라 두 가지를 먼저 본다.
+        # ① 다른 창(SPL 미터·알람·Show Mode 등)이 활성이면 관여하지 않는다 —
+        #    안 그러면 그 창에서 ↑↓를 눌렀는데 Spectrum dB가 조용히 움직인다.
+        if not (mw.isActiveWindow()
+                or (getattr(mw, '_spec_popout', None) is not None
+                    and mw._spec_popout.isActiveWindow())
+                or (getattr(mw, '_tf_popout', None) is not None
+                    and mw._tf_popout.isActiveWindow())):
+            return False
         canvas = self._canvas_at_cursor()
+        # ② **커서가 그래프 위면 그래프가 이긴다.** 커서가 캔버스 밖일 때만 입력 위젯에
+        #    양보한다. 가드를 무조건 앞세우면, 포커스를 가진 콤보(프리셋 등)가 있을 때
+        #    그래프 위에서 누른 ↑↓가 **프리셋을 무단 로드해 3탭 설정을 통째로 바꾼다.**
+        #    반대로 가드가 아예 없으면 스핀박스(TF Delay)에서 값 조정이 안 된다.
+        if canvas is None and _shortcut_should_yield():
+            return False
         if canvas in ('tf_ir', 'tf_phase', 'tf_mag'):
             return False  # TF 캔버스 keyPressEvent가 직접 처리
         if canvas == 'spectro' and getattr(mw, '_spectro_on', False):
