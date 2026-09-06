@@ -9,3 +9,9 @@ WSA2_Intel.spec
 
 # 라이선스 마스터 개인키 — 절대 커밋·배포 금지!
 license_ed25519_private.key
+
+# TF Export 산출물 — 앱이 실행 디렉터리에 쓰는 측정 결과물(소스 아님)
+tf_captures_*.csv
+tf_ir_*.png
+tf_magnitude_*.png
+tf_phase_*.png
