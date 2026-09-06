@@ -239,6 +239,7 @@ _TR_KO = {        # {english_ui_string: 쉬운_한국어}
     # ── 누락 UI 문자열 (KO 번역 완성) ─────────────────────────────────────
     'Time Average Level (LEQ)': '시간 평균 레벨 (LEQ)',
     'Start': '시작',
+    'Stop': '정지',
     'Standby': '대기 중',
     '● Standby': '● 대기 중',
     'Live LEQ': '라이브 LEQ',

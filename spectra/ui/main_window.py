@@ -698,7 +698,7 @@ class MainWindow(QMainWindow):
             sl2.addSpacing(4); sl2.addWidget(_n2_divider()); sl2.addSpacing(4)
 
         # Start/Stop 버튼
-        self._st_start_btn=_N2Button('play','Start (S)',accent_icon=True); self._st_start_btn.setFixedHeight(_H)
+        self._st_start_btn=_N2Button('play','Start',accent_icon=True); self._st_start_btn.setFixedHeight(_H)
         self._st_start_btn.setToolTip(_tx('Start / Stop  (S)'))
         self._st_start_btn.clicked.connect(self._st_toggle)
         sl2.addWidget(self._st_start_btn); _dv2()
@@ -2721,7 +2721,7 @@ class MainWindow(QMainWindow):
     def _st_toggle(self):
         if self.stereo_page._running:
             self.stereo_page.stop()
-            self._st_start_btn.setText('Start (S)')
+            self._st_start_btn.setText('Start')
             self._go_style(self._st_start_btn)
             _alog.info('Stereo & Loudness 중지')
         else:
@@ -2753,12 +2753,12 @@ class MainWindow(QMainWindow):
             r_ch=min(_rd if _rd is not None else 1, n_ch-1)
             _alog.info(f'Stereo 시작  device="{dev_name}"({idx})  L=ch{l_ch}  R=ch{r_ch}  sr={sr}')
             self.stereo_page.start(idx, sr, l_ch, r_ch, self.audio_engine)
-            self._st_start_btn.setText('Stop (S)')
+            self._st_start_btn.setText('Stop')
             self._stop_style(self._st_start_btn)
 
     def _on_stereo_error(self, msg):
         """StereoAudioThread 오류 → 버튼 리셋 + 경고."""
-        self._st_start_btn.setText('Start (S)')
+        self._st_start_btn.setText('Start')
         self._go_style(self._st_start_btn)
         _alog.warning(f'Stereo 오류 → UI 리셋: {msg}')
         from PyQt5.QtWidgets import QMessageBox
