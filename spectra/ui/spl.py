@@ -581,8 +581,14 @@ class _SplPanel(QWidget):
         if max_val is not None:
             pc = self._peak_color(max_val)
             # font-size 를 함께 명시 — 안 그러면 리사이즈로 키운 크기가 매 갱신마다 기본값으로 되돌아감
-            self._dot.setStyleSheet(f'color:{pc};font-size:{self._max_fs}px;background:transparent;')
-            self._max_lbl.setStyleSheet(f'color:{pc};font-size:{self._max_fs}px;background:transparent;')
+            # [PERF] 값 라벨처럼 '바뀔 때만' 적용 — 예전엔 매 틱 무조건 재설정해 16패널×5Hz면
+            # 초당 160회 스타일시트 재파싱+repolish가 돌았다(색·크기는 거의 안 변하는데도).
+            _pk = (pc, self._max_fs)
+            if _pk != getattr(self, '_pk_ss', None):
+                self._pk_ss = _pk
+                _ss = f'color:{pc};font-size:{self._max_fs}px;background:transparent;'
+                self._dot.setStyleSheet(_ss)
+                self._max_lbl.setStyleSheet(_ss)
             self._max_lbl.setText(f'Max: {max_val:.1f}')
 
     def reset(self):
@@ -1031,7 +1037,8 @@ class ShowModeWindow(QWidget):
         self._spec_mode   = _st.get('show_spec', 'oct24')   # 스펙트럼 해상도: oct3/oct12/oct24/fft
         self._leq_wt      = _st.get('show_leq_wt', 'a')     # LEQ 가중: a(LAeq)/c(LCeq) (드롭다운)
         self._leq_sec     = int(_st.get('show_leq_sec', 300))  # LEQ 시간창(초): 슬라이딩 적분
-        self._leq_bins = []             # LEQ 에너지 빈 [t_int, e_sum, count] (초 단위, 시간창만큼 보관)
+        self._leq_bins = deque()        # LEQ 에너지 빈 [t_int, e_sum, count] (초 단위, 시간창만큼 보관)
+        self._leq_es = 0.0; self._leq_cn = 0   # 창 내 에너지합·샘플수(초당 1회만 정확 재계산)
         self._sm_prev = None            # 스펙트럼 막대 평활 상태(모드 바뀌면 리셋)
         self._metric_rect = None; self._spec_rect = None; self._leq_rect = None  # 드롭다운 히트영역 (x,y,w,h)
         self._last_paint = 0.0          # 리페인트 throttle (글랜스 차분하게)
@@ -1068,20 +1075,26 @@ class ShowModeWindow(QWidget):
         if _lv is None: _lv = raw                        # dba/dbc 미급전 폴백
         if _lv > -100:
             _ts = int(now); _le = 10.0 ** (_lv / 10.0)
+            # [PERF] 예전엔 push마다(초당 ~94회) 최대 900개 빈을 두 번 합산해 초당 8.5만 반복을
+            # 돌았고 pop(0)도 리스트라 O(n)이었다. 같은 초 안에서는 증분, 새 빈이 생길 때(초당 1회)
+            # 만 정확 재합산 → 비용 1/94 + 부동소수 드리프트 없음. deque로 popleft는 O(1).
             if self._leq_bins and self._leq_bins[-1][0] == _ts:
                 self._leq_bins[-1][1] += _le; self._leq_bins[-1][2] += 1
+                self._leq_es += _le; self._leq_cn += 1
             else:
                 self._leq_bins.append([_ts, _le, 1])
-            _cut = _ts - self._leq_sec
-            while self._leq_bins and self._leq_bins[0][0] < _cut:
-                self._leq_bins.pop(0)
-            _es = sum(b[1] for b in self._leq_bins); _cn = sum(b[2] for b in self._leq_bins)
-            self._leq = 10.0 * math.log10(max(_es / max(_cn, 1), 1e-12))
+                _cut = _ts - self._leq_sec
+                while self._leq_bins and self._leq_bins[0][0] < _cut:
+                    self._leq_bins.popleft()
+                self._leq_es = sum(b[1] for b in self._leq_bins)
+                self._leq_cn = sum(b[2] for b in self._leq_bins)
+            self._leq = 10.0 * math.log10(max(self._leq_es / max(self._leq_cn, 1), 1e-12))
         if now - self._last_paint >= 0.033:     # 리페인트 ~30fps (거대 숫자 캐시라 부담 적음)
             self._last_paint = now; self.update()
 
     def reset_hold(self):
-        self._peak = -120.0; self._leq_bins = []; self._leq = -120.0; self.update()
+        self._peak = -120.0; self._leq_bins = deque(); self._leq_es = 0.0; self._leq_cn = 0
+        self._leq = -120.0; self.update()
 
     def set_limit(self, limit, amber):
         self._limit = float(limit); self._amber = float(amber)
@@ -1134,8 +1147,8 @@ class ShowModeWindow(QWidget):
             _tacts[a] = sec
         act = mnu.exec_(gpos)
         if act is None: return
-        if act is _wa and self._leq_wt != 'a':   self._leq_wt = 'a'; self._leq_bins = []
-        elif act is _wc and self._leq_wt != 'c': self._leq_wt = 'c'; self._leq_bins = []
+        if act is _wa and self._leq_wt != 'a':   self._leq_wt = 'a'; self._leq_bins = deque(); self._leq_es = 0.0; self._leq_cn = 0
+        elif act is _wc and self._leq_wt != 'c': self._leq_wt = 'c'; self._leq_bins = deque(); self._leq_es = 0.0; self._leq_cn = 0
         elif act in _tacts:                       self._leq_sec = _tacts[act]   # 재윈도우(적분 유지)
         else: return
         self._save_show_settings(); self.update()

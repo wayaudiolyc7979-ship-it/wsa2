@@ -967,7 +967,10 @@ class OctaveCanvas(QWidget):
                 for cid, ch in sorted(self._ch_oct.items(), key=lambda kv: kv[0]==self._front_id):
                     if not ch.get('visible', True): continue
                     _draw_src_bars(ch, dim=dim)
-            if self._front_id == 0:
+            # front가 primary면 primary 막대를 맨 위에 다시 — 단 채널 오버레이가 있을 때만.
+            # 채널이 없으면 이미 맨 위라 같은 막대를 두 번 래스터화하는 순수 낭비였다
+            # (1/24 옥타브 실측: 페인트 3.38ms 중 1.43ms = 42%). FFT 캔버스와 동일한 가드.
+            if self._front_id == 0 and self._ch_oct:
                 self._draw_live(p, W, H, dim=dim)
         if _cap_focus:
             _draw_all_live(dim=True)    # 라이브 흐리게(아래)

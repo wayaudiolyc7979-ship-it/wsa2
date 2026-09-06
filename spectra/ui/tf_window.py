@@ -516,6 +516,7 @@ class TransferFunctionWindow(QWidget):
         # settings가 dict면(빈 dict 포함) 그 참조를 그대로 공유 — 예전 `settings or {}`는 첫 실행 시
         # _load_settings()가 빈 {}(falsy)를 주면 TF가 별개 dict를 만들어 메인과 갈라져, 서로의
         # 첫 세션 키를 저장 때 덮어쓰던 버그. 참조 공유로 두 창이 항상 같은 dict를 본다.
+        self._hann_cache = {}          # 길이 → Hanning 창 (아래 _hann() 캐시)
         self._settings = settings if isinstance(settings, dict) else {}
         self._tf_primary_name = self._settings.get('tf_primary_name', '')  # primary 카드 사용자 이름
         self._tf_primary_color = self._settings.get('tf_primary_color', '') or ''  # primary(1번) 곡선 사용자색. ''=기본 green
@@ -2164,6 +2165,18 @@ class TransferFunctionWindow(QWidget):
             th.stop()
         self._extra_pair_threads[idx] = (None, None, None)
 
+    def _hann(self, n):
+        """길이별 Hanning 창 캐시.
+
+        [PERF] primary 경로만 창을 캐시하고 추가카드·스윕 경로는 매 청크마다
+        np.hanning(16384).astype(float32)을 새로 만들었다. 카드 4개면 초당 100~200MB를
+        할당·해제해 힙이 파편화되고 macOS에선 누수처럼 보였다. 길이는 몇 종류뿐이라 dict로 충분."""
+        w = self._hann_cache.get(n)
+        if w is None:
+            w = np.hanning(n).astype(np.float32)
+            self._hann_cache[n] = w
+        return w
+
     def _resolve_shared_sr(self):
         """TF가 구독할 장치의 SR을 결정 — 공유 엔진이 이미 연 장치면 그 SR을 따르고(합의),
         아니면 장치 네이티브 SR로 맞춘다. Spectrum이 장치를 44100으로 먼저 열었는데 TF가
@@ -2518,9 +2531,7 @@ class TransferFunctionWindow(QWidget):
                 self._last_ref_buf = buf; self._last_ref_rms = rms
             return
         n = len(buf)
-        if not hasattr(self, '_hann_win') or self._hann_win is None or len(self._hann_win) != n:
-            self._hann_win = np.hanning(n).astype(np.float32)
-        win = self._hann_win
+        win = self._hann(n)
         fft = np.fft.rfft(buf * win).astype(complex)
         with QMutexLocker(self._mutex):
             self._last_ref_fft = fft; self._last_ref_rms = rms
@@ -2534,9 +2545,7 @@ class TransferFunctionWindow(QWidget):
             with QMutexLocker(self._mutex):
                 self._last_meas_buf = buf; self._last_meas_rms = rms
         else:
-            if not hasattr(self, '_hann_win') or self._hann_win is None or len(self._hann_win) != len(buf):
-                self._hann_win = np.hanning(len(buf)).astype(np.float32)
-            win = self._hann_win
+            win = self._hann(len(buf))
             fft = np.fft.rfft(buf * win).astype(complex)
             with QMutexLocker(self._mutex):
                 self._last_meas_fft = fft; self._last_meas_rms = rms
@@ -2575,9 +2584,7 @@ class TransferFunctionWindow(QWidget):
                 self._last_meas_buf = meas_a; self._last_meas_rms = rms_m
         else:
             # Hanning window 캐시 — 매 콜백마다 재생성 금지
-            if not hasattr(self, '_hann_win') or self._hann_win is None or len(self._hann_win) != n:
-                self._hann_win = np.hanning(n).astype(np.float32)
-            win = self._hann_win
+            win = self._hann(n)
             fft_r = np.fft.rfft(ref_a * win).astype(complex)
             fft_m = np.fft.rfft(meas_a * win).astype(complex)
             with QMutexLocker(self._mutex):
@@ -2612,7 +2619,7 @@ class TransferFunctionWindow(QWidget):
         D = int(round(dly / 1000.0 * self.sample_rate)) if dly else 0
         if D != 0 and abs(D) < n and len(meas_buf) == n:
             ref_buf, meas_buf = self._align_pair(ref_buf, meas_buf, D)
-        win = np.hanning(n).astype(np.float32)
+        win = self._hann(n)
         return (np.fft.rfft(ref_buf * win).astype(complex),
                 np.fft.rfft(meas_buf * win).astype(complex))
 
@@ -2653,7 +2660,7 @@ class TransferFunctionWindow(QWidget):
                 if ref_buf is not None:
                     if not hasattr(self, '_extra_ref_fft'): self._extra_ref_fft = {}
                     if not hasattr(self, '_extra_ref_buf'): self._extra_ref_buf = {}
-                    win = np.hanning(len(ref_buf)).astype(np.float32)
+                    win = self._hann(len(ref_buf))
                     self._extra_ref_fft[ref_only_idx] = np.fft.rfft(ref_buf * win).astype(complex)
                     self._extra_ref_buf[ref_only_idx] = ref_buf
                     pair = self._extra_pairs[ref_only_idx] if ref_only_idx < len(self._extra_pairs) else None
@@ -2690,7 +2697,7 @@ class TransferFunctionWindow(QWidget):
                 else:
                     fft_r = getattr(self, '_extra_ref_fft', {}).get(pair_idx)
                     if fft_r is None: continue
-                    win = np.hanning(len(meas_buf)).astype(np.float32)
+                    win = self._hann(len(meas_buf))
                     fft_m = np.fft.rfft(meas_buf * win).astype(complex)
                     if len(fft_r) == len(fft_m):
                         self._accumulate_extra(pair_idx, fft_r, fft_m)
@@ -2700,7 +2707,7 @@ class TransferFunctionWindow(QWidget):
     def _on_extra_ref(self, pair_idx, buf):
         """AudioThread ref 콜백 (diff-device extra pair)."""
         n = len(buf)
-        win = np.hanning(n).astype(np.float32)
+        win = self._hann(n)
         if not hasattr(self, '_extra_ref_fft'): self._extra_ref_fft = {}
         if not hasattr(self, '_extra_ref_buf'): self._extra_ref_buf = {}
         self._extra_ref_fft[pair_idx] = np.fft.rfft(buf * win).astype(complex)
@@ -2724,7 +2731,7 @@ class TransferFunctionWindow(QWidget):
         fft_r = self._extra_ref_fft.get(pair_idx)
         if fft_r is None: return
         n = len(buf)
-        win = np.hanning(n).astype(np.float32)
+        win = self._hann(n)
         fft_m = np.fft.rfft(buf * win).astype(complex)
         if len(fft_r) == len(fft_m):
             self._accumulate_extra(pair_idx, fft_r, fft_m)

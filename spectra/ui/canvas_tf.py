@@ -111,23 +111,29 @@ def _db_axis_context_menu(widget, gpos, cur_top, cur_bot, is_locked,
 
 
 def _catmull_seg(px, py):
-    """Catmull-Rom 스플라인 → QPainterPath.  직선 lineTo 대신 cubicTo 로 부드러운 곡선."""
+    """Catmull-Rom 스플라인 → QPainterPath.  직선 lineTo 대신 cubicTo 로 부드러운 곡선.
+
+    [PERF] 제어점 계산을 numpy로 벡터화했다. 곡선은 픽셀당 1점(1600px면 ~1550점)으로
+    다운샘플되는데, 예전엔 점마다 파이썬 루프에서 float() 8회+min/max를 돌아
+    이 함수 하나가 TF 탭 최다 비용이었다(3카드 mag+phase ~17ms/frame, 경로 생성만 1.96ms).
+    벡터화 후 0.39ms(5배). 기하는 완전히 동일 — cubicTo 인자만 미리 계산해 넘긴다."""
     n = len(px)
     path = QPainterPath()
     if n == 0: return path
-    path.moveTo(float(px[0]), float(py[0]))
+    x = np.asarray(px, dtype=np.float64); y = np.asarray(py, dtype=np.float64)
+    path.moveTo(float(x[0]), float(y[0]))
     if n < 2: return path
-    for i in range(1, n):
-        i0 = max(0, i - 2); i3 = min(n - 1, i + 1)
-        x0, y0 = float(px[i0]), float(py[i0])
-        x1, y1 = float(px[i-1]), float(py[i-1])
-        x2, y2 = float(px[i]),   float(py[i])
-        x3, y3 = float(px[i3]), float(py[i3])
-        cp1x = x1 + (x2 - x0) / 6
-        cp1y = y1 + (y2 - y0) / 6
-        cp2x = x2 - (x3 - x1) / 6
-        cp2y = y2 - (y3 - y1) / 6
-        path.cubicTo(cp1x, cp1y, cp2x, cp2y, x2, y2)
+    i = np.arange(1, n)
+    i0 = np.maximum(0, i - 2); i3 = np.minimum(n - 1, i + 1)
+    x1 = x[i-1]; y1 = y[i-1]; x2 = x[i]; y2 = y[i]
+    cp1x = x1 + (x2 - x[i0]) / 6.0
+    cp1y = y1 + (y2 - y[i0]) / 6.0
+    cp2x = x2 - (x[i3] - x1) / 6.0
+    cp2y = y2 - (y[i3] - y1) / 6.0
+    _cubic = path.cubicTo                      # 바인딩 조회를 루프 밖으로
+    for a, b, c, d, e, f in zip(cp1x.tolist(), cp1y.tolist(), cp2x.tolist(),
+                                cp2y.tolist(), x2.tolist(), y2.tolist()):
+        _cubic(a, b, c, d, e, f)
     return path
 
 # ───────────────────────────────────────────
@@ -971,12 +977,16 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
         seg=(fac[:-1]+fac[1:])*0.5                      # 세그먼트별(점 사이) 배율
         lvl=np.clip((seg*10.0+0.5).astype(int),0,10)    # 11단계 양자화
         p.setBrush(Qt.NoBrush); m=len(lvl); i=0
+        # [PERF] xs/ys를 파이썬 list로 한 번만 변환 — 예전엔 세그먼트마다 xs[k]가 numpy 0-d
+        # 스칼라 객체를 새로 만들어(프레임당 92회 실행 시 1.30ms) drawPolyline 자체보다 비쌌다.
+        xl=np.asarray(xs,dtype=float).tolist(); yl=np.asarray(ys,dtype=float).tolist()
+        lvll=lvl.tolist()
         while i<m:
             j=i
-            while j+1<m and lvl[j+1]==lvl[i]: j+=1       # 같은 알파 단계 연속 세그먼트
-            qc=QColor(color); qc.setAlpha(max(int(base_alpha*(lvl[i]/10.0)),0))
+            while j+1<m and lvll[j+1]==lvll[i]: j+=1     # 같은 알파 단계 연속 세그먼트
+            qc=QColor(color); qc.setAlpha(max(int(base_alpha*(lvll[i]/10.0)),0))
             p.setPen(QPen(qc,width))
-            p.drawPolyline(QPolygonF([QPointF(float(xs[k]),float(ys[k])) for k in range(i,j+2)]))
+            p.drawPolyline(QPolygonF([QPointF(a,b) for a,b in zip(xl[i:j+2], yl[i:j+2])]))
             i=j+1
 
     def set_reference(self, f, mag):
@@ -1451,7 +1461,8 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
                 if len(a_xs) > _ex_max_pts_a:
                     _ai = np.linspace(0, len(a_xs) - 1, _ex_max_pts_a, dtype=int)
                     a_xs = a_xs[_ai]; a_ys = a_ys[_ai]
-                p.setRenderHint(QPainter.Antialiasing, True)
+                # AA는 켜지 않는다 — 다른 라이브 곡선과 동일 정책. 이 오버레이만 AA를 되켜고 있어
+                # drawPath가 8배 비쌌다(600점 곡선 실측 1.31ms→10.43ms). [TF_LIVE_CURVE_PERF]
                 p.setPen(QPen(QColor(a['color']), a.get('w', 2.8))); p.setBrush(Qt.NoBrush)
                 p.drawPath(_catmull_seg(a_xs, a_ys))
         p.setRenderHint(QPainter.Antialiasing, True)   # 라이브 곡선 후 AA 복원(격자/라벨/커서 선명) [TF_LIVE_CURVE_PERF]
