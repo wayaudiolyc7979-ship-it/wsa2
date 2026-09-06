@@ -6,6 +6,7 @@ v2.0 분해: wayaudo2.py에서 이동(동작 0 변경). ⭐_theme은 여기 단�
 """
 
 import os, json, threading
+import base64 as _b64
 import platform as _pl
 from spectra.core.logging_diag import _alog
 
@@ -62,8 +63,11 @@ def T(key): return THEMES[_theme][key]
 def theme(): return _theme
 def is_dark(): return _theme == 'dark'
 def set_theme(v):
+    # 잘못된 값이 들어오면 T()가 매 페인트마다 KeyError를 낸다(T는 THEMES[_theme][key] 직접 접근)
+    # → 알려진 테마만 허용. settings.json이 손상됐거나 손으로 편집된 경우의 안전망.
     global _theme
-    _theme = v
+    _theme = v if v in THEMES else 'dark'
+    return _theme
 def toggle_theme():
     global _theme
     _theme = 'light' if _theme == 'dark' else 'dark'
@@ -114,6 +118,33 @@ def _save_settings(data):
     except Exception as e:
         try: _alog.warning(f'settings 저장 실패: {e}')
         except Exception: pass
+
+def f32_to_b64(arr):
+    """float32 배열 → base64 문자열.
+
+    [저장 성능] 곡선을 JSON 숫자 리스트로 담으면 숫자 하나가 글자 ~10칸을 먹어
+    TF 캡처 1개가 1MB, 25개면 30MB가 된다. 게다가 json.dumps(숫자→글자 변환)는
+    **GIL을 놓지 않아** 백그라운드 스레드로 돌려도 GUI가 통째로 멈춘다
+    (실측 187ms 작업 → 다른 스레드 180ms 스톨, 25캡처면 2초마다 1.2초 프리즈).
+    raw 바이트로 담으면 숫자당 4바이트(~6배 축소)이고 tobytes/b64encode는 GIL을 놓는다.
+    바이트 순서는 '<f4'로 고정 — 다른 기기에서 만든 파일도 그대로 읽힌다."""
+    if arr is None:
+        return None
+    import numpy as _np
+    return _b64.b64encode(_np.asarray(arr, dtype='<f4').tobytes()).decode('ascii')
+
+
+def b64_to_f32(v):
+    """base64 문자열(신형식) 또는 숫자 리스트(구형식) → float32 ndarray.
+
+    형식을 타입으로 자동 판별하므로 **예전 캡처 파일이 그대로 읽힌다**(이관 불필요)."""
+    if v is None:
+        return None
+    import numpy as _np
+    if isinstance(v, str):
+        return _np.frombuffer(_b64.b64decode(v), dtype='<f4').astype(_np.float32)
+    return _np.asarray(v, dtype=_np.float32)      # 구형식: JSON 숫자 리스트
+
 
 def _read_json(path):
     try:
@@ -180,7 +211,16 @@ def _load_captures_file():
 
 
 def _save_captures_file(data):
-    """스펙트럼 캡처 파일 저장 — TF 섹션은 건드리지 않는다(별도 파일)."""
+    """스펙트럼 캡처 파일 저장 — TF 섹션은 건드리지 않는다(별도 파일).
+
+    ★ 저장 전에 이관을 한 번 보장한다. 이관이 (디스크 가득/권한 등으로) 실패한 상태면
+      레거시 파일엔 아직 'tf'가 남아 있는데, 여기서 {'fft','oct'}만 통째로 쓰면 그 TF 캡처가
+      영구 소실된다. 이관이 여전히 실패하면 레거시의 'tf'를 보존한 채 쓴다."""
+    _migrate_captures_split()
+    if not _captures_migrated:
+        _legacy_tf = _read_json(_CAPTURES_PATH).get('tf')
+        if _legacy_tf is not None and 'tf' not in data:
+            data = dict(data); data['tf'] = _legacy_tf   # 이관 전까지는 레거시 TF를 지키며 저장
     _write_json_atomic(_CAPTURES_PATH, data, '스펙트럼 캡처')
 
 

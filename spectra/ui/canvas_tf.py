@@ -362,7 +362,16 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
         if self._cap_building: return
         # 드래그 리사이즈 중에는 빌드를 미룬다 — 완성되기도 전에 크기가 또 바뀌어
         # 매번 버려지는 빌드를 스레드로 계속 띄우면(실측 60스텝에 GUI 698ms) 한 코어가 논다.
+        # ★ 단순히 버리면 안 된다: _trigger_cap_build는 paintEvent에서만 불리므로, 정착 후에
+        #   아무도 다시 칠하지 않으면 캡처 합성이 영영 안 만들어진다(측정 정지 상태로 앱을 켜면
+        #   서랍엔 캡처가 보이는데 그래프엔 안 그려지는 상태). 그래서 '다시 칠하기'를 예약한다.
         if time.monotonic() - getattr(self, '_last_resize_t', 0.0) < 0.15:
+            if not getattr(self, '_cap_retry_armed', False):
+                self._cap_retry_armed = True
+                def _retry():
+                    self._cap_retry_armed = False
+                    self.update()          # 다음 paintEvent에서 정착 여부를 다시 판정
+                QTimer.singleShot(180, _retry)
             return
         self._cap_building = True
         caps = [dict(c) for c in self._captures]
@@ -559,7 +568,9 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
     def clear_peer_cursor(self):
         if self._peer_mx!=-1: self._peer_mx=-1; self.update()
     def resizeEvent(self,e):
-        self._last_resize_t = time.monotonic()   # 캡처 합성 빌드 정착 가드용 self._cache=None; self.update()
+        self._last_resize_t = time.monotonic()   # 캡처 합성 빌드 정착 가드용
+        self._last_resize_t = time.monotonic()   # 캡처 합성 빌드 정착 가드용
+        self._cache=None; self.update()
 
     def mouseDoubleClickEvent(self,e):
         self._fz_reset()                     # 주파수축 전대역 리셋 (Smaart 테두리클릭 방식)
@@ -1061,7 +1072,16 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
         if self._cap_building: return
         # 드래그 리사이즈 중에는 빌드를 미룬다 — 완성되기도 전에 크기가 또 바뀌어
         # 매번 버려지는 빌드를 스레드로 계속 띄우면(실측 60스텝에 GUI 698ms) 한 코어가 논다.
+        # ★ 단순히 버리면 안 된다: _trigger_cap_build는 paintEvent에서만 불리므로, 정착 후에
+        #   아무도 다시 칠하지 않으면 캡처 합성이 영영 안 만들어진다(측정 정지 상태로 앱을 켜면
+        #   서랍엔 캡처가 보이는데 그래프엔 안 그려지는 상태). 그래서 '다시 칠하기'를 예약한다.
         if time.monotonic() - getattr(self, '_last_resize_t', 0.0) < 0.15:
+            if not getattr(self, '_cap_retry_armed', False):
+                self._cap_retry_armed = True
+                def _retry():
+                    self._cap_retry_armed = False
+                    self.update()          # 다음 paintEvent에서 정착 여부를 다시 판정
+                QTimer.singleShot(180, _retry)
             return
         self._cap_building = True
         caps = [dict(c) for c in self._captures]
@@ -1234,7 +1254,9 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
     def clear_peer_cursor(self):
         if self._peer_mx!=-1: self._peer_mx=-1; self.update()
     def resizeEvent(self,e):
-        self._last_resize_t = time.monotonic()   # 캡처 합성 빌드 정착 가드용 self._cache=None; self.update()
+        self._last_resize_t = time.monotonic()   # 캡처 합성 빌드 정착 가드용
+        self._last_resize_t = time.monotonic()   # 캡처 합성 빌드 정착 가드용
+        self._cache=None; self.update()
 
     def fit_y(self):
         if self._db_lock: return   # 수동 고정 중 → 자동맞춤/자동확장 무시
@@ -1657,7 +1679,16 @@ class TFIRCanvas(QWidget):
         if self._cap_building: return
         # 드래그 리사이즈 중에는 빌드를 미룬다 — 완성되기도 전에 크기가 또 바뀌어
         # 매번 버려지는 빌드를 스레드로 계속 띄우면(실측 60스텝에 GUI 698ms) 한 코어가 논다.
+        # ★ 단순히 버리면 안 된다: _trigger_cap_build는 paintEvent에서만 불리므로, 정착 후에
+        #   아무도 다시 칠하지 않으면 캡처 합성이 영영 안 만들어진다(측정 정지 상태로 앱을 켜면
+        #   서랍엔 캡처가 보이는데 그래프엔 안 그려지는 상태). 그래서 '다시 칠하기'를 예약한다.
         if time.monotonic() - getattr(self, '_last_resize_t', 0.0) < 0.15:
+            if not getattr(self, '_cap_retry_armed', False):
+                self._cap_retry_armed = True
+                def _retry():
+                    self._cap_retry_armed = False
+                    self.update()          # 다음 paintEvent에서 정착 여부를 다시 판정
+                QTimer.singleShot(180, _retry)
             return
         self._cap_building = True
         caps = [dict(c) for c in self._captures]

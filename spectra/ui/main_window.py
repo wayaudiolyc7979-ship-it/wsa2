@@ -385,10 +385,11 @@ class MainWindow(QMainWindow):
         self._build_menubar()          # macOS 네이티브 메뉴바 (About/Quit/Help)
         self._load_devices()
         self._restore_spec_sources()   # 저장된 멀티-장치 추가 소스 카드 복원
-        try:                            # 저장된 테마 복원(없으면 dark)
+        try:                            # 저장된 테마 복원(없으면 dark, 잘못된 값은 set_theme가 걸러냄)
             set_theme(self._settings.get('theme', 'dark'))
         except Exception: pass
         self._apply_theme()
+        _apply_windows_titlebar_dark(self)   # 복원 경로에도 적용(토글 경로엔 있었음). 맥은 no-op
 
         _sc = QShortcut(QKeySequence(Qt.Key_Space), self)
         _sc.setContext(Qt.ApplicationShortcut)

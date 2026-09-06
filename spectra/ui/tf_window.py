@@ -23,6 +23,7 @@ from spectra.audio.engine import (_EngineChannelSource, _EngineMultiSource, _Eng
                                   _dev_hostapi_ok, _win_extra_settings, _win_preferred_hostapi)
 from spectra.audio.watchdog import StreamStalled, begin_no_sleep, classify_stall, end_no_sleep
 from spectra.core.config import (SPEED_LEVELS, T, _CAPTURES_TF_LOCK, _load_tf_captures_file,
+                                 f32_to_b64, b64_to_f32,
                                  _save_tf_captures_file, _save_settings, delay_unit, is_dark,
                                  set_delay_unit)
 from spectra.core.i18n import _tx
@@ -3505,26 +3506,28 @@ class TransferFunctionWindow(QWidget):
             for i, meta in enumerate(metas):
                 entry = {'color': meta['color'], 'label': meta['label'], 'group': meta.get('group', ''),
                          'source': meta.get('source', 'primary'), 'is_ref': bool(meta.get('is_ref', False))}
+                # 곡선은 base64 float32로 담는다(구 JSON 숫자리스트 대비 ~6배 축소 +
+                # json.dumps가 GIL을 붙잡던 시간 제거). 읽기는 b64_to_f32가 구형식도 받는다.
                 if i < len(mag_caps):
                     m = mag_caps[i]
-                    entry['mag'] = {'f': m['f'].tolist(), 'mag': m['mag'].tolist(),
-                                    'coh': m['coh'].tolist() if m.get('coh') is not None else None}
+                    entry['mag'] = {'f': f32_to_b64(m['f']), 'mag': f32_to_b64(m['mag']),
+                                    'coh': f32_to_b64(m.get('coh'))}
                 if i < len(phase_caps):
                     p = phase_caps[i]
                     entry['phase'] = {
-                        'f': p['f'].tolist(),
-                        'ph_wrap': p['ph_wrap'].tolist() if p.get('ph_wrap') is not None else None,
-                        'ph_unwr': p['ph_unwr'].tolist() if p.get('ph_unwr') is not None else None,
-                        'grp_ms':  p['grp_ms'].tolist()  if p.get('grp_ms')  is not None else None,
-                        'coh':     p['coh'].tolist()     if p.get('coh')     is not None else None,
+                        'f':       f32_to_b64(p['f']),
+                        'ph_wrap': f32_to_b64(p.get('ph_wrap')),
+                        'ph_unwr': f32_to_b64(p.get('ph_unwr')),
+                        'grp_ms':  f32_to_b64(p.get('grp_ms')),
+                        'coh':     f32_to_b64(p.get('coh')),
                     }
                 if i < len(ir_caps):
                     r = ir_caps[i]
                     if r.get('t') is None or r.get('h') is None:
                         entry['ir'] = None  # extra 카드 빈 IR 캡쳐
                     else:
-                        entry['ir'] = {'t': r['t'].tolist(), 'h': r['h'].tolist(),
-                                       'etc_db': r['etc_db'].tolist() if r.get('etc_db') is not None else None,
+                        entry['ir'] = {'t': f32_to_b64(r['t']), 'h': f32_to_b64(r['h']),
+                                       'etc_db': f32_to_b64(r.get('etc_db')),
                                        'delay': float(r.get('delay', 0.0))}
                 tf_list.append(entry)
             # TF 캡처는 자기 파일만 쓴다 — spec 캡처와 파일이 갈라져 서로를 재직렬화하지 않는다.
@@ -3541,28 +3544,29 @@ class TransferFunctionWindow(QWidget):
                 source = cap.get('source', 'primary')
                 if 'mag' in cap and cap['mag']:
                     m = cap['mag']
+                    # b64_to_f32는 신형식(base64)·구형식(숫자 리스트)을 자동 판별 → 예전 파일 그대로 읽힘
                     self.mag_cvs._captures.append({
-                        'f': np.array(m['f'], dtype=np.float32),
-                        'mag': np.array(m['mag'], dtype=np.float32),
-                        'coh': np.array(m['coh'], dtype=np.float32) if m.get('coh') else None,
+                        'f': b64_to_f32(m['f']),
+                        'mag': b64_to_f32(m['mag']),
+                        'coh': b64_to_f32(m.get('coh')),
                         'color': color, 'label': label
                     })
                 if 'phase' in cap and cap['phase']:
                     p = cap['phase']
                     self.phase_cvs._captures.append({
-                        'f':       np.array(p['f'],       dtype=np.float32),
-                        'ph_wrap': np.array(p['ph_wrap'], dtype=np.float32) if p.get('ph_wrap') else None,
-                        'ph_unwr': np.array(p['ph_unwr'], dtype=np.float32) if p.get('ph_unwr') else None,
-                        'grp_ms':  np.array(p['grp_ms'],  dtype=np.float32) if p.get('grp_ms')  else None,
-                        'coh':     np.array(p['coh'],     dtype=np.float32) if p.get('coh')     else None,
+                        'f':       b64_to_f32(p['f']),
+                        'ph_wrap': b64_to_f32(p.get('ph_wrap')),
+                        'ph_unwr': b64_to_f32(p.get('ph_unwr')),
+                        'grp_ms':  b64_to_f32(p.get('grp_ms')),
+                        'coh':     b64_to_f32(p.get('coh')),
                         'color': color, 'label': label
                     })
                 if cap.get('ir'):
                     r = cap['ir']
                     self.ir_cvs._captures.append({
-                        't': np.array(r['t'], dtype=np.float32),
-                        'h': np.array(r['h'], dtype=np.float32),
-                        'etc_db': np.array(r['etc_db'], dtype=np.float32) if r.get('etc_db') else None,
+                        't': b64_to_f32(r['t']),
+                        'h': b64_to_f32(r['h']),
+                        'etc_db': b64_to_f32(r.get('etc_db')),
                         'color': color, 'label': label, 'delay': float(r.get('delay', 0.0))
                     })
                 else:

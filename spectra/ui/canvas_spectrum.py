@@ -6,7 +6,7 @@ import math, time, threading
 import numpy as np
 from PyQt5.QtGui import (QBrush, QColor, QImage, QPainter, QPainterPath, QPen,
                          QPixmap, QPolygon, QPolygonF)
-from PyQt5.QtCore import Qt, QPoint, QPointF, QSize, pyqtSignal
+from PyQt5.QtCore import Qt, QPoint, QPointF, QSize, pyqtSignal, QTimer
 from PyQt5.QtWidgets import QSizePolicy, QWidget
 from spectra.core.config import T, is_dark, theme, MAX_DB, SPEC_ATTACK, SPEED_LEVELS, FREQ_MARKS
 from spectra.dsp.weighting import BANDS, thd_from_spectrum
@@ -149,7 +149,16 @@ class FFTCanvas(QWidget):
         if self._cap_building: return
         # 드래그 리사이즈 중에는 빌드를 미룬다 — 완성되기도 전에 크기가 또 바뀌어
         # 매번 버려지는 빌드를 스레드로 계속 띄우면(실측 60스텝에 GUI 698ms) 한 코어가 논다.
+        # ★ 단순히 버리면 안 된다: _trigger_cap_build는 paintEvent에서만 불리므로, 정착 후에
+        #   아무도 다시 칠하지 않으면 캡처 합성이 영영 안 만들어진다(측정 정지 상태로 앱을 켜면
+        #   서랍엔 캡처가 보이는데 그래프엔 안 그려지는 상태). 그래서 '다시 칠하기'를 예약한다.
         if time.monotonic() - getattr(self, '_last_resize_t', 0.0) < 0.15:
+            if not getattr(self, '_cap_retry_armed', False):
+                self._cap_retry_armed = True
+                def _retry():
+                    self._cap_retry_armed = False
+                    self.update()          # 다음 paintEvent에서 정착 여부를 다시 판정
+                QTimer.singleShot(180, _retry)
             return
         self._cap_building = True
         caps = [dict(c) for c in self._captures]
@@ -388,7 +397,8 @@ class FFTCanvas(QWidget):
         self.update()
 
     def resizeEvent(self,e):
-        self._last_resize_t = time.monotonic()   # 캡처 합성 빌드 정착 가드용 self._cache=None; self.update()
+        self._last_resize_t = time.monotonic()   # 캡처 합성 빌드 정착 가드용
+        self._cache=None; self.update()
 
     def _build_cache(self,W,H):
         from PyQt5.QtGui import QPixmap
@@ -660,7 +670,16 @@ class OctaveCanvas(QWidget):
         if self._cap_building: return
         # 드래그 리사이즈 중에는 빌드를 미룬다 — 완성되기도 전에 크기가 또 바뀌어
         # 매번 버려지는 빌드를 스레드로 계속 띄우면(실측 60스텝에 GUI 698ms) 한 코어가 논다.
+        # ★ 단순히 버리면 안 된다: _trigger_cap_build는 paintEvent에서만 불리므로, 정착 후에
+        #   아무도 다시 칠하지 않으면 캡처 합성이 영영 안 만들어진다(측정 정지 상태로 앱을 켜면
+        #   서랍엔 캡처가 보이는데 그래프엔 안 그려지는 상태). 그래서 '다시 칠하기'를 예약한다.
         if time.monotonic() - getattr(self, '_last_resize_t', 0.0) < 0.15:
+            if not getattr(self, '_cap_retry_armed', False):
+                self._cap_retry_armed = True
+                def _retry():
+                    self._cap_retry_armed = False
+                    self.update()          # 다음 paintEvent에서 정착 여부를 다시 판정
+                QTimer.singleShot(180, _retry)
             return
         self._cap_building = True
         caps = [dict(c) for c in self._captures]
@@ -868,7 +887,8 @@ class OctaveCanvas(QWidget):
         self.update()
 
     def resizeEvent(self,e):
-        self._last_resize_t = time.monotonic()   # 캡처 합성 빌드 정착 가드용 self._cache=None; self.update()
+        self._last_resize_t = time.monotonic()   # 캡처 합성 빌드 정착 가드용
+        self._cache=None; self.update()
 
     def _freq_to_x_oct(self, f, pl, uw):
         """옥타브 막대(밴드 인덱스 선형 배치)에 맞춘 주파수→x.
@@ -1143,7 +1163,23 @@ class SpectrogramCanvas(QWidget):
 
     # ── Ring buffer ─────────────────────────────────────────────────────────
     def _ensure(self, dw):
-        if self._rgba is not None and self._rdw==dw: return
+        """버퍼를 dw 폭으로 준비. 리사이즈 정착 대기로 '이번엔 건너뜀'이면 False 반환."""
+        if self._rgba is not None and self._rdw==dw: return True
+        # 리샘플은 19MB를 새로 할당·복사해 한 번에 ~26ms가 든다(MAX_HIST=1800 × dw).
+        # 드래그 리사이즈는 폭이 매 이벤트 바뀌므로 그때마다 리샘플하면 30fps 예산을 통째로
+        # 먹는다(60스텝에 1.5초). 정착할 때까지 **기존 버퍼를 그대로 두고 미룬다** —
+        # paintEvent는 `self._rdw != dw`면 그리지 않으므로, 미루는 동안은 빈 화면이 될 뿐
+        # 데이터는 안전하고, 정착하면 아래에서 히스토리를 이어받는다.
+        # ※ 버퍼가 아직 없으면(최초 호출) 미루면 안 된다 — set_data가 곧바로 _dbuf에 쓴다.
+        #   '기존 버퍼를 유지한 채 미루는' 경우에만 지연한다.
+        if (self._rgba is not None
+                and time.monotonic() - getattr(self, '_last_resize_t', 0.0) < 0.15):
+            if not getattr(self, '_sg_retry_armed', False):
+                self._sg_retry_armed = True
+                def _retry():
+                    self._sg_retry_armed = False; self.update()
+                QTimer.singleShot(180, _retry)
+            return False        # 폭이 아직 안 맞음 → 호출부가 이번 프레임 쓰기를 건너뛴다
         # 폭이 바뀌어도 히스토리를 **버리지 않고** 열 방향 최근접 리샘플로 이어받는다.
         # 예전엔 resizeEvent가 버퍼를 통째로 None으로 만들어, 창을 1픽셀만 움직이거나
         # 패널을 토글해도 60초 스크롤백이 통째로 사라졌다(실측 400프레임 → 1).
@@ -1159,6 +1195,7 @@ class SpectrogramCanvas(QWidget):
             self._wi=0; self._n=0
         self._rdw=dw
         self._col_lo=None; self._freqs_len=0
+        return True
 
     def _build_col_map(self, freqs, dw):
         if len(freqs) == 0: return
@@ -1188,7 +1225,8 @@ class SpectrogramCanvas(QWidget):
         if freqs is None or len(freqs) == 0 or db_vals is None or len(db_vals) == 0: return
         dw=self.width()-self.PAD_L-self.PAD_R
         if dw<=0: return
-        self._ensure(dw)
+        if not self._ensure(dw):
+            return              # 리사이즈 정착 대기 — 옛 폭 버퍼에 새 폭 행을 쓰면 shape 불일치
         if self._col_lo is None or self._freqs_len!=len(freqs):
             self._build_col_map(freqs, dw)
         if self._col_lo is None: return
