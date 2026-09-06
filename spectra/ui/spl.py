@@ -23,6 +23,20 @@ from spectra.ui.widgets import (RoundComboBox, _GradTimeBar, _N2Button, _PinBtn,
 from spectra.ui.dialogs import SplAlarmConfigDialog, SplLayoutDialog
 
 
+def _db2e(db):
+    """dB → 에너지. LEQ 버퍼는 dB가 아니라 '에너지'로 담는다.
+
+    [PERF] 예전엔 dB를 담고 매 틱(초당 5회, 창 두 개) 창 전체에 10**(arr/10)을 돌렸다.
+    3시간 창(54만 표본)이면 틱당 6.64ms = 초당 34ms를 GUI에서 태웠다(실측).
+    적재 시점에 한 번만 지수화하면(초당 ~50회 스칼라) 읽기는 mean() 한 번으로 끝난다."""
+    return 10.0 ** (db / 10.0)
+
+
+def _e2leq(arr):
+    """에너지 배열 → LEQ(dB)."""
+    return float(10.0 * np.log10(max(float(np.mean(arr)), 1e-12)))
+
+
 class _RingBuf:
     """고정 용량 float 링버퍼 — LEQ 적분용.
 
@@ -347,8 +361,8 @@ class LeqWindow(QWidget):
     def push_sample(self, dba, dbc):
         if not self._running: return
         with QMutexLocker(self._buf_mutex):
-            self._leq_a_buf.append(dba)
-            self._leq_c_buf.append(dbc)
+            self._leq_a_buf.append(_db2e(dba))
+            self._leq_c_buf.append(_db2e(dbc))
 
     def _update_display(self):
         if not self._running: return
@@ -358,12 +372,12 @@ class LeqWindow(QWidget):
             a_arr=self._leq_a_buf.last(max_samples)
             c_arr=self._leq_c_buf.last(max_samples)
         if a_arr.size == 0: return
-        leq_a=10*np.log10(np.mean(10**(a_arr/10)))
-        leq_c=10*np.log10(np.mean(10**(c_arr/10)))
+        leq_a=_e2leq(a_arr)
+        leq_c=_e2leq(c_arr)
         self.leq_a_lbl.setText(f'{leq_a:.1f} dBA')
         self.leq_c_lbl.setText(f'{leq_c:.1f} dBC')
-        self.inst_a_lbl.setText(f'{a_arr[-1]:.1f} dBA')
-        self.inst_c_lbl.setText(f'{c_arr[-1]:.1f} dBC')
+        self.inst_a_lbl.setText(f'{10*np.log10(max(a_arr[-1],1e-12)):.1f} dBA')   # 버퍼는 에너지
+        self.inst_c_lbl.setText(f'{10*np.log10(max(c_arr[-1],1e-12)):.1f} dBC')
         # 진행률
         if self._start_time:
             elapsed=time.time()-self._start_time
@@ -658,7 +672,7 @@ class _SplMetricEngine:
         _h('peak', fs_peak + self._calib); _h('peak_c', dbc); _h('fs_peak', fs_peak)
 
         if dba > -100:
-            self._buf_a.append(a_s); self._buf_c.append(c_s)
+            self._buf_a.append(_db2e(a_s)); self._buf_c.append(_db2e(c_s))
 
     def value(self, mid):
         if mid in ('laeq', 'lceq'):
@@ -666,7 +680,7 @@ class _SplMetricEngine:
             arr = buf.last(self._leq_secs * self._RATE)   # O(창 길이) — 버퍼 전체 복사 없음
             if arr.size == 0:
                 return None
-            return float(10 * np.log10(np.mean(10 ** (arr / 10))))
+            return _e2leq(arr)
         if mid in self._peak:
             return self._peak.get(mid)
         return self._ema.get(mid)
@@ -1510,7 +1524,7 @@ class SplMeterWindow(QWidget):
         # 하위호환(LEQ 적분 버퍼만). 실제 피드는 push_levels 사용.
         if dba > -100:
             with QMutexLocker(self._mutex):
-                self._buf_a.append(dba); self._buf_c.append(dbc)
+                self._buf_a.append(_db2e(dba)); self._buf_c.append(_db2e(dbc))
 
     def push_levels(self, dbz, dba, dbc, fs_peak):
         """Smaart식 확장 지표 입력 — 순간 calibrated Z/A/C 레벨 + 풀스케일 디지털 피크(dBFS).
@@ -1549,7 +1563,7 @@ class SplMeterWindow(QWidget):
             _hold('fs_peak', fs_peak)                        # 풀스케일 디지털 피크(dBFS)
 
             if dba > -100:                                # LEQ 적분 버퍼 = Slow A/C
-                self._buf_a.append(a_s); self._buf_c.append(c_s)
+                self._buf_a.append(_db2e(a_s)); self._buf_c.append(_db2e(c_s))
 
     def _update_display(self):
         _glance_chrome_update(self)   # 마우스 밖이면 카드만(타이틀바 숨김)
@@ -1570,8 +1584,8 @@ class SplMeterWindow(QWidget):
 
         laeq = lceq = None
         if n:
-            laeq = float(10 * np.log10(np.mean(10 ** (arr_a / 10))))
-            lceq = float(10 * np.log10(np.mean(10 ** (arr_c / 10))))
+            laeq = _e2leq(arr_a)
+            lceq = _e2leq(arr_c)
             if self._max_laeq is None or laeq > self._max_laeq: self._max_laeq = laeq
             if self._max_lceq is None or lceq > self._max_lceq: self._max_lceq = lceq
 

@@ -8,10 +8,36 @@ import numpy as np
 from collections import deque
 
 
-try:
-    from scipy.signal import lfilter as _lfilter
-except Exception:
-    _lfilter = None
+_lfilter = None      # None=미해결 / False=사용불가 / callable=사용가능 (첫 호출 때 지연 해결)
+
+
+def _resolve_lfilter():
+    """scipy.signal을 지연 로딩.
+
+    [기동시간] 모듈 최상단에서 import하면 scipy.signal이 scipy.stats/interpolate/optimize·
+    numpy.f2py까지 끌고 와 **앱 기동에 411ms**가 붙는다(main_window import 540ms 중 76%).
+    이 코드베이스의 다른 scipy 사용처는 전부 지연 로딩이라 여기만 예외였다.
+
+    ⚠️ 단순 지연 로딩만 하면 안 된다 — 라우드니스는 (오디오 스레드가 아니라) **GUI 스레드**에서
+    돌기 때문에, 첫 _biquad 호출이 Stereo 시작 순간 GUI를 ~600ms 얼린다(실측으로 확인).
+    그래서 아래 _warm_lfilter()가 import 직후 데몬 스레드로 미리 당겨온다:
+    기동은 안 막고(스레드 시작 ~0.1ms), 실제 사용 시점엔 이미 준비돼 있다."""
+    global _lfilter
+    try:
+        from scipy.signal import lfilter
+        _lfilter = lfilter
+    except Exception:
+        _lfilter = False
+    return _lfilter
+
+
+def _warm_lfilter():
+    """백그라운드에서 scipy.signal을 미리 로드 — 기동도, 첫 측정도 막지 않게."""
+    import threading
+    threading.Thread(target=_resolve_lfilter, name='scipy-warm', daemon=True).start()
+
+
+_warm_lfilter()
 
 
 def _biquad(x, b, a, z):
@@ -21,8 +47,9 @@ def _biquad(x, b, a, z):
     (y[n]=b0·x[n]+z0 / z0'=b1·x[n]−a1·y[n]+z1 / z1'=b2·x[n]−a2·y[n]).
     순수 파이썬 샘플 루프는 512프레임 스테레오 push마다 ~2.15ms가 들고 초당 ~94회 호출돼
     **상시 코어 10~14%** 를 먹었다(실측). C 루프로 바꿔 회수한다. scipy 없으면 기존 루프 폴백."""
-    if _lfilter is not None:
-        y, zf = _lfilter(b, a, x, zi=z)
+    _lf = _lfilter if _lfilter is not None else _resolve_lfilter()
+    if _lf:
+        y, zf = _lf(b, a, x, zi=z)
         z[0] = zf[0]; z[1] = zf[1]      # 호출부가 in-place 상태 유지를 기대
         return y
     b0,b1,b2=b[0],b[1],b[2]; a1,a2=a[1],a[2]

@@ -23,6 +23,28 @@ def c_weight_db(f):
     return 20*math.log10(max(rc, 1e-20)) + 0.06
 
 
+def a_weight_db_arr(f):
+    """A-가중 (벡터화). 스칼라 a_weight_db와 동일한 식 — ndarray를 한 번에 처리.
+
+    [PERF] 호출부가 8193빈짜리 리스트 컴프리헨션으로 스칼라판을 돌려 테이블 하나에 ~5ms,
+    A/C 둘이면 10.6ms가 들었다(실측). 이 재계산은 Start·장치변경·채널변경·캘리브 적용마다
+    _process_audio 안에서, 그것도 뮤텍스를 쥔 채 일어나 매번 눈에 띄는 히치를 만들었다."""
+    f = np.asarray(f, dtype=np.float64)
+    f2 = f * f; f4 = f2 * f2
+    ra = (12200.0**2 * f4) / ((f2 + 20.6**2) * np.sqrt((f2 + 107.7**2) * (f2 + 737.9**2)) * (f2 + 12200.0**2))
+    out = 20.0 * np.log10(np.maximum(ra, 1e-20)) + 2.0
+    return np.where(f < 10, -100.0, out)
+
+
+def c_weight_db_arr(f):
+    """C-가중 (벡터화). 스칼라 c_weight_db와 동일한 식."""
+    f = np.asarray(f, dtype=np.float64)
+    f2 = f * f
+    rc = (12200.0**2 * f2) / ((f2 + 20.6**2) * (f2 + 12200.0**2))
+    out = 20.0 * np.log10(np.maximum(rc, 1e-20)) + 0.06
+    return np.where(f < 10, -100.0, out)
+
+
 _HANN_CACHE = {}   # {n: (hanning_win, Σw²)} — power_spectrum_db 윈도우 메모이즈
 def power_spectrum_db(buf):
     """단측(one-sided) 파워 스펙트럼 → 빈별 dBFS 배열.

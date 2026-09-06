@@ -8,7 +8,7 @@ from PyQt5.QtGui import (QBrush, QColor, QImage, QPainter, QPainterPath, QPen,
                          QPixmap, QPolygon, QPolygonF)
 from PyQt5.QtCore import Qt, QPoint, QPointF, QSize, pyqtSignal
 from PyQt5.QtWidgets import QSizePolicy, QWidget
-from spectra.core.config import T, is_dark, MAX_DB, SPEC_ATTACK, SPEED_LEVELS, FREQ_MARKS
+from spectra.core.config import T, is_dark, theme, MAX_DB, SPEC_ATTACK, SPEED_LEVELS, FREQ_MARKS
 from spectra.dsp.weighting import BANDS, thd_from_spectrum
 from spectra.ui.tokens import CF_ANNO, CF_GRID, CF_MODE, CF_TINY, _qfont
 from spectra.ui.colors import _spectra_grad_brush, _spectra_grad_pen, _vbar_gradient, bar_top
@@ -489,7 +489,14 @@ class FFTCanvas(QWidget):
 
     def paintEvent(self,ev):
         W=self.width(); H=self.height()
-        if self._cache is None or self._cache.size()!=self.size():
+        # [RETINA] 캐시 유효성은 '명시 키'로 판정한다. 예전엔 self._cache.size()(=디바이스 픽셀)와
+        # self.size()(=논리 픽셀)를 비교해서 dpr=2(레티나)에선 절대 같아질 수 없었고,
+        # 그 결과 배경 그리드를 '매 프레임' 새로 만들었다(캔버스당 프레임마다 수십 MB QPixmap
+        # 할당·폐기). dpr=1에서만 정상 동작해 지금까지의 모든 측정이 이를 놓쳤다.
+        # dpr을 키에 넣어야 1x↔2x 모니터 간 이동 시에도 올바른 해상도로 다시 만든다.
+        _ck = (W, H, self.devicePixelRatio(), theme())
+        if self._cache is None or getattr(self, '_cache_key', None) != _ck:
+            self._cache_key = _ck
             self._build_cache(W,H)
         p=QPainter(self); p.setRenderHint(QPainter.Antialiasing,True)
         p.drawPixmap(0,0,self._cache)
@@ -922,7 +929,14 @@ class OctaveCanvas(QWidget):
 
     def paintEvent(self,ev):
         W=self.width(); H=self.height()
-        if self._cache is None or self._cache.size()!=self.size():
+        # [RETINA] 캐시 유효성은 '명시 키'로 판정한다. 예전엔 self._cache.size()(=디바이스 픽셀)와
+        # self.size()(=논리 픽셀)를 비교해서 dpr=2(레티나)에선 절대 같아질 수 없었고,
+        # 그 결과 배경 그리드를 '매 프레임' 새로 만들었다(캔버스당 프레임마다 수십 MB QPixmap
+        # 할당·폐기). dpr=1에서만 정상 동작해 지금까지의 모든 측정이 이를 놓쳤다.
+        # dpr을 키에 넣어야 1x↔2x 모니터 간 이동 시에도 올바른 해상도로 다시 만든다.
+        _ck = (W, H, self.devicePixelRatio(), theme())
+        if self._cache is None or getattr(self, '_cache_key', None) != _ck:
+            self._cache_key = _ck
             self._build_cache(W,H)
         p=QPainter(self); p.setRenderHint(QPainter.Antialiasing,True)
         p.drawPixmap(0,0,self._cache)
@@ -1224,7 +1238,14 @@ class SpectrogramCanvas(QWidget):
     def paintEvent(self,ev):
         W,H=self.width(),self.height()
         if W<=0 or H<=0: return
-        if self._cache is None or self._cache.size()!=QSize(W,H):
+        # [RETINA] 캐시 유효성은 '명시 키'로 판정한다. 예전엔 self._cache.size()(=디바이스 픽셀)와
+        # self.size()(=논리 픽셀)를 비교해서 dpr=2(레티나)에선 절대 같아질 수 없었고,
+        # 그 결과 배경 그리드를 '매 프레임' 새로 만들었다(캔버스당 프레임마다 수십 MB QPixmap
+        # 할당·폐기). dpr=1에서만 정상 동작해 지금까지의 모든 측정이 이를 놓쳤다.
+        # dpr을 키에 넣어야 1x↔2x 모니터 간 이동 시에도 올바른 해상도로 다시 만든다.
+        _ck = (W, H, self.devicePixelRatio(), theme())
+        if self._cache is None or getattr(self, '_cache_key', None) != _ck:
+            self._cache_key = _ck
             self._build_cache(W,H)
         p=QPainter(self); p.drawPixmap(0,0,self._cache)
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B

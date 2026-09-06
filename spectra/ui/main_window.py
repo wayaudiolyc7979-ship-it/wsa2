@@ -25,7 +25,8 @@ from spectra.core.config import (MAX_DB, SPEC_ATTACK, SPEED_LEVELS, T, _CAPTURES
 from spectra.core.i18n import _tx, cur_lang
 from spectra.core.license import _get_machine_id, load_license, verify_license
 from spectra.core.logging_diag import _LOG_DIR, _alog, _diag
-from spectra.dsp.weighting import BANDS, a_weight_db, c_weight_db, power_spectrum_db
+from spectra.dsp.weighting import (BANDS, a_weight_db, c_weight_db,
+                                   a_weight_db_arr, c_weight_db_arr, power_spectrum_db)
 from spectra.ui.canvas_spectrum import FFTCanvas, OctaveCanvas, SpectrogramCanvas
 from spectra.ui.canvas_tf import _ask_db_range, _db_axis_context_menu
 from spectra.ui.capture_drawer import _CaptureDrawer
@@ -2894,8 +2895,8 @@ class MainWindow(QMainWindow):
         self._primary_sub.error.connect(self._on_audio_error, Qt.QueuedConnection)
         self._primary_sub.disconnected.connect(self._on_device_disconnected, Qt.QueuedConnection)
         freqs = np.fft.rfftfreq(self.fft_size, 1.0/self.sample_rate)
-        self._aw_table = np.array([a_weight_db(f) for f in freqs])
-        self._cw_table = np.array([c_weight_db(f) for f in freqs])
+        self._aw_table = a_weight_db_arr(freqs)      # 벡터화 — 8193빈 파이썬 루프 제거
+        self._cw_table = c_weight_db_arr(freqs)
         return True
 
     def _close_primary_sub(self):
@@ -3299,8 +3300,8 @@ class MainWindow(QMainWindow):
                 self._pow_smooth=pow_raw.copy()
                 self._fft_smooth=db_raw.copy()
                 # A/C 가중치 테이블을 실제 buf 크기에 맞게 재계산
-                self._aw_table=np.array([a_weight_db(f) for f in freqs])
-                self._cw_table=np.array([c_weight_db(f) for f in freqs])
+                self._aw_table=a_weight_db_arr(freqs)   # 벡터화 — 뮤텍스 쥔 채 10.6ms 히치였음
+                self._cw_table=c_weight_db_arr(freqs)
             else:
                 # 빠른 상승·느린 하강 단일 엔벌로프(파워도메인): 상승 빈=SPEC_ATTACK(빠름),
                 # 하강 빈=(1-s) Response 설정 속도. 이동평균·이중평활 없이 한 단계 → 하강 자연스럽게.
