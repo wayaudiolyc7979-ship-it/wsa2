@@ -190,6 +190,9 @@ class SineConfigDialog(QDialog):
 
 class ShortcutsDialog(QDialog):
     """키보드 단축키 치트시트 — ? 키 또는 Help 메뉴에서 열림. 키캡 스타일."""
+    # ⚠️ 매뉴얼(13번 단축키 표)과 여기가 어긋나지 않게 유지할 것.
+    #    v2.0.2 이전엔 Show Mode·팝아웃 3종·Spectrum dB 이동이 여기 빠져 있어,
+    #    매뉴얼엔 있는데 앱 치트시트엔 없는 상태였다.
     _GROUPS = [
         ('Global', [
             ('S',      'Start / Stop measurement  (Spectrum · Stereo Loudness)'),
@@ -199,10 +202,20 @@ class ShortcutsDialog(QDialog):
             ('⌘ ?',    'Open manual'),
             ('⌘ Q',    'Quit'),
         ]),
+        ('Windows & Views', [
+            ('⌘ ⇧ F',  'Show Mode (full-screen glance) — leave with Esc or F'),
+            ('⌘ ⇧ S',  'Spectrum in a separate window'),
+            ('⌘ ⇧ T',  'Transfer Function in a separate window'),
+            ('⌘ ⇧ L',  'Stereo Loudness in a separate window'),
+        ]),
+        ('Spectrum', [
+            ('↑ ↓',    'Move the dB range up / down'),
+        ]),
         ('Transfer Function', [
             ('G',         'Toggle signal generator On / Off'),
             ('L',         'Auto-find delays (Find Delays)'),
             ('↑ ↓ ← →',  'IR graph — navigate time / dB axis'),
+            ('⌘ + / −',  'Zoom the frequency axis   ·   ⌘ 0 to reset'),
         ]),
         ('Delay Finder Window', [
             ('L',      'Find again'),

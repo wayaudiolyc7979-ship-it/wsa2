@@ -10,6 +10,7 @@ import datetime as _dt
 import platform as _pl
 import subprocess as _sp
 from spectra.core.i18n import _tx
+from spectra.core.logging_diag import _diag
 
 # ═══════════════════════════════════════════════════════════════════
 #  라이선스 관리
@@ -33,14 +34,12 @@ _LIC_PATH = os.path.join(_LIC_DIR, 'wsa2.lic')
 #   CREATE_NO_WINDOW 는 Windows 전용 → 그 외엔 0(영향 없음).
 _SP_NO_WINDOW = getattr(_sp, 'CREATE_NO_WINDOW', 0) if _pl.system() == 'Windows' else 0
 _MACHINE_ID_CACHE = None
+# 하드웨어에서 실제로 읽어낸 머신ID를 디스크에 남겨두는 곳(_LIC_DIR 안).
+_MID_CACHE_PATH = os.path.join(_LIC_DIR, 'machine_id')
 
-def _get_machine_id() -> str:
-    """하드웨어 시리얼 번호 기반 12자리 머신 ID. 포맷 후에도 동일하게 유지됨.
-    1회 계산 후 캐시 — 시작 시 여러 번 호출돼도 wmic/PowerShell 재실행(콘솔 깜빡임·지연) 방지."""
-    global _MACHINE_ID_CACHE
-    if _MACHINE_ID_CACHE is not None:
-        return _MACHINE_ID_CACHE
-    serial = ''
+
+def _read_hw_serial() -> str:
+    """플랫폼 하드웨어 시리얼. 못 읽으면 빈 문자열(예외 안 던짐)."""
     try:
         if _pl.system() == 'Windows':
             # BIOS 시리얼 번호 (포맷해도 불변). creationflags=CREATE_NO_WINDOW → 콘솔 창 안 뜸.
@@ -49,29 +48,88 @@ def _get_machine_id() -> str:
                 timeout=5, text=True, stderr=_sp.DEVNULL, creationflags=_SP_NO_WINDOW)
             for ln in out.splitlines():
                 if ln.upper().startswith('SERIALNUMBER='):
-                    serial = ln.split('=', 1)[-1].strip(); break
+                    return ln.split('=', 1)[-1].strip()
             # wmic 결과가 비어있으면 PowerShell로 재시도 (Windows 11 대응)
-            if not serial:
-                out = _sp.check_output(
-                    ['powershell', '-NoProfile', '-Command',
-                     '(Get-CimInstance Win32_BIOS).SerialNumber'],
-                    timeout=5, text=True, stderr=_sp.DEVNULL, creationflags=_SP_NO_WINDOW)
-                serial = out.strip()
-        else:
-            # macOS: system_profiler
             out = _sp.check_output(
-                ['system_profiler', 'SPHardwareDataType'],
-                timeout=5, text=True, stderr=_sp.DEVNULL)
-            for ln in out.splitlines():
-                if 'Serial Number' in ln:
-                    serial = ln.split(':')[-1].strip(); break
+                ['powershell', '-NoProfile', '-Command',
+                 '(Get-CimInstance Win32_BIOS).SerialNumber'],
+                timeout=5, text=True, stderr=_sp.DEVNULL, creationflags=_SP_NO_WINDOW)
+            return out.strip()
+        # macOS: system_profiler
+        out = _sp.check_output(
+            ['system_profiler', 'SPHardwareDataType'],
+            timeout=5, text=True, stderr=_sp.DEVNULL)
+        for ln in out.splitlines():
+            if 'Serial Number' in ln:
+                return ln.split(':')[-1].strip()
     except Exception:
         pass
-    if not serial:
-        serial = _pl.node()  # 최후 폴백: hostname
+    return ''
+
+
+def _mid_from_serial(serial: str) -> str:
     raw = f'WSA2:{serial}:{_pl.machine()}'.encode()
-    _MACHINE_ID_CACHE = _hs.sha256(raw).hexdigest()[:12].upper()
+    return _hs.sha256(raw).hexdigest()[:12].upper()
+
+
+def _load_cached_mid() -> str:
+    """디스크에 남긴 '하드웨어에서 읽은' 머신ID. 아키텍처가 다르면 무시."""
+    try:
+        with open(_MID_CACHE_PATH, 'r') as f:
+            arch, mid = f.read().strip().split(':', 1)
+        if arch == _pl.machine() and len(mid) == 12 and mid.isalnum():
+            return mid.upper()
+    except Exception:
+        pass
+    return ''
+
+
+def _store_cached_mid(mid: str):
+    try:
+        os.makedirs(_LIC_DIR, exist_ok=True)
+        tmp = _MID_CACHE_PATH + '.tmp'
+        with open(tmp, 'w') as f:
+            f.write(f'{_pl.machine()}:{mid}')
+        os.replace(tmp, _MID_CACHE_PATH)
+    except Exception:
+        pass
+
+
+def _get_machine_id() -> str:
+    """하드웨어 시리얼 번호 기반 12자리 머신 ID. 포맷 후에도 동일하게 유지됨.
+    1회 계산 후 캐시 — 시작 시 여러 번 호출돼도 wmic/PowerShell 재실행(콘솔 깜빡임·지연) 방지.
+
+    ⚠️ 예전엔 시리얼을 못 읽으면 곧장 hostname으로 폴백했다. 그런데 hostname은
+    사용자가 바꿀 수 있고 `system_profiler`/`wmic`은 부하가 걸리면 타임아웃할 수 있다
+    → **정상 라이선스가 갑자기 "이 컴퓨터용이 아닙니다"로 막히는** 사고가 난다.
+    그래서 하드웨어에서 한 번이라도 성공적으로 읽어낸 ID를 디스크에 남겨두고,
+    **하드웨어 조회가 실패했을 때만** 그 값을 쓴다.
+
+    보안 메모: 조회가 성공하면 캐시는 절대 쓰지 않는다. 따라서 다른 정상 기기로
+    라이선스+캐시 파일을 복사해도 그 기기의 진짜 시리얼이 읽혀 검증에 실패한다
+    (캐시가 쓰이는 건 하드웨어 조회 자체가 망가진 기기뿐)."""
+    global _MACHINE_ID_CACHE
+    if _MACHINE_ID_CACHE is not None:
+        return _MACHINE_ID_CACHE
+    serial = _read_hw_serial()
+    if not serial:
+        serial = _read_hw_serial()      # 일시적 타임아웃 대비 1회 재시도
+    if serial:
+        _MACHINE_ID_CACHE = _mid_from_serial(serial)
+        if _load_cached_mid() != _MACHINE_ID_CACHE:
+            _store_cached_mid(_MACHINE_ID_CACHE)
+        return _MACHINE_ID_CACHE
+    cached = _load_cached_mid()
+    if cached:
+        # 하드웨어 조회 실패 — 예전에 성공했던 ID로 라이선스를 지켜준다.
+        _diag('machine_id_cached_fallback', mid=cached)
+        _MACHINE_ID_CACHE = cached
+        return _MACHINE_ID_CACHE
+    # 최후 폴백: hostname (캐시도 없는 첫 실행에서 하드웨어 조회가 실패한 경우)
+    _diag('machine_id_hostname_fallback')
+    _MACHINE_ID_CACHE = _mid_from_serial(_pl.node())
     return _MACHINE_ID_CACHE
+
 
 def _lic_b32decode(key: str) -> bytes:
     clean = key.upper().replace('-', '').replace(' ', '')

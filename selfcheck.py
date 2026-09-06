@@ -904,6 +904,34 @@ def _i18n_dict():
 check('i18n 사전 무결성', _i18n_dict)
 
 
+def _shortcuts_dialog():
+    """단축키 치트시트 — 렌더 + 한글 번역 누락 0 + 매뉴얼과 어긋나지 않는지.
+
+    v2.0.2 이전엔 Show Mode·팝아웃 3종·Spectrum dB 이동이 여기 빠져 있어,
+    매뉴얼엔 있는데 앱 치트시트엔 없는 상태였다. 다시 빠지면 여기서 잡는다."""
+    from spectra.ui.dialogs import ShortcutsDialog
+    keys = {k for _, items in ShortcutsDialog._GROUPS for k, _ in items}
+    for must in ('⌘ ⇧ F', '⌘ ⇧ S', '⌘ ⇧ T', '⌘ ⇧ L', '↑ ↓'):
+        assert must in keys, f'치트시트에 {must} 없음'
+    # 그룹명·설명 모두 ko 번역이 있어야 함(고유명 Transfer Function만 예외)
+    miss = []
+    for g, items in ShortcutsDialog._GROUPS:
+        if g not in w._TR_KO and g != 'Transfer Function':
+            miss.append('[group] ' + g)
+        miss += [d for _, d in items if d not in w._TR_KO]
+    assert not miss, miss[:5]
+    n = 0
+    for lang in ('en', 'ko'):
+        w._set_lang(lang)
+        d = ShortcutsDialog(); d.resize(d.sizeHint()); d.show(); _app.processEvents()
+        pm = d.grab(); assert pm.width() > 300 and pm.height() > 400, (lang, pm.size())
+        pm.save(os.path.join(_DIR, f'shortcuts_{lang}.png')); n += 1
+        d.close()
+    w._set_lang('en')
+    return f'{len(keys)} keys · {n} langs rendered · 번역 누락 0'
+check('단축키 치트시트(렌더+번역+필수키)', _shortcuts_dialog)
+
+
 # ─────────────────────────────────────────────────────────────
 ok = sum(1 for r in _results if r[0])
 print(f'\n=== {ok}/{len(_results)} PASS' + ('' if ok == len(_results) else '  ⚠️ 실패 있음') +
