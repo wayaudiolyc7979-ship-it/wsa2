@@ -1141,6 +1141,17 @@ class MainWindow(QMainWindow):
 
     # ─────────────────────────────────────
     def _apply_theme(self):
+        # 테마 적용은 ~70회의 setStyleSheet + findChildren 스윕이라 한 번에 200ms~1초가 든다.
+        # 그때마다 위젯이 다시 그려지지 않도록 갱신을 잠갔다가 끝에 한 번만 푼다(표준 Qt 기법).
+        # 스타일 계산 자체는 그대로라 결과 화면은 동일하다.
+        self.setUpdatesEnabled(False)
+        try:
+            self._apply_theme_inner()
+        finally:
+            self.setUpdatesEnabled(True)
+            self.update()
+
+    def _apply_theme_inner(self):
         if hasattr(self, '_log_btn'): self._restyle_util_btns()
         bg=T('bg'); bg2=T('bg2'); bg3=T('bg3'); border=T('border')
         text=T('text'); text_dim=T('text_dim'); accent=T('accent'); panel=T('panel')
@@ -1661,9 +1672,18 @@ class MainWindow(QMainWindow):
         return super().eventFilter(obj, event)
 
     def _open_float_popups(self):
-        """현재 열려있는 떠다니는 팝업창들(SPL 미터/알람)."""
+        """현재 열려있는 떠다니는 팝업창들 — 풀스크린 자식부착 동기화 대상.
+
+        SPL 미터/알람 + **벡터스코프/레이더 팝아웃**. 후자는 `_set_float_above_fullscreen`을
+        직접 호출해 '풀스크린 위에 뜨는' 동작을 이미 의도하는데도 여기 빠져 있어,
+        메인 창을 풀스크린으로 바꿔도 재동기화가 안 됐다.
+        ※ 탭 팝아웃(TF/Spectrum/Stereo)은 일부러 제외 — '부모 없는 독립 top-level'이
+          명시적 설계(자식으로 묶이면 외부 모니터 배치를 방해)라 여기 넣으면 그 의도를 깬다."""
+        _sp = getattr(self, 'stereo_page', None)
         return [w for w in (getattr(self, 'spl_meter_win', None),
-                            getattr(self, 'spl_alarm_win', None))
+                            getattr(self, 'spl_alarm_win', None),
+                            getattr(_sp, '_vs_win', None),
+                            getattr(_sp, '_radar_win', None))
                 if w is not None and w.isVisible()]
 
     def _float_sync_attach(self, win):

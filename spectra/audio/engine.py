@@ -113,7 +113,11 @@ class AudioThread(QThread):
                     self._active_stream=_s
                     _last_cb[0]=time.monotonic()   # 스트림 열릴 때 초기화
                     while self.running:
-                        self.msleep(500)
+                        # 폴 간격이 짧아야 stop()이 빨리 빠져나온다. 예전 500ms면 스트림 하나
+                        # 정리에 최대 0.5초가 걸려, reinit_audio_devices(전 탭 정지→PortAudio
+                        # 재초기화→재오픈)가 GUI에서 여러 초 멈추는 주된 원인이었다.
+                        # 워치독 판정은 경과시간 기준이라 폴을 줄여도 의미는 그대로.
+                        self.msleep(50)
                         # macOS AUHAL은 USB 제거 후에도 _s.active=True 유지.
                         # 콜백이 흐르다가 2초 이상 끊기면 물리적 연결 끊김으로 판단.
                         # (첫 콜백 받은 뒤에만 — 시작 지연을 끊김으로 오판하지 않도록)
@@ -248,7 +252,11 @@ class MultiChannelAudioThread(QThread):
                     _got_cb[0] = False   # 이 시도 기준으로 첫 콜백 판정(재시도마다 초기화)
                     _last_cb[0] = time.monotonic(); _open_t = time.monotonic()
                     while self.running:
-                        self.msleep(500)
+                        # 폴 간격이 짧아야 stop()이 빨리 빠져나온다. 예전 500ms면 스트림 하나
+                        # 정리에 최대 0.5초가 걸려, reinit_audio_devices(전 탭 정지→PortAudio
+                        # 재초기화→재오픈)가 GUI에서 여러 초 멈추는 주된 원인이었다.
+                        # 워치독 판정은 경과시간 기준이라 폴을 줄여도 의미는 그대로.
+                        self.msleep(50)
                         if _got_cb[0]:
                             _dead_retry[0] = 0   # 콜백 정상 흐름 → 재시도 예산 회복
                         # 시작 워치독: 스트림은 열렸는데 첫 콜백이 2초 내 안 오면(AUHAL 콜백 미시작
