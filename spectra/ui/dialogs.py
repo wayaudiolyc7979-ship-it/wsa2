@@ -195,27 +195,30 @@ class ShortcutsDialog(QDialog):
     #    매뉴얼엔 있는데 앱 치트시트엔 없는 상태였다.
     _GROUPS = [
         ('Global', [
-            ('S',      'Start / Stop measurement  (Spectrum · Stereo Loudness)'),
-            ('Space',  'New Capture'),
-            ('R',      'Recapture selected capture in place'),
+            ('S',      'Start / Stop  —  Spectrum · Stereo Loudness  (main window only)'),
+            ('Space',  'New Capture  —  Spectrum · Transfer Function  (ignored on Stereo)'),
+            ('R',      'Recapture the item selected in the capture panel'),
             ('?',      'Open this keyboard shortcut help'),
             ('⌘ ?',    'Open manual'),
             ('⌘ Q',    'Quit'),
         ]),
         ('Windows & Views', [
             ('⌘ ⇧ F',  'Show Mode (full-screen glance) — leave with Esc or F'),
-            ('⌘ ⇧ S',  'Spectrum in a separate window'),
-            ('⌘ ⇧ T',  'Transfer Function in a separate window'),
-            ('⌘ ⇧ L',  'Stereo Loudness in a separate window'),
+            ('⌘ ⇧ S',  'Spectrum in a separate window  (press again to dock back)'),
+            ('⌘ ⇧ T',  'Transfer Function in a separate window  (press again to dock back)'),
+            ('⌘ ⇧ L',  'Stereo Loudness in a separate window  (press again to dock back)'),
         ]),
         ('Spectrum', [
             ('↑ ↓',    'Move the dB range up / down'),
+            ('↑ ↓',    'Over the spectrogram: scroll its history'),
         ]),
         ('Transfer Function', [
-            ('G',         'Toggle signal generator On / Off'),
+            ('G',         'Toggle signal generator On / Off  (works in the separate window too)'),
             ('L',         'Auto-find delays (Find Delays)'),
-            ('↑ ↓ ← →',  'IR graph — navigate time / dB axis'),
-            ('⌘ + / −',  'Zoom the frequency axis   ·   ⌘ 0 to reset'),
+            ('↑ ↓',      'Vertical axis of the graph under the cursor — Magnitude: dB · Phase: degrees · IR: time (Lin) or dB (ETC/Log)'),
+            ('← →',      'Live IR — move along the time axis'),
+            ('⌘ + / −',  'Magnitude · Phase: zoom the frequency axis   ·   ⌘ 0 resets'),
+            ('⌘ + / −',  'Live IR: zoom the time axis  (no reset key)'),
         ]),
         ('Delay Finder Window', [
             ('L',      'Find again'),

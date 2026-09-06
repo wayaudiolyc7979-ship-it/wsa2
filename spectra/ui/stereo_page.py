@@ -16,7 +16,7 @@ from spectra.audio.engine import _win_extra_settings
 from spectra.dsp.loudness import LoudnessMeter
 from spectra.ui.tokens import FS_BODY, FS_LG, FS_METRIC, FS_SM, FS_XS
 from spectra.ui.colors import _metric_col
-from spectra.ui.widgets import _ComplianceBadge, _apply_dark_titlebar
+from spectra.ui.widgets import _ComplianceBadge, _apply_dark_titlebar, _shortcut_should_yield
 from spectra.ui.canvas_stereo import (VectorscopeCanvas, LoudnessRadarCanvas,
                                       LoudnessHistoryCanvas, _GradientNumber)
 
@@ -83,6 +83,10 @@ class _CanvasKeyRouter(QObject):
             return False
         key = event.key()
         if key not in (Qt.Key_Up, Qt.Key_Down):
+            return False
+        # 이 필터는 QApplication 전역이라, 가드가 없으면 스핀박스·콤보·리스트·모달의
+        # ↑↓까지 삼켜 버린다(값 조정이 안 되고 대신 Spectrum dB가 조용히 움직였다).
+        if _shortcut_should_yield():
             return False
         mw = self._mw
         canvas = self._canvas_at_cursor()

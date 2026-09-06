@@ -249,7 +249,9 @@ class _MainKeyFilter(QObject):
         if _shortcut_should_yield():
             return False
         key = event.key()
-        if key == Qt.Key_Question:          # ? = 단축키 치트시트 (Shift+/)
+        # ? = 단축키 치트시트 (Shift+/). ⌘? 는 '매뉴얼 열기'라 여기서 가로채면 안 된다
+        # — S/R 과 달리 수식자 검사가 빠져 있어 ⌘? 가 치트시트를 열 여지가 있었다.
+        if key == Qt.Key_Question and not (event.modifiers() & Qt.ControlModifier):
             self._mw._show_shortcuts(); return True
         if key in (Qt.Key_S, Qt.Key_R) and event.modifiers() == Qt.NoModifier:
             if key == Qt.Key_R:             # R = 선택 캡쳐 제자리 다시 캡쳐

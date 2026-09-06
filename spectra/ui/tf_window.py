@@ -41,7 +41,7 @@ from spectra.ui.icons import (_icon, _icon_pm, _n2_divider, _n2_group_header, _n
 from spectra.ui.spl import _apply_txn
 from spectra.ui.tokens import (FONT_NUM, FS_BODY, FS_SM, FS_XS, RADIUS_CTRL, _n2_caps_font, _n2_mono_font,
                                _n2_val_font, ss_btn_neutral, ss_btn_primary, ss_input, ss_text)
-from spectra.ui.widgets import (RoundComboBox, _BrandHeaderBar, _CardSplitter, _CheckBtn,
+from spectra.ui.widgets import (_shortcut_should_yield, RoundComboBox, _BrandHeaderBar, _CardSplitter, _CheckBtn,
                                 _DashedAddButton, _HorizBarVU, _MeasCard, _N2Button, _N2IconBtn,
                                 _N2Select, _VUProxy, _apply_dark_titlebar, _brand_logo_html, hsep)
 
@@ -446,19 +446,6 @@ class TFDuplexThread(QThread):
 # ───────────────────────────────────────────
 #  Delay Finder Dialog
 # ───────────────────────────────────────────
-
-
-def _shortcut_should_yield():
-    """전역 단일키 단축키(G/L/S/R 등)가 가로채면 안 되는 상황:
-    모달 다이얼로그(캡처/세이브 이름 입력 등)가 떠 있거나, 텍스트 입력칸/콤보/리스트에 포커스.
-    → 입력 중인 글자(영문 l/s, 한글 조합 등)를 단축키가 삼키지 않게."""
-    from PyQt5.QtWidgets import (QApplication, QLineEdit, QAbstractSpinBox, QTextEdit,
-                                 QPlainTextEdit, QComboBox, QAbstractItemView)
-    if QApplication.activeModalWidget() is not None:
-        return True
-    fw = QApplication.focusWidget()
-    return isinstance(fw, (QLineEdit, QAbstractSpinBox, QTextEdit,
-                          QPlainTextEdit, QComboBox, QAbstractItemView))
 
 
 class _TFKeyFilter(QObject):

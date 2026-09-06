@@ -260,10 +260,10 @@
     <tr><th>항목</th><th>무엇</th><th>단축키</th></tr>
     <tr><td><b>SPL Meter</b></td><td>큰 소음계 창 열기(10번)</td><td>—</td></tr>
     <tr><td><b>SPL Alarm</b></td><td>소음 한계 알람 창 열기(11번)</td><td>—</td></tr>
-    <tr><td><b>Spectrum in Separate Window</b></td><td>Spectrum 탭을 별도 창으로 분리</td><td><kbd>⌘⇧S</kbd></td></tr>
-    <tr><td><b>Transfer Function in Separate Window</b></td><td>TF 탭을 별도 창으로 분리</td><td><kbd>⌘⇧T</kbd></td></tr>
-    <tr><td><b>Stereo Loudness in Separate Window</b></td><td>Stereo 탭을 별도 창으로 분리</td><td><kbd>⌘⇧L</kbd></td></tr>
     <tr><td><b>Show Mode</b> <span class="pill">v2.0</span></td><td>FOH 글랜스 풀스크린 — <b>거대한 SPL 숫자 + 라이브 스펙트럼</b>을 객석 건너편에서도 읽히게. 한계 대비 초록(여유)→노랑(접근)→빨강(초과) 신호색. 나가기 Esc/F</td><td><kbd>⌘⇧F</kbd></td></tr>
+    <tr><td><b>Spectrum in Separate Window</b></td><td>Spectrum 탭을 별도 창으로 분리 (다시 누르면 복귀)</td><td><kbd>⌘⇧S</kbd></td></tr>
+    <tr><td><b>Transfer Function in Separate Window</b></td><td>TF 탭을 별도 창으로 분리 (다시 누르면 복귀)</td><td><kbd>⌘⇧T</kbd></td></tr>
+    <tr><td><b>Stereo Loudness in Separate Window</b></td><td>Stereo 탭을 별도 창으로 분리 (다시 누르면 복귀)</td><td><kbd>⌘⇧L</kbd></td></tr>
   </table>
   <div class="note">별도 창은 <b>듀얼 모니터</b>에서 특히 유용해요. 자세한 사용법은 <a href="#windows">5번</a>에 있습니다. (Windows에서는 단축키가 <kbd>Ctrl</kbd> 조합으로 동작)</div>
 
@@ -748,18 +748,21 @@
 
   <!-- 13 -->
   <h2 id="keys"><span class="n">13</span>단축키</h2>
+  <div class="note">앱에서 <kbd>?</kbd>를 누르면 같은 목록이 창으로 떠요. 아래 표와 앱 치트시트는 항상 같은 내용입니다.</div>
   <table>
     <tr><th>키</th><th>기능</th></tr>
-    <tr><td><kbd>Space</kbd></td><td>현재 곡선 캡쳐(박제해서 비교) — Spectrum·TF</td></tr>
-    <tr><td><kbd>R</kbd></td><td>선택한 캡쳐 <b>재캡쳐</b>(제자리 다시 찍기) — Spectrum·TF</td></tr>
-    <tr><td><kbd>S</kbd></td><td>분석 시작/정지 — <b>Spectrum · Stereo Loudness</b> (TF는 카드별 Start)</td></tr>
-    <tr><td><kbd>L</kbd></td><td>(Transfer Function) 딜레이 자동 찾기 = Find/Auto</td></tr>
-    <tr><td><kbd>G</kbd></td><td>(Transfer Function) 신호 발생기 재생/정지</td></tr>
-    <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>그래프 dB 범위 위/아래로 이동 — Spectrum·TF</td></tr>
+    <tr><td><kbd>S</kbd></td><td>분석 시작/정지 — <b>Spectrum · Stereo Loudness</b> (TF는 카드별 Start). <b>메인 창이 활성일 때만</b> 동작해요 — 별도 창에 포커스가 있으면 그 창의 툴바 Start를 쓰거나 메인 창을 한 번 클릭하세요</td></tr>
+    <tr><td><kbd>Space</kbd></td><td>현재 곡선 캡쳐(박제해서 비교) — <b>Spectrum · TF</b>. <b>Stereo Loudness 탭에서는 동작하지 않아요.</b> 별도 창에서 눌러도 <b>메인 창에서 선택된 탭</b> 기준으로 캡쳐됩니다</td></tr>
+    <tr><td><kbd>R</kbd></td><td>선택한 캡쳐 <b>재캡쳐</b>(제자리 다시 찍기) — 탭과 무관하게 <b>캡쳐 패널에서 선택 중인 항목</b>(Spectrum/TF)이 대상이에요</td></tr>
+    <tr><td><kbd>G</kbd></td><td>(Transfer Function) 신호 발생기 재생/정지 — <b>TF 별도 창에서도</b> 동작</td></tr>
+    <tr><td><kbd>L</kbd></td><td>(Transfer Function) 딜레이 자동 찾기 = Find. 딜레이 파인더 창에서는 <b>다시 찾기</b></td></tr>
+    <tr><td><kbd>Enter</kbd></td><td>(딜레이 파인더 창) 찾은 딜레이 <b>전체 적용</b>(Insert All)</td></tr>
+    <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td><b>커서를 올려둔 그래프</b>의 세로축이 움직여요 — Spectrum·TF Magnitude=<b>dB</b>, TF Phase=<b>위상(°)</b>, Live IR=<b>Lin이면 시간축·ETC/Log면 dB</b>, 스펙트로그램 위면 <b>기록 세로 스크롤</b>. 그래프 밖에 커서가 있으면 Spectrum dB가 움직입니다</td></tr>
     <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>(TF) 임펄스 응답(IR) 시간축 좌우 이동</td></tr>
-    <tr><td><kbd>⌘</kbd>+<kbd>+</kbd> / <kbd>⌘</kbd>+<kbd>−</kbd></td><td>(TF) 임펄스 응답(IR) 시간축 확대/축소</td></tr>
-    <tr><td><kbd>⌘</kbd>+<kbd>+</kbd> / <kbd>⌘</kbd>+<kbd>−</kbd> / <kbd>⌘</kbd>+<kbd>0</kbd></td><td>(TF) Magnitude·Phase 주파수축 확대 / 축소 / 전체 리셋 <span class="pill">v2.0</span></td></tr>
-    <tr><td><kbd>⌘⇧S</kbd> / <kbd>⌘⇧T</kbd> / <kbd>⌘⇧L</kbd></td><td>Spectrum / TF / Stereo 탭을 별도 창으로</td></tr>
+    <tr><td><kbd>⌘</kbd>+<kbd>+</kbd> / <kbd>⌘</kbd>+<kbd>−</kbd> / <kbd>⌘</kbd>+<kbd>0</kbd></td><td>(TF) <b>Magnitude·Phase 주파수축</b> 확대 / 축소 / 전체 리셋 <span class="pill">v2.0</span></td></tr>
+    <tr><td><kbd>⌘</kbd>+<kbd>+</kbd> / <kbd>⌘</kbd>+<kbd>−</kbd></td><td>(TF) <b>Live IR 시간축</b> 확대/축소 — IR에는 <b>⌘0 리셋이 없어요</b>(그래프 위에 커서를 올린 상태에서)</td></tr>
+    <tr><td><kbd>⌘⇧F</kbd></td><td><b>Show Mode</b>(FOH 글랜스 풀스크린) 켜기/끄기 — 나가기는 <kbd>Esc</kbd> 또는 <kbd>F</kbd></td></tr>
+    <tr><td><kbd>⌘⇧S</kbd> / <kbd>⌘⇧T</kbd> / <kbd>⌘⇧L</kbd></td><td>Spectrum / TF / Stereo 탭을 별도 창으로 — <b>같은 키를 다시 누르면 메인 창으로 복귀</b></td></tr>
     <tr><td><kbd>?</kbd></td><td>단축키 치트시트 / <kbd>⌘?</kbd> 설명서 열기</td></tr>
     <tr><td><kbd>⌘Q</kbd></td><td>종료</td></tr>
   </table>

@@ -581,6 +581,26 @@ class _N2Select(QFrame):
         self._val.setStyleSheet(f'color:{T("text")};background:transparent;')
 
 
+
+def _shortcut_should_yield():
+    """전역 단일키/방향키 단축키가 가로채면 안 되는 상황:
+    모달 다이얼로그(캡처·세이브 이름 입력 등)가 떠 있거나, 텍스트 입력칸/스핀박스/콤보/리스트에 포커스.
+    → 입력 중인 글자(영문 l/s, 한글 조합 등)나 ↑↓ 값 조정을 단축키가 삼키지 않게.
+
+    ⚠️ 세 개의 전역 이벤트필터가 **모두** 이걸 먼저 봐야 한다
+    (_MainKeyFilter · _TFKeyFilter · _CanvasKeyRouter). v2.0.2 이전엔 라우터에만
+    빠져 있어서, 스핀박스·콤보·모달에서 ↑↓가 위젯에 전달되지 않고 대신
+    Spectrum dB 범위가 조용히 움직였다(예: TF Delay 값을 ↑로 못 올림).
+    tf_window·stereo_page·main_window의 공통 하위 모듈인 여기에 둔다."""
+    from PyQt5.QtWidgets import (QApplication, QLineEdit, QAbstractSpinBox, QTextEdit,
+                                 QPlainTextEdit, QComboBox, QAbstractItemView)
+    if QApplication.activeModalWidget() is not None:
+        return True
+    fw = QApplication.focusWidget()
+    return isinstance(fw, (QLineEdit, QAbstractSpinBox, QTextEdit,
+                          QPlainTextEdit, QComboBox, QAbstractItemView))
+
+
 class _N2Button(QFrame):
     """액션 버튼(Reset/Capture/Color/Start 등) — [아이콘][라벨?][텍스트], 테두리리스+hover. clicked 시그널."""
     clicked = pyqtSignal()
