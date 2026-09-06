@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SPECTRA 사용 설명서</title>
+<title>SPECTRA 사용 설명서 (v2.0.2)</title>
 <style>
   :root{
     --bg:#0c0d11; --panel:#14161c; --panel2:#1b1e26; --line:#262a33;
@@ -104,7 +104,7 @@
   <a href="#basics">3. 알아두면 좋은 기초</a>
   <div class="sec">공통 사용법</div>
   <a href="#common">4. 메뉴바 · 트랜스포트 · 패널</a>
-  <a href="#windows">5. 창 분리 & 동시 보기</a>
+  <a href="#windows">5. 창 분리 (팝아웃)</a>
   <div class="sec">3개의 탭</div>
   <a href="#spectrum">6. Spectrum (실시간 분석)</a>
   <a href="#tf">7. Transfer Function</a>
@@ -127,6 +127,7 @@
     <div class="tag">See your sound.</div>
     <div class="ul"></div>
     <div class="by">SPECTRUM ANALYZER · by WAYAUDIO</div>
+    <div class="by" style="margin-top:6px">사용 설명서 <b style="color:#4E7DF0">v2.0.2</b> 기준 · 2026.09</div>
   </div>
 
   <p style="font-size:17px;color:var(--dim)">이 설명서는 <b style="color:#fff">처음 쓰는 분</b>도 따라 할 수 있게 만들었어요.
@@ -184,18 +185,18 @@
 
   <h3>화면 한눈에 보기</h3>
   <ul>
-    <li><b>메뉴바</b> — 맨 위(맥은 화면 최상단)의 <b>View · Help</b> 메뉴. 별도 창 띄우기·동시 보기·단축키·릴리즈 노트 등이 여기 있어요(4번).</li>
+    <li><b>메뉴바</b> — 맨 위(맥은 화면 최상단)의 <b>View · Help</b> 메뉴. 별도 창 띄우기·단축키·릴리즈 노트 등이 여기 있어요(4번).</li>
     <li><b>헤더</b> — 가운데 SPECTRA 로고, 오른쪽에 줄지어:
       <span class="pill">☀️ Light / 🌙 Dark</span>(밝은/어두운 화면 전환),
       <span class="pill">한 / EN</span>(한국어 ↔ 영어, 누르면 <b>재시작</b>),
       <span class="pill">— Preset —</span> + <span class="pill">💾</span> + <span class="pill">🗑️</span>(프리셋 — 아래 참고),
       <span class="pill">Calibration</span>(마이크 보정, 9번).</li>
     <li><b>탭 줄</b> — Spectrum / Transfer Function / Stereo Loudness 3개 탭(<b>아이콘 + 이름</b>, 지금 보는 탭은 파란 밑줄로 표시).</li>
-    <li><b>툴바</b> — 그 탭의 설정 버튼들이 한 줄로. v1.9부터 <b>테두리 없는 아이콘 컨트롤 + 켜짐만 파란 강조</b>(토글은 작은 LED 점)로 정돈됐어요.</li>
+    <li><b>툴바</b> — 그 탭의 설정 버튼들이 한 줄로. v2.0부터 <b>테두리 없는 아이콘 컨트롤 + 켜짐만 파란 강조</b>(토글은 작은 LED 점)로 정돈됐어요.</li>
     <li><b>그래프</b> — 가운데 큰 영역. 여기에 소리가 그려져요.</li>
     <li><b>우측 패널</b> — 레벨 수치(LEVEL), 정보(INFO), 입력 장치 선택(INPUT).</li>
   </ul>
-  <div class="tip"><b>가장 먼저 할 일</b> — 우측 <b>INPUT</b>에서 <b>오디오 장치(마이크/인터페이스)</b>와 <b>채널</b>을 고른 뒤, 왼쪽 위 <b>▶ Start</b>를 누르면 분석이 시작됩니다.</div>
+  <div class="tip"><b>가장 먼저 할 일</b> — 우측 <b>INPUT</b>에서 <b>오디오 장치(마이크/인터페이스)</b>와 <b>채널</b>을 고른 뒤, 그 <b>입력 카드의 전원 LED 점</b>을 누르면(또는 <kbd>S</kbd> 키) 분석이 시작됩니다.</div>
 
   <h3>프리셋 (Preset) — 설정을 통째로 저장·불러오기</h3>
   <p>헤더의 <b>— Preset —</b> 드롭다운과 옆 <b>💾 저장 · 🗑️ 삭제</b> 아이콘은 <b>세 탭(Spectrum·TF·Stereo)의 설정을 한 번에</b> 저장하고 불러옵니다.</p>
@@ -225,20 +226,20 @@
   <figure class="shot">
     <div class="frame">
       <img src="docs/img/topbar.png" alt="SPECTRA 앱 상단 바 (헤더 + 탭)">
-      <span class="cz" style="left:49%;top:82%">1</span>
-      <span class="cz" style="left:70%;top:33%">2</span>
-      <span class="cz" style="left:75.5%;top:33%">3</span>
-      <span class="cz" style="left:79%;top:33%">4</span>
-      <span class="cz" style="left:83%;top:33%">5</span>
-      <span class="cz" style="left:90%;top:33%">6</span>
-      <span class="cz" style="left:94.5%;top:33%">7</span>
-      <span class="cz" style="left:98.5%;top:82%">8</span>
+      <span class="cz" style="left:48.9%;top:77%">1</span>
+      <span class="cz" style="left:74.2%;top:25.5%">2</span>
+      <span class="cz" style="left:78.2%;top:25.5%">3</span>
+      <span class="cz" style="left:81.4%;top:25.5%">4</span>
+      <span class="cz" style="left:85.9%;top:25.5%">5</span>
+      <span class="cz" style="left:91.2%;top:25.5%">6</span>
+      <span class="cz" style="left:96.1%;top:25.5%">7</span>
+      <span class="cz" style="left:98.6%;top:77%">8</span>
     </div>
     <figcaption>▲ <b>앱 상단 바</b> — 가운데 <b>SPECTRA</b> 로고 오른쪽으로 상태·설정 아이콘, 아래 줄은 <b>탭 전환</b>.</figcaption>
   </figure>
   <table class="legend">
     <tr><th>#</th><th>요소</th><th>무엇</th></tr>
-    <tr><td>1</td><td class="lbl">탭 전환</td><td><b>Spectrum · Transfer Function · Stereo Loudness</b> 세 탭을 여기서 오가요. 탭을 <b>더블클릭</b>하면 그 탭이 <b>최대화</b>됩니다.</td></tr>
+    <tr><td>1</td><td class="lbl">탭 전환</td><td><b>Spectrum · Transfer Function · Stereo Loudness</b> 세 탭을 여기서 오가요.</td></tr>
     <tr><td>2</td><td class="lbl">● Running</td><td>측정이 <b>동작 중</b>인지 표시(초록 = 실행 중).</td></tr>
     <tr><td>3</td><td class="lbl">☀️ Light / 🌙 Dark</td><td>밝은/어두운 화면 <b>테마 전환</b>.</td></tr>
     <tr><td>4</td><td class="lbl">🌐 언어</td><td><b>한국어 / English</b> 전환(적용하면 재시작돼요).</td></tr>
@@ -262,10 +263,9 @@
     <tr><td><b>Spectrum in Separate Window</b></td><td>Spectrum 탭을 별도 창으로 분리</td><td><kbd>⌘⇧S</kbd></td></tr>
     <tr><td><b>Transfer Function in Separate Window</b></td><td>TF 탭을 별도 창으로 분리</td><td><kbd>⌘⇧T</kbd></td></tr>
     <tr><td><b>Stereo Loudness in Separate Window</b></td><td>Stereo 탭을 별도 창으로 분리</td><td><kbd>⌘⇧L</kbd></td></tr>
-    <tr><td><b>Split View (2 panes)</b></td><td>두 탭을 좌우로 동시에 보기</td><td><kbd>⌘⇧2</kbd></td></tr>
     <tr><td><b>Show Mode</b> <span class="pill">v2.0</span></td><td>FOH 글랜스 풀스크린 — <b>거대한 SPL 숫자 + 라이브 스펙트럼</b>을 객석 건너편에서도 읽히게. 한계 대비 초록(여유)→노랑(접근)→빨강(초과) 신호색. 나가기 Esc/F</td><td><kbd>⌘⇧F</kbd></td></tr>
   </table>
-  <div class="note">별도 창·동시 보기는 <b>듀얼 모니터</b>에서 특히 유용해요. 자세한 사용법은 <a href="#windows">5번</a>에 있습니다. (Windows에서는 단축키가 <kbd>Ctrl</kbd> 조합으로 동작)</div>
+  <div class="note">별도 창은 <b>듀얼 모니터</b>에서 특히 유용해요. 자세한 사용법은 <a href="#windows">5번</a>에 있습니다. (Windows에서는 단축키가 <kbd>Ctrl</kbd> 조합으로 동작)</div>
 
   <h3>Help 메뉴 (도움말)</h3>
   <table>
@@ -279,31 +279,33 @@
   </table>
 
   <h3>▶ Start / ■ Stop (트랜스포트)</h3>
-  <p>분석을 켜고 끄는 방법은 탭마다 조금 달라요. 어느 탭이든 <kbd>S</kbd> 키로 <b>전체 시작/정지</b>가 됩니다.</p>
+  <p>분석을 켜고 끄는 방법은 탭마다 조금 달라요. <kbd>S</kbd> 키는 <b>Spectrum · Stereo Loudness</b>에서 전체 시작/정지입니다(Transfer Function은 측정 카드마다 따로 켜고 꺼요).</p>
   <ul>
-    <li><b>Spectrum</b> <span class="pill">v1.9</span> — 전역 Start 버튼 대신 <b>각 입력 카드의 전원 LED 버튼</b>으로 소스마다 따로 켜고 꺼요(<kbd>S</kbd>=전부 토글). 측정 중이면 LED 파랑.</li>
+    <li><b>Spectrum</b> <span class="pill">v2.0</span> — 전역 Start 버튼 대신 <b>각 입력 카드의 전원 LED 버튼</b>으로 소스마다 따로 켜고 꺼요(<kbd>S</kbd>=전부 토글). 측정 중이면 LED 파랑.</li>
     <li><b>Stereo Loudness</b> — 툴바의 <b>Start (S)</b> 버튼(또는 <kbd>S</kbd>).</li>
     <li><b>Transfer Function</b> — 측정 <b>카드의 전원 LED</b>로 카드별 시작/정지(신호 발생기 <kbd>G</kbd>와 별개).</li>
   </ul>
   <div class="tip">세 탭은 <b>오디오 엔진을 공유</b>해서, 같은 장치를 여러 탭이 <b>동시에</b> 측정할 수 있어요. 예: Spectrum으로 보면서 Stereo Loudness도 같이 돌리기.</div>
 
   <h3>우측 패널 — LEVEL · INFO · INPUT</h3>
-  <p>화면 오른쪽 세로 패널이에요. 툴바 맨 오른쪽 아이콘으로 <b>접었다 펼 수</b> 있습니다. 각 구역(LEVEL·INFO·INPUT) 제목 앞에는 <b>액센트 색 세로 바</b>가 붙어 구역이 한눈에 구분돼요(v1.8에서 통일).</p>
+  <p>화면 오른쪽 세로 패널이에요. <b>Spectrum·Transfer Function</b> 툴바 맨 오른쪽 아이콘으로 <b>접었다 펼 수</b> 있습니다(Stereo Loudness엔 접을 우측 패널이 없어 이 버튼도 없어요). 각 구역(LEVEL·INFO·INPUT) 제목 앞에 <b>액센트 색 아이콘</b>이 붙고 아래 얇은 구분선이 들어가, 하나의 외곽 프레임 안에서 구역이 한눈에 구분돼요 <span class="pill">v2.0</span>.</p>
   <table>
     <tr><th>구역</th><th>보여주는 것</th></tr>
     <tr><td><b>LEVEL</b></td><td>현재 <b>SPL</b>(소음 크기), <b>Peak Hold</b>(최고값), <b>Dominant</b>(가장 강한 주파수), <b>dBA / dBC</b>(사람 귀 보정 소음치), <b>LAeq / LCeq</b>(평균 소음). 값은 계열별로 색이 달라요 — <b>광대역(SPL·Peak·Dominant)=흰색</b>, <b>A가중(dBA·LAeq)=소프트 블루</b>, <b>C가중(dBC·LCeq)=소프트 와인</b>. 색만 봐도 어느 계열인지 구분됩니다(경고·피크 색은 그대로). 헤더 우측의 두 아이콘 — <span class="pill">신호등</span>=SPL 알람 창(11번)·<span class="pill">dB</span>=SPL Meter 창(10번) — 은 평소엔 은은한 회색, 마우스를 올리면 소프트 블루로 살아나요.</td></tr>
     <tr><td><b>INFO</b></td><td>현재 설정 정보 — <b>샘플레이트 · FFT 크기 · 해상도(Hz) · 캘리브 값 · 반응 속도</b>. 값은 흰색으로 또렷하게 표시돼요.</td></tr>
-    <tr><td><b>INPUT</b></td><td>분석할 <b>장치와 채널</b> 선택. 각 카드에 체크박스(표시 ON/OFF)·장치명·채널·레벨미터가 있어요. <b>＋ Add Source</b>로 여러 장치/채널을 <b>동시에 겹쳐</b> 볼 수 있습니다(각 카드 색으로 구분). 카드 구성(추가·삭제·이름·채널)은 <b>바뀔 때마다 자동 저장</b>되어, 앱을 껐다 켜도 종료 시점 그대로 복원돼요.</td></tr>
+    <tr><td><b>INPUT</b></td><td>분석할 <b>장치와 채널</b> 선택. 각 카드에 전원 LED(측정 ON/OFF)·표시 토글·장치명·채널·레벨미터가 있어요. <b>＋ Add Source</b>로 여러 장치/채널을 <b>동시에 겹쳐</b> 볼 수 있습니다(각 카드 색으로 구분). 카드 구성(추가·삭제·이름·채널)은 <b>바뀔 때마다 자동 저장</b>되어, 앱을 껐다 켜도 종료 시점 그대로 복원돼요.</td></tr>
   </table>
   <p>패널 맨 아래에는 <b>Help · Log · License</b> 작은 버튼 3개가 있어요(각각 설명서·로그 내보내기·About 창).</p>
   <div class="tip"><b>A/C 가중이 뭐예요?</b> — 사람 귀는 모든 음을 똑같이 듣지 않아요. <b>dBA</b>는 사람 귀 느낌에 맞춘 소음치(소음 측정 표준), <b>dBC</b>는 저음까지 포함한 값입니다. <b>LAeq/LCeq</b>는 그 값을 일정 시간 평균낸 거예요.</div>
 
   <!-- 5 -->
-  <h2 id="windows"><span class="n">5</span>창 분리 & 동시 보기</h2>
-  <p class="lead">탭을 떼어내 별도 창으로 띄우거나, 두 탭을 한 화면에 나란히 볼 수 있어요. (듀얼 모니터에 좋아요)</p>
+  <div class="tip"><b>앱을 다시 열면 마지막에 보던 탭으로 시작합니다</b> <span class="pill">v2.0</span> — 탭 레이아웃과 각 탭의 컨트롤 설정도 함께 복원돼요.</div>
+
+  <h2 id="windows"><span class="n">5</span>창 분리 (팝아웃)</h2>
+  <p class="lead">탭을 떼어내 별도 창으로 띄울 수 있어요. (듀얼 모니터에 좋아요)</p>
 
   <figure class="shot">
-    <div class="frame"><img src="docs/img/popout_split.png" alt="Spectrum·Transfer Function을 각각 별도 창으로 분리"></div>
+    <div class="frame"><img src="docs/img/popout_split.png" alt="Spectrum·Transfer Function을 각각 별도 창으로 분리 (v2.0.2)"></div>
     <figcaption>▲ <b>창 분리(팝아웃)</b> — <b>Spectrum</b>과 <b>Transfer Function</b>을 각각 독립 창으로 띄운 모습. 동시에 측정이 흐릅니다(엔진 공유).</figcaption>
   </figure>
 
@@ -316,9 +318,6 @@
     <li>반대로 <b>Spectrum 별도 창</b>에는 캡쳐 패널이 따라가지 않아요 — 그 창에서는 캡쳐 패널 토글 아이콘이 표시되지 않고, 캡쳐 관리는 본체 창에서 합니다.</li>
   </ul>
 
-  <h3>동시 보기 (Split View)</h3>
-  <p><b>View → Split View (2 panes)</b> 또는 <kbd>⌘⇧2</kbd> — 화면을 <b>좌우 2칸</b>으로 나눠 서로 다른 탭을 동시에 봅니다. 예: 왼쪽 Transfer Function, 오른쪽 Spectrum.</p>
-
   <h3>벡터스코프 · 레이더 팝아웃</h3>
   <p>Stereo Loudness 탭의 <b>벡터스코프</b>와 <b>라우드니스 레이더</b>는 각 그림 모서리의 <span class="pill">↗</span> 아이콘으로 <b>각각 별도 창</b>으로 띄울 수 있어요(8번).</p>
   <div class="note">맥에서 <b>전체화면(풀스크린)</b> 중에도 별도 창/미터가 본 화면 위에 정상 크기로 떠요. 검은 화면이나 다른 데스크탑(Space)으로 튀지 않습니다.</div>
@@ -328,35 +327,44 @@
   <p class="lead">지금 들어오는 소리에 어떤 음들이 얼마나 들어있는지 실시간으로 봅니다.</p>
   <figure class="shot">
     <div class="frame">
-      <img src="docs/img/spectrum.png" alt="Spectrum 탭 전체화면 (v1.9)">
-      <!-- 번호 뱃지: 실제 스크린샷 입수 후 left/top(%) 보정. 툴바 왼→오 순서 -->
-      <span class="cz" style="left:6%;top:5.5%">1</span>
-      <span class="cz" style="left:20%;top:5.5%">2</span>
-      <span class="cz" style="left:31%;top:5.5%">3</span>
-      <span class="cz" style="left:40%;top:5.5%">4</span>
-      <span class="cz" style="left:50%;top:5.5%">5</span>
-      <span class="cz" style="left:60%;top:5.5%">6</span>
-      <span class="cz" style="left:70%;top:5.5%">7</span>
-      <span class="cz" style="left:80%;top:5.5%">8</span>
+      <img src="docs/img/spectrum.png" alt="Spectrum 탭 전체화면 (v2.0.2)">
+      <!-- 번호 뱃지: v2.0.2 스크린샷에서 픽셀 실측한 좌표(툴바 왼→오). -->
+      <span class="cz" style="left:1.5%;top:15.5%">1</span>
+      <span class="cz" style="left:9.0%;top:15.5%">2</span>
+      <span class="cz" style="left:18.4%;top:15.5%">3</span>
+      <span class="cz" style="left:25.0%;top:15.5%">4</span>
+      <span class="cz" style="left:31.3%;top:15.5%">5</span>
+      <span class="cz" style="left:37.7%;top:15.5%">6</span>
+      <span class="cz" style="left:47.5%;top:15.5%">7</span>
+      <span class="cz" style="left:56.8%;top:15.5%">8</span>
+      <span class="cz" style="left:63.0%;top:15.5%">9</span>
+      <span class="cz" style="left:67.5%;top:15.5%">10</span>
+      <span class="cz" style="left:72.6%;top:15.5%">11</span>
+      <span class="cz" style="left:97.2%;top:15.5%">12</span>
     </div>
-    <figcaption>▲ <b>Spectrum 탭</b> — 위 툴바의 번호별 설명은 아래 표를 보세요. (번호 위치는 실제 화면에 맞춰 조정됩니다)</figcaption>
+    <figcaption>▲ <b>Spectrum 탭</b> — 위 툴바의 번호별 설명은 아래 표를 보세요. </figcaption>
   </figure>
 
-  <h3>툴바 버튼 — 기능별 설명 <span class="pill">v1.9 리디자인</span></h3>
-  <div class="note">v1.9에서 툴바가 새 디자인(테두리 없는 컨트롤 + 직관 아이콘 + 켜짐만 파란 강조)으로 정돈됐어요. 조작감은 그대로입니다.</div>
+  <h3>툴바 버튼 — 기능별 설명</h3>
+  <div class="note">툴바는 <b>테두리 없는 컨트롤 + 직관 아이콘 + 켜짐만 파란 강조</b>로 정돈돼 있어요(토글은 작은 LED 점). 값은 눌러서 드롭다운으로 고릅니다. 아래 번호는 <b>왼쪽부터 오른쪽 순서</b> 그대로예요.</div>
   <table class="legend">
     <tr><th>#</th><th>버튼</th><th>무엇 / 언제</th></tr>
-    <tr><td>1</td><td class="lbl">View (FFT / 1/3 / 1/12 / 1/24)</td><td>뷰 모드. <b>FFT</b>=가장 정밀, <b>1/3·1/12·1/24</b>=옥타브 밴드로 귀에 가깝게 묶어 보기(1/12 기본).</td></tr>
-    <tr><td>2</td><td class="lbl">+Spectro</td><td>스펙트로그램 추가. 시간에 따른 변화를 <b>색 히트맵</b>으로 아래로 흘려보여요(토글 LED).</td></tr>
-    <tr><td>3</td><td class="lbl">Log / Lin</td><td>가로축 눈금. <b>Log</b>=사람 귀처럼 저음을 넓게(추천), <b>Lin</b>=고르게.</td></tr>
-    <tr><td>4</td><td class="lbl">SR · DB</td><td><b>SR</b>=샘플레이트(44.1/48/88.2/96 kHz). <b>DB</b>=세로축 범위, 평소 Auto·누르면 상하한 <b>수동 고정</b>(TF와 동일). <span class="pill">v1.9</span></td></tr>
-    <tr><td>5</td><td class="lbl">Peak (ON / Reset / Hold)</td><td>피크 홀드. 지나간 <b>최고값을 선으로</b> 남겨요. <b>Reset</b>으로 지움. <b>Hold</b>로 유지 시간(Fast~1s).</td></tr>
-    <tr><td>6</td><td class="lbl">Range / Speed / Color</td><td><b>Range</b>=세로축 dB 폭(72/96/120dB), <b>Speed</b>=곡선 반응 속도(빠르게 올라오고 천천히 내려옴), <b>Color</b>=<b>선택한 소스</b>의 곡선 색 변경(아래 참고).</td></tr>
-    <tr><td>7</td><td class="lbl">Capture · ↗ · 패널 토글</td><td><b>Capture</b>=현재 곡선 박제(<kbd>Space</kbd>), <b>↗</b>=별도 창으로, 맨 끝 아이콘=우측 패널 접기/펴기.</td></tr>
-    <tr><td>8</td><td class="lbl">▶ Start / ■ Stop</td><td>전체 시작·정지는 <kbd>S</kbd> 키로. 개별 소스는 각 <b>입력 카드의 전원 LED 버튼</b>으로(아래 참고). 왼쪽 드로어 아이콘=캡쳐 목록 열기.</td></tr>
+    <tr><td>1</td><td class="lbl">캡쳐 드로어</td><td>맨 왼쪽 아이콘 — <b>저장해둔 캡쳐 목록</b>을 옆으로 펼칩니다(12번 참고).</td></tr>
+    <tr><td>2</td><td class="lbl">View (FFT / 1/3 / 1/12 / 1/24)</td><td>뷰 모드. <b>FFT</b>=가장 정밀, <b>1/3·1/12·1/24</b>=옥타브 밴드로 귀에 가깝게 묶어 보기(<b>1/12 기본</b>).<br><b>FFT를 고르면</b> 바로 옆에 <b>Log / Lin</b>(가로축 눈금) 버튼이 함께 나타나요 — Log=사람 귀처럼 저음을 넓게(추천), Lin=고르게. 옥타브 모드에선 의미가 없어 숨겨집니다.</td></tr>
+    <tr><td>3</td><td class="lbl">+Spectro</td><td>스펙트로그램 추가. 시간에 따른 변화를 <b>색 히트맵</b>으로 아래로 흘려보여요(토글 LED). <span class="pill">v2.0.2</span> 레티나 화면에서 <b>실제 해상도로</b> 그려져 가는 톤·좁은 봉우리가 또렷해졌어요.</td></tr>
+    <tr><td>4</td><td class="lbl">SR</td><td>샘플레이트 — 44.1 / 48 / 88.2 / 96 kHz.</td></tr>
+    <tr><td>5</td><td class="lbl">DB</td><td>세로축 dB 범위. 평소 <b>Auto</b>, 누르면 상·하한을 <b>수동 고정</b>(TF와 동일).</td></tr>
+    <tr><td>6</td><td class="lbl">RANGE</td><td>세로축 dB <b>폭</b> — 72 / 96 / 120 dB.</td></tr>
+    <tr><td>7</td><td class="lbl">PEAK · HOLD</td><td><b>PEAK</b>=피크 홀드 켜기(지나간 최고값을 선으로 남김), <b>HOLD</b>=유지 시간(Fast ~ 1s).</td></tr>
+    <tr><td>8</td><td class="lbl">SPEED</td><td>곡선 반응 속도(빠르게 올라오고 천천히 내려옴).</td></tr>
+    <tr><td>9</td><td class="lbl">Reset</td><td>피크 홀드 선을 <b>지웁니다</b>.</td></tr>
+    <tr><td>10</td><td class="lbl">Capture</td><td>현재 곡선 박제(<kbd>Space</kbd>). 측정이 <b>멈춰 있으면 캡쳐되지 않고 안내가 뜹니다</b> <span class="pill">v2.0.2</span> — 예전엔 빈 곡선이 저장될 수 있었어요.</td></tr>
+    <tr><td>11</td><td class="lbl">Color</td><td><b>선택한 소스</b>의 곡선 색 변경(아래 참고).</td></tr>
+    <tr><td>12</td><td class="lbl">↗ 팝아웃 · 패널 토글</td><td><b>↗</b>=Spectrum을 별도 창으로, 맨 끝 아이콘=우측 패널 접기/펴기.</td></tr>
   </table>
+  <div class="tip"><b>시작 / 정지는 툴바가 아니라</b> — 전체는 <kbd>S</kbd> 키, 상태는 <b>상단 바의 ● Running</b>으로 확인해요. <b>소스마다 따로</b> 켜고 끄는 건 각 입력 카드의 <b>전원 LED 버튼</b>입니다(아래 참고).</div>
 
-  <h3>소스별 개별 시작 / 정지 · 색 변경 <span class="pill">v1.9</span></h3>
+  <h3>소스별 개별 시작 / 정지 · 색 변경 <span class="pill">v2.0</span></h3>
   <ul>
     <li><b>소스별 Start(전원 LED)</b> — 각 입력 카드에 전원 LED 버튼이 있어요. 마이크(소스)마다 <b>따로 측정을 켜고 끌 수</b> 있습니다(예: 1번만 켜고 2번은 꺼두기). 측정 중이면 LED가 <b>파랗게</b> 빛나고, 꺼지면 흐린 링이 돼요. 곡선 표시/숨김(✓)과는 별개(측정하면서 곡선만 숨기기 가능). <kbd>S</kbd> 키는 전부 한 번에 시작/정지.</li>
     <li><b>소스별 색 변경</b> — 카드를 <b>우클릭 → 색 변경…</b>(또는 카드를 선택하고 툴바 <b>Color</b>). 바꾼 색이 곡선·카드 표시에 함께 반영되고 재시작해도 유지돼요.</li>
@@ -376,38 +384,44 @@
   <div class="tip"><b>쉽게 말하면</b> — 한쪽으로 <b>기준 신호를 내보내고</b>, 다른 쪽 마이크로 <b>실제로 들리는 소리를 받아서</b>, 둘을 비교합니다. "원본 대비 어디가 커지고/작아지고/늦게 도착했나"를 그래프로 보여줘요. 스피커 EQ 잡거나 방 음향 진단할 때 핵심 도구예요.</div>
   <figure class="shot">
     <div class="frame">
-      <img src="docs/img/tf.png" alt="Transfer Function 탭 전체화면 (v1.9)">
-      <span class="cz" style="left:5%;top:10.4%">1</span>
-      <span class="cz" style="left:11.5%;top:10.4%">2</span>
-      <span class="cz" style="left:19.5%;top:10.4%">3</span>
-      <span class="cz" style="left:29.5%;top:10.4%">4</span>
-      <span class="cz" style="left:37%;top:10.4%">5</span>
-      <span class="cz" style="left:46.5%;top:10.4%">6</span>
-      <span class="cz" style="left:61.5%;top:10.4%">7</span>
-      <span class="cz" style="left:95.5%;top:10.4%">8</span>
+      <img src="docs/img/tf.png" alt="Transfer Function 탭 전체화면 (v2.0.2)">
+      <span class="cz" style="left:1.7%;top:15.5%">1</span>
+      <span class="cz" style="left:6.3%;top:15.5%">2</span>
+      <span class="cz" style="left:12.3%;top:15.5%">3</span>
+      <span class="cz" style="left:21.3%;top:15.5%">4</span>
+      <span class="cz" style="left:30.7%;top:15.5%">5</span>
+      <span class="cz" style="left:38.4%;top:15.5%">6</span>
+      <span class="cz" style="left:47.2%;top:15.5%">7</span>
+      <span class="cz" style="left:53.5%;top:15.5%">8</span>
+      <span class="cz" style="left:57.9%;top:15.5%">9</span>
+      <span class="cz" style="left:64.5%;top:15.5%">10</span>
+      <span class="cz" style="left:97.2%;top:15.5%">11</span>
     </div>
     <figcaption>▲ <b>Transfer Function 탭</b> — <b>위 툴바</b> 버튼은 아래 표(기능별), 왼쪽에 <b>떠 있는 둥근 카드 3장</b>(IR · 위상 · 매그니튜드+코히런스), 오른쪽 신호 발생기·측정 패널(카드 여러 장 추가 가능).</figcaption>
   </figure>
 
-  <h3>툴바 버튼 — 기능별 설명 <span class="pill">v1.9 리디자인</span></h3>
-  <div class="note">v1.9에서 세 탭의 툴바가 <b>새 디자인(테두리 없는 컨트롤 + 직관 아이콘 + 켜짐만 파란 강조, 토글은 작은 LED 점)</b>으로 정돈됐어요. 조작감은 그대로 — 값은 눌러서 드롭다운으로 고르고, 마우스를 올리면 클릭 영역이 은은하게 드러납니다.</div>
+  <h3>툴바 버튼 — 기능별 설명</h3>
+  <div class="note">세 탭 모두 <b>테두리 없는 컨트롤 + 직관 아이콘 + 켜짐만 파란 강조</b>(토글은 작은 LED 점)로 정돈돼 있어요. 값은 눌러서 드롭다운으로 고르고, 마우스를 올리면 클릭 영역이 은은하게 드러납니다. 아래 번호는 <b>왼쪽부터 오른쪽 순서</b> 그대로예요.</div>
   <table class="legend">
     <tr><th>#</th><th>버튼</th><th>무엇 / 언제</th></tr>
-    <tr><td>1</td><td class="lbl">Engine (Single / Adaptive)</td><td><b>측정 엔진</b> 선택. <b>Single</b>=고정 FFT(가볍고 단순), <b>Adaptive</b>=주파수마다 해상도를 달리해 <b>저역까지 촘촘하게</b>(라이브 현장 튜닝 추천). 자세히는 아래 ⑤ "엔진".</td></tr>
-    <tr><td>2</td><td class="lbl">FFT</td><td>분석 크기. 클수록 저역 분해능↑·반응↓. (Adaptive에서는 자동이라 비활성)</td></tr>
-    <tr><td>3</td><td class="lbl">Response / Smooth</td><td><b>Response(반응 속도)</b> — 곡선이 얼마나 빠르게/부드럽게 반응할지. <b>Fast(0.5초)·Quick(1)·Normal(2, 기본)·Smooth(4)·Stable(8)</b>. v1.9부터 곡선이 <b>올라갈 때·내려갈 때 같은 속도</b>로 반응해요(대칭). <b>Smooth</b>=곡선 매끄럽기(1/48이 가장 미세).</td></tr>
-    <tr><td>4</td><td class="lbl">DB (Auto / 수동 고정)</td><td>세로축 dB 범위. 평소 <b>Auto</b>. 누르면 상·하한을 <b>정확한 값으로 입력해 고정</b>(예: +6 / −60), 버튼이 파란 <code>+6 / −60</code>으로 바뀌어요. 해제=대화상자 [자동] 또는 dB 눈금 더블클릭. <span class="pill">v1.9</span></td></tr>
-    <tr><td>5</td><td class="lbl">IR / Units</td><td><b>IR</b>=임펄스 응답 표시 방식(Lin/ETC/Log), <b>Units</b>=딜레이 단위 <b>ms / ms·m / m</b> 전환(거리 환산, 음속 343 m/s).</td></tr>
-    <tr><td>6</td><td class="lbl">Phase / △ Delta / ⧗ Stable</td><td><b>Phase</b>=위상 표시 방식, <b>△</b>=기준 캡쳐 대비 <b>차이(±dB)</b>만 보기, <b>⧗</b>=안정된 뒤 자동 캡쳐(12번).</td></tr>
-    <tr><td>7</td><td class="lbl">📷 Capture · 🎧 Auralize · Σ Average</td><td><b>Capture</b>=현재 곡선 박제(<kbd>Space</kbd>), <b>🎧</b>=오라리제이션(측정 공간을 귀로 듣기), <b>Σ</b>=라이브 멀티마이크 평균 켜기(위 신기능 3종 참고). <span class="pill">v1.9</span></td></tr>
-    <tr><td>8</td><td class="lbl">↗ 팝아웃 · 패널 토글</td><td><b>↗</b>=TF를 별도 창으로, 맨 끝 아이콘=오른쪽 패널 접기/펴기.</td></tr>
+    <tr><td>1</td><td class="lbl">캡쳐 드로어</td><td>맨 왼쪽 아이콘 — 저장해둔 <b>TF 캡쳐 목록</b>을 펼칩니다(12번 참고).</td></tr>
+    <tr><td>2</td><td class="lbl">ENG (Single / Adaptive)</td><td><b>측정 엔진</b> 선택(<b>기본 Adaptive</b>). <b>Single</b>=고정 FFT(가볍고 단순), <b>Adaptive</b>=주파수마다 해상도를 달리해 <b>저역까지 촘촘하게</b>(라이브 현장 튜닝 추천). 자세히는 아래 "엔진".</td></tr>
+    <tr><td>3</td><td class="lbl">FFT</td><td>분석 크기(<b>기본 16K</b>). 클수록 저역 분해능↑·반응↓. (Adaptive에서는 자동이라 비활성)</td></tr>
+    <tr><td>4</td><td class="lbl">RESP · SMTH</td><td><b>RESP(반응 속도)</b> — <b>Fast(0.5초)·Quick(1)·Normal(2, 기본)·Smooth(4)·Stable(8)</b>. 곡선이 <b>올라갈 때·내려갈 때 같은 속도</b>로 반응해요(대칭). <b>SMTH</b>=곡선 매끄럽기(<b>기본 1/3</b>, 1/48이 가장 미세).</td></tr>
+    <tr><td>5</td><td class="lbl">DB (Auto / 수동 고정)</td><td>세로축 dB 범위. 평소 <b>Auto</b>. 누르면 상·하한을 <b>정확한 값으로 입력해 고정</b>(예: +6 / −60), 버튼이 파란 <b>+6 / −60</b>으로 바뀌어요. 해제=대화상자 [자동] 또는 dB 눈금 더블클릭.</td></tr>
+    <tr><td>6</td><td class="lbl">IR · UNIT</td><td><b>IR</b>=임펄스 응답 표시 방식(Lin/ETC/Log), <b>UNIT</b>=딜레이 단위 <b>ms / ms·m / m</b> 전환(거리 환산, 음속 343 m/s).</td></tr>
+    <tr><td>7</td><td class="lbl">PHASE</td><td>위상 표시 방식(Wrapped 등).</td></tr>
+    <tr><td>8</td><td class="lbl">🔍 Find</td><td><b>딜레이 찾기</b> — 기준과 측정 사이의 도착 시간차를 자동으로 찾아 넣어줍니다(측정 카드의 <b>Delay</b>에 반영).</td></tr>
+    <tr><td>9</td><td class="lbl">📷 Capture</td><td>현재 곡선 박제(<kbd>Space</kbd>). <span class="pill">v2.0.2</span> 캡쳐가 수십 개 쌓여도 <b>저장 때문에 화면이 멈추지 않습니다</b>.</td></tr>
+    <tr><td>10</td><td class="lbl">△ Delta · ⧗ 안정캡쳐 · 🎧 오라제이션 · Σ 평균</td><td><b>△</b>=기준 캡쳐 대비 <b>차이(±dB)</b>만 보기, <b>⧗</b>=곡선이 안정된 뒤 자동 캡쳐(12번), <b>🎧</b>=오라제이션(측정한 공간을 귀로 들어보기), <b>Σ</b>=라이브 멀티마이크 평균 켜기.</td></tr>
+    <tr><td>11</td><td class="lbl">↗ 팝아웃 · 패널 토글</td><td><b>↗</b>=TF를 별도 창으로, 맨 끝 아이콘=오른쪽 패널 접기/펴기.</td></tr>
   </table>
   <p class="lead" style="margin-top:14px">오른쪽 패널에서 <b>신호 발생기</b>(아래 ①)와 <b>기준·측정 입력</b>(아래 ②)을 다룹니다.</p>
 
   <h3>① 신호 발생기 (Signal Generator)</h3>
   <p>측정용 소리를 내보내는 부분이에요. 소스는 <b>항상 하나만</b> 선택되고, 기본은 <b>Pink</b>입니다.</p>
   <ul>
-    <li><b>Pink / White / Sine / Sweep</b> — 측정 신호 종류.
+    <li><b>신호 종류 드롭다운</b> <span class="pill">v2.0</span> — 버튼 4개가 <b>하나의 드롭다운</b>으로 합쳐졌어요. 눌러서 <b>Pink · White · Sine… · Sweep… · File…</b> 중 고르면 <b>현재 선택이 셀에 표시</b>됩니다(예: <code>Pink</code>, <code>Sine 1k</code>, <code>Sweep</code>).
       <ul>
         <li><b>Pink(핑크 노이즈)</b> — 일반 음향 측정용 "쉬익~" 소리(가장 많이 씀, 기본).</li>
         <li><b>White</b> — 모든 주파수가 같은 에너지인 노이즈.</li>
@@ -438,15 +452,15 @@
   <p>v1.8부터 세 그래프가 <b>각각 떠 있는 둥근 카드</b>로 분리됐어요. 카드마다 <b>고유 색 제목</b>이 붙어 지금 보는 분석이 무엇인지 바로 보입니다 — <b style="color:#2DD4BF">Live IR = 청록</b> · <b style="color:#A78BFA">Phase = 보라</b> · <b style="color:#4DA3FF">Magnitude = 파랑</b>. 그래프를 <b>클릭해 선택</b>하면 그 카드 상단에 <b>SPECTRA 시그니처 그라디언트 엣지</b>가 켜져 어느 카드를 보고 있는지 한눈에 알 수 있어요(기존 파란 사각 테두리를 대체). 카드 사이 경계에도 같은 그라디언트가 아주 옅게 흐르고, 경계를 <b>드래그하면 카드 높이</b>를 조절할 수 있습니다.</p>
   <table>
     <tr><th>그래프</th><th>무엇을 보나</th><th>쉽게</th></tr>
-    <tr><td><b>Live IR</b><br>(임펄스 응답)</td><td>소리가 도착하는 모양/시점</td><td>맨 위. 뾰족한 봉우리 = 소리가 도착한 순간. 딜레이 확인용. <kbd>Ctrl</kbd>+<kbd>+</kbd>/<kbd>−</kbd>로 시간축 확대·축소.</td></tr>
+    <tr><td><b>Live IR</b><br>(임펄스 응답)</td><td>소리가 도착하는 모양/시점</td><td>맨 위. 뾰족한 봉우리 = 소리가 도착한 순간. 딜레이 확인용. <kbd>⌘</kbd>+<kbd>+</kbd>/<kbd>−</kbd>로 시간축 확대·축소.</td></tr>
     <tr><td><b>Phase</b><br>(위상)</td><td>주파수별 타이밍 어긋남</td><td>가운데. 스피커 정렬·크로스오버 점검.</td></tr>
     <tr><td><b>Magnitude + Coherence</b><br>(크기 + 신뢰도)</td><td>주파수별로 커졌나/작아졌나 + 그 측정이 믿을 만한가</td><td>맨 아래. 곡선이 평평하면 "착색 없이 고르게" = 좋음. <b>코히런스(γ²)</b>는 그래프 상단의 <b>블루 반투명 채움 밴드</b>로 표시 — 밴드가 <b>위로 높게 차오른 구간일수록 신뢰도가 높음</b>. 정확한 수치는 커서를 올리면 리드아웃에 <b>%</b>로 표시돼요.</td></tr>
   </table>
   <div class="tip"><b>코히어런스(Coherence)가 뭐예요?</b> — "이 측정값을 믿어도 되나"를 나타낸 점수예요(리드아웃에 0~100%). 주변이 시끄럽거나 신호가 약하면 낮아집니다. <b>높은(100%에 가까운) 구간의 결과만</b> 신뢰하세요. v1.8부터는 점선 기준선·우측 % 눈금 없이 <b>채움 밴드</b>로만 은은하게 보여줘서 응답 곡선과 부딪히지 않아요 — 수치가 궁금하면 커서를 올리세요.</div>
-  <div class="tip"><b>코히런스 블랭킹</b> <span class="pill">v2.0</span> — Magnitude 그래프를 <b>우클릭 → Coherence blanking</b>으로 켜면, 크기 곡선이 <b>신뢰도에 따라 진하게/흐리게</b> 그려져요. 믿을 수 있는 구간은 선명하게, 신뢰도 낮은 구간(저역·반사·측정 한계)은 자연스럽게 흐려져 — <b>어디를 믿고 어디를 걸러야 할지</b> 곡선만 봐도 바로 보입니다(Smaart의 trace blanking 방식, 연속 페이드).</div>
+  <div class="tip"><b>코히런스 블랭킹</b> <span class="pill">v2.0</span> — Magnitude 그래프를 <b>기본으로 켜져 있어요</b> — Magnitude 그래프 <b>우클릭 → Coherence blanking</b>으로 끌 수 있습니다. 크기 곡선이 <b>신뢰도에 따라 진하게/흐리게</b> 그려져요. 믿을 수 있는 구간은 선명하게, 신뢰도 낮은 구간(저역·반사·측정 한계)은 자연스럽게 흐려져 — <b>어디를 믿고 어디를 걸러야 할지</b> 곡선만 봐도 바로 보입니다(Smaart의 trace blanking 방식, 연속 페이드).</div>
   <div class="tip"><b>자동 Y축 맞춤</b> (v1.8) — 측정(핑크/스윕)을 시작하면 Magnitude 그래프가 <b>첫 데이터에서 한 번 자동으로</b> 화면에 맞게 들어와요. 더블클릭할 필요 없이 곡선이 바로 보이고, <b>측정 중에는 점프하지 않습니다.</b> 이후 수동으로 맞추려면 그래프 <b>더블클릭</b>=자동 정렬, <kbd>↑</kbd><kbd>↓</kbd>=범위 이동.</div>
 
-  <h3>🔍 그래프 확대·이동 (줌 / 팬) <span class="pill">v1.9</span></h3>
+  <h3>🔍 그래프 확대·이동 (줌 / 팬) <span class="pill">v2.0</span></h3>
   <p>Magnitude·Phase 그래프에서 <b>특정 대역을 확대해</b> 자세히 볼 수 있어요. 두 그래프와 코히런스는 <b>같은 주파수축으로 연동</b>돼 함께 움직입니다.</p>
   <table>
     <tr><th>조작</th><th>동작</th></tr>
@@ -456,25 +470,25 @@
     <tr><td><kbd>⌘</kbd>+<kbd>+</kbd> / <kbd>⌘</kbd>+<kbd>−</kbd></td><td>단계 확대·축소</td></tr>
     <tr><td><b>더블클릭</b> / <kbd>⌘</kbd>+<kbd>0</kbd></td><td>전체 대역으로 리셋</td></tr>
   </table>
-  <div class="tip">확대해도 커서·눈금·곡선이 모두 같은 축을 따라 움직여요. 크로스오버 근처처럼 <b>특정 대역만 크게 보고 EQ 잡을 때</b> 유용합니다. (임펄스 응답 IR은 <kbd>Ctrl</kbd>+<kbd>+</kbd>/<kbd>−</kbd>로 시간축을 확대해요.)</div>
+  <div class="tip">확대해도 커서·눈금·곡선이 모두 같은 축을 따라 움직여요. 크로스오버 근처처럼 <b>특정 대역만 크게 보고 EQ 잡을 때</b> 유용합니다. (임펄스 응답 IR은 <kbd>⌘</kbd>+<kbd>+</kbd>/<kbd>−</kbd>로 시간축을 확대해요.)</div>
 
-  <h3>🎧 오라리제이션 — 측정한 공간을 "귀로" 듣기 <span class="pill">v1.9</span></h3>
+  <h3>🎧 오라제이션 — 측정한 공간을 "귀로" 듣기 <span class="pill">v2.0</span></h3>
   <p>측정한 <b>임펄스 응답(IR)</b>에 아무 음악이나 통과시켜, <b>그 공연장·그 스피커로 재생된 것처럼</b> 헤드폰으로 들어보는 기능이에요. 그래프(눈)로만 보던 측정을 <b>소리(귀)로</b> 확인 — "객석 그 자리에 안 가봐도 그 소리를 듣는" 셈입니다.</p>
   <ul>
     <li>TF 툴바의 <b>🎧 버튼</b>으로 엽니다.</li>
     <li><b>Dry(원음) ↔ Room(공간)</b>을 버튼으로 A/B 비교 — 원본 음악과, 그 공간을 통과한 소리를 번갈아 들어요.</li>
     <li><b>라이브 IR과 캡쳐들 중 골라</b> 좌석·공연장별로 각각 들어볼 수 있어요.</li>
   </ul>
-  <div class="warn">측정한 그 PA로 다시 내보내면 공간이 <b>두 번</b> 걸려요 — 오라리제이션은 반드시 <b>헤드폰</b>으로 들으세요.</div>
+  <div class="warn">측정한 그 PA로 다시 내보내면 공간이 <b>두 번</b> 걸려요 — 오라제이션은 반드시 <b>헤드폰</b>으로 들으세요.</div>
 
-  <h3>🎚️ 라이브 멀티마이크 평균 (공간 평균) <span class="pill">v1.9</span></h3>
+  <h3>🎚️ 라이브 멀티마이크 평균 (공간 평균) <span class="pill">v2.0</span></h3>
   <p>마이크를 <b>객석 여러 위치</b>에 두고 동시에 측정할 때, 그 구역의 <b>평균 주파수 응답</b>을 <b>실시간 한 곡선(AVG)</b>으로 봅니다. 위치마다 스피커까지 거리가 달라도 <b>크기(파워)만 평균</b>하므로 그 구역의 <b>평균 톤 밸런스</b>가 깔끔하게 잡혀요. 한 자리만 보고 EQ를 잡으면 다른 자리에서 안 맞을 수 있는데, 여러 자리를 평균내면 <b>전체에 고르게</b> 맞출 수 있습니다.</p>
   <div class="steps">
     ① 측정 카드를 <b>2개 이상</b> 만들어 각 마이크로 <b>측정 시작</b> → ② TF 툴바의 <b>Σ 버튼</b>을 누르면 <b>바로 평균이 켜지고</b>(다시 누르면 끔) <b>마이크 선택 팝업</b>이 떠요 → ③ 팝업에서 평균에 넣을 <b>마이크를 체크</b>(각 마이크 카드 색으로 표시) → ④ <b>굵은 평균 곡선</b>이 개별 곡선들 위에 그려집니다.
   </div>
   <figure class="shot">
     <div class="frame">
-      <img src="docs/img/tf_average.png" alt="TF 라이브 멀티마이크 평균 — Σ 팝업과 AVG 카드 (v1.9)">
+      <img src="docs/img/tf_average.png" alt="TF 라이브 멀티마이크 평균 — Σ 팝업과 AVG 카드 (v2.0)">
     </div>
     <figcaption>▲ 툴바 <b>Σ</b>를 켜면 상단에 <b>AVERAGE 마이크 선택 팝업</b>(측정 카드 색으로 표시)이 뜨고, 오른쪽 측정 패널 <b>맨 아래에 AVG 카드</b>가 나타나요. 선택한 마이크들의 <b>굵은 평균 곡선</b>이 개별 곡선 위로 그려집니다.</figcaption>
   </figure>
@@ -522,24 +536,38 @@
   <p class="lead">좌우(L/R) 스테레오 상태와, 방송·음원에서 쓰는 "체감 음량"을 봅니다. (v1.7에서 새 디자인)</p>
   <figure class="shot">
     <div class="frame">
-      <img src="docs/img/stereo.png" alt="Stereo Loudness 탭 전체화면 (v1.8)">
-      <span class="cz" style="left:16%;top:27%">1</span>
-      <span class="cz" style="left:47%;top:27%">2</span>
-      <span class="cz" style="left:80%;top:27%">3</span>
-      <span class="cz" style="left:45%;top:58%">4</span>
-      <span class="cz" style="left:82%;top:82%">5</span>
+      <img src="docs/img/stereo.png" alt="Stereo Loudness 탭 전체화면 (v2.0.2)">
+      <span class="cz" style="left:3.0%;top:15.5%">1</span>
+      <span class="cz" style="left:10.5%;top:15.5%">2</span>
+      <span class="cz" style="left:20.5%;top:15.5%">3</span>
+      <span class="cz" style="left:28.5%;top:15.5%">4</span>
+      <span class="cz" style="left:37.1%;top:15.5%">5</span>
+      <span class="cz" style="left:44.8%;top:15.5%">6</span>
+      <span class="cz" style="left:98.4%;top:15.5%">7</span>
+      <span class="cz" style="left:16.3%;top:36%">8</span>
+      <span class="cz" style="left:46.9%;top:36%">9</span>
+      <span class="cz" style="left:80.5%;top:36%">10</span>
+      <span class="cz" style="left:45%;top:62.5%">11</span>
+      <span class="cz" style="left:82.5%;top:80%">12</span>
     </div>
-    <figcaption>▲ <b>Stereo Loudness 탭(v1.8)</b> — 좌측 벡터스코프·레이더, 우측 거대 <b>PROGRAM 음량</b>, 아래 지표 칩 + 히스토리 + 컴플라이언스. 번호 설명은 아래.</figcaption>
+    <figcaption>▲ <b>Stereo Loudness 탭</b> — 좌측 벡터스코프·레이더, 우측 거대 <b>PROGRAM 음량</b>, 아래 지표 칩 + 히스토리 + 컴플라이언스. 번호 설명은 아래.</figcaption>
   </figure>
 
-  <h3>화면 구성 — 번호별 설명</h3>
+  <h3>툴바 · 화면 구성 — 번호별 설명</h3>
   <table class="legend">
     <tr><th>#</th><th>영역</th><th>무엇</th></tr>
-    <tr><td>1</td><td class="lbl">벡터스코프</td><td>좌우 채널의 위상/이미지 관계. 모서리 <span class="pill">↗</span>로 별도 창 가능.</td></tr>
-    <tr><td>2</td><td class="lbl">라우드니스 레이더</td><td>시간에 따른 음량을 원형으로. 모서리 <span class="pill">↗</span>로 별도 창 가능.</td></tr>
-    <tr><td>3</td><td class="lbl">PROGRAM (히어로)</td><td>거대 그라디언트 숫자를 <b>좌 AVG · 우 LIVE 2분할</b>로 동시 표시 — 왼쪽=통합 음량(Integrated, 납품 기준), 오른쪽=실시간 단기(Short-term). 각 아래에 목표 대비 편차(LU).</td></tr>
-    <tr><td>4</td><td class="lbl">지표 칩 6개</td><td>M / S / TP / LRA / PLR / PSR (아래 표 참고).</td></tr>
-    <tr><td>5</td><td class="lbl">히스토리 + 컴플라이언스</td><td>왼쪽=음량 시간 그래프(목표선 포함), 오른쪽=<b>PASS / CHECK</b> 합격 뱃지.</td></tr>
+    <tr><td>1</td><td class="lbl">▶ Start / ■ Stop</td><td>라우드니스 측정 시작·정지(<kbd>S</kbd>).</td></tr>
+    <tr><td>2</td><td class="lbl">🎤 IN (입력 장치)</td><td>측정할 <b>오디오 입력 장치</b> 선택.</td></tr>
+    <tr><td>3</td><td class="lbl">L · R 채널</td><td>그 장치의 어느 채널을 <b>좌/우</b>로 쓸지. (모노 마이크면 L·R이 같아져 벡터스코프가 한 줄로 보여요 — 정상입니다.)</td></tr>
+    <tr><td>4</td><td class="lbl">🎯 TARGET</td><td>맞출 <b>목표 음량</b>. 방송 규격 프리셋(ATSC A/85 −24, EBU R128 −23 등)이나 직접 값. 레이더 눈금·컴플라이언스 판정이 이 값을 기준으로 움직여요.</td></tr>
+    <tr><td>5</td><td class="lbl">RESET Integrated</td><td><b>통합 음량(Integrated)</b> 적산을 0부터 다시 — 새 프로그램·새 곡을 잴 때.</td></tr>
+    <tr><td>6</td><td class="lbl">RESET True Peak</td><td><b>True Peak</b> 최고값을 지웁니다. <span class="pill">v2.0.2</span> 이제 <b>PLR·PSR에도 즉시 반영</b>돼요.</td></tr>
+    <tr><td>7</td><td class="lbl">↗ 팝아웃</td><td>Stereo Loudness를 별도 창으로.</td></tr>
+    <tr><td>8</td><td class="lbl">벡터스코프</td><td>좌우 채널의 위상/이미지 관계. 모서리 <b>↗</b>로 별도 창 가능.</td></tr>
+    <tr><td>9</td><td class="lbl">라우드니스 레이더</td><td>시간에 따른 음량을 원형으로. 모서리 <b>↗</b>로 별도 창 가능.</td></tr>
+    <tr><td>10</td><td class="lbl">PROGRAM (히어로)</td><td>거대 그라디언트 숫자를 <b>좌 AVG · 우 LIVE 2분할</b>로 동시 표시 — 왼쪽=통합 음량(Integrated, 납품 기준), 오른쪽=실시간 단기(Short-term). 각 아래에 목표 대비 편차(LU).</td></tr>
+    <tr><td>11</td><td class="lbl">지표 칩 6개</td><td>M / S / TP / LRA / PLR / PSR (아래 표 참고).</td></tr>
+    <tr><td>12</td><td class="lbl">히스토리 + 컴플라이언스</td><td>왼쪽=음량 시간 그래프(목표선 포함), 오른쪽=<b>PASS / CHECK</b> 합격 뱃지.</td></tr>
   </table>
 
   <h3>왼쪽 — 벡터스코프 (Vectorscope)</h3>
@@ -578,8 +606,8 @@
   <h3>컴플라이언스 & 컨트롤</h3>
   <ul>
     <li><b>COMPLIANCE 뱃지</b> — 목표 음량·트루피크 기준을 만족하면 <b>✓ PASS</b>(초록), 벗어나면 <b>✗ CHECK</b>(노랑/빨강)로 알려줘요. (v1.8부터 원형 배지가 어느 크기에서도 매끈하게 그려져요.)</li>
-    <li><b>Target / 플랫폼 기준</b> — 방송 −23, 애플 −16, 스포티파이/유튜브 −14 등 목표를 정하면 레이더·히어로·컴플라이언스에 반영.</li>
-    <li><b>Reset I / Reset TP</b> — 통합 음량 / 트루피크 측정을 초기화(새 곡·새 세션 시작 시).</li>
+    <li><b>TARGET</b> — 목표 음량. 프리셋 5종: <b>EBU R128 −23 · Apple Music −16 · Streaming −14 · −18 LUFS · ATSC A/85 −24</b>. 정하면 레이더 눈금·히어로 숫자·컴플라이언스가 이 값을 기준으로 움직여요.</li>
+    <li><b>RESET Integrated / RESET True Peak</b> — 통합 음량 / 트루피크 측정을 초기화(새 곡·새 세션 시작 시). <span class="pill">v2.0.2</span> True Peak 리셋이 <b>PLR·PSR에도 즉시 반영</b>됩니다.</li>
     <li><b>L · R</b> — 좌/우로 쓸 입력 채널 지정.</li>
   </ul>
   <div class="note"><b>Stereo Loudness</b> 탭에서는 <kbd>Space</kbd> 캡쳐가 동작하지 않아요(비교 대상이 곡선이 아니라서).</div>
@@ -614,7 +642,7 @@
 
   <h3>v1.8 새 디자인 — 읽지 않아도 보이는 소음계</h3>
   <ul>
-    <li><b>신호등 색 번짐(글로우)</b> — 각 카드 아래쪽이 현재 레벨에 따라 은은하게 물들어요: <b>안전=초록 / 주의=노랑 / 위험=빨강</b>. 멀리서 숫자를 읽지 않아도 색만으로 상태가 한눈에 들어옵니다.</li>
+    <li><b>신호등 색 번짐(글로우)</b> — 카드 아래쪽이 <b>주의(노랑)·위험(빨강)일 때만</b> 은은하게 물들어요 <span class="pill">v2.0</span>. 평소(안전)엔 색을 아예 켜지 않아 차분하고, <b>색이 켜지는 것 자체가 경고</b>가 됩니다. 수치 숫자는 Alarm 창과 같은 sans 글꼴로 통일돼 있어요.</li>
     <li><b>회색 배경 · 검정 카드</b> — 창 배경이 회색, 카드가 검정으로 반전되어 다른 화면과 톤이 통일됐고, 검정 카드 위라 글로우가 더 선명하게 보여요.</li>
     <li><b>값 색 = LEVEL 패널과 동일</b> — <b>A가중(SPL A·LAeq)=소프트 블루</b>, <b>C가중(SPL C·LCeq)=소프트 와인</b>, <b>광대역(Z)=흰색</b>. 경고·피크 색(주황·빨강)은 그대로예요.</li>
     <li><b>시계 카드</b> — 소프트 화이트로 차분하게.</li>
@@ -655,8 +683,9 @@
   <ul>
     <li><b>신호등 색</b> — <b>초록</b>(여유) → <b>노랑</b>(한계 −N dB 접근) → <b>빨강</b>(초과, 깜빡임 + "N초째").</li>
     <li><b>거대 숫자</b> — 선택한 지표 값 / 한계, 그 아래 <b>▼여유</b> 또는 <b>▲초과</b>.</li>
-    <li><b>LAeq·LCeq 적분 진행 바 + ↻ 리셋</b> (v1.8) — 알람 지표가 <b>LAeq·LCeq(적분)</b>일 때는 카드 하단에 <b>SPECTRA 그라디언트 진행 바</b>가 나타나 얼마나 적분됐는지 보여주고, 옆 <b>↻</b> 버튼으로 적분을 0부터 다시 시작할 수 있어요(SPL 미터의 LEQ 카드와 동일한 방식). SPL A/C Slow 같은 순간값 지표일 땐 표시되지 않아요.</li>
+    <li><b>LAeq·LCeq 적분 진행 바 + ↻ 리셋</b> (v1.8) — 알람 지표가 <b>LAeq·LCeq(적분)</b>일 때는 카드 하단에 <b>세그먼트형 진행 바</b>가 나타나 얼마나 적분됐는지 보여주고, 옆 <b>↻</b> 버튼으로 적분을 0부터 다시 시작할 수 있어요(SPL 미터의 LEQ 카드와 동일한 방식). SPL A/C Slow 같은 순간값 지표일 땐 표시되지 않아요.</li>
     <li>창 크기에 맞춰 글자가 커지고, <b>압정(핀)</b>으로 항상 위에, 마우스를 떼면 <b>카드만</b> 꽉 차요(글랜스).</li>
+    <li><b>차분한 평소 · 위험할 때만 부각</b> <span class="pill">v2.0</span> — 카드 배경이 <b>중립 다크</b>로 바뀌고, 상태색은 <b>한계에 가깝거나(노랑) 초과(빨강)일 때만</b> 배경에 은은히 번져요(예전엔 초록이 늘 깔려 있었어요). 신호등은 번지는 글로우 대신 <b>또렷한 3분할 바</b>, 숫자는 sans 글꼴, LEQ 진행 바는 <b>세그먼트형</b>입니다.</li>
   </ul>
   <h3>⚙ 알람 설정</h3>
   <p>타이틀바의 <b>기어</b> 아이콘으로 설정 창을 엽니다.</p>
@@ -679,8 +708,8 @@
 
   <h3>캡쳐하는 법</h3>
   <ul>
-    <li><b>Capture 버튼</b> 또는 <kbd>Space</kbd> — 현재 곡선을 박제. (Spectrum은 이름을 묻고, TF는 자동 이름으로 빠르게 저장.) 저장되면 <b>✓ Captured</b> 표시가 잠깐 떠요.</li>
-    <li>캡쳐마다 <b>다른 색</b>이 자동 배정되고(라이브 색과 안 겹치게), <b>목록(서랍)</b>에서 확인·표시 ON/OFF·삭제할 수 있어요.</li>
+    <li><b>Capture 버튼</b> 또는 <kbd>Space</kbd> — 현재 곡선을 박제. (Spectrum은 이름을 묻고, TF는 자동 이름으로 빠르게 저장.) 저장되면 <b>✓ Captured</b> 표시가 잠깐 떠요.<br><b>측정이 멈춰 있으면 캡쳐·재캡쳐가 되지 않고 안내가 뜹니다</b> <span class="pill">v2.0.2</span> — 라이브 데이터가 없는 상태로 기존 캡쳐가 빈 곡선에 덮어써지는 걸 막기 위해서예요.</li>
+    <li>캡쳐마다 <b>다른 색</b>이 자동 배정되고(라이브 색과 안 겹치게), <b>목록(서랍)</b>에서 확인·삭제할 수 있어요. 표시/숨김은 <b>목록 왼쪽의 색 점을 눌러</b> 바꿉니다 — <b>채움=표시, 빈 원=숨김</b>.</li>
     <li><b>재캡쳐(Recapture, <kbd>R</kbd>)</b> — 기존 캡쳐의 <b>색·이름·그룹은 그대로 두고 곡선 데이터만</b> 현재 라이브로 덮어써요(제자리 다시 찍기). 행 우클릭 메뉴에도 있어요.</li>
   </ul>
   <div class="note">캡쳐는 <b>저장돼요.</b> 앱을 껐다 켜도 캡쳐해 둔 곡선이 그대로 남아, 어제 측정과 오늘 측정을 비교할 수 있습니다.</div>
@@ -695,13 +724,13 @@
   <h3>TF 캡쳐 — 내보내기 (CSV + PNG) · 불러오기 (Import)</h3>
   <p>Transfer Function 탭에서는 캡쳐한 측정값을 <b>파일로 내보내고</b>, 다시 <b>불러올 수</b> 있어요.</p>
   <ul>
-    <li><b>내보내기(Export)</b> — 툴바 <b>Export</b>로 폴더를 고르면:
+    <li><b>내보내기(Export)</b> — 캡쳐 서랍 상단의 <b>↓(Export) 버튼</b>으로 폴더를 고르면:
       <ul>
         <li><b>CSV 파일</b> — 주파수별 크기(dB)·위상·코히런스 <b>숫자 데이터</b>. 엑셀·보고서용. (<code>tf_captures_날짜.csv</code>)</li>
         <li><b>PNG 그림</b> — 그래프 이미지. (<code>tf_이름_날짜.png</code>)</li>
       </ul>
     </li>
-    <li><b>불러오기(Import) <span class="pill">v1.9</span></b> — 내보냈던 캡쳐 CSV를 캡쳐 서랍의 <b>↑ 버튼</b>으로 <b>다시 불러와 화면에 복원</b>해요. 크기·위상·코히런스는 물론, CSV엔 없던 <b>임펄스 응답(IR)도 크기+위상에서 되살려</b> 표시합니다. 여러 캡쳐를 한 번에 불러올 수 있어요.</li>
+    <li><b>불러오기(Import) <span class="pill">v2.0</span></b> — 내보냈던 캡쳐 CSV를 캡쳐 서랍의 <b>↑ 버튼</b>으로 <b>다시 불러와 화면에 복원</b>해요. 크기·위상·코히런스는 물론, CSV엔 없던 <b>임펄스 응답(IR)도 크기+위상에서 되살려</b> 표시합니다. 여러 캡쳐를 한 번에 불러올 수 있어요.</li>
   </ul>
   <div class="tip"><b>여러 캡쳐를 하나로 평균 (TF 평균)</b> — 캡쳐 서랍의 <b>평균</b> 버튼으로 체크한 캡쳐 2개 이상을 <b>복소 평균</b>해 새 <code>Avg(n)</code> 곡선을 만들어요(크기+위상+IR까지). 여러 번 측정한 걸 하나로 합칠 때. (측정 중 실시간 평균은 위 7번 TF의 <b>Σ 라이브 멀티마이크 평균</b>을 보세요.)</div>
 
@@ -723,15 +752,14 @@
     <tr><th>키</th><th>기능</th></tr>
     <tr><td><kbd>Space</kbd></td><td>현재 곡선 캡쳐(박제해서 비교) — Spectrum·TF</td></tr>
     <tr><td><kbd>R</kbd></td><td>선택한 캡쳐 <b>재캡쳐</b>(제자리 다시 찍기) — Spectrum·TF</td></tr>
-    <tr><td><kbd>S</kbd></td><td>분석 시작/정지(Start·Stop)</td></tr>
+    <tr><td><kbd>S</kbd></td><td>분석 시작/정지 — <b>Spectrum · Stereo Loudness</b> (TF는 카드별 Start)</td></tr>
     <tr><td><kbd>L</kbd></td><td>(Transfer Function) 딜레이 자동 찾기 = Find/Auto</td></tr>
     <tr><td><kbd>G</kbd></td><td>(Transfer Function) 신호 발생기 재생/정지</td></tr>
     <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>그래프 dB 범위 위/아래로 이동 — Spectrum·TF</td></tr>
-    <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>(TF) 캡쳐 선택 이동</td></tr>
-    <tr><td><kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>Ctrl</kbd>+<kbd>−</kbd></td><td>(TF) 임펄스 응답(IR) 시간축 확대/축소</td></tr>
-    <tr><td><kbd>⌘</kbd>+<kbd>+</kbd> / <kbd>⌘</kbd>+<kbd>−</kbd> / <kbd>⌘</kbd>+<kbd>0</kbd></td><td>(TF) Magnitude·Phase 주파수축 확대 / 축소 / 전체 리셋 <span class="pill">v1.9</span></td></tr>
+    <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>(TF) 임펄스 응답(IR) 시간축 좌우 이동</td></tr>
+    <tr><td><kbd>⌘</kbd>+<kbd>+</kbd> / <kbd>⌘</kbd>+<kbd>−</kbd></td><td>(TF) 임펄스 응답(IR) 시간축 확대/축소</td></tr>
+    <tr><td><kbd>⌘</kbd>+<kbd>+</kbd> / <kbd>⌘</kbd>+<kbd>−</kbd> / <kbd>⌘</kbd>+<kbd>0</kbd></td><td>(TF) Magnitude·Phase 주파수축 확대 / 축소 / 전체 리셋 <span class="pill">v2.0</span></td></tr>
     <tr><td><kbd>⌘⇧S</kbd> / <kbd>⌘⇧T</kbd> / <kbd>⌘⇧L</kbd></td><td>Spectrum / TF / Stereo 탭을 별도 창으로</td></tr>
-    <tr><td><kbd>⌘⇧2</kbd></td><td>동시 보기(Split View) 토글</td></tr>
     <tr><td><kbd>?</kbd></td><td>단축키 치트시트 / <kbd>⌘?</kbd> 설명서 열기</td></tr>
     <tr><td><kbd>⌘Q</kbd></td><td>종료</td></tr>
   </table>
@@ -749,7 +777,7 @@
   <h2 id="trouble"><span class="n">15</span>문제 해결</h2>
   <table>
     <tr><th>증상</th><th>해결</th></tr>
-    <tr><td>그래프가 안 움직여요</td><td>① 왼쪽 위 <b>▶ Start</b>를 눌렀는지 ② 우측 <b>INPUT</b>에서 올바른 장치/채널을 골랐는지 확인.</td></tr>
+    <tr><td>그래프가 안 움직여요</td><td>① 측정이 시작됐는지 — 상단 바가 <b>● Running</b>인지 확인(시작·정지는 <kbd>S</kbd> 키) ② 우측 <b>INPUT</b>에서 올바른 장치/채널을 골랐는지 ③ 소스 카드의 <b>전원 LED</b>가 꺼져 있지 않은지 확인.</td></tr>
     <tr><td>장치(마이크)가 목록에 없어요</td><td>케이블 연결 후, 장치 선택 콤보를 다시 열어보세요. USB는 뽑았다 끼우면 자동으로 다시 잡습니다.</td></tr>
     <tr><td>USB 인터페이스를 뽑았더니 멈췄어요</td><td>다시 꽂으면 자동 복구됩니다. 안 되면 장치를 다시 선택하세요.</td></tr>
     <tr><td>소음(dBSPL) 숫자가 실제와 달라요</td><td>마이크 <b>캘리브레이션</b>(9번)을 하세요.</td></tr>
@@ -761,7 +789,14 @@
     <tr><td>Stereo Loudness를 몇 시간 켜두면 느려져요/멈춰요</td><td>v1.8에서 해결됐어요 — 적분·LRA 계산 부하가 시간이 지나도 일정하게 유지됩니다(측정값 동일). 구버전이라면 업데이트하세요.</td></tr>
     <tr><td>삭제한 입력 소스 카드가 재시작하면 되살아나요</td><td>v1.8에서 해결됐어요 — 카드 구성이 바뀔 때마다 즉시 저장되어 종료 시점 그대로 복원됩니다.</td></tr>
     <tr><td>별도 창/미터가 전체화면에서 안 보여요</td><td>최신 버전에서 전체화면 위로 정상 표시되도록 처리됐어요. 그래도 안 보이면 본 창을 잠깐 일반 화면으로 했다 다시 시도하세요.</td></tr>
-    <tr><td>라우드니스(LUFS)가 부정확해요</td><td>아날로그 입력은 절대 LUFS를 위해 게인 캘리브가 필요해요. 96kHz는 K-가중 보정이 제한적이라 48/44.1kHz 권장.</td></tr>
+    <tr><td>라우드니스(LUFS)가 부정확해요</td><td>아날로그 입력은 절대 LUFS를 위해 <b>게인 캘리브</b>가 필요해요(디지털 입력은 그대로 정확). <span class="pill">v2.0.2</span> <b>샘플레이트 문제는 해결됐습니다</b> — K-가중 필터를 샘플레이트마다 정확히 만들도록 바꿔, <b>44.1 · 48 · 88.2 · 96 kHz 모두 규격대로</b> 나옵니다(특히 44.1kHz는 저음 가중이 틀려 값이 어긋나던 것을 바로잡았어요). 통합 음량의 게이팅 구간도 국제표준(BS.1770, 400ms·75% 겹침)에 정확히 맞췄습니다.</td></tr>
+    <tr><td>오래 켜두면 점점 무거워져요 (공연·방송 장시간)</td><td><span class="pill">v2.0.2</span> 해결됐어요 — 라우드니스 적분(8시간 기준 <b>약 29배</b>)과 SPL LEQ 표시(<b>약 69배</b>)를 다시 설계했습니다. "사운드체크 땐 멀쩡했는데 밤엔 버벅인다"가 사라집니다. <b>측정값은 그대로</b>입니다.</td></tr>
+    <tr><td>캡쳐가 쌓이니 캡쳐할 때마다 멈칫해요</td><td><span class="pill">v2.0.2</span> 해결됐어요 — 저장을 백그라운드로 옮기고 파일 형식을 가볍게 바꿨습니다(예전엔 50개에서 약 2초, 100개에서 약 4초 정지). 기존 캡쳐 파일도 그대로 열립니다.</td></tr>
+    <tr><td>앱 시작이 느려요</td><td><span class="pill">v2.0.2</span> 해결됐어요 — 실행 후 창이 뜨기까지 <b>약 4.4초 → 1.1초</b>.</td></tr>
+    <tr><td>SPL LEQ 값이 실제보다 커 보여요</td><td><span class="pill">v2.0.2</span> 해결됐어요 — 평균 구간을 고정값으로 가정해 <b>6~16% 긴 구간</b>을 평균하고 있었습니다(진행 바도 같은 비율로 어긋남). 이제 60초 설정이 정확히 60초예요.</td></tr>
+    <tr><td>TF 탭의 RTA 칸이 신호를 못 받을 때 화면이 몇 초씩 멈춰요</td><td><span class="pill">v2.0.2</span> 해결됐어요 — 무한 재시도로 화면을 붙잡던 것을 자동으로 물러나게 했습니다(장치·채널을 바꾸면 다시 시도).</td></tr>
+    <tr><td>창 크기를 조절하면 뚝뚝 끊기고, 스펙트로그램 기록이 사라져요</td><td><span class="pill">v2.0.2</span> 해결됐어요 — 크기가 정해진 뒤 한 번만 다시 그리고, 폭이 바뀌어도 <b>60초 기록이 그대로 이어집니다</b>(예전엔 1픽셀만 움직여도 전부 사라졌어요).</td></tr>
+    <tr><td>측정 마이크가 한참 뒤 조용히 멈춰 있어요</td><td><span class="pill">v2.0.2</span> 자동 복구가 <b>세 탭 모두</b>(Spectrum · Transfer Function · Stereo Loudness, 별도 창 상태 포함) 동작합니다. 측정 중에는 <b>맥이 절전으로 들어가지 않도록</b> 막습니다.</td></tr>
   </table>
 
   <footer>

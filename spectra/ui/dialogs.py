@@ -1345,7 +1345,7 @@ class AllDelayFinderDialog(QDialog):
 
 
 class _AuralizeDialog(QDialog):
-    """오라리제이션 — 측정한 IR로 '그 자리 소리'를 헤드폰으로 듣기.
+    """오라제이션 — 측정한 IR로 '그 자리 소리'를 헤드폰으로 듣기.
 
     아무 음악 파일을 측정 IR과 컨볼루션해 재생. 원음(Dry) vs 공간(Room) A/B.
     ⚠️헤드폰/노트북 출력으로 들을 것(측정한 PA로 내보내면 룸이 두 번 걸림).

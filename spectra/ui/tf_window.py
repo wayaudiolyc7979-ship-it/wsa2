@@ -3680,7 +3680,7 @@ class TransferFunctionWindow(QWidget):
             self._on_captures_changed()
 
     def _open_auralize(self):
-        """오라리제이션 다이얼로그 — 단일 인스턴스(무한 열림 방지). 있으면 앞으로, 로드한 음악 유지."""
+        """오라제이션 다이얼로그 — 단일 인스턴스(무한 열림 방지). 있으면 앞으로, 로드한 음악 유지."""
         dlg = getattr(self, '_auralize_dlg', None)
         if dlg is None:
             dlg = self._auralize_dlg = _AuralizeDialog(self, self)
