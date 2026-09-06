@@ -316,6 +316,9 @@ class LeqWindow(QWidget):
         self._update_timer.stop()
         if hasattr(self.parent(), 'leq_win'):
             self.parent().leq_win = None
+        # 파이썬 참조만 지우면 C++ 객체는 부모(MainWindow) 밑에 그대로 남아, 다시 열 때마다
+        # 새 인스턴스가 생기고 이전 것이 버퍼를 든 채 고아가 된다(창당 최대 44MB).
+        self.deleteLater()
         e.accept()
 
     def _dur_changed(self,idx):
@@ -1016,6 +1019,7 @@ class SplAlarmWindow(QWidget):
         self._timer.stop()
         if hasattr(self._main, 'spl_alarm_win'):
             self._main.spl_alarm_win = None
+        self.deleteLater()          # 부모에 남는 고아 인스턴스 방지(버퍼 동반)
         e.accept()
 
 
@@ -1138,11 +1142,14 @@ class ShowModeWindow(QWidget):
     def _leq_menu(self, gpos):
         """LEQ 드롭다운 — 가중(A/C) + 시간창(1/5/10/15분). 가중 바뀌면 적분 리셋."""
         mnu = QMenu(self)
-        _wa = mnu.addAction('A 가중 (LAeq)'); _wa.setCheckable(True); _wa.setChecked(self._leq_wt == 'a')
-        _wc = mnu.addAction('C 가중 (LCeq)'); _wc.setCheckable(True); _wc.setChecked(self._leq_wt == 'c')
+        # 영어 원문을 키로 쓰는 앱 규약대로 _tx() 경유 — 예전엔 한국어가 하드코딩돼
+        # 영어 모드에서도 '가중'·'분'이 그대로 나왔다.
+        _wa = mnu.addAction(_tx('A-weighted (LAeq)')); _wa.setCheckable(True); _wa.setChecked(self._leq_wt == 'a')
+        _wc = mnu.addAction(_tx('C-weighted (LCeq)')); _wc.setCheckable(True); _wc.setChecked(self._leq_wt == 'c')
         mnu.addSeparator()
         _tacts = {}
-        for sec, lbl in [(60, '1분'), (300, '5분'), (600, '10분'), (900, '15분')]:
+        for sec, lbl in [(60, _tx('1 min')), (300, _tx('5 min')),
+                         (600, _tx('10 min')), (900, _tx('15 min'))]:
             a = mnu.addAction(lbl); a.setCheckable(True); a.setChecked(self._leq_sec == sec)
             _tacts[a] = sec
         act = mnu.exec_(gpos)
@@ -1168,6 +1175,7 @@ class ShowModeWindow(QWidget):
         self._clock.stop()
         if hasattr(self._main, 'show_mode_win'):
             self._main.show_mode_win = None
+        self.deleteLater()
         e.accept()
 
     def paintEvent(self, ev):
@@ -1647,6 +1655,7 @@ class SplMeterWindow(QWidget):
         self._timer.stop()
         if hasattr(self._main, 'spl_meter_win'):
             self._main.spl_meter_win = None
+        self.deleteLater()          # 부모에 남는 고아 인스턴스 방지(버퍼 동반)
         e.accept()
 
 

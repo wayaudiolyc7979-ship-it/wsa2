@@ -743,6 +743,7 @@ class CalibDialog(QDialog):
         """채널 행 [선택] → 부모 입력 채널 전환 후 그 채널을 측정 대상으로."""
         if self._measuring:
             self._meas_timer.stop(); self._measuring = False
+            self._reset_meas_btn()      # 중단 시에도 버튼 라벨/스타일 원복
         self._cur_ch = ch
         try: self._set_channel(ch)   # 부모 in_ch_cb 전환 → 스트림 재시작
         except Exception as e: _alog.warning(f'캘리브 채널 전환 실패 ch={ch}: {e}')
@@ -799,17 +800,36 @@ class CalibDialog(QDialog):
             self.meas_spin.setValue(round(avg, 1))
             self.meas_display.setText(f'{avg:.1f} dBFS  ✓')
             self.meas_display.setStyleSheet(f'color:{T("green")};font-size:26px;font-weight:bold;')
-            self.meas_btn.setText(_tx('Measure Level  (3s)')); self.meas_btn.setIcon(_icon('mic', 14, color=T('accent')))
-            self.meas_btn.setStyleSheet(f'background:rgba(78,125,240,25);color:{T("accent")};'
-                                         f'border:1px solid {T("accent")};padding:6px;border-radius:5px;font-size:12px;')
+            self._reset_meas_btn()
             self._auto_calc()
+
+    def _reset_meas_btn(self):
+        """측정 버튼을 기본 상태로 — 측정 완료·중단 양쪽에서 공통 사용.
+        (예전엔 완료 경로에만 있어, 측정 중 채널을 바꾸면 버튼이 'Measuring... (3s)'
+         라벨·앰버 스타일에 영구 고착됐다.)"""
+        self.meas_btn.setText(_tx('Measure Level  (3s)')); self.meas_btn.setIcon(_icon('mic', 14, color=T('accent')))
+        self.meas_btn.setStyleSheet(f'background:rgba(78,125,240,25);color:{T("accent")};'
+                                     f'border:1px solid {T("accent")};padding:6px;border-radius:5px;font-size:12px;')
 
     def _auto_calc(self):
         ref_val = 94.0 if self.ref_cb.currentIndex()==0 else 114.0
         meas    = self.meas_spin.value()
         offset  = ref_val - meas
         self.offset_spin.setValue(round(offset, 1))   # → _on_offset_edited 가 _offsets 기록
-        self.result_lbl.setText(_tx('Ch {n}  offset {off:+.1f} dB  ->  {meas:.1f} + {off:.1f} = {ref:.0f} dBSPL ✓').format(n=self._cur_ch+1, off=offset, meas=meas, ref=ref_val))
+        # ★ 스핀박스 범위를 벗어나면 Qt가 조용히 클램프한다. 예전엔 클램프 전 값으로 결과를
+        #   적어 "= 114 dBSPL ✓"라고 단언했지만 실제 저장값은 다른(잘못된) 캘리브였다.
+        #   실제 적용된 값으로 표시하고, 잘렸으면 ✓ 대신 경고를 낸다.
+        applied = self.offset_spin.value()
+        if abs(applied - offset) > 0.05:
+            self.result_lbl.setText(
+                _tx('Offset out of range — clamped to {off:+.1f} dB (measured {meas:.1f} dBFS). Check the mic/calibrator.')
+                .format(off=applied, meas=meas))
+            try: self.result_lbl.setStyleSheet(f'color:{T("yellow")};font-size:12px;')
+            except Exception: pass
+            return
+        try: self.result_lbl.setStyleSheet(f'color:{T("text")};font-size:12px;')
+        except Exception: pass
+        self.result_lbl.setText(_tx('Ch {n}  offset {off:+.1f} dB  ->  {meas:.1f} + {off:.1f} = {ref:.0f} dBSPL ✓').format(n=self._cur_ch+1, off=applied, meas=meas, ref=ref_val))
 
     def get_all_offsets(self):
         """{ch:int -> offset:float} — 이번 세션에서 설정/변경된 모든 채널."""
@@ -1032,10 +1052,23 @@ class DelayFinderDialog(QDialog):
             d_ms = round(float(peak) / sr * 1000.0, 2)
             self._result_sig.emit(d_ms)
 
-        threading.Thread(target=_worker, daemon=True).start()
+        def _worker_guarded():
+            # 워커가 예외로 죽으면 _on_result가 안 불려 Find/Insert 버튼이 영구 비활성으로 남는다.
+            # 반드시 결과 신호를 내보내 UI를 원상복구시킨다.
+            try: _worker()
+            except Exception as _e:
+                _alog.warning(f'딜레이 파인더 계산 실패: {_e}')
+                self._result_sig.emit(float('nan'))
+
+        threading.Thread(target=_worker_guarded, daemon=True).start()
 
     def _on_result(self, d_ms):
         self.find_btn.setEnabled(True)
+        if d_ms != d_ms:      # NaN = 워커 예외(가드가 보낸 값) → 버튼만 살리고 값은 건드리지 않음
+            self._meas_ms_lbl.setText('—')
+            _BrandBox.information(self, _tx('Delay Finder'),
+                                  _tx('Not enough data yet.\nCheck that signal is present and try again.'))
+            return
         self._measured_ms = d_ms
         m_factor  = self._speed_ms / 1000.0
         ft_factor = m_factor * 3.28084
@@ -1243,7 +1276,13 @@ class AllDelayFinderDialog(QDialog):
                 out.append((label, enc, d_ms))
             self._results_sig.emit(out)
 
-        threading.Thread(target=_worker, daemon=True).start()
+        def _worker_guarded():
+            try: _worker()
+            except Exception as _e:
+                _alog.warning(f'전체 딜레이 찾기 실패: {_e}')
+                self._results_sig.emit([])      # 빈 결과라도 보내 버튼 잠김 해제
+
+        threading.Thread(target=_worker_guarded, daemon=True).start()
 
     def _on_results(self, results):
         self._results = results
@@ -1445,7 +1484,10 @@ class _AuralizeDialog(QDialog):
             self._ir_cb.addItem(_tx('Live'), ('live', -1))
         for i, c in enumerate(getattr(ir, '_captures', []) if ir else []):
             if c.get('h') is not None and len(c['h']) > 4:
-                self._ir_cb.addItem(c.get('label', f'Capture {i+1}'), ('cap', i))
+                # 위치 인덱스만 담으면 캡처를 지우거나 순서를 바꿨을 때 다른 캡처를 가리킨다
+                # (다이얼로그가 non-modal이라 열어둔 채 캡처를 지울 수 있음) → 라벨을 같이 담아
+                # _current_ir에서 검증·재탐색한다.
+                self._ir_cb.addItem(c.get('label', f'Capture {i+1}'), ('cap', i, c.get('label', '')))
         if self._ir_cb.count() == 0:
             self._ir_cb.addItem(_tx('— none —'), (None, -1))
         self._ir_cb.blockSignals(False)
@@ -1461,13 +1503,22 @@ class _AuralizeDialog(QDialog):
         if ir is None: return None, ''
         data = self._ir_cb.currentData() if hasattr(self, '_ir_cb') else ('live', -1)
         if not data: return None, ''
-        kind, idx = data
+        kind, idx = data[0], data[1]
+        want = data[2] if len(data) > 2 else None      # 저장 시점 라벨(있으면 검증용)
         if kind == 'live' and getattr(ir, 'h_raw', None) is not None and len(ir.h_raw) > 4:
             return np.asarray(ir.h_raw, dtype=np.float32), _tx('Live')
         if kind == 'cap':
             caps = getattr(ir, '_captures', [])
-            if 0 <= idx < len(caps) and caps[idx].get('h') is not None:
+            # 인덱스가 여전히 같은 캡처를 가리키는지 라벨로 확인 — 어긋나면 라벨로 재탐색하고,
+            # 그래도 없으면 '삭제됨'으로 보고 None(호출부가 안내). 예전엔 밀린 인덱스로 조용히
+            # 다른 캡처의 IR을 재생하거나 아무 반응 없이 끝났다.
+            if 0 <= idx < len(caps) and caps[idx].get('h') is not None and \
+               (want is None or caps[idx].get('label', '') == want):
                 return np.asarray(caps[idx]['h'], dtype=np.float32), caps[idx].get('label', 'capture')
+            if want:
+                for c in caps:
+                    if c.get('label', '') == want and c.get('h') is not None:
+                        return np.asarray(c['h'], dtype=np.float32), want
         return None, ''
 
     def _refresh_ir_state(self):
@@ -1544,7 +1595,12 @@ class _AuralizeDialog(QDialog):
             self._pending_play = False
             self._set_active('dry'); self._start_playback(self._music); return
         ir, _ = self._current_ir()
-        if ir is None or self._music is None: return
+        if ir is None or self._music is None:
+            # 선택했던 캡처가 그새 삭제되면 예전엔 버튼만 눌리고 아무 일도 안 일어났다.
+            # 목록을 새로고침하면 IR 뷰가 'measure first (TF / sweep)'를 그리고 Room 버튼도
+            # 비활성으로 바뀌어, 왜 안 되는지 화면에 드러난다.
+            self._populate_ir_sources(); self._refresh_ir_state(); self._set_playable()
+            return
         sig = self._ir_sig(ir)
         if self._wet is not None and self._wet_sig == sig:   # 유효 캐시 → 즉시 재생
             self._pending_play = False

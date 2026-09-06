@@ -1791,14 +1791,23 @@ class TransferFunctionWindow(QWidget):
     def _populate_extra_pair(self, pair, entry):
         """추가 카드(pair) 하나에 저장된 장치/채널/딜레이/이름/번호를 채움."""
         mcb = pair['meas_cb']; mch = pair['meas_ch_cb']
+        # ★ 저장된 장치/채널이 지금 없으면 콤보의 기본 선택(엉뚱한 입력)에 조용히 물린다.
+        #   못 찾았음을 로그로 남겨 '왜 다른 마이크가 측정되지' 를 추적 가능하게 한다.
+        #   (ref/meas/out 복원 경로는 _select_combo_by_name 반환값으로 이미 이렇게 처리한다.)
         dev_name = entry.get('meas_device', '')
+        _dev_ok = False
         for i in range(mcb.count()):
             if self._strip_star(mcb.itemText(i)) == dev_name:
-                mcb.setCurrentIndex(i); break
+                mcb.setCurrentIndex(i); _dev_ok = True; break
         saved_ch = entry.get('meas_ch', 0)
+        _ch_ok = False
         for i in range(mch.count()):
             if mch.itemData(i) == saved_ch:
-                mch.setCurrentIndex(i); break
+                mch.setCurrentIndex(i); _ch_ok = True; break
+        if not _dev_ok or not _ch_ok:
+            _alog.warning(f'TF 카드 복원 — 저장된 입력을 못 찾음 (device="{dev_name}" found={_dev_ok}, '
+                          f'ch={saved_ch} found={_ch_ok}) → 현재 선택으로 대체됨')
+            _diag('tf_card_restore_miss', dev=dev_name, dev_ok=_dev_ok, ch=saved_ch, ch_ok=_ch_ok)
         dly = float(entry.get('delay_ms', 0.0))
         pair['delay_ms'] = dly
         pair['card'].set_delay(dly)
@@ -2131,6 +2140,14 @@ class TransferFunctionWindow(QWidget):
         pair = self._extra_pairs.pop(idx)
         self._extra_pair_threads.pop(idx)
         self._extra_pair_acc.pop(idx)
+        # ★ 인덱스를 키로 쓰는 레퍼런스 캐시도 함께 재정렬 — pop으로 뒤 인덱스가 당겨지는데
+        #   이 dict를 그대로 두면 재사용된 인덱스가 '삭제된 쌍의 레퍼런스'를 읽어 조용히
+        #   잘못된 TF(크기·위상)가 나온다. 해당 키 제거 + 뒤 키 한 칸씩 당김.
+        for _d in (getattr(self, '_extra_ref_fft', None), getattr(self, '_extra_ref_buf', None)):
+            if not _d: continue
+            _d.pop(idx, None)
+            for _k in sorted(k for k in list(_d) if isinstance(k, int) and k > idx):
+                _d[_k - 1] = _d.pop(_k)
         row_w = pair.get('row_w')
         if row_w is not None: row_w.setParent(None); row_w.deleteLater()
         # 통합 카드 제거
@@ -3643,7 +3660,10 @@ class TransferFunctionWindow(QWidget):
         if dlg is None:
             dlg = self._auralize_dlg = _AuralizeDialog(self, self)
         else:
-            dlg._populate_ir_sources(); dlg._refresh_ir_state()   # 그새 재측정/새 캡처 반영
+            # ★ _set_playable()까지 불러야 한다 — 예전엔 빠져 있어, 측정 전에 한 번 열어
+            #   Room이 비활성된 상태로 닫으면 이후 측정을 마치고 다시 열어도 계속 비활성이었다
+            #   (_populate_ir_sources가 blockSignals로 채워 _on_ir_src_changed도 안 돌기 때문).
+            dlg._populate_ir_sources(); dlg._refresh_ir_state(); dlg._set_playable()
         dlg.show(); dlg.raise_(); dlg.activateWindow()
 
     def _sync_freq_zoom(self, lo, hi):

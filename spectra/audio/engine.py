@@ -424,12 +424,13 @@ class _DeviceStream:
 
     def _close_thread(self):
         if self.thread is not None:
-            try:
-                self.thread.chunk_ready.disconnect()
-                if hasattr(self.thread, 'raw_ready'): self.thread.raw_ready.disconnect()
-                self.thread.error_signal.disconnect()
-                self.thread.disconnected_signal.disconnect()
-            except Exception: pass
+            # 네 신호를 각각 끊는다 — 한 try에 묶으면 앞의 disconnect가 던졌을 때 나머지가
+            # '버려질 스레드'에 연결된 채로 남아 늦은 콜백이 죽은 소비자를 때린다.
+            for _sig in ('chunk_ready', 'raw_ready', 'error_signal', 'disconnected_signal'):
+                _s = getattr(self.thread, _sig, None)
+                if _s is None: continue
+                try: _s.disconnect()
+                except Exception: pass
             try: self.thread.stop()
             except Exception: pass
             self.thread = None

@@ -339,6 +339,13 @@ _TR_KO = {        # {english_ui_string: 쉬운_한국어}
     'Quiet — push up': '작음 — 높이세요',
     # ── 캡쳐 피드백 ──────────────────────────────────────────────────────
     'Press Start first — no live data to recapture.': 'Start를 먼저 누르세요 — 다시 캡쳐할 라이브 데이터가 없습니다.',
+    # ── 쇼 모드 LEQ 메뉴 ─────────────────────────────────────────────────
+    'A-weighted (LAeq)': 'A 가중 (LAeq)',
+    'C-weighted (LCeq)': 'C 가중 (LCeq)',
+    '1 min': '1분', '5 min': '5분', '10 min': '10분', '15 min': '15분',
+    # ── 마이크 보정 경고 ─────────────────────────────────────────────────
+    'Offset out of range — clamped to {off:+.1f} dB (measured {meas:.1f} dBFS). Check the mic/calibrator.':
+        '오프셋이 범위를 벗어나 {off:+.1f} dB로 제한되었습니다 (측정 {meas:.1f} dBFS). 마이크·캘리브레이터를 확인하세요.',
 }        # ── _TR_KO 끝 ────────────────────────────────────────────────────
 _LANG = 'en'       # 'en' | 'ko' — 모듈 로드 끝에서 확정
 

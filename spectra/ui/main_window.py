@@ -4372,7 +4372,10 @@ class MainWindow(QMainWindow):
             tf._save_tf_captures()
 
     def _on_spec_capture_delete(self, idx):
+        # 서랍 재그리기가 지연 실행이라(≈16ms) 그 사이 stale 행을 한 번 더 누르면 인덱스가
+        # 범위를 벗어난다 — 형제 핸들러(rename/visibility/move)처럼 여기도 가드한다.
         fft_n = len(self.fft_cvs._captures)
+        if idx < 0 or idx >= fft_n + len(self.oct_cvs._captures): return
         if idx < fft_n:
             label = self.fft_cvs._captures[idx].get('label', str(idx))
             self.fft_cvs.remove_capture(idx)
