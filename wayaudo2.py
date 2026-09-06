@@ -585,6 +585,8 @@ def _log_startup_diagnostics(app=None):
 from spectra.ui.main_window import _log_audio_devices
 if __name__=='__main__':
     from PyQt5.QtGui import QPixmap
+    _T_BOOT = time.monotonic()   # 스플래시 최소 노출시간 계산 기준(가산 아닌 '하한'용)
+    _SPLASH_MIN_MS = 900         # 브랜드 스플래시 최소 노출(ms). 기동이 이보다 오래 걸리면 추가 대기 0
 
     # ── macOS Monterey+ Retina / High-DPI 지원
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
@@ -656,7 +658,10 @@ if __name__=='__main__':
         def _launch():
             win.show()
             splash.close()
-        QTimer.singleShot(3000, _launch)
+        # 스플래시는 '최소 노출시간'(하한)이지 추가 대기가 아니다. 예전엔 무조건 3000ms를
+        # 창 생성이 끝난 **뒤에** 더해서, 기동 4.4초 중 3.0초(68%)가 순수 대기였다.
+        _elapsed_ms = int((time.monotonic() - _T_BOOT) * 1000)
+        QTimer.singleShot(max(0, _SPLASH_MIN_MS - _elapsed_ms), _launch)
     else:
         win.show()
 

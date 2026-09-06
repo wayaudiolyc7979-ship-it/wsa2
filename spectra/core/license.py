@@ -121,9 +121,22 @@ def save_license(key: str):
     os.makedirs(_LIC_DIR, exist_ok=True)
     with open(_LIC_PATH, 'w') as f: f.write(key.strip())
 
-def check_license_at_startup() -> bool:
-    """저장된 키 검증. True=통과, False=라이선스 없음/무효."""
+_STARTUP_LICENSE_OK = None   # 검증 결과 캐시(Ed25519 순수파이썬 verify가 285ms — 2회 호출 방지)
+
+
+def check_license_at_startup(force: bool = False) -> bool:
+    """저장된 키 검증. True=통과, False=라이선스 없음/무효.
+
+    [기동시간] 결과를 캐시한다. Ed25519 verify가 순수 파이썬이라 1회 285ms인데,
+    기동 경로에서 두 번(진단 로그 한 줄 + 실제 게이트) 불려 570ms를 그냥 태웠다.
+    활성화 직후처럼 다시 확인해야 하면 force=True."""
+    global _STARTUP_LICENSE_OK
+    if _STARTUP_LICENSE_OK is not None and not force:
+        return _STARTUP_LICENSE_OK
     key = load_license()
-    if not key: return False
+    if not key:
+        _STARTUP_LICENSE_OK = False
+        return False
     valid, _ = verify_license(key)
-    return valid
+    _STARTUP_LICENSE_OK = bool(valid)
+    return _STARTUP_LICENSE_OK
