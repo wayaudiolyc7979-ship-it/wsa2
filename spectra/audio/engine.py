@@ -195,6 +195,7 @@ class MultiChannelAudioThread(QThread):
         _last_cb   = [time.monotonic()]
         _got_cb    = [False]   # 첫 콜백 수신 여부 — 시작 지연을 끊김으로 오판 방지
         _dead_retry = [0]      # 연속 실패 재오픈 횟수 — 콜백 재개 시 리셋(장시간 세션 소진 방지)
+        _cb_err_logged = [False]  # 콜백 예외 1회 기록 플래그(로그 폭주 없이 원인 추적)
 
         def cb(indata, frames, ti, status):
             if not self.running: return
@@ -220,7 +221,14 @@ class MultiChannelAudioThread(QThread):
                 if now - _last_emit[0] >= 0.016:
                     _last_emit[0] = now
                     self.chunk_ready.emit({ch: bufs[ch].copy() for ch in self.channels})
-            except Exception: pass
+            except Exception as _e:
+                # 콜백에서 던지면 삼키되(오디오 스레드 보호) 스트림당 1회는 남긴다.
+                # 매번 던지는 콜백은 liveness가 안 갱신돼 stall→재오픈→'(stall)'→앱 재초기화
+                # 루프로 번지는데, 통째로 삼키면 로그 한 줄 없이 영원히 돈다.
+                if not _cb_err_logged[0]:
+                    _cb_err_logged[0] = True
+                    _alog.error(f'오디오 콜백 예외(스트림당 1회만 기록) dev={self.device_idx}: {_e}')
+                    _diag('eng_cb_exc', dev=self.device_idx, err=str(_e)[:80])
 
         def _open(bs, lat):
             # 객체만 생성 — start()는 _run() 내 _no_stderr() 안에서 호출됨
@@ -377,16 +385,15 @@ class _DeviceStream:
     def remove(self, sub):
         if sub in self.subs: self.subs.remove(sub)
         if not self.subs:       # 마지막 구독 해제 → 스트림 종료 (union 축소는 v1 생략)
-            self._close(); return
-        # high 요청 구독자(TF)가 빠져 latency를 낮출 수 있으면 재해상해 low로 되돌린다 —
-        # add()의 '상승 시 재오픈'과 대칭. 예전엔 remove가 latency를 안 낮춰 TF 종료 후에도
-        # Spectrum이 세션 내내 _HI_LAT(40ms)로 둔하던 비대칭. union(채널)은 그대로 두고 latency만.
-        # (재오픈은 남은 Spectrum 스트림에 순간 글리치 가능 — add 경로가 이미 감수하는 것과 동종.)
-        need_lat = self._resolve_latency()
-        if need_lat != self.force_latency:
-            _diag('eng_remove_relat', dev=self.device_idx, n_subs=len(self.subs),
-                  lat=str(need_lat), was=str(self.force_latency))
-            self._open(self.union, need_lat)
+            self._close()
+        # ⚠️ 여기서 latency를 낮추려고 _open()으로 재오픈하지 않는다(v2.0.2에서 시도했다 원복).
+        #    remove()는 teardown 경로(reinit_audio_devices의 탭별 stop → stop_all, 그리고 stall 복구)
+        #    에서도 불리는데, 그때 재오픈하면 ①방금 되살린 스트림이 곧바로 stop_all/_terminate와
+        #    겹쳐 '스트림 열린 채 sd._terminate()' = -10851 조건을 만들고 ②평상시에도 TF Stop마다
+        #    공유 스트림이 끊겨 raw_ready 기반 라우드니스 적분에 구멍이 나며(Integrated/LRA 오염)
+        #    ③Subscription.close()가 GUI 스레드라 _close_thread()의 wait(3000)에 UI가 묶인다.
+        #    ⇒ TF 종료 후 Spectrum이 _HI_LAT(40ms)에 머무는 둔함은 감수하고, 낮추려면 스트림이
+        #      완전히 닫힌 뒤(마지막 구독 해제) 다음 subscribe에서 자연히 low로 열리게 둔다.
 
     def _open(self, channels, force_latency=None):
         self._close_thread()

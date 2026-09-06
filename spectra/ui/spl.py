@@ -23,6 +23,47 @@ from spectra.ui.widgets import (RoundComboBox, _GradTimeBar, _N2Button, _PinBtn,
 from spectra.ui.dialogs import SplAlarmConfigDialog, SplLayoutDialog
 
 
+class _RingBuf:
+    """고정 용량 float 링버퍼 — LEQ 적분용.
+
+    [장시간] 예전엔 deque(maxlen=50*3600*3)에 파이썬 float를 담고 매 틱(200ms)마다
+    `np.array(list(buf)[-n:])`로 읽었다. list(deque)가 **버퍼 전체(최대 54만 개)** 를
+    먼저 복사하므로, 1분 LEQ를 보려고 3천 개만 필요해도 3시간 구동 시 한 번에 2.7ms가 들고
+    미터+알람 두 창이면 GUI 스레드를 초당 ~24ms 잡아먹었다(실측).
+    ndarray 링버퍼로 두면 최근 n개를 O(n) 슬라이스 복사로 바로 꺼낼 수 있어 버퍼가 아무리
+    길어도 창 길이에만 비례한다."""
+    __slots__ = ('_a', '_cap', '_n', '_i')
+
+    def __init__(self, cap):
+        self._cap = max(1, int(cap))
+        self._a = np.empty(self._cap, dtype=np.float64)
+        self._n = 0; self._i = 0
+
+    def __len__(self): return self._n
+    def __bool__(self): return self._n > 0
+
+    def clear(self): self._n = 0; self._i = 0
+
+    def append(self, v):
+        self._a[self._i] = v
+        self._i += 1
+        if self._i >= self._cap: self._i = 0
+        if self._n < self._cap: self._n += 1
+
+    def last(self, k):
+        """최근 k개를 ndarray로 (복사 1회, O(k)). k가 보유량보다 크면 보유량만큼."""
+        k = min(int(k), self._n)
+        if k <= 0: return np.empty(0, dtype=np.float64)
+        start = self._i - k
+        if start >= 0:
+            return self._a[start:self._i].copy()
+        head = -start                                  # 뒤쪽(랩어라운드) 구간 길이
+        out = np.empty(k, dtype=np.float64)
+        out[:head] = self._a[self._cap - head:]
+        out[head:] = self._a[:self._i]
+        return out
+
+
 def _draw_reload_arrow(p, cx, cy, r, col, lw=2.0):
     """리셋/리로드용 둥근 화살표 — 거의 꽉 찬 원(상단 작은 틈)+깔끔한 삼각 화살촉. 공용."""
     p.setRenderHint(QPainter.Antialiasing, True)
@@ -204,8 +245,8 @@ class LeqWindow(QWidget):
         self.setMinimumSize(340, 300)
         self.setStyleSheet(f'background:{T("bg2")};color:{T("text")};')
 
-        self._leq_a_buf = deque()
-        self._leq_c_buf = deque()
+        self._leq_a_buf = _RingBuf(60 * 60 * 50)   # 최대 프리셋 60분 × 50Hz (ndarray 링버퍼)
+        self._leq_c_buf = _RingBuf(60 * 60 * 50)
         self._start_time = None
         self._buf_mutex = QMutex()
         self._duration_min = 5
@@ -302,19 +343,18 @@ class LeqWindow(QWidget):
 
     def push_sample(self, dba, dbc):
         if not self._running: return
-        max_samples = self._duration_min * 60 * 50
         with QMutexLocker(self._buf_mutex):
             self._leq_a_buf.append(dba)
             self._leq_c_buf.append(dbc)
-            while len(self._leq_a_buf) > max_samples: self._leq_a_buf.popleft()
-            while len(self._leq_c_buf) > max_samples: self._leq_c_buf.popleft()
 
     def _update_display(self):
         if not self._running: return
+        max_samples = self._duration_min * 60 * 50      # 창 길이만 읽는다(링버퍼는 최대치까지 보유)
         with QMutexLocker(self._buf_mutex):
             if not self._leq_a_buf: return
-            a_arr=np.array(list(self._leq_a_buf))
-            c_arr=np.array(list(self._leq_c_buf))
+            a_arr=self._leq_a_buf.last(max_samples)
+            c_arr=self._leq_c_buf.last(max_samples)
+        if a_arr.size == 0: return
         leq_a=10*np.log10(np.mean(10**(a_arr/10)))
         leq_c=10*np.log10(np.mean(10**(c_arr/10)))
         self.leq_a_lbl.setText(f'{leq_a:.1f} dBA')
@@ -566,8 +606,8 @@ class _SplMetricEngine:
 
     def __init__(self, leq_secs=900, calib=0.0):
         self._ema = {}; self._peak = {}
-        self._buf_a = deque(maxlen=self._RATE * 3600 * 3)
-        self._buf_c = deque(maxlen=self._RATE * 3600 * 3)
+        self._buf_a = _RingBuf(self._RATE * 3600 * 3)   # 3시간(최대 LEQ 프리셋)
+        self._buf_c = _RingBuf(self._RATE * 3600 * 3)
         self._last_t = None
         self._leq_secs = max(1, int(leq_secs))
         self._calib = calib
@@ -614,10 +654,9 @@ class _SplMetricEngine:
     def value(self, mid):
         if mid in ('laeq', 'lceq'):
             buf = self._buf_a if mid == 'laeq' else self._buf_c
-            n = min(len(buf), self._leq_secs * self._RATE)
-            if not n:
+            arr = buf.last(self._leq_secs * self._RATE)   # O(창 길이) — 버퍼 전체 복사 없음
+            if arr.size == 0:
                 return None
-            arr = np.array(list(buf)[-n:])
             return float(10 * np.log10(np.mean(10 ** (arr / 10))))
         if mid in self._peak:
             return self._peak.get(mid)
@@ -1265,8 +1304,8 @@ class SplMeterWindow(QWidget):
         self.setWindowTitle('SPL Meter')
         self.setAttribute(Qt.WA_DeleteOnClose, False)
 
-        self._buf_a = deque(maxlen=self._PUSH_RATE * 60 * 60 * 3)  # 3 hr max
-        self._buf_c = deque(maxlen=self._PUSH_RATE * 60 * 60 * 3)
+        self._buf_a = _RingBuf(self._PUSH_RATE * 60 * 60 * 3)  # 3 hr max (ndarray 링버퍼)
+        self._buf_c = _RingBuf(self._PUSH_RATE * 60 * 60 * 3)
         self._max_a = None; self._max_c = None
         self._max_laeq = None; self._max_lceq = None
         self._leq_secs = 60  # default 1 min
@@ -1502,8 +1541,9 @@ class SplMeterWindow(QWidget):
         with QMutexLocker(self._mutex):
             _len = len(self._buf_a)
             n = min(_len, self._leq_secs * self._PUSH_RATE)
-            arr_a = np.array(list(self._buf_a)[-n:]) if n else None
-            arr_c = np.array(list(self._buf_c)[-n:]) if n else None
+            # 링버퍼 — 창 길이(n)에만 비례. 예전엔 list(deque)가 버퍼 전체를 먼저 복사했다.
+            arr_a = self._buf_a.last(n) if n else None
+            arr_c = self._buf_c.last(n) if n else None
             ema   = dict(self._ema); maxv = dict(self._maxv); peaks = dict(self._peak_hold)
         self._update_timebar(_len)
 

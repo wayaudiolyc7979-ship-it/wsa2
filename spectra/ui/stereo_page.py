@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QPushBut
                              QVBoxLayout, QWidget)
 from spectra.core.config import T, is_dark
 from spectra.core.i18n import _tx
-from spectra.core.logging_diag import _alog
+from spectra.core.logging_diag import _alog, _diag
 from spectra.audio.engine import _win_extra_settings
 from spectra.dsp.loudness import LoudnessMeter
 from spectra.ui.tokens import FS_BODY, FS_LG, FS_METRIC, FS_SM, FS_XS
@@ -230,6 +230,9 @@ class StereoLoudnessPage(QWidget):
         # 벡터스코프 고정 30fps 페인트 타이머 — raw 청크(무스로틀 ~90Hz)마다 직접 .update() 하던
         # 안티패턴 제거. _on_chunk은 push_chunk로 롤링버퍼 축적만, 페인트는 이 타이머가 한다
         # (레이더·스펙트럼과 동일한 producer/consumer 규약). 측정 중에만 돌도록 start/stop과 연동.
+        # ※ _disp_timer/_vs_timer는 페이지 수명 = 앱 수명(QStackedWidget 상주)이라 closeEvent로
+        #   멈추지 않는다. 팝아웃 창을 닫아도 페이지는 파괴되지 않고 메인으로 도킹될 뿐이므로
+        #   거기서 멈추면 도킹 후 화면이 죽는다. 실제 생명주기는 start()/stop()이 관리.
         self._vs_timer=QTimer(self)
         self._vs_timer.timeout.connect(lambda: self._vs.update())
         self._vs_timer.setInterval(33)
@@ -552,7 +555,7 @@ class StereoLoudnessPage(QWidget):
         if _open_sr is not None and _open_sr!=sr:
             _alog.info(f'Stereo SR 합의 — device {dev_idx} 이미 {_open_sr}Hz 열림 → {sr}→{_open_sr}')
             sr=_open_sr
-        self._l_ch=l_ch; self._r_ch=r_ch
+        self._l_ch=l_ch; self._r_ch=r_ch; self._dev_idx=dev_idx   # 진단 로그용
         self._meter=LoudnessMeter(sr); self._meter.start_integration()
         try:
             self._sub=engine.subscribe(dev_idx,[l_ch,r_ch],sr)
@@ -561,17 +564,48 @@ class StereoLoudnessPage(QWidget):
             self._on_error(str(e)); return
         self._sub.raw_ready.connect(self._on_raw,Qt.QueuedConnection)
         self._sub.error.connect(self._on_error,Qt.QueuedConnection)
-        self._sub.disconnected.connect(self._on_error,Qt.QueuedConnection)
+        self._sub.disconnected.connect(self._on_disconnected,Qt.QueuedConnection)
         self._radar.start(); self._running=True
         self._vs_timer.start()            # 벡터스코프 30fps 페인트 시작
 
+    def _resolve_mainwin(self):
+        """MainWindow 안정 해석 — 도킹 상태면 window()가 곧 MainWindow지만, 팝아웃되면
+        window()는 _StereoPopoutWindow(reinit_audio_devices 없음)라 한 단계 더 타고 올라가야 한다."""
+        w = self.window()
+        if w is not None and hasattr(w, 'reinit_audio_devices'):
+            return w
+        mw = getattr(w, '_mainwin', None)
+        if mw is not None and hasattr(mw, 'reinit_audio_devices'):
+            return mw
+        return None
+
+    def _on_disconnected(self, msg=''):
+        """스트림 끊김 — '(stall)' 확정 신호면 MainWindow의 재초기화+자동복구에 태운다.
+        예전엔 _on_error로 직결돼 ①장시간 라우드니스(가장 복구가 필요한 케이스)가 복구 대상에서
+        빠지고 ②내부 마커 문자열이 사용자 다이얼로그에 그대로 노출됐다."""
+        if isinstance(msg, str) and '(stall)' in msg:
+            mw = self._resolve_mainwin()
+            if mw is not None:
+                _diag('stereo_stall_recover', dev=getattr(self, '_dev_idx', -1))
+                mw._stall_recover('stereo')   # 공용 경로(에피소드 디바운스 포함)
+                return
+            _alog.warning('Stereo stall — MainWindow 참조 실패, 정지만 수행')
+            self.stop(); return
+        self._on_error(msg)
+
     def stop(self):
         if self._sub:
-            try: self._sub.raw_ready.disconnect()
-            except Exception: pass
+            # raw_ready만이 아니라 error/disconnected도 해제 — 남아 있으면 close 직전에 큐잉된
+            # 늦은 disconnected가 '복구로 막 되살아난 측정'을 다시 죽이고 모달까지 띄운다.
+            for _sig in ('raw_ready', 'error', 'disconnected'):
+                try: getattr(self._sub, _sig).disconnect()
+                except Exception: pass
             try: self._sub.close()
             except Exception: pass
             self._sub=None
+        if self._meter is not None:
+            try: self._meter.stop_integration()   # 정지 중 누적배열이 계속 자라지 않도록
+            except Exception: pass
         self._radar.stop(); self._running=False
         self._vs_timer.stop()             # 벡터스코프 페인트 정지(측정 종료)
         self._vs.update()                 # 마지막 상태 1회 반영(정지 후 잔상 갱신)
@@ -582,7 +616,7 @@ class StereoLoudnessPage(QWidget):
         if hasattr(self, '_hist'): self._hist.reset()
 
     def reset_peak(self):
-        if self._meter: self._meter._PH=-100.0
+        if self._meter: self._meter.reset_peak()   # _PH + _TP 함께(PLR/PSR 고착 방지)
         self._radar.reset_peak()
 
     def _on_raw(self,d):
@@ -666,11 +700,6 @@ class _StereoPopoutWindow(QWidget):
         self.setMinimumSize(900, 520)
 
     def closeEvent(self, e):
-        # 타이머 정지(생명주기 대칭) — os._exit로 종료돼 무해했지만 명시 정지로 정리.
-        for _t in (getattr(self, '_disp_timer', None), getattr(self, '_vs_timer', None)):
-            try:
-                if _t is not None: _t.stop()
-            except Exception: pass
         if not self._docking and self._mainwin is not None:
             self._mainwin._dock_st(via_close=True)
         super().closeEvent(e)

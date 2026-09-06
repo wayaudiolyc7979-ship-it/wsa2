@@ -2759,12 +2759,22 @@ class TransferFunctionWindow(QWidget):
         # 개수 가드로 무시하면 안 됨 → stop-먼저 경로(_after_tf_disconnect: 스냅샷이 비어 복구 실패)를
         # 건너뛰고 스냅샷-후-정지하는 reinit_audio_devices로 직행해 같은 장치 자동복구를 태운다.
         if isinstance(msg, str) and '(stall)' in msg:
-            mw = self.window()
-            if mw is not None and hasattr(mw, 'reinit_audio_devices'):
-                _alog.info('TF 엔진 stall 확정(재오픈 소진) → 같은 장치 재초기화+자동복구')
-                _diag('tf_stall_recover', dev=getattr(self, 'device_idx', -1))
-                mw.reinit_audio_devices('stall recovery (TF)')
-                mw._begin_replug_watch()
+            # ★ self.window()가 아니라 self._mw — 팝아웃 시 TF는 _TFPopoutWindow(순수 QWidget,
+            #   reinit_audio_devices 없음)로 reparent돼 window()로는 MainWindow를 못 잡고
+            #   분기가 통째로 no-op이 된다(입력은 죽고 제너레이터만 계속 나가던 버그).
+            mw = getattr(self, '_mw', None)
+            if mw is None or not hasattr(mw, '_stall_recover'):
+                mw = self.window()
+            if mw is not None and hasattr(mw, '_stall_recover'):
+                mw._stall_recover('TF')   # 공용 경로(에피소드 디바운스 포함)
+            else:
+                # MainWindow를 못 잡는 예외 상황 — 최소한 측정/제너레이터는 멈춰 무한 방치 방지
+                _alog.warning('TF stall — MainWindow 참조 실패, 로컬 정지만 수행')
+                _diag('tf_stall_recover', dev=getattr(self, 'device_idx', -1), local_only=True)
+                try: self._stop_analysis(); self._stop_sig_gen()
+                except Exception: pass
+                try: self._load_devices()
+                except Exception: pass
             return
         # 가짜 disconnect 방지: HAL 장치 개수가 안 줄었으면(장치 그대로) 스트림 churn(채널변경/재구성)
         # 오판 → 무시. 실제 제거는 개수 감소로 통과 + CoreAudio 리스너(개수 기반)가 백업.
@@ -2847,6 +2857,8 @@ class TransferFunctionWindow(QWidget):
         """RTA producer — 청크마다(스펙트럼 _process_audio와 동일 빈도·동일 처리) 옥타브 값을 계산해
         _rta_pending에 적재. 캔버스 decay/peak-hold/repaint는 30fps 고정 타이머 _rta_render_frame가 소비."""
         self._rta_last_chunk = time.monotonic()   # 시그널 도착 = 구독 생존(채널 유무 무관, watchdog용)
+        if getattr(self, '_rta_stale_n', 0):      # 청크가 오면 백오프/파킹 상태 해제
+            self._rta_stale_n = 0; self._rta_parked = False
         buf = d.get(self._rta_ch)
         if buf is None or len(buf) < 8:
             return
@@ -2917,14 +2929,34 @@ class TransferFunctionWindow(QWidget):
             channel_changed = (self._rta_ch != cur_ch)
             stream_gone = (self._engine is None or
                            self._rta_sub.device_idx not in self._engine.active_devices())
-            stale = (time.monotonic() - self._rta_last_chunk > 1.2)   # 1.2초+ 청크 끊김 = 죽은 구독
+            # 백오프: 청크가 '영영' 안 오는 조건(무신호 채널·듀플렉스가 장치 점유 등)에서 1.2초마다
+            # 재구독을 무한 반복하면 매 사이클이 _close_thread()의 wait(3000)로 GUI를 최대 3초 묶는다
+            # (시간당 ~3000회). 연속 실패가 쌓이면 간격을 늘리고(1.2→10초), 10회면 파킹한다.
+            _n = getattr(self, '_rta_stale_n', 0)
+            stale = (time.monotonic() - self._rta_last_chunk > (1.2 if _n < 3 else 10.0))
+            if device_changed or channel_changed:
+                self._rta_stale_n = 0; self._rta_parked = False   # 사용자 변경 = 정상 추종
+            elif stale:
+                self._rta_stale_n = _n + 1
             if device_changed or channel_changed or stream_gone or stale:
                 _diag('rta_resub', dev_chg=device_changed, ch_chg=channel_changed,
-                      stream_gone=stream_gone, stale=stale,
+                      stream_gone=stream_gone, stale=stale, stale_n=getattr(self, '_rta_stale_n', 0),
                       old_dev=self._rta_sub.device_idx, new_dev=cur_dev,
                       old_ch=self._rta_ch, new_ch=cur_ch)
                 self._rta_unsubscribe()
         if self._rta_sub is None:
+            if getattr(self, '_rta_parked', False):
+                # 파킹 해제는 사용자가 장치/채널을 바꿨을 때만 — 그 전엔 재구독 시도 자체를 안 한다.
+                if (cur_dev, cur_ch) != getattr(self, '_rta_park_key', None):
+                    self._rta_parked = False; self._rta_stale_n = 0
+                else:
+                    return
+            elif getattr(self, '_rta_stale_n', 0) > 10:
+                self._rta_parked = True; self._rta_park_key = (cur_dev, cur_ch)
+                _alog.warning('RTA 청크 미도착 10회 연속 — 재구독 중단(파킹). 장치/채널 변경 시 재개')
+                _diag('rta_park', dev=cur_dev, ch=cur_ch)
+                self.rta_cvs._idle_hint = True; self.rta_cvs.update()
+                return
             self._rta_subscribe()
 
     def _render_inner(self):
@@ -3391,7 +3423,11 @@ class TransferFunctionWindow(QWidget):
     def _caps_idle_flush(self):
         if not getattr(self, '_caps_dirty', False): return
         if self._audio_busy(): return   # 오디오 활성 → 보류 (글리치 방지)
-        self._flush_tf_captures(sync=True)   # idle → 동기 저장 (오디오 없어 글리치 없음)
+        # ★ 비동기 저장 — 캡쳐가 쌓이면 전체 재직렬화가 O(n²)로 커져(캡쳐 50개=53MB, 실측 2.1초;
+        #   100개=4.2초) 동기 저장은 GUI를 통째로 그만큼 얼렸다. 오디오가 idle이라 글리치 걱정이
+        #   없는 시점이므로 백그라운드 스레드로 돌린다(_CAPTURES_LOCK이 spec 저장과 직렬화하고,
+        #   _save_captures_file은 tmp+os.replace 원자 저장이라 중간에 끊겨도 파일은 온전).
+        self._flush_tf_captures(sync=False)
 
     def _flush_tf_captures(self, sync=True):
         if not getattr(self, '_caps_dirty', False): return
@@ -3404,8 +3440,18 @@ class TransferFunctionWindow(QWidget):
         if sync:
             self._serialize_save_tf_captures(metas, mag_caps, phase_caps, ir_caps)
         else:
-            threading.Thread(target=self._serialize_save_tf_captures,
-                             args=(metas, mag_caps, phase_caps, ir_caps), daemon=True).start()
+            th = threading.Thread(target=self._serialize_save_tf_captures,
+                                  args=(metas, mag_caps, phase_caps, ir_caps), daemon=True)
+            self._caps_save_thread = th      # 종료 시 완료를 기다리기 위한 핸들
+            th.start()
+
+    def _wait_caps_saved(self, timeout=5.0):
+        """종료 경로용 — 진행 중인 백그라운드 캡쳐 저장이 끝날 때까지 잠깐 기다린다.
+        (os._exit로 즉시 종료하므로 기다리지 않으면 마지막 저장이 잘릴 수 있다.)"""
+        th = getattr(self, '_caps_save_thread', None)
+        if th is not None and th.is_alive():
+            try: th.join(timeout)
+            except Exception: pass
 
     def _serialize_save_tf_captures(self, metas, mag_caps, phase_caps, ir_caps):
         try:

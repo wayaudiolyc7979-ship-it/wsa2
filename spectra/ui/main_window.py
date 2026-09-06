@@ -2870,6 +2870,7 @@ class MainWindow(QMainWindow):
         # SR 합의: 다른 탭(TF/Stereo)이 이 장치를 이미 다른 SR로 열었으면 그 SR을 따른다
         # (장치당 SR 1개). 예전엔 native SR로 그냥 구독해 ValueError→시작 실패하던 것 방지.
         _open_sr = self.audio_engine.current_sr(idx)
+        _prev_sr = self.sample_rate                       # 실패 시 되돌리기용
         if _open_sr is not None and _open_sr != self.sample_rate:
             _alog.info(f'SR 합의 — device {idx} 이미 {_open_sr}Hz 열림 → app_sr {self.sample_rate}→{_open_sr}')
             self.sample_rate = _open_sr
@@ -2881,6 +2882,13 @@ class MainWindow(QMainWindow):
             self._primary_sub = self.audio_engine.subscribe(idx, [ch], self.sample_rate)
         except Exception as e:
             self._primary_sub = None
+            # 구독 실패 → 채택했던 SR을 원복(앱 SR·콤보가 실제와 어긋난 채 남지 않게)
+            if self.sample_rate != _prev_sr:
+                self.sample_rate = _prev_sr
+                try:
+                    if _prev_sr in _SR_MAP:
+                        self.sr_cb.blockSignals(True); self.sr_cb.setCurrentIndex(_SR_MAP[_prev_sr]); self.sr_cb.blockSignals(False)
+                except Exception: pass
             self._on_audio_error(str(e)); return False
         self._primary_sub.chunk_ready.connect(self._process_audio_multi, Qt.QueuedConnection)
         self._primary_sub.error.connect(self._on_audio_error, Qt.QueuedConnection)
@@ -3227,18 +3235,31 @@ class MainWindow(QMainWindow):
                 self._reinit_restore_stereo = False
                 self._reinit_restore_pending = False
 
+    def _stall_recover(self, source=''):
+        """'(stall)' 확정 신호 공용 복구 — 재초기화(스냅샷-후-정지)+재연결 폴링.
+        _DeviceStream._on_disc는 같은 메시지를 '모든' 구독자에게 뿌리므로 공유 장치에서는
+        Spectrum/TF/Stereo 핸들러가 큐로 '순차' 실행된다(중첩 아님) → _reiniting_audio 가드가
+        이미 풀려 있어 전체 teardown+복구가 두세 번 반복된다. 에피소드 단위 디바운스로 1회만."""
+        import time as _t
+        now = _t.monotonic()
+        if now - getattr(self, '_last_stall_recover', 0.0) < 10.0:
+            _alog.info(f'stall 복구 중복 무시({source}) — 최근 복구 진행됨')
+            return False
+        self._last_stall_recover = now
+        _alog.info(f'엔진 stall 확정(재오픈 소진) → 같은 장치 재초기화+자동복구  src={source}')
+        _diag('stall_recover', src=source)
+        self.reinit_audio_devices(f'stall recovery ({source})')
+        self._begin_replug_watch()   # 혹시 장치가 실제로 사라졌으면 폴링이 백업
+        return True
+
     def _on_device_disconnected(self,msg):
         dev_name=self.dev_cb.currentText()
         if not dev_name: return   # 이미 Stop된 상태에서 중복 호출 방지
         # '(stall)' 마커 = 엔진이 6회 재오픈까지 소진한 확정 죽음(절전/App Nap/드라이버 wedge).
         # 이때 장치는 여전히 열거돼 개수가 안 줄지만 콜백은 진짜 죽었으므로 개수 가드로 무시하면 안 됨
         # → 스냅샷-후-정지하는 reinit_audio_devices로 같은 장치에 재초기화+자동복구를 태운다.
-        _stall = isinstance(msg, str) and '(stall)' in msg
-        if _stall:
-            _alog.info('엔진 stall 확정(재오픈 소진) → 같은 장치 재초기화+자동복구')
-            _diag('spec_stall_recover', dev=dev_name)
-            self.reinit_audio_devices('stall recovery (spectrum)')
-            self._begin_replug_watch()   # 혹시 장치가 실제로 사라졌으면 폴링이 백업
+        if isinstance(msg, str) and '(stall)' in msg:
+            self._stall_recover('spectrum')
             return
         # 가짜 disconnect 방지: HAL 장치 개수가 안 줄었으면(M4 여전히 존재) 스트림 churn(채널변경/
         # 재구성으로 콜백 1.5s+ 멈춤)에 의한 오판 → 무시. 실제 제거는 개수 감소로 통과하고, 콜백을
@@ -4050,11 +4071,13 @@ class MainWindow(QMainWindow):
         # primary — 표시 중일 때만 (TF 캡쳐와 동일 정책)
         added = 0
         if self.fft_cvs._primary_visible:
+            # 실제로 캡쳐된 경우에만 카운트 — 예전엔 무조건 +1이라 라이브 데이터가 없어
+            # 아무것도 저장 안 됐는데도 "✓ Captured" 토스트가 떴다(거짓 성공).
             if m == 'fft':
-                self.fft_cvs.add_capture(label, color, group)
+                _ok = self.fft_cvs.add_capture(label, color, group)
             else:
-                self.oct_cvs.add_capture(label, color, group)
-            added += 1
+                _ok = self.oct_cvs.add_capture(label, color, group)
+            if _ok: added += 1
         # 표시 중인 추가 소스 카드 각각 — TF 멀티카드 캡쳐와 동일하게 소스별로 1개씩
         for src in self._spec_extra:
             cid = src['id']
@@ -4173,10 +4196,14 @@ class MainWindow(QMainWindow):
                 self._refresh_capture_drawer()
                 self._save_spec_captures()
                 self._flash_toast()
+            else:
+                self._flash_toast(_tx('Press Start first — no live data to recapture.'))
         elif mode == 'tf' and hasattr(self, 'tf_win') and self.tf_win is not None:
             if self.tf_win._recapture_tf(idx):
                 self._refresh_capture_drawer()
                 self._flash_toast()
+            else:
+                self._flash_toast(_tx('Press Start first — no live data to recapture.'))
 
     def _recapture_selected(self):
         """R 단축키 — 현재 탭에서 선택(없으면 마지막) 캡쳐를 제자리 다시 캡쳐."""
@@ -4648,6 +4675,7 @@ class MainWindow(QMainWindow):
             tw = self.tf_win
             if tw is not None:
                 tw._flush_tf_captures(sync=True)
+                tw._wait_caps_saved()   # idle flush가 백그라운드로 돌던 중이면 완료까지 대기
         except Exception as ex:
             _alog.warning(f'close flush 실패: {ex}')
         e.accept()

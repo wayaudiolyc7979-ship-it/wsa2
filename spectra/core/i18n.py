@@ -337,6 +337,8 @@ _TR_KO = {        # {english_ui_string: 쉬운_한국어}
     'True peak over −1 dBTP': '트루피크 −1 dBTP 초과',
     'Loud — pull down': '큼 — 낮추세요',
     'Quiet — push up': '작음 — 높이세요',
+    # ── 캡쳐 피드백 ──────────────────────────────────────────────────────
+    'Press Start first — no live data to recapture.': 'Start를 먼저 누르세요 — 다시 캡쳐할 라이브 데이터가 없습니다.',
 }        # ── _TR_KO 끝 ────────────────────────────────────────────────────
 _LANG = 'en'       # 'en' | 'ko' — 모듈 로드 끝에서 확정
 

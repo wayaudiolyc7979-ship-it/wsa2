@@ -205,12 +205,13 @@ class FFTCanvas(QWidget):
         self._cap_pix_key = self._cap_base_key()
 
     def add_capture(self, label, color, group=''):
-        if self._ds_f is None or self._ds_avg is None: return
+        if self._ds_f is None or self._ds_avg is None: return False   # 호출부가 성공여부로 카운트
         cap={'f': self._ds_f.copy(), 'db': self._ds_avg.copy(),
              'color': color, 'label': label, 'group': group}
         self._captures.append(cap)
         self._append_cap_incr(cap)          # O(1) 증분 — 전체 재빌드 안 함
         self._last_cap_t=time.monotonic(); self.update()
+        return True
 
     def add_capture_data(self, label, color, f, db, group=''):
         """추가 소스 곡선을 캡쳐 (멀티 소스 일괄 캡쳐용)."""
@@ -701,11 +702,15 @@ class OctaveCanvas(QWidget):
         self._cap_pix_key = self._cap_base_key()
 
     def add_capture(self, label, color, group=''):
+        # 라이브 데이터 없을 때(시작 전/Stop 후) 캡쳐 금지 — FFTCanvas의 `_ds_f is None` 가드와 동치.
+        # 없으면 −96dB 바닥 배열이 '정상 캡쳐'로 저장돼 재시작 후에도 유령 곡선이 남는다.
+        if self._idle_hint: return False
         cap={'values': self.smooth[self.mode].copy(),
              'mode': self.mode, 'color': color, 'label': label, 'group': group}
         self._captures.append(cap)
         self._append_cap_incr(cap)
         self._last_cap_t=time.monotonic(); self.update()
+        return True
 
     def add_capture_data(self, label, color, values, mode=None, group=''):
         """추가 소스 옥타브 곡선을 캡쳐 (멀티 소스 일괄 캡쳐용)."""
@@ -718,6 +723,10 @@ class OctaveCanvas(QWidget):
 
     def recapture(self, idx):
         """기존 옥타브 캡쳐 idx 를 현재 라이브값으로 덮어쓰기 (색/이름/그룹/가시성 유지)."""
+        # ★ 라이브 데이터 없으면 덮어쓰지 않는다(FFTCanvas.recapture와 동일 정책).
+        #   없으면 Stop 상태에서 Recapture(R) 한 번에 멀쩡한 캡쳐가 −96dB 평평한 선으로
+        #   파괴되고 그대로 디스크에 저장돼 재시작 후에도 복구 불가였다.
+        if self._idle_hint: return False
         if not (0 <= idx < len(self._captures)): return False
         c = self._captures[idx]
         c['values'] = self.smooth[self.mode].copy(); c['mode'] = self.mode

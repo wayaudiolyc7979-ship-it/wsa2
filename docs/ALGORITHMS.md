@@ -91,13 +91,16 @@ Smaart식 **Multi-Time-Window** 이중 FFT. 저역 고해상도 + 고역 빠른 
 
 `LoudnessMeter`(`:16135`) — **ITU-R BS.1770-4 / EBU R128**.
 
-### 3.1 K-weighting — `_KWeightFilter` (`:16109`)
-2단 바이쿼드: **프리필터(고역 셸빙)** → **RLB(고역통과)**. 44.1k·48k 계수 내장(`_biquad` IIR, 상태 유지). 그 외 SR은 48k 계수 폴백.
+### 3.1 K-weighting — `_KWeightFilter` (`spectra/dsp/loudness.py`)
+2단 바이쿼드: **프리필터(고역 셸빙)** → **RLB(고역통과)**(`_biquad` IIR, 상태 유지).
+- **48k 계수만 상수로 내장**(규격값, 골든테스트 `test_kweight_coefficients_48k`로 잠금).
+- **그 외 모든 SR(44.1/88.2/96/176.4/192k…)은 `_gen_coeffs(sr)`로 정확 생성** — 아날로그 프로토타입을 프리워핑 bilinear(K=tan)로 이산화(pyloudnorm 방식). 48000을 오차 ~1e-14로 재현하므로 경계 불연속 없음.
+- ⚠️ v2.0.2 이전엔 44.1k 계수가 오타로 틀렸고(@100Hz K-gain −3.12dB, 48k는 −1.14dB) 그 외 SR은 리샘플 없이 48k 폴백이라 비규격이었다. 지금은 전 SR @100Hz −1.14dB로 일관.
 
 ### 3.2 라우드니스 값 — `LUFS = −0.691 + 10·log10(mean square)`
 - **100ms 블록** 단위 K-weighted 평균제곱 누적. **채널 합** `z_L + z_R`(평균 아님 → BS.1770 정의, /2 안 함).
 - **Momentary (M)** = 최근 4블록(400ms) 평균. **Short-term (S)** = 30블록(3s). 레이더용 fast-S = 5블록(0.5s).
-- **Integrated (I)** — `_compute_I`(`:16212`): 400ms 블록에 **절대 게이트 −70 LUFS** → 그 평균 기준 **상대 게이트 −10 LU** → 게이트 통과분 평균.
+- **Integrated (I)** — `_compute_I`: 게이팅 블록 = **400ms · 75% 오버랩**(100ms 부분블록 4개를 슬라이딩 평균 → 100ms마다 한 블록). 그 블록들에 **절대 게이트 −70 LUFS** → 통과분 평균 기준 **상대 게이트 −10 LU** → 최종 통과분 평균. *(v2.0.2 이전엔 100ms 블록을 그대로 게이팅해 규격과 어긋났다 — 변동 큰 소재에서 ~0.5 LU 오차.)*
 - **LRA** — `_compute_LRA`(`:16223`): EBU 3342. 프로그램 전체 3s short-term 분포에 절대(−70)+상대(−20 LU) 게이트 → **P95 − P10**.
 - **True Peak** — `_true_peak_db`(`:16157`): **4× 오버샘플**(`resample_poly`)로 샘플 사이(inter-sample) 피크 검출. 블록 경계 연속성 위해 직전 8샘플 테일 이어붙여 워밍업 제거. dBTP.
 - 성능: I/LRA는 새 블록 완성 시(초당 ~10회)만 재계산 — raw 청크마다(초당 ~94회) 하면 장시간 구동 시 GUI가 큐를 못 따라가 멈춤.

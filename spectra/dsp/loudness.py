@@ -64,8 +64,19 @@ class _KWeightFilter:
 
 
 class LoudnessMeter:
-    """ITU-R BS.1770-4 기반 LUFS / LRA / TruePeak 미터."""
+    """ITU-R BS.1770-4 기반 LUFS / LRA / TruePeak 미터.
+
+    [장시간 구동] 적분 누적을 '무한히 자라는 파이썬 리스트 + 매번 전체 재스캔'으로 두면
+    경과시간에 비례해 GUI 스레드를 잡아먹는다(8시간 구동 시 코어 17%, push p95 18.8ms 실측).
+    그래서 ①I는 100ms 부분블록을 저장하지 않고 **400ms 게이팅 블록만 증분 계산해 ndarray로 축적**
+    (list→array 변환·cumsum 제거) ②LRA는 **0.01 LU 히스토그램**으로 누적해 percentile을
+    O(bins) 상수시간으로 만든다. 둘 다 값은 규격 그대로."""
     _BLK_MS=100  # 100ms 블록
+    # LRA 히스토그램(EBU 3342): 절대게이트 −70 LUFS 위만 담으므로 −70..+10 LUFS, 0.01 LU 분해능
+    _LRA_LO=-70.0; _LRA_HI=10.0; _LRA_BW=0.01
+    _LRA_NB=int(round((_LRA_HI-_LRA_LO)/_LRA_BW))          # 8000 bins
+    _LRA_CENTERS=_LRA_LO+(np.arange(_LRA_NB)+0.5)*_LRA_BW  # 각 bin 중앙 LUFS (클래스 1회 계산)
+    _LRA_MS=10.0**((_LRA_CENTERS+0.691)/10.0)              # 중앙 LUFS → 평균제곱 (상대게이트 평균용)
 
     def __init__(self,sr):
         self.sr=sr
@@ -73,13 +84,22 @@ class LoudnessMeter:
         self._blk=max(1,sr*self._BLK_MS//1000)
         self._sq_hist=deque(maxlen=30)   # 3초 = 30블록 (short-term)
         self._fast_hist=deque(maxlen=5)  # 0.5초 = 5블록 (레이더용)
-        self._int_sq=[]; self._int_on=False
+        self._int_on=False
+        # I용: 400ms 게이팅 블록(75% 겹침)의 평균제곱을 증분 축적하는 성장형 ndarray
+        self._gb=np.empty(4096,dtype=np.float64); self._gb_n=0
+        self._sub4=deque(maxlen=4)       # 최근 100ms 부분블록 4개(=400ms 게이팅 블록 재료)
         self._acc_l=0.0; self._acc_r=0.0; self._acc_n=0
         self._M=-100.0; self._S=-100.0; self._S_fast=-100.0
         self._I=-100.0; self._LRA=0.0; self._TP=-100.0; self._PH=-100.0
         self._tp_tail_l=None; self._tp_tail_r=None   # True Peak 4× 오버샘플 연속성 테일
-        self._lra_st=[]                # EBU 3342 LRA: 프로그램 전체 short-term(3s) 값 누적
+        self._lra_hist=np.zeros(self._LRA_NB,dtype=np.int64)  # EBU 3342 short-term 분포(히스토그램)
         self._maxM=-100.0; self._maxS=-100.0   # Max Momentary / Max Short-term
+
+    def _gb_push(self, ms):
+        """400ms 게이팅 블록 하나를 성장형 배열에 추가(용량 2배씩 확장 = 상각 O(1))."""
+        if self._gb_n >= self._gb.shape[0]:
+            self._gb=np.resize(self._gb, self._gb.shape[0]*2)
+        self._gb[self._gb_n]=ms; self._gb_n+=1
 
     @staticmethod
     def _lufs(ms):
@@ -121,10 +141,20 @@ class LoudnessMeter:
                 ms=(self._acc_l+self._acc_r)/self._blk   # BS.1770: 채널 평균제곱의 합(z_L+z_R). /2(평균) 아님 → 이전 대비 +3.01 LU
                 self._sq_hist.append(ms)
                 self._fast_hist.append(ms)
-                if self._int_on: self._int_sq.append(ms)
-                # EBU 3342: full 3s short-term 값을 프로그램 전체에 누적 (블록당 1회)
-                if self._int_on and len(self._sq_hist)>=30:
-                    self._lra_st.append(self._lufs(float(np.mean(self._sq_hist))))
+                if self._int_on:
+                    # 400ms/75%겹침 게이팅 블록을 '그 자리에서' 하나 만들어 축적
+                    # (100ms 부분블록 전체를 들고 있다가 매번 재스캔하지 않는다)
+                    self._sub4.append(ms)
+                    if len(self._sub4)==4:
+                        self._gb_push((self._sub4[0]+self._sub4[1]+self._sub4[2]+self._sub4[3])*0.25)
+                    # EBU 3342: full 3s short-term 값을 히스토그램에 누적 (블록당 1회)
+                    if len(self._sq_hist)>=30:
+                        _st=self._lufs(float(np.mean(self._sq_hist)))
+                        if _st>self._LRA_LO:          # 절대 게이트 −70 위만 분포에 반영
+                            _bi=int((_st-self._LRA_LO)/self._LRA_BW)
+                            if _bi<0: _bi=0
+                            elif _bi>=self._LRA_NB: _bi=self._LRA_NB-1
+                            self._lra_hist[_bi]+=1
                 self._acc_l=0.0; self._acc_r=0.0; self._acc_n=0
                 blk_done=True
         N=len(self._sq_hist)
@@ -141,50 +171,63 @@ class LoudnessMeter:
             self._compute_LRA()
 
     def _compute_I(self):
-        # BS.1770-4 게이팅: 400ms 블록 · 75% 오버랩(100ms마다 한 블록). _int_sq는 100ms 부분블록의
-        # 평균제곱 → 연속 4개(=400ms)를 평균하고 1개(100ms)씩 슬라이드해 규격 게이팅 블록을 만든다.
-        # (예전엔 100ms 블록을 그대로 게이팅 → 변동이 커 상대게이트가 다른 블록집합을 남겨 ~0.5 LU 오차.)
-        if len(self._int_sq)<4: return                    # 400ms(=게이팅 블록 1개) 미만이면 보류
-        arr=np.asarray(self._int_sq, dtype=np.float64)
-        csum=np.concatenate(([0.0], np.cumsum(arr)))
-        gb=(csum[4:]-csum[:-4])/4.0                        # 각 400ms 게이팅 블록의 평균제곱(겹침 슬라이딩)
+        """BS.1770-4 게이팅: 400ms 블록·75% 오버랩. 블록은 push()에서 이미 증분 생성돼
+        _gb[:_gb_n]에 있으므로 여기선 두 번의 마스크 평균만 한다(예전의 list→array·cumsum 제거)."""
+        if self._gb_n<1: return                            # 게이팅 블록 1개(=400ms) 미만이면 보류
+        gb=self._gb[:self._gb_n]
         abs_gate=10**((-70+0.691)/10)
         gated=gb[gb>abs_gate]                              # 절대 게이트 −70 LUFS
-        if len(gated)==0: return
-        ms_g=float(np.mean(gated))
+        if gated.size==0: return
+        ms_g=float(gated.mean())
         rel_gate=10**((self._lufs(ms_g)-10+0.691)/10)      # 상대 게이트 −10 LU
         g2=gb[gb>rel_gate]
-        if len(g2)>0: self._I=self._lufs(float(np.mean(g2)))
+        if g2.size>0: self._I=self._lufs(float(g2.mean()))
 
     def _compute_LRA(self):
-        """EBU Tech 3342: 프로그램 전체 short-term 분포 → 절대게이트(-70) +
-        상대게이트(절대게이트 평균 -20 LU) → 10~95 백분위 차이."""
-        if len(self._lra_st)<4: return
-        arr=np.array(self._lra_st)
-        arr=arr[arr>-70.0]                       # 절대 게이트
-        if len(arr)<4: return
-        ms=10**((arr+0.691)/10.0)                # LUFS→평균제곱 환산
-        mean_lufs=self._lufs(float(np.mean(ms))) # 절대게이트 분포의 평균 라우드니스
-        rel=mean_lufs-20.0                        # 상대 게이트(-20 LU)
-        g=arr[arr>rel]
-        if len(g)<2: return
-        self._LRA=float(max(0.0,np.percentile(g,95)-np.percentile(g,10)))
+        """EBU Tech 3342: 프로그램 전체 short-term 분포 → 절대게이트(−70, 적재 시 적용) +
+        상대게이트(절대게이트 평균 −20 LU) → 10~95 백분위 차이.
+        분포는 0.01 LU 히스토그램이라 백분위가 O(bins) 상수시간(예전 np.percentile은 O(n log n))."""
+        h=self._lra_hist
+        tot=int(h.sum())
+        if tot<4: return
+        # 절대게이트 분포의 평균 라우드니스(평균제곱 평균 → LUFS)
+        mean_lufs=self._lufs(float((h*self._LRA_MS).sum()/tot))
+        rel=mean_lufs-20.0                                  # 상대 게이트(−20 LU)
+        sel=self._LRA_CENTERS>rel
+        c=h[sel]
+        n=int(c.sum())
+        if n<2: return
+        centers=self._LRA_CENTERS[sel]
+        cum=np.cumsum(c)
+        # 히스토그램 백분위 — 누적분포가 목표 비율을 넘는 첫 bin의 중앙값(오차 ≤ 반 bin = 0.005 LU)
+        p10=float(centers[int(np.searchsorted(cum, 0.10*n, side='left'))])
+        i95=int(np.searchsorted(cum, 0.95*n, side='left'))
+        if i95>=centers.size: i95=centers.size-1
+        p95=float(centers[i95])
+        self._LRA=float(max(0.0, p95-p10))
 
     def start_integration(self):
-        self._int_sq=[]; self._int_on=True; self._I=-100.0
-        self._lra_st=[]; self._LRA=0.0; self._maxM=-100.0; self._maxS=-100.0
+        self._gb=np.empty(4096,dtype=np.float64); self._gb_n=0; self._sub4.clear()
+        self._int_on=True; self._I=-100.0
+        self._lra_hist[:]=0; self._LRA=0.0; self._maxM=-100.0; self._maxS=-100.0
         self._TP=-100.0; self._PH=-100.0   # 새 프로그램 적분 → 트루피크도 리셋(PLR/PSR·표시 피크가 stale 안 되게)
 
     def stop_integration(self): self._int_on=False
 
     def reset(self):
         self._kfl.reset(); self._kfr.reset()
-        self._sq_hist.clear(); self._fast_hist.clear(); self._int_sq=[]
+        self._sq_hist.clear(); self._fast_hist.clear()
+        self._gb=np.empty(4096,dtype=np.float64); self._gb_n=0; self._sub4.clear()
         self._acc_l=0.0; self._acc_r=0.0; self._acc_n=0
         self._M=-100.0; self._S=-100.0; self._S_fast=-100.0
         self._I=-100.0; self._LRA=0.0; self._TP=-100.0; self._PH=-100.0
         self._tp_tail_l=None; self._tp_tail_r=None
-        self._lra_st=[]; self._maxM=-100.0; self._maxS=-100.0
+        self._lra_hist[:]=0; self._maxM=-100.0; self._maxS=-100.0
+
+    def reset_peak(self):
+        """표시 피크 리셋 — _PH뿐 아니라 _TP도 함께 지운다.
+        예전엔 _TP가 남아 PLR/PSR(=TP−I, TP−S)이 리셋 후에도 옛 트랜지언트에 고착됐다."""
+        self._TP=-100.0; self._PH=-100.0
 
     @property
     def M(self): return self._M
