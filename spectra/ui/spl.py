@@ -1249,10 +1249,17 @@ class ShowModeWindow(QWidget):
         # 매프레임 거대 폰트 래스터라이즈가 풀스크린 버벅임의 주원인 → 대부분 프레임은 blit만.
         num = f'{self._spl:.1f}' if self._spl > -100 else '—'
         box_w = max(1, left_w - m); box_h = max(1, int((bot - top) * 0.74))
-        _nkey = (num, col.name(), box_w, box_h)
+        # [RETINA] 픽스맵을 **디바이스 픽셀**로 잡고 dpr을 태그한다. 예전엔 논리 크기로
+        # 만들어(dpr=1) 레티나에서 2배로 늘려 그렸고 — 실측 인접 열·행쌍 99.7% 동일 —
+        # 캐시 키에도 dpr이 없어 1×↔2× 모니터를 오가면 잘못된 해상도를 재사용했다.
+        # 쇼 모드의 헤드라인 숫자는 '객석 건너편에서 읽히는' 것이 존재 이유라 치명적.
+        _dpr = max(1.0, float(self.devicePixelRatioF()))
+        _nkey = (num, col.name(), box_w, box_h, _dpr)
         if self._num_key != _nkey or self._num_pix is None:
             self._num_key = _nkey
-            pix = QPixmap(box_w, box_h); pix.fill(Qt.transparent)
+            pix = QPixmap(int(box_w * _dpr), int(box_h * _dpr))
+            pix.setDevicePixelRatio(_dpr)      # 이후 QPainter 좌표는 논리 단위 그대로
+            pix.fill(Qt.transparent)
             pp = QPainter(pix)
             pp.setRenderHint(QPainter.Antialiasing); pp.setRenderHint(QPainter.TextAntialiasing)
             avail_w = left_w - int(m * 1.5)

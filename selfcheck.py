@@ -501,6 +501,30 @@ def _showmode():
 check('ShowModeWindow (FOH 쇼 모드)', _showmode)
 
 
+def _showmode_dpr():
+    """쇼 모드 거대 숫자 픽스맵이 디바이스 해상도로 잡히고 캐시 키에 dpr이 들어가는지.
+
+    v2.0.2 이전엔 논리 크기로 만들어(dpr=1) 레티나에서 2배 확대돼 그려졌고,
+    캐시 키에 dpr이 없어 1×↔2× 모니터를 오가면 잘못된 해상도를 재사용했다.
+    쇼 모드 헤드라인은 '멀리서 읽히는 것'이 목적이라 회귀하면 치명적."""
+    class _Dummy: pass
+    sm = w.ShowModeWindow(_Dummy()); sm.resize(1280, 720); sm.set_limit(100, 3)
+    n = 120; x = np.linspace(0, 1, n)
+    bands = (-6 - 28 * (x - 0.3) ** 2).astype(float)
+    for _ in range(5): sm.push(94.2, 'dBA', bands, -60, 0)
+    sm.grab()
+    assert sm._num_pix is not None, '숫자 픽스맵 미생성'
+    dpr = max(1.0, float(sm.devicePixelRatioF()))
+    assert abs(sm._num_pix.devicePixelRatio() - dpr) < 1e-6, \
+        f'픽스맵 dpr={sm._num_pix.devicePixelRatio()} != 위젯 {dpr}'
+    assert len(sm._num_key) == 5 and sm._num_key[-1] == dpr, f'캐시 키에 dpr 없음: {sm._num_key}'
+    # 디바이스 픽셀 크기 = 논리 × dpr
+    bw, bh = sm._num_key[2], sm._num_key[3]
+    assert sm._num_pix.width() == int(bw * dpr), (sm._num_pix.width(), bw, dpr)
+    return f'dpr={dpr} · pixmap {sm._num_pix.width()}x{sm._num_pix.height()} · key에 dpr 포함'
+check('쇼 모드 거대숫자 dpr(레티나 해상도)', _showmode_dpr)
+
+
 def _splash():
     return _save_pixmap(w._make_splash_pixmap(), 'splash.png')
 
