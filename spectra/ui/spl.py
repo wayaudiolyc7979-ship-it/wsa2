@@ -23,6 +23,37 @@ from spectra.ui.widgets import (RoundComboBox, _GradTimeBar, _N2Button, _PinBtn,
 from spectra.ui.dialogs import SplAlarmConfigDialog, SplLayoutDialog
 
 
+class _RateEst:
+    """실제 push 레이트(Hz) 추정기.
+
+    [정확성] LEQ 창 길이를 상수 50Hz로 잡아왔는데 실제는 블록 크기·샘플레이트에 따라
+    ~47Hz(48k)·~43Hz(44.1k)다. 50으로 나누면 창이 실제보다 **6~16% 길게** 잡혀
+    LEQ가 그만큼 과적분되고 진행바도 같은 비율로 어긋났다.
+    푸시 간격을 EMA로 추정해 창 길이를 실제 레이트로 계산한다(초기값은 공칭값)."""
+    __slots__ = ('_nominal', '_rate', '_last_t')
+
+    def __init__(self, nominal):
+        self._nominal = float(nominal); self._rate = float(nominal); self._last_t = None
+
+    def tick(self, now):
+        if self._last_t is not None:
+            dt = now - self._last_t
+            if 0.002 < dt < 0.5:                     # 비정상 간격(첫 푸시·스톨)은 무시
+                self._rate += (1.0 / dt - self._rate) * 0.02   # 느린 EMA(≈50샘플 시정수)
+        self._last_t = now
+
+    @property
+    def hz(self):
+        return self._rate if 5.0 < self._rate < 500.0 else self._nominal
+
+    def reset(self):
+        self._rate = self._nominal; self._last_t = None
+
+    def window_n(self, secs):
+        """secs초에 해당하는 표본 수(실측 레이트 기준)."""
+        return max(1, int(round(secs * self.hz)))
+
+
 def _db2e(db):
     """dB → 에너지. LEQ 버퍼는 dB가 아니라 '에너지'로 담는다.
 
@@ -629,8 +660,9 @@ class _SplMetricEngine:
 
     def __init__(self, leq_secs=900, calib=0.0):
         self._ema = {}; self._peak = {}
-        self._buf_a = _RingBuf(self._RATE * 3600 * 3)   # 3시간(최대 LEQ 프리셋)
+        self._buf_a = _RingBuf(self._RATE * 3600 * 3)   # 3시간(최대 LEQ 프리셋, 여유 있게 공칭 레이트)
         self._buf_c = _RingBuf(self._RATE * 3600 * 3)
+        self._rate = _RateEst(self._RATE)   # 실제 푸시 레이트 추정(LEQ 창을 실측 기준으로)
         self._last_t = None
         self._leq_secs = max(1, int(leq_secs))
         self._calib = calib
@@ -649,10 +681,11 @@ class _SplMetricEngine:
     def leq_progress(self, mid):
         """LEQ 적분 진행도 0..1 (쌓인 시간 / 설정 적분 길이)."""
         buf = self._buf_a if mid == 'laeq' else self._buf_c
-        return min(1.0, (len(buf) / self._RATE) / max(1, self._leq_secs))
+        return min(1.0, (len(buf) / self._rate.hz) / max(1, self._leq_secs))
 
     def push(self, dbz, dba, dbc, fs_peak):
         now = time.time()
+        self._rate.tick(now)      # 실제 푸시 레이트 갱신
         dt = (now - self._last_t) if self._last_t else 0.02
         self._last_t = now
         dt = min(max(dt, 0.001), 0.5)
@@ -677,7 +710,7 @@ class _SplMetricEngine:
     def value(self, mid):
         if mid in ('laeq', 'lceq'):
             buf = self._buf_a if mid == 'laeq' else self._buf_c
-            arr = buf.last(self._leq_secs * self._RATE)   # O(창 길이) — 버퍼 전체 복사 없음
+            arr = buf.last(self._rate.window_n(self._leq_secs))   # 실측 레이트 기준 창(O(창 길이))
             if arr.size == 0:
                 return None
             return _e2leq(arr)
@@ -1341,6 +1374,7 @@ class SplMeterWindow(QWidget):
 
         self._buf_a = _RingBuf(self._PUSH_RATE * 60 * 60 * 3)  # 3 hr max (ndarray 링버퍼)
         self._buf_c = _RingBuf(self._PUSH_RATE * 60 * 60 * 3)
+        self._rate = _RateEst(self._PUSH_RATE)   # 실제 푸시 레이트 추정
         self._max_a = None; self._max_c = None
         self._max_laeq = None; self._max_lceq = None
         self._leq_secs = 60  # default 1 min
@@ -1533,6 +1567,7 @@ class SplMeterWindow(QWidget):
           뮤텍스는 _update_display(같은 GUI 스레드)와의 일관성 보호용. 절대 오디오 콜백에서 직접 호출 금지."""
         with QMutexLocker(self._mutex):
             now = time.time()
+            self._rate.tick(now)      # 실제 푸시 레이트 갱신
             dt = (now - self._last_push_t) if self._last_push_t else 0.02
             self._last_push_t = now
             dt = min(max(dt, 0.001), 0.5)
@@ -1575,7 +1610,7 @@ class SplMeterWindow(QWidget):
 
         with QMutexLocker(self._mutex):
             _len = len(self._buf_a)
-            n = min(_len, self._leq_secs * self._PUSH_RATE)
+            n = min(_len, self._rate.window_n(self._leq_secs))   # 실측 레이트 기준
             # 링버퍼 — 창 길이(n)에만 비례. 예전엔 list(deque)가 버퍼 전체를 먼저 복사했다.
             arr_a = self._buf_a.last(n) if n else None
             arr_c = self._buf_c.last(n) if n else None
@@ -1629,7 +1664,7 @@ class SplMeterWindow(QWidget):
     def _update_timebar(self, total_len):
         """버퍼에 쌓인 시간으로 LEQ 카드(laeq/lceq)의 진행 미터 갱신 (숫자 없음)."""
         win = max(1, self._leq_secs)
-        p = (total_len / self._PUSH_RATE) / win
+        p = (total_len / self._rate.hz) / win
         for pnl in self._panels:
             pnl.set_time_progress(p)
 

@@ -4,6 +4,7 @@ import 시점에 로그파일 생성·루트로거 핸들러·excepthook·오래
 (wayaudo2가 최상단에서 import → 종전과 동일 시점). WSA2_LOG_DIR/WSA2_DEBUG 존중.
 """
 import os, sys, logging
+import threading as _threading
 import datetime as _dt
 import platform as _pl
 import traceback as _tb
@@ -65,11 +66,36 @@ def _crash_handler(exc_type, exc_val, exc_tb):
 sys.excepthook = _crash_handler
 
 
+_NO_STDERR_LOCK = _threading.Lock()
+_no_stderr_depth = 0      # 중첩/동시 진입 수
+_no_stderr_saved = None   # 최초 진입 시 저장한 원래 fd 2
+
+
 @contextmanager
 def _no_stderr():
     """C 레벨 AUHAL/PortAudio 경고 메시지를 억제하는 컨텍스트 매니저.
-    v2.0: engine·tf_window 양쪽이 써서 저수준 공용 모듈에 배치(순환 회피)."""
-    _fd = os.open(os.devnull, os.O_WRONLY)
-    _sv = os.dup(2); os.dup2(_fd, 2); os.close(_fd)
-    try: yield
-    finally: os.dup2(_sv, 2); os.close(_sv)
+    v2.0: engine·tf_window 양쪽이 써서 저수준 공용 모듈에 배치(순환 회피).
+
+    ⚠️ 여러 스레드가 동시에 쓴다(캡처 스레드마다 스트림 수명 전체를 감싼다).
+    예전엔 각자 fd 2를 저장·복원해서, 두 스레드가 겹치면 **나중에 진입한 쪽이
+    '이미 /dev/null인 fd 2'를 원본으로 저장**하고, 먼저 나간 쪽이 그걸 복원하는 바람에
+    이후 프로세스 내내 stderr가 /dev/null에 고착됐다 — 장시간 오작동을 디버깅해야 할
+    바로 그 순간에 `WSA2_DEBUG` 콘솔이 죽는다.
+    락 + 참조카운트로 '최초 진입에서만 리다이렉트, 마지막 이탈에서만 복원'하게 한다."""
+    global _no_stderr_depth, _no_stderr_saved
+    with _NO_STDERR_LOCK:
+        if _no_stderr_depth == 0:
+            _fd = os.open(os.devnull, os.O_WRONLY)
+            _no_stderr_saved = os.dup(2)
+            os.dup2(_fd, 2); os.close(_fd)
+        _no_stderr_depth += 1
+    try:
+        yield
+    finally:
+        with _NO_STDERR_LOCK:
+            _no_stderr_depth -= 1
+            if _no_stderr_depth <= 0:
+                _no_stderr_depth = 0
+                if _no_stderr_saved is not None:
+                    os.dup2(_no_stderr_saved, 2); os.close(_no_stderr_saved)
+                    _no_stderr_saved = None
