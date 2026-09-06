@@ -6,7 +6,7 @@ import math, time, threading
 import numpy as np
 from PyQt5.QtGui import (QBrush, QColor, QImage, QPainter, QPainterPath, QPen,
                          QPixmap, QPolygon, QPolygonF)
-from PyQt5.QtCore import Qt, QPoint, QPointF, QSize, pyqtSignal, QTimer
+from PyQt5.QtCore import Qt, QPoint, QPointF, QRectF, QSize, pyqtSignal, QTimer
 from PyQt5.QtWidgets import QSizePolicy, QWidget
 from spectra.core.config import T, is_dark, theme, MAX_DB, SPEC_ATTACK, SPEED_LEVELS, FREQ_MARKS
 from spectra.dsp.weighting import BANDS, thd_from_spectrum
@@ -1126,9 +1126,11 @@ class SpectrogramCanvas(QWidget):
         self.scale_log=True
         self._cache=None
         # Dual ring buffers at canvas pixel width
-        self._rgba=None      # (MAX_HIST, dw, 4) uint8  — rendered colour
-        self._dbuf=None      # (MAX_HIST, dw)    float32 — raw dB for cursor
-        self._rdw=0          # current buffer width
+        self._rgba=None      # (MAX_HIST, dw_dev, 4) uint8 — rendered colour (device px)
+        self._dbuf=None      # (MAX_HIST, lw)     float32   — raw dB for cursor (logical px)
+        self._rdw=0          # current colour buffer width (device px)
+        self._rdw_log=0      # current dB buffer width (logical px)
+        self._dcol=None      # device→logical column index (None when dpr==1)
         self._wi=0           # write index (next slot)
         self._n=0            # frames stored
         self._col_lo=None; self._freqs_len=0
@@ -1162,9 +1164,11 @@ class SpectrogramCanvas(QWidget):
         return (r*255).astype(np.uint8),(g*255).astype(np.uint8),(b*255).astype(np.uint8)
 
     # ── Ring buffer ─────────────────────────────────────────────────────────
-    def _ensure(self, dw):
-        """버퍼를 dw 폭으로 준비. 리사이즈 정착 대기로 '이번엔 건너뜀'이면 False 반환."""
-        if self._rgba is not None and self._rdw==dw: return True
+    def _ensure(self, dw, lw=None):
+        """색상버퍼를 dw(디바이스) 폭, dB버퍼를 lw(논리) 폭으로 준비.
+        리사이즈 정착 대기로 '이번엔 건너뜀'이면 False 반환."""
+        if lw is None: lw = dw
+        if self._rgba is not None and self._rdw==dw and getattr(self,'_rdw_log',0)==lw: return True
         # 리샘플은 19MB를 새로 할당·복사해 한 번에 ~26ms가 든다(MAX_HIST=1800 × dw).
         # 드래그 리사이즈는 폭이 매 이벤트 바뀌므로 그때마다 리샘플하면 30fps 예산을 통째로
         # 먹는다(60스텝에 1.5초). 정착할 때까지 **기존 버퍼를 그대로 두고 미룬다** —
@@ -1183,19 +1187,35 @@ class SpectrogramCanvas(QWidget):
         # 폭이 바뀌어도 히스토리를 **버리지 않고** 열 방향 최근접 리샘플로 이어받는다.
         # 예전엔 resizeEvent가 버퍼를 통째로 None으로 만들어, 창을 1픽셀만 움직이거나
         # 패널을 토글해도 60초 스크롤백이 통째로 사라졌다(실측 400프레임 → 1).
-        _old_rgba, _old_dbuf, _old_dw = self._rgba, self._dbuf, self._rdw
+        # [RETINA] 색상 링버퍼(_rgba)는 **디바이스 폭**으로 잡아 주파수축을 실제 해상도로 담는다.
+        # 예전엔 논리 폭이라 dpr=2에서 1× 이미지를 2배로 늘려 그려 뭉개졌다(주석의 '픽셀 퍼펙트'가
+        # 사실이 아니었음). 시간축(행)은 프레임당 1행이라 늘려도 정보가 없으므로 그대로 둔다.
+        # _dbuf(커서 읽기용)는 논리 폭 유지 — 메모리 증가를 색상 버퍼 몫으로만 한정.
+        _old_rgba, _old_dbuf, _old_dw, _old_lw = (self._rgba, self._dbuf, self._rdw,
+                                                  getattr(self, '_rdw_log', 0))
         self._rgba=np.zeros((self.MAX_HIST,dw,4),np.uint8)
-        self._dbuf=np.full((self.MAX_HIST,dw),self.db_min,np.float32)
+        self._dbuf=np.full((self.MAX_HIST,lw),self.db_min,np.float32)
         if _old_rgba is not None and _old_dw>0 and dw>0:
             _idx=np.linspace(0,_old_dw-1,dw).astype(np.intp)
-            self._rgba[:]=_old_rgba[:,_idx,:]
-            self._dbuf[:]=_old_dbuf[:,_idx]
+            # RGBA 4바이트를 uint32 한 원소로 묶어 gather한다 — 결과는 uint8 팬시인덱싱과
+            # 비트 단위로 동일하면서 원소 수가 1/4이라 실측 49ms → 19ms.
+            # (디바이스 폭 채택으로 버퍼가 2배가 됐으므로 이 한 번의 정착 비용을 상쇄한다)
+            self._rgba.view(np.uint32)[:,:,0]=_old_rgba.view(np.uint32)[:,:,0].take(_idx,axis=1)
+            if _old_dbuf is not None and _old_lw>0 and lw>0:
+                _idxl=np.linspace(0,_old_lw-1,lw).astype(np.intp)
+                self._dbuf[:]=_old_dbuf[:,_idxl]
             # _wi/_n(쓰기 위치·유효 프레임 수)은 그대로 유지 → 스크롤백 보존
         else:
             self._wi=0; self._n=0
-        self._rdw=dw
+        self._rdw=dw; self._rdw_log=lw
+        # 디바이스 행 → 논리 행 최근접 추출 인덱스(dpr=1이면 불필요 → None)
+        self._dcol=None if dw==lw else np.linspace(0,dw-1,lw).astype(np.intp)
         self._col_lo=None; self._freqs_len=0
         return True
+
+    def _dpr(self):
+        try: return max(1.0, float(self.devicePixelRatioF()))
+        except Exception: return 1.0
 
     def _build_col_map(self, freqs, dw):
         if len(freqs) == 0: return
@@ -1223,17 +1243,21 @@ class SpectrogramCanvas(QWidget):
 
     def set_data(self, freqs, db_vals):
         if freqs is None or len(freqs) == 0 or db_vals is None or len(db_vals) == 0: return
-        dw=self.width()-self.PAD_L-self.PAD_R
-        if dw<=0: return
-        if not self._ensure(dw):
+        lw=self.width()-self.PAD_L-self.PAD_R
+        if lw<=0: return
+        dpr=self._dpr()
+        dw=max(1,int(round(lw*dpr)))     # 색상 행은 디바이스 해상도로 계산
+        if not self._ensure(dw, lw):
             return              # 리사이즈 정착 대기 — 옛 폭 버퍼에 새 폭 행을 쓰면 shape 불일치
         if self._col_lo is None or self._freqs_len!=len(freqs):
             self._build_col_map(freqs, dw)
         if self._col_lo is None: return
         # Nearest-bin lookup + Gaussian smoothing
-        row_db=self._gauss1d(db_vals[self._col_lo].astype(np.float32), sigma=1.5)
-        # Store raw dB for cursor
-        self._dbuf[self._wi]=row_db
+        # sigma는 dpr에 비례해 키운다 — 열이 2배로 촘촘해졌는데 sigma를 고정하면
+        # 물리적 스무딩 폭이 절반으로 줄어 nearest-bin 계단이 오히려 도드라진다.
+        row_db=self._gauss1d(db_vals[self._col_lo].astype(np.float32), sigma=1.5*dpr)
+        # Store raw dB for cursor (논리 폭 — 커서 읽기는 논리 좌표로 인덱싱)
+        self._dbuf[self._wi]=row_db if self._dcol is None else row_db[self._dcol]
         # Convert to RGBA
         cr=self._cmax-self._cmin
         t=np.clip((row_db-self._cmin)/cr if cr>0 else np.zeros(dw),0.,1.)
@@ -1345,20 +1369,25 @@ class SpectrogramCanvas(QWidget):
         p=QPainter(self); p.drawPixmap(0,0,self._cache)
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
         dw=W-pl-pr; dh=H-pt-pb
-        if dw<=0 or dh<=0 or self._rgba is None or self._rdw!=dw or self._n==0:
+        dw_dev=max(1,int(round(dw*self._dpr())))
+        if dw<=0 or dh<=0 or self._rgba is None or self._rdw!=dw_dev or self._n==0:
             self._draw_handles(p,H); p.end(); return
 
         # ── 1. Build pixel array from ring buffer ──────────────────────────
         # Row 0 = top of display = newest visible frame (scroll frames ago)
+        # 가로는 디바이스 폭(dw_dev), 세로는 논리 행 수(dh) — 한 행 = 캡처된 한 프레임이라
+        # 세로로 더 촘촘히 만들 정보 자체가 없다. 그래서 이미지는 (dh, dw_dev)이고
+        # 목표 사각형으로 그려 **세로만** 늘린다(가로는 디바이스 1:1 → 실제로 선명해짐).
         n_valid=max(0, min(self._n-self._scroll, dh))
-        arr=np.zeros((dh,dw,4),np.uint8)
+        arr=np.zeros((dh,dw_dev,4),np.uint8)
         if n_valid>0:
             start=(self._wi-1-self._scroll)%self.MAX_HIST
             ridx=(start-np.arange(n_valid,dtype=np.intp))%self.MAX_HIST
             arr[:n_valid]=self._rgba[ridx]
         self._img_bytes=arr.tobytes()
-        img=QImage(self._img_bytes,dw,dh,dw*4,QImage.Format_RGBA8888)
-        p.drawImage(pl,pt,img)
+        img=QImage(self._img_bytes,dw_dev,dh,dw_dev*4,QImage.Format_RGBA8888)
+        if dw_dev==dw: p.drawImage(pl,pt,img)
+        else:          p.drawImage(QRectF(pl,pt,dw,dh), img)
 
         # ── 2. Time grid (horizontal dotted lines + right-side labels) ────
         # Pick a step so we get 3-8 lines in view
