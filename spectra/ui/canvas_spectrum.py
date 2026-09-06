@@ -190,7 +190,13 @@ class FFTCanvas(QWidget):
     def _build_cap_img(self, W, H, caps, front):
         # 베이스 이미지 = 보이는 캡쳐 전부 dimmed. front 강조는 paintEvent 오버레이라 여기선 안 그림.
         from PyQt5.QtGui import QImage
-        img=QImage(W,H,QImage.Format_ARGB32_Premultiplied); img.fill(0)
+        # [RETINA] 캡처 합성도 디바이스 해상도로 만든다. 예전엔 논리 크기로 만들어 dpr=2에서
+        # 2배로 늘여 그렸다 — 캡처 곡선이 라이브 곡선보다 눈에 띄게 흐렸고(품질), blit 자체도
+        # 비쌌다(1380x760 기준 0.115ms → 1.719ms). QPainter가 dpr을 자동 적용하므로
+        # 그리기 코드는 논리 좌표(W,H) 그대로 두면 된다.
+        _dpr = self.devicePixelRatioF()
+        img=QImage(int(W*_dpr), int(H*_dpr), QImage.Format_ARGB32_Premultiplied)
+        img.setDevicePixelRatio(_dpr); img.fill(0)
         p=QPainter(img); p.setRenderHint(QPainter.Antialiasing,True)
         for cap in caps:
             if not cap.get('visible', True): continue
@@ -201,13 +207,16 @@ class FFTCanvas(QWidget):
     def _cap_base_key(self, n=None):
         ny=min(self.sample_rate/2, 20000)
         if n is None: n=len(self._captures)
-        return (self.width(), self.height(), self.db_max, self.db_min, self.scale_log, int(ny), n)
+        return (self.width(), self.height(), self.devicePixelRatioF(), self.db_max, self.db_min, self.scale_log, int(ny), n)
 
     def _append_cap_incr(self, cap):
         # 베이스 캐시 유효 시 새 캡쳐 1개만 dimmed로 얹기(O(1)). 무효면 다음 paint에서 전체 rebuild.
         if self._cap_pix is not None and self._cap_pix_key==self._cap_base_key(len(self._captures)-1) and cap.get('visible', True):
             p=QPainter(self._cap_pix); p.setRenderHint(QPainter.Antialiasing,True)
-            self._draw_cap_curve(p, cap, self._cap_pix.width(), self._cap_pix.height(), emph=False)
+            # 논리 크기를 넘긴다 — _cap_pix는 이제 디바이스 해상도라 .width()/.height()를
+            # 그대로 쓰면 dpr=2에서 좌표가 2배로 어긋난다(QPainter가 dpr을 자동 적용하므로
+            # 그리기 좌표계는 논리 기준이어야 함).
+            self._draw_cap_curve(p, cap, self.width(), self.height(), emph=False)
             p.end()
             self._cap_pix_key=self._cap_base_key()   # 새 count 반영 → 재빌드 안 함
         else:
@@ -690,7 +699,13 @@ class OctaveCanvas(QWidget):
     def _build_cap_img(self, W, H, caps, front):
         # 베이스 = 보이는 캡쳐 전부 dimmed. front 강조는 paintEvent 오버레이.
         from PyQt5.QtGui import QImage
-        img=QImage(W,H,QImage.Format_ARGB32_Premultiplied); img.fill(0)
+        # [RETINA] 캡처 합성도 디바이스 해상도로 만든다. 예전엔 논리 크기로 만들어 dpr=2에서
+        # 2배로 늘여 그렸다 — 캡처 곡선이 라이브 곡선보다 눈에 띄게 흐렸고(품질), blit 자체도
+        # 비쌌다(1380x760 기준 0.115ms → 1.719ms). QPainter가 dpr을 자동 적용하므로
+        # 그리기 코드는 논리 좌표(W,H) 그대로 두면 된다.
+        _dpr = self.devicePixelRatioF()
+        img=QImage(int(W*_dpr), int(H*_dpr), QImage.Format_ARGB32_Premultiplied)
+        img.setDevicePixelRatio(_dpr); img.fill(0)
         p=QPainter(img)
         for cap in caps:
             if not cap.get('visible', True): continue
@@ -705,13 +720,16 @@ class OctaveCanvas(QWidget):
         gap_r=0.06 if self.mode=='oct24' else 0.08 if self.mode=='oct12' else 0.12
         gap=max(1.0,bar_w*gap_r)
         if ncap is None: ncap=len(self._captures)
-        return (self.width(),self.height(),self.db_max,self.db_min,self.mode,round(bar_w*1000),round(gap*1000),ncap)
+        return (self.width(),self.height(),self.devicePixelRatioF(),self.db_max,self.db_min,self.mode,round(bar_w*1000),round(gap*1000),ncap)
 
     def _append_cap_incr(self, cap):
         # 베이스 유효 시 새 캡쳐 1개만 dimmed로 얹기(O(1)). 무효면 다음 paint에서 전체 rebuild.
         if self._cap_pix is not None and self._cap_pix_key==self._cap_base_key(len(self._captures)-1) and cap.get('visible', True):
             p=QPainter(self._cap_pix)
-            self._draw_cap_curve(p, cap, self._cap_pix.width(), self._cap_pix.height(), emph=False)
+            # 논리 크기를 넘긴다 — _cap_pix는 이제 디바이스 해상도라 .width()/.height()를
+            # 그대로 쓰면 dpr=2에서 좌표가 2배로 어긋난다(QPainter가 dpr을 자동 적용하므로
+            # 그리기 좌표계는 논리 기준이어야 함).
+            self._draw_cap_curve(p, cap, self.width(), self.height(), emph=False)
             p.end()
             self._cap_pix_key=self._cap_base_key()   # 새 count 반영 → 재빌드 안 함
         else:
@@ -1114,9 +1132,20 @@ class SpectrogramCanvas(QWidget):
     # ── Ring buffer ─────────────────────────────────────────────────────────
     def _ensure(self, dw):
         if self._rgba is not None and self._rdw==dw: return
+        # 폭이 바뀌어도 히스토리를 **버리지 않고** 열 방향 최근접 리샘플로 이어받는다.
+        # 예전엔 resizeEvent가 버퍼를 통째로 None으로 만들어, 창을 1픽셀만 움직이거나
+        # 패널을 토글해도 60초 스크롤백이 통째로 사라졌다(실측 400프레임 → 1).
+        _old_rgba, _old_dbuf, _old_dw = self._rgba, self._dbuf, self._rdw
         self._rgba=np.zeros((self.MAX_HIST,dw,4),np.uint8)
         self._dbuf=np.full((self.MAX_HIST,dw),self.db_min,np.float32)
-        self._rdw=dw; self._wi=0; self._n=0
+        if _old_rgba is not None and _old_dw>0 and dw>0:
+            _idx=np.linspace(0,_old_dw-1,dw).astype(np.intp)
+            self._rgba[:]=_old_rgba[:,_idx,:]
+            self._dbuf[:]=_old_dbuf[:,_idx]
+            # _wi/_n(쓰기 위치·유효 프레임 수)은 그대로 유지 → 스크롤백 보존
+        else:
+            self._wi=0; self._n=0
+        self._rdw=dw
         self._col_lo=None; self._freqs_len=0
 
     def _build_col_map(self, freqs, dw):
@@ -1132,8 +1161,9 @@ class SpectrogramCanvas(QWidget):
 
     def resizeEvent(self,e):
         self._cache=None
-        # Reset buffers — new width means old columns are invalid
-        self._rgba=None; self._dbuf=None; self._rdw=0; self._col_lo=None
+        # 버퍼를 버리지 않는다 — 폭이 바뀌면 _ensure()가 기존 히스토리를 리샘플해 승계한다.
+        # (주파수→열 매핑만 무효화하고 다음 push에서 재계산)
+        self._col_lo=None; self._freqs_len=0
         super().resizeEvent(e)
 
     # ── Public API ───────────────────────────────────────────────────────────

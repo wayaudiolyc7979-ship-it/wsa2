@@ -417,7 +417,13 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
     def _build_cap_img(self, W, H, caps, front):
         # 베이스 = 보이는 캡쳐 전부 dimmed. front 강조는 paintEvent 오버레이.
         from PyQt5.QtGui import QImage
-        img=QImage(W,H,QImage.Format_ARGB32_Premultiplied); img.fill(0)
+        # [RETINA] 캡처 합성도 디바이스 해상도로 만든다. 예전엔 논리 크기로 만들어 dpr=2에서
+        # 2배로 늘여 그렸다 — 캡처 곡선이 라이브 곡선보다 눈에 띄게 흐렸고(품질), blit 자체도
+        # 비쌌다(1380x760 기준 0.115ms → 1.719ms). QPainter가 dpr을 자동 적용하므로
+        # 그리기 코드는 논리 좌표(W,H) 그대로 두면 된다.
+        _dpr = self.devicePixelRatioF()
+        img=QImage(int(W*_dpr), int(H*_dpr), QImage.Format_ARGB32_Premultiplied)
+        img.setDevicePixelRatio(_dpr); img.fill(0)
         p=QPainter(img); p.setRenderHint(QPainter.Antialiasing,True)
         for cap in caps:
             if not cap.get('visible', True): continue
@@ -427,13 +433,16 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
 
     def _cap_base_key(self, n=None):
         if n is None: n=len(self._captures)
-        return (self.width(), self.height(), self.ph_max, self.ph_min, self.phase_mode, self.coh_blank, n)
+        return (self.width(), self.height(), self.devicePixelRatioF(), self.ph_max, self.ph_min, self.phase_mode, self.coh_blank, n)
 
     def _append_cap_incr(self, cap):
         # 베이스 유효 시 새 캡쳐 1개만 dimmed로 얹기(O(1)). 무효면 다음 paint에서 전체 rebuild.
         if self._cap_pix is not None and self._cap_pix_key==self._cap_base_key(len(self._captures)-1) and cap.get('visible', True):
             p=QPainter(self._cap_pix); p.setRenderHint(QPainter.Antialiasing,True)
-            self._draw_cap_curve(p, cap, self._cap_pix.width(), self._cap_pix.height(), emph=False)
+            # 논리 크기를 넘긴다 — _cap_pix는 이제 디바이스 해상도라 .width()/.height()를
+            # 그대로 쓰면 dpr=2에서 좌표가 2배로 어긋난다(QPainter가 dpr을 자동 적용하므로
+            # 그리기 좌표계는 논리 기준이어야 함).
+            self._draw_cap_curve(p, cap, self.width(), self.height(), emph=False)
             p.end()
             self._cap_pix_key=self._cap_base_key()   # 새 count 반영 → 재빌드 안 함
         else:
@@ -1088,7 +1097,13 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
     def _build_cap_img(self, W, H, caps, front):
         # 베이스 = 보이는 캡쳐 전부 dimmed. front 강조는 paintEvent 오버레이.
         from PyQt5.QtGui import QImage
-        img=QImage(W,H,QImage.Format_ARGB32_Premultiplied); img.fill(0)
+        # [RETINA] 캡처 합성도 디바이스 해상도로 만든다. 예전엔 논리 크기로 만들어 dpr=2에서
+        # 2배로 늘여 그렸다 — 캡처 곡선이 라이브 곡선보다 눈에 띄게 흐렸고(품질), blit 자체도
+        # 비쌌다(1380x760 기준 0.115ms → 1.719ms). QPainter가 dpr을 자동 적용하므로
+        # 그리기 코드는 논리 좌표(W,H) 그대로 두면 된다.
+        _dpr = self.devicePixelRatioF()
+        img=QImage(int(W*_dpr), int(H*_dpr), QImage.Format_ARGB32_Premultiplied)
+        img.setDevicePixelRatio(_dpr); img.fill(0)
         p=QPainter(img); p.setRenderHint(QPainter.Antialiasing,True)
         for cap in caps:
             if not cap.get('visible', True): continue
@@ -1098,13 +1113,16 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
 
     def _cap_base_key(self, n=None):
         if n is None: n=len(self._captures)
-        return (self.width(), self.height(), self.db_max, self.db_min, n)
+        return (self.width(), self.height(), self.devicePixelRatioF(), self.db_max, self.db_min, n)
 
     def _append_cap_incr(self, cap):
         # 베이스 유효 시 새 캡쳐 1개만 dimmed로 얹기(O(1)). 무효면 다음 paint에서 전체 rebuild.
         if self._cap_pix is not None and self._cap_pix_key==self._cap_base_key(len(self._captures)-1) and cap.get('visible', True):
             p=QPainter(self._cap_pix); p.setRenderHint(QPainter.Antialiasing,True)
-            self._draw_cap_curve(p, cap, self._cap_pix.width(), self._cap_pix.height(), emph=False)
+            # 논리 크기를 넘긴다 — _cap_pix는 이제 디바이스 해상도라 .width()/.height()를
+            # 그대로 쓰면 dpr=2에서 좌표가 2배로 어긋난다(QPainter가 dpr을 자동 적용하므로
+            # 그리기 좌표계는 논리 기준이어야 함).
+            self._draw_cap_curve(p, cap, self.width(), self.height(), emph=False)
             p.end()
             self._cap_pix_key=self._cap_base_key()   # 새 count 반영 → 재빌드 안 함
         else:
@@ -1687,7 +1705,13 @@ class TFIRCanvas(QWidget):
     def _build_cap_img(self, W, H, caps, front):
         # 베이스 = 보이는 캡쳐 전부 dimmed. front 강조는 paintEvent 오버레이.
         from PyQt5.QtGui import QImage
-        img=QImage(W,H,QImage.Format_ARGB32_Premultiplied); img.fill(0)
+        # [RETINA] 캡처 합성도 디바이스 해상도로 만든다. 예전엔 논리 크기로 만들어 dpr=2에서
+        # 2배로 늘여 그렸다 — 캡처 곡선이 라이브 곡선보다 눈에 띄게 흐렸고(품질), blit 자체도
+        # 비쌌다(1380x760 기준 0.115ms → 1.719ms). QPainter가 dpr을 자동 적용하므로
+        # 그리기 코드는 논리 좌표(W,H) 그대로 두면 된다.
+        _dpr = self.devicePixelRatioF()
+        img=QImage(int(W*_dpr), int(H*_dpr), QImage.Format_ARGB32_Premultiplied)
+        img.setDevicePixelRatio(_dpr); img.fill(0)
         p=QPainter(img); p.setRenderHint(QPainter.Antialiasing,True)
         for cap in caps:
             if not cap.get('visible', True): continue
@@ -1697,14 +1721,17 @@ class TFIRCanvas(QWidget):
 
     def _cap_base_key(self, n=None):
         if n is None: n=len(self._captures)
-        return (self.width(), self.height(), self.db_max, self.db_min,
+        return (self.width(), self.height(), self.devicePixelRatioF(), self.db_max, self.db_min,
                 round(self.t_min,1), round(self.t_max,1), self.ir_mode, n)
 
     def _append_cap_incr(self, cap):
         # 베이스 유효 시 새 캡쳐 1개만 dimmed로 얹기(O(1)). 무효면 다음 paint에서 전체 rebuild.
         if self._cap_pix is not None and self._cap_pix_key==self._cap_base_key(len(self._captures)-1) and cap.get('visible', True):
             p=QPainter(self._cap_pix); p.setRenderHint(QPainter.Antialiasing,True)
-            self._draw_cap_curve(p, cap, self._cap_pix.width(), self._cap_pix.height(), emph=False)
+            # 논리 크기를 넘긴다 — _cap_pix는 이제 디바이스 해상도라 .width()/.height()를
+            # 그대로 쓰면 dpr=2에서 좌표가 2배로 어긋난다(QPainter가 dpr을 자동 적용하므로
+            # 그리기 좌표계는 논리 기준이어야 함).
+            self._draw_cap_curve(p, cap, self.width(), self.height(), emph=False)
             p.end()
             self._cap_pix_key=self._cap_base_key()   # 새 count 반영 → 재빌드 안 함
         else:
