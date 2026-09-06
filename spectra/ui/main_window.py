@@ -4419,11 +4419,12 @@ class MainWindow(QMainWindow):
                  'color': c['color'], 'label': c['label'], 'group': c.get('group', '')}
                 for c in self.oct_cvs._captures
             ]
-            with _CAPTURES_LOCK:   # TF 백그라운드 저장과 같은 파일 공유 → 클로버 방지
-                data = _load_captures_file()
-                data['fft'] = fft_list
-                data['oct'] = oct_list
-                _save_captures_file(data)
+            # 스펙트럼 캡처는 자기 파일만 통째로 쓴다 — 읽기-수정-쓰기가 필요 없다.
+            # 예전엔 같은 파일에 TF 캡처가 있어 매번 TF 전부를 다시 직렬화했고(실측 TF 50개면
+            # 2.72초 GUI 프리즈, 드래그 재정렬은 드롭마다), TF 백그라운드 세이버의 락을 기다리며
+            # 최대 1.44초 우선순위 역전까지 났다. 파일이 갈라져 둘 다 사라짐.
+            with _CAPTURES_LOCK:
+                _save_captures_file({'fft': fft_list, 'oct': oct_list})
         except Exception as e:
             _alog.warning(f'스펙트럼 캡처 저장 실패: {e}')
 

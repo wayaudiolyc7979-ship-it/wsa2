@@ -22,8 +22,8 @@ from PyQt5.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication, 
 from spectra.audio.engine import (_EngineChannelSource, _EngineMultiSource, _EngineSyncSource,
                                   _dev_hostapi_ok, _win_extra_settings, _win_preferred_hostapi)
 from spectra.audio.watchdog import StreamStalled, begin_no_sleep, classify_stall, end_no_sleep
-from spectra.core.config import (SPEED_LEVELS, T, _CAPTURES_LOCK, _load_captures_file,
-                                 _save_captures_file, _save_settings, delay_unit, is_dark,
+from spectra.core.config import (SPEED_LEVELS, T, _CAPTURES_TF_LOCK, _load_tf_captures_file,
+                                 _save_tf_captures_file, _save_settings, delay_unit, is_dark,
                                  set_delay_unit)
 from spectra.core.i18n import _tx
 from spectra.core.logging_diag import _alog, _diag, _no_stderr
@@ -3469,8 +3469,10 @@ class TransferFunctionWindow(QWidget):
         if self._audio_busy(): return   # 오디오 활성 → 보류 (글리치 방지)
         # ★ 비동기 저장 — 캡쳐가 쌓이면 전체 재직렬화가 O(n²)로 커져(캡쳐 50개=53MB, 실측 2.1초;
         #   100개=4.2초) 동기 저장은 GUI를 통째로 그만큼 얼렸다. 오디오가 idle이라 글리치 걱정이
-        #   없는 시점이므로 백그라운드 스레드로 돌린다(_CAPTURES_LOCK이 spec 저장과 직렬화하고,
-        #   _save_captures_file은 tmp+os.replace 원자 저장이라 중간에 끊겨도 파일은 온전).
+        #   없는 시점이므로 백그라운드 스레드로 돌린다(_save_tf_captures_file은 tmp+os.replace
+        #   원자 저장이라 중간에 끊겨도 파일은 온전. spec 캡처와는 파일이 달라 경쟁도 없다).
+        #   ※ json.dumps는 GIL을 놓지 않아 '백그라운드'라도 직렬화 동안 GUI가 멈춘다 —
+        #     캡처 수가 많을 때의 근본 해법은 곡선을 base64 float32로 담는 것(남은작업.md C-2).
         self._flush_tf_captures(sync=False)
 
     def _flush_tf_captures(self, sync=True):
@@ -3525,15 +3527,14 @@ class TransferFunctionWindow(QWidget):
                                        'etc_db': r['etc_db'].tolist() if r.get('etc_db') is not None else None,
                                        'delay': float(r.get('delay', 0.0))}
                 tf_list.append(entry)
-            with _CAPTURES_LOCK:   # spec 캡쳐와 같은 파일 공유 → 읽기-수정-쓰기 원자화(클로버 방지)
-                data = _load_captures_file()
-                data['tf'] = tf_list
-                _save_captures_file(data)
+            # TF 캡처는 자기 파일만 쓴다 — spec 캡처와 파일이 갈라져 서로를 재직렬화하지 않는다.
+            with _CAPTURES_TF_LOCK:
+                _save_tf_captures_file({'tf': tf_list})
         except Exception as e:
             _alog.warning(f'TF 캡처 저장 실패: {e}')
 
     def _restore_tf_captures(self):
-        data = _load_captures_file()
+        data = _load_tf_captures_file()   # 분리된 TF 파일(이관 전이면 레거시에서 승계)
         for cap in data.get('tf', []):
             try:
                 color = cap['color']; label = cap['label']; group = cap.get('group', '')

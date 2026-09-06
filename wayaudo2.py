@@ -96,8 +96,10 @@ from spectra.dsp.weighting import THIRD_OCT, make_oct_bands, BANDS
 #  설정 저장/불러오기
 # ───────────────────────────────────────────
 # 설정 저장/불러오기 — v2.0 분해: spectra/core/config.py 로 이동, re-import(동작 불변)
-from spectra.core.config import (_APP_SUPPORT, _SETTINGS_PATH, _CAPTURES_PATH, _CAPTURES_LOCK,
-                                 _load_settings, _save_settings, _load_captures_file, _save_captures_file)
+from spectra.core.config import (_APP_SUPPORT, _SETTINGS_PATH, _CAPTURES_PATH, _CAPTURES_TF_PATH,
+                                 _CAPTURES_LOCK, _CAPTURES_TF_LOCK,
+                                 _load_settings, _save_settings, _load_captures_file, _save_captures_file,
+                                 _load_tf_captures_file, _save_tf_captures_file)
 
 # ── i18n: 영어 원문을 키로 쓰는 경량 번역 ──────────────────────────
 # i18n — v2.0 분해: spectra/core/i18n.py 로 이동, re-import(동작 불변)

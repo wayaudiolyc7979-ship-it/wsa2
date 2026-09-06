@@ -79,7 +79,22 @@ else:
 # 테스트/개발 시 실제 사용자 설정 파일 보호 — 환경변수로 경로 오버라이드 가능
 _SETTINGS_PATH = os.environ.get('WSA2_SETTINGS_PATH') or os.path.join(_APP_SUPPORT, 'settings.json')
 _CAPTURES_PATH = os.environ.get('WSA2_CAPTURES_PATH') or os.path.join(_APP_SUPPORT, 'captures.json')
-_CAPTURES_LOCK = threading.Lock()   # captures.json 동시 읽기-수정-쓰기 보호 (백그라운드 저장용)
+
+
+def _derive_tf_captures_path(spec_path):
+    """TF 캡처 파일 경로 — spec 경로에서 파생(`captures.json` → `captures_tf.json`).
+    테스트가 WSA2_CAPTURES_PATH만 바꿔도 TF 파일까지 자동으로 같은 임시 위치로 따라오게 한다."""
+    root, ext = os.path.splitext(spec_path)
+    return f'{root}_tf{ext or ".json"}'
+
+
+_CAPTURES_TF_PATH = os.environ.get('WSA2_CAPTURES_TF_PATH') or _derive_tf_captures_path(_CAPTURES_PATH)
+
+# 락을 파일별로 분리한다. 예전엔 spec/TF 캡처가 **한 파일**을 공유해 하나의 락으로 직렬화했는데,
+# TF 백그라운드 세이버가 락을 쥔 동안 GUI 스레드(스펙트럼 캡처 저장)가 그대로 멈췄다
+# (실측 우선순위 역전 1.44초). 이제 서로 다른 파일이라 경쟁 자체가 없다.
+_CAPTURES_LOCK = threading.Lock()      # captures.json (spec: fft/oct)
+_CAPTURES_TF_LOCK = threading.Lock()   # captures_tf.json (TF)
 
 def _load_settings():
     try:
@@ -100,23 +115,88 @@ def _save_settings(data):
         try: _alog.warning(f'settings 저장 실패: {e}')
         except Exception: pass
 
-def _load_captures_file():
+def _read_json(path):
     try:
-        with open(_CAPTURES_PATH, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        with open(path, 'r', encoding='utf-8') as f:
+            d = json.load(f)
+            return d if isinstance(d, dict) else {}
     except Exception:
         return {}
 
-def _save_captures_file(data):
+
+def _write_json_atomic(path, data, what='캡처'):
+    """tmp + os.replace 원자 저장 — dump 도중 크래시/os._exit로 파일이 잘려 전체가 소실되던 것 방지."""
     try:
-        d = os.path.dirname(_CAPTURES_PATH)
-        if d: os.makedirs(d, exist_ok=True)          # bare filename이면 dirname='' → makedirs 스킵(_save_settings와 통일)
-        tmp = _CAPTURES_PATH + '.tmp'
+        d = os.path.dirname(path)
+        if d: os.makedirs(d, exist_ok=True)          # bare filename이면 dirname='' → makedirs 스킵
+        tmp = path + '.tmp'
         with open(tmp, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False)
-        os.replace(tmp, _CAPTURES_PATH)              # 원자적 교체 — dump 도중 크래시/os._exit로 파일이 잘려 캡처 전체가 소실되던 것 방지(_save_settings와 동일)
+        os.replace(tmp, path)
+        return True
     except Exception as e:
-        _alog.warning(f'캡처 저장 실패: {e}')
+        _alog.warning(f'{what} 저장 실패: {e}')
+        return False
+
+
+_captures_migrated = False   # 프로세스당 1회만 확인하면 되는 이관 여부
+
+
+def _migrate_captures_split():
+    """레거시 통합 captures.json → spec/TF 두 파일로 1회 이관 (멱등).
+
+    v2.0.2 이전엔 fft/oct/tf가 한 파일에 있어, 스펙트럼 캡처 1개를 저장할 때도 TF 캡처
+    전부를 다시 직렬화했다(실측 TF 25개=1.37초, 50개=2.72초 GUI 프리즈. 드래그 재정렬은
+    드롭마다 발생). 파일을 나눠 서로를 건드리지 않게 한다.
+
+    순서가 안전의 핵심: **TF 파일을 먼저 쓰고**, 성공했을 때만 레거시에서 'tf'를 뺀다.
+    중간에 죽어도 최악이 '양쪽에 다 있음'이라 데이터가 사라지지 않는다."""
+    global _captures_migrated
+    if _captures_migrated:
+        return
+    try:
+        if os.path.exists(_CAPTURES_TF_PATH):        # 이미 분리 완료
+            _captures_migrated = True
+            return
+        legacy = _read_json(_CAPTURES_PATH)
+        if 'tf' not in legacy:                       # 이관할 게 없음(신규 사용자 등)
+            _captures_migrated = True
+            return
+        tf_list = legacy.get('tf') or []
+        if not _write_json_atomic(_CAPTURES_TF_PATH, {'tf': tf_list}, 'TF 캡처'):
+            return                                   # 실패 시 레거시 손대지 않음 → 다음 기회에 재시도
+        legacy.pop('tf', None)
+        _write_json_atomic(_CAPTURES_PATH, legacy, '스펙트럼 캡처')
+        _captures_migrated = True
+        _alog.info(f'캡처 파일 분리 이관 완료 — TF {len(tf_list)}개 → {os.path.basename(_CAPTURES_TF_PATH)}')
+    except Exception as e:
+        _alog.warning(f'캡처 파일 이관 실패(기존 파일 유지): {e}')
+
+
+def _load_captures_file():
+    """스펙트럼(fft/oct) 캡처 파일. 이관 전 레거시 파일이면 'tf' 키가 남아 있을 수 있다."""
+    _migrate_captures_split()
+    return _read_json(_CAPTURES_PATH)
+
+
+def _save_captures_file(data):
+    """스펙트럼 캡처 파일 저장 — TF 섹션은 건드리지 않는다(별도 파일)."""
+    _write_json_atomic(_CAPTURES_PATH, data, '스펙트럼 캡처')
+
+
+def _load_tf_captures_file():
+    """TF 캡처 파일. 아직 이관 전이면 레거시 통합 파일에서 승계해 읽는다(데이터 소실 방지)."""
+    _migrate_captures_split()
+    d = _read_json(_CAPTURES_TF_PATH)
+    if 'tf' in d:
+        return d
+    legacy = _read_json(_CAPTURES_PATH)              # 이관이 실패했던 경우의 안전망
+    return {'tf': legacy.get('tf', [])}
+
+
+def _save_tf_captures_file(data):
+    """TF 캡처 파일 저장 — 스펙트럼 섹션은 건드리지 않는다(별도 파일)."""
+    _write_json_atomic(_CAPTURES_TF_PATH, data, 'TF 캡처')
 
 
 # ── 딜레이 단위 (ms ↔ 거리 m) — 표시 통합 ──────────────────────────────
