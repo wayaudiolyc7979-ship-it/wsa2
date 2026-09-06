@@ -31,7 +31,15 @@ _alog = logging.getLogger('wsa2')
 # 파일엔 항상 DEBUG 전부 기록. WSA2_DEBUG=1 이면 콘솔(stderr)에도 라이브 출력(개발/검증용).
 _DEBUG = bool(os.environ.get('WSA2_DEBUG'))
 if _DEBUG:
-    _sh = logging.StreamHandler()
+    # ⚠️ 기본 StreamHandler는 sys.stderr(=fd 2)로 쓴다. 그런데 _no_stderr()가 측정 중
+    #    스트림 수명 내내 fd 2를 /dev/null로 돌려두므로, 그대로 두면 **측정을 시작한
+    #    순간부터 콘솔 미러가 통째로 무음**이 된다(장시간 오작동을 봐야 할 바로 그때).
+    #    import 시점의 fd 2를 따로 복제해 그쪽으로 쓰면 리다이렉트와 무관하게 살아 있다.
+    try:
+        _stderr_stream = os.fdopen(os.dup(2), 'w', buffering=1)
+    except Exception:
+        _stderr_stream = None
+    _sh = logging.StreamHandler(_stderr_stream) if _stderr_stream else logging.StreamHandler()
     _sh.setFormatter(logging.Formatter(
         '%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s', datefmt='%H:%M:%S'))
     _root_log.addHandler(_sh)

@@ -100,18 +100,49 @@ _CAPTURES_TF_PATH = os.environ.get('WSA2_CAPTURES_TF_PATH') or _derive_tf_captur
 _CAPTURES_LOCK = threading.Lock()      # captures.json (spec: fft/oct)
 _CAPTURES_TF_LOCK = threading.Lock()   # captures_tf.json (TF)
 
+_settings_unreadable = False   # 파일은 있는데 읽기/파싱에 실패했다 → 덮어쓰기 전에 원본 보존
+
+
 def _load_settings():
+    """설정 로드. **반드시 dict를 돌려준다** — 예전엔 json.load 결과를 그대로 반환해서
+    파일이 `null`이나 리스트로 손상돼 있으면 이후 `.get()`에서 AttributeError가 나
+    **앱이 아예 안 뜨는** 상태가 됐다(그 경로는 try로 감싸여 있지도 않았다)."""
+    global _settings_unreadable
+    _settings_unreadable = False
+    if not os.path.exists(_SETTINGS_PATH):
+        return {}
     try:
         with open(_SETTINGS_PATH, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception:
-        return {}
+            d = json.load(f)
+        if isinstance(d, dict):
+            return d
+        _alog.warning('settings.json 형식이 dict가 아님 — 빈 설정으로 시작')
+    except Exception as e:
+        _alog.warning(f'settings.json 읽기 실패: {e}')
+    _settings_unreadable = True      # 아래 저장에서 원본을 백업한 뒤 쓰게 한다
+    return {}
+
 
 def _save_settings(data):
+    global _settings_unreadable
     try:
         d = os.path.dirname(_SETTINGS_PATH)
         if d: os.makedirs(d, exist_ok=True)          # bare filename이면 dirname='' → makedirs 스킵
-        tmp = _SETTINGS_PATH + '.tmp'
+        # ⚠️ 읽기에 실패했었다면 그 위에 그냥 덮어쓰면 **캘리브레이션이 영구 소실**된다
+        #    (2026-06-18에 실제로 겪은 사고). 일시적 점유·부분 손상일 수 있으므로
+        #    원본을 .corrupt-<ts>로 남기고 나서 쓴다. 1회만 수행.
+        if _settings_unreadable and os.path.exists(_SETTINGS_PATH):
+            try:
+                import time as _t
+                bak = f'{_SETTINGS_PATH}.corrupt-{int(_t.time())}'
+                os.replace(_SETTINGS_PATH, bak)
+                _alog.warning(f'읽지 못한 settings.json을 보존: {os.path.basename(bak)}')
+            except Exception as e:
+                _alog.warning(f'settings 백업 실패(덮어쓰기 중단): {e}')
+                return                                # 백업 못 하면 차라리 쓰지 않는다
+            finally:
+                _settings_unreadable = False
+        tmp = f'{_SETTINGS_PATH}.{os.getpid()}.tmp'
         with open(tmp, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
         os.replace(tmp, _SETTINGS_PATH)              # 원자적 교체(중간 실패해도 기존 파일 보존)
@@ -155,18 +186,28 @@ def _read_json(path):
         return {}
 
 
-def _write_json_atomic(path, data, what='캡처'):
-    """tmp + os.replace 원자 저장 — dump 도중 크래시/os._exit로 파일이 잘려 전체가 소실되던 것 방지."""
+def _write_json_atomic(path, data, what='캡처', durable=False):
+    """tmp + os.replace 원자 저장 — dump 도중 크래시/os._exit로 파일이 잘려 전체가 소실되던 것 방지.
+
+    durable=True면 replace 전에 fsync까지 한다. 이관처럼 **'새 파일을 쓴 뒤 옛 파일을
+    지우는'** 2단계에서는 fsync가 없으면 파일시스템이 rename 메타데이터만 먼저 반영하고
+    데이터 블록을 뒤로 미룰 수 있어, 전원차단 시 '새 파일은 비었는데 옛 파일은 이미
+    지워진' 상태가 만들어진다. 평상시 저장은 비용 때문에 기본 False.
+    tmp 이름에 pid/tid를 넣어 GUI·백그라운드 세이버가 같은 tmp를 truncate하지 않게 한다."""
+    tmp = f'{path}.{os.getpid()}.{threading.get_ident()}.tmp'
     try:
         d = os.path.dirname(path)
         if d: os.makedirs(d, exist_ok=True)          # bare filename이면 dirname='' → makedirs 스킵
-        tmp = path + '.tmp'
         with open(tmp, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False)
+            if durable:
+                f.flush(); os.fsync(f.fileno())
         os.replace(tmp, path)
         return True
     except Exception as e:
         _alog.warning(f'{what} 저장 실패: {e}')
+        try: os.unlink(tmp)                          # 실패한 tmp가 앱 폴더에 쌓이지 않게
+        except Exception: pass
         return False
 
 
@@ -186,7 +227,11 @@ def _migrate_captures_split():
     if _captures_migrated:
         return
     try:
-        if os.path.exists(_CAPTURES_TF_PATH):        # 이미 분리 완료
+        # ⚠️ 존재 여부가 아니라 **내용**으로 판정한다. 예전엔 os.path.exists만 봐서,
+        #    TF 파일이 0바이트/손상이면 '이관 완료'로 오판했다 → _save_captures_file의
+        #    레거시 'tf' 보존 가드가 무력화되고, 다음 스펙트럼 저장 한 번에
+        #    디스크상 마지막 TF 사본이 사라졌다(리뷰에서 재현).
+        if 'tf' in _read_json(_CAPTURES_TF_PATH):    # 이미 분리 완료(읽히는 것 확인)
             _captures_migrated = True
             return
         legacy = _read_json(_CAPTURES_PATH)
@@ -194,10 +239,10 @@ def _migrate_captures_split():
             _captures_migrated = True
             return
         tf_list = legacy.get('tf') or []
-        if not _write_json_atomic(_CAPTURES_TF_PATH, {'tf': tf_list}, 'TF 캡처'):
+        if not _write_json_atomic(_CAPTURES_TF_PATH, {'tf': tf_list}, 'TF 캡처', durable=True):
             return                                   # 실패 시 레거시 손대지 않음 → 다음 기회에 재시도
         legacy.pop('tf', None)
-        _write_json_atomic(_CAPTURES_PATH, legacy, '스펙트럼 캡처')
+        _write_json_atomic(_CAPTURES_PATH, legacy, '스펙트럼 캡처', durable=True)
         _captures_migrated = True
         _alog.info(f'캡처 파일 분리 이관 완료 — TF {len(tf_list)}개 → {os.path.basename(_CAPTURES_TF_PATH)}')
     except Exception as e:

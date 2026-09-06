@@ -7,6 +7,7 @@ import base64 as _b64
 import hashlib as _hs
 import hmac as _hmac
 import datetime as _dt
+import time as _time
 import platform as _pl
 import subprocess as _sp
 from spectra.core.i18n import _tx
@@ -38,32 +39,56 @@ _MACHINE_ID_CACHE = None
 _MID_CACHE_PATH = os.path.join(_LIC_DIR, 'machine_id')
 
 
-def _read_hw_serial() -> str:
-    """플랫폼 하드웨어 시리얼. 못 읽으면 빈 문자열(예외 안 던짐)."""
-    try:
-        if _pl.system() == 'Windows':
-            # BIOS 시리얼 번호 (포맷해도 불변). creationflags=CREATE_NO_WINDOW → 콘솔 창 안 뜸.
-            out = _sp.check_output(
-                ['wmic', 'bios', 'get', 'SerialNumber', '/value'],
-                timeout=5, text=True, stderr=_sp.DEVNULL, creationflags=_SP_NO_WINDOW)
-            for ln in out.splitlines():
-                if ln.upper().startswith('SERIALNUMBER='):
-                    return ln.split('=', 1)[-1].strip()
-            # wmic 결과가 비어있으면 PowerShell로 재시도 (Windows 11 대응)
-            out = _sp.check_output(
-                ['powershell', '-NoProfile', '-Command',
-                 '(Get-CimInstance Win32_BIOS).SerialNumber'],
-                timeout=5, text=True, stderr=_sp.DEVNULL, creationflags=_SP_NO_WINDOW)
-            return out.strip()
-        # macOS: system_profiler
-        out = _sp.check_output(
-            ['system_profiler', 'SPHardwareDataType'],
-            timeout=5, text=True, stderr=_sp.DEVNULL)
+def _hw_serial_sources():
+    """플랫폼별 (설명, argv) 후보 목록 — 앞에서부터 시도한다.
+
+    ⚠️ **반드시 절대경로**로 부른다. 이름으로만 부르면 PATH 앞에 동명의 가짜 실행파일을
+    두는 것만으로 조회를 실패시킬 수 있고, 그러면 아래 캐시 폴백이 발동해 라이선스
+    검사를 우회할 수 있다(리뷰에서 실제로 재현됨)."""
+    if _pl.system() == 'Windows':
+        root = os.environ.get('SystemRoot', r'C:\Windows')
+        return [
+            ('wmic', [os.path.join(root, 'System32', 'wbem', 'WMIC.exe'),
+                      'bios', 'get', 'SerialNumber', '/value']),
+            # Win11 24H2는 wmic이 기본 제거됨 → PowerShell 경로가 실질 기본이다.
+            ('powershell', [os.path.join(root, 'System32', 'WindowsPowerShell', 'v1.0',
+                                         'powershell.exe'),
+                            '-NoProfile', '-Command',
+                            '(Get-CimInstance Win32_BIOS).SerialNumber']),
+        ]
+    return [('system_profiler', ['/usr/sbin/system_profiler', 'SPHardwareDataType'])]
+
+
+def _parse_hw_serial(kind: str, out: str) -> str:
+    if kind == 'wmic':
         for ln in out.splitlines():
-            if 'Serial Number' in ln:
-                return ln.split(':')[-1].strip()
-    except Exception:
-        pass
+            if ln.upper().startswith('SERIALNUMBER='):
+                return ln.split('=', 1)[-1].strip()
+        return ''
+    if kind == 'powershell':
+        return out.strip()
+    for ln in out.splitlines():            # system_profiler
+        if 'Serial Number' in ln:
+            return ln.split(':')[-1].strip()
+    return ''
+
+
+def _read_hw_serial() -> str:
+    """플랫폼 하드웨어 시리얼. 못 읽으면 빈 문자열(예외 안 던짐).
+
+    각 후보를 **독립된 try**로 감싼다 — 예전엔 wmic과 PowerShell이 한 try 안에 있어
+    ①wmic이 없으면(Win11 24H2) 예외가 나서 PowerShell에 **도달조차 못 했고**
+    ②wmic이 빈 SerialNumber를 주면 그대로 ''를 반환해 폴백이 죽어 있었다.
+    둘 다 '시리얼을 영영 못 읽음 → 머신ID가 hostname에 묶임'으로 이어진다."""
+    for kind, argv in _hw_serial_sources():
+        try:
+            out = _sp.check_output(argv, timeout=5, text=True, stderr=_sp.DEVNULL,
+                                   creationflags=_SP_NO_WINDOW)
+        except Exception:
+            continue
+        serial = _parse_hw_serial(kind, out)
+        if serial:
+            return serial
     return ''
 
 
@@ -72,27 +97,47 @@ def _mid_from_serial(serial: str) -> str:
     return _hs.sha256(raw).hexdigest()[:12].upper()
 
 
+# 캐시 폴백을 인정하는 기간(일). 목적은 "일시적 조회 실패로 정품이 막히는 사고" 방지이지,
+# 하드웨어가 영원히 안 읽히는 기기를 무기한 통과시키는 게 아니다.
+_MID_CACHE_MAX_AGE = 30 * 86400
+
+
+def _mid_cache_tag(arch: str, mid: str, ts: str) -> str:
+    """캐시 파일 무결성 태그. 코드 추출엔 무력하지만, '파일을 열어 원하는 ID를 적어 넣는'
+    가장 쉬운 우회를 막는다(리뷰에서 이 방식으로 라이선스 복사가 통과함이 재현됐다)."""
+    return _hmac.new(_LIC_SECRET, f'{arch}:{mid}:{ts}'.encode(), _hs.sha256).hexdigest()[:16]
+
+
 def _load_cached_mid() -> str:
-    """디스크에 남긴 '하드웨어에서 읽은' 머신ID. 아키텍처가 다르면 무시."""
+    """디스크에 남긴 '하드웨어에서 읽은' 머신ID.
+    아키텍처 불일치 · 태그 불일치 · 기간 만료면 무시한다."""
     try:
         with open(_MID_CACHE_PATH, 'r') as f:
-            arch, mid = f.read().strip().split(':', 1)
-        if arch == _pl.machine() and len(mid) == 12 and mid.isalnum():
-            return mid.upper()
+            arch, mid, ts, tag = f.read().strip().split(':', 3)
+        if arch != _pl.machine() or len(mid) != 12 or not mid.isalnum():
+            return ''
+        if not _hmac.compare_digest(tag, _mid_cache_tag(arch, mid, ts)):
+            _diag('machine_id_cache_bad_tag')
+            return ''
+        if _time.time() - float(ts) > _MID_CACHE_MAX_AGE:
+            _diag('machine_id_cache_expired', age_days=int((_time.time() - float(ts)) / 86400))
+            return ''
+        return mid.upper()
     except Exception:
-        pass
-    return ''
+        return ''
 
 
 def _store_cached_mid(mid: str):
     try:
         os.makedirs(_LIC_DIR, exist_ok=True)
-        tmp = _MID_CACHE_PATH + '.tmp'
+        arch = _pl.machine(); ts = '%d' % _time.time()
+        # tmp 이름에 pid — 두 인스턴스가 동시에 기동해도 서로의 임시파일을 자르지 않게.
+        tmp = f'{_MID_CACHE_PATH}.{os.getpid()}.tmp'
         with open(tmp, 'w') as f:
-            f.write(f'{_pl.machine()}:{mid}')
+            f.write(f'{arch}:{mid}:{ts}:{_mid_cache_tag(arch, mid, ts)}')
         os.replace(tmp, _MID_CACHE_PATH)
-    except Exception:
-        pass
+    except Exception as e:
+        _diag('machine_id_cache_store_fail', err=type(e).__name__)   # 무음 실패 방지
 
 
 def _get_machine_id() -> str:
@@ -112,14 +157,18 @@ def _get_machine_id() -> str:
     if _MACHINE_ID_CACHE is not None:
         return _MACHINE_ID_CACHE
     serial = _read_hw_serial()
-    if not serial:
-        serial = _read_hw_serial()      # 일시적 타임아웃 대비 1회 재시도
+    _cached = '' if serial else _load_cached_mid()
+    if not serial and not _cached:
+        # 재시도는 **캐시가 없을 때만** — 캐시가 있으면 일시적 타임아웃은 이미 커버된다.
+        # 무조건 재시도하면 최악 지연이 2배가 되는데, 이 호출은 스플래시보다 앞이라
+        # 그만큼 창이 안 뜬 채로 멈춘다(기동 4.4→1.1초 최적화와 정면 충돌).
+        serial = _read_hw_serial()
     if serial:
         _MACHINE_ID_CACHE = _mid_from_serial(serial)
         if _load_cached_mid() != _MACHINE_ID_CACHE:
             _store_cached_mid(_MACHINE_ID_CACHE)
         return _MACHINE_ID_CACHE
-    cached = _load_cached_mid()
+    cached = _cached or _load_cached_mid()
     if cached:
         # 하드웨어 조회 실패 — 예전에 성공했던 ID로 라이선스를 지켜준다.
         _diag('machine_id_cached_fallback', mid=cached)
@@ -176,8 +225,10 @@ def load_license():
     except Exception: return None
 
 def save_license(key: str):
+    global _STARTUP_LICENSE_OK
     os.makedirs(_LIC_DIR, exist_ok=True)
     with open(_LIC_PATH, 'w') as f: f.write(key.strip())
+    _STARTUP_LICENSE_OK = None   # 메모이즈 무효화 — 이후 재검증이 stale False를 받지 않게
 
 _STARTUP_LICENSE_OK = None   # 검증 결과 캐시(Ed25519 순수파이썬 verify가 285ms — 2회 호출 방지)
 
