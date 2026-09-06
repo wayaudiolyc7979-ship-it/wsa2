@@ -294,7 +294,7 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
         self._cap_pix=None; self._cap_pix_key=None
         self._front_idx=None; self._live_on_top=False
         self._cap_building = False
-        self._cap_img_pending = None; self._cap_key_pending = None
+        self._cap_pending = None   # (img, key) 한 쌍으로만 주고받는다
         self._cap_built.connect(self._apply_cap_built)
         self._tf_extra_phase = {}  # {ch_idx: {'color', 'f', 'ph_wrap', 'ph_unwr', 'grp_ms'}}
         self._tf_avg = None   # {'color','f','ph_wrap','ph_unwr','grp_ms'} — 라이브 멀티마이크 평균 오버레이
@@ -349,8 +349,10 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
             self._tf_avg = None; self.update()
 
     def _apply_cap_built(self):
-        img, key = self._cap_img_pending, self._cap_key_pending
-        self._cap_img_pending = self._cap_key_pending = None
+        # 이미지와 키를 '한 튜플'로 받는다 — 예전엔 두 필드를 따로 대입해, 백그라운드 빌드가
+        # 겹치면 이미지와 키가 어긋난 짝으로 설치될 수 있었다(리사이즈 연타가 그 조건).
+        _pend = self._cap_pending; self._cap_pending = None
+        img, key = _pend if _pend else (None, None)
         if img is not None:
             self._cap_pix = QPixmap.fromImage(img)
             self._cap_pix_key = key
@@ -358,6 +360,10 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
 
     def _trigger_cap_build(self, W, H, cap_key):
         if self._cap_building: return
+        # 드래그 리사이즈 중에는 빌드를 미룬다 — 완성되기도 전에 크기가 또 바뀌어
+        # 매번 버려지는 빌드를 스레드로 계속 띄우면(실측 60스텝에 GUI 698ms) 한 코어가 논다.
+        if time.monotonic() - getattr(self, '_last_resize_t', 0.0) < 0.15:
+            return
         self._cap_building = True
         caps = [dict(c) for c in self._captures]
         front = self._front_idx
@@ -368,8 +374,7 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
     def _bg_cap_build(self, W, H, cap_key, caps, front):
         try:
             img = self._build_cap_img(W, H, caps, front)
-            self._cap_img_pending = img
-            self._cap_key_pending = cap_key
+            self._cap_pending = (img, cap_key)
             self._cap_built.emit()
         except Exception:
             pass
@@ -553,7 +558,8 @@ class TFPhaseCanvas(_TFFreqZoomMixin, QWidget):
         if x!=self._peer_mx: self._peer_mx=x; self.update()
     def clear_peer_cursor(self):
         if self._peer_mx!=-1: self._peer_mx=-1; self.update()
-    def resizeEvent(self,e): self._cache=None; self.update()
+    def resizeEvent(self,e):
+        self._last_resize_t = time.monotonic()   # 캡처 합성 빌드 정착 가드용 self._cache=None; self.update()
 
     def mouseDoubleClickEvent(self,e):
         self._fz_reset()                     # 주파수축 전대역 리셋 (Smaart 테두리클릭 방식)
@@ -948,7 +954,7 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
         self._cap_pix=None; self._cap_pix_key=None
         self._front_idx=None; self._live_on_top=False
         self._cap_building = False
-        self._cap_img_pending = None; self._cap_key_pending = None
+        self._cap_pending = None   # (img, key) 한 쌍으로만 주고받는다
         self._cap_built.connect(self._apply_cap_built)
         self._tf_extra = {}  # {ch_idx: {'color', 'f', 'mag'}}
         self._tf_avg = None   # {'color','f','mag','coh'} — 라이브 멀티마이크 평균 오버레이
@@ -1042,8 +1048,10 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
             self._tf_avg = None; self.update()
 
     def _apply_cap_built(self):
-        img, key = self._cap_img_pending, self._cap_key_pending
-        self._cap_img_pending = self._cap_key_pending = None
+        # 이미지와 키를 '한 튜플'로 받는다 — 예전엔 두 필드를 따로 대입해, 백그라운드 빌드가
+        # 겹치면 이미지와 키가 어긋난 짝으로 설치될 수 있었다(리사이즈 연타가 그 조건).
+        _pend = self._cap_pending; self._cap_pending = None
+        img, key = _pend if _pend else (None, None)
         if img is not None:
             self._cap_pix = QPixmap.fromImage(img)
             self._cap_pix_key = key
@@ -1051,6 +1059,10 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
 
     def _trigger_cap_build(self, W, H, cap_key):
         if self._cap_building: return
+        # 드래그 리사이즈 중에는 빌드를 미룬다 — 완성되기도 전에 크기가 또 바뀌어
+        # 매번 버려지는 빌드를 스레드로 계속 띄우면(실측 60스텝에 GUI 698ms) 한 코어가 논다.
+        if time.monotonic() - getattr(self, '_last_resize_t', 0.0) < 0.15:
+            return
         self._cap_building = True
         caps = [dict(c) for c in self._captures]
         front = self._front_idx
@@ -1061,8 +1073,7 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
     def _bg_cap_build(self, W, H, cap_key, caps, front):
         try:
             img = self._build_cap_img(W, H, caps, front)
-            self._cap_img_pending = img
-            self._cap_key_pending = cap_key
+            self._cap_pending = (img, cap_key)
             self._cap_built.emit()
         except Exception:
             pass
@@ -1222,7 +1233,8 @@ class TFMagCanvas(_TFFreqZoomMixin, QWidget):
         if x!=self._peer_mx: self._peer_mx=x; self.update()
     def clear_peer_cursor(self):
         if self._peer_mx!=-1: self._peer_mx=-1; self.update()
-    def resizeEvent(self,e): self._cache=None; self.update()
+    def resizeEvent(self,e):
+        self._last_resize_t = time.monotonic()   # 캡처 합성 빌드 정착 가드용 self._cache=None; self.update()
 
     def fit_y(self):
         if self._db_lock: return   # 수동 고정 중 → 자동맞춤/자동확장 무시
@@ -1623,7 +1635,7 @@ class TFIRCanvas(QWidget):
         self._cap_pix = None; self._cap_pix_key = None
         self._front_idx = None; self._live_on_top = False
         self._cap_building = False
-        self._cap_img_pending = None; self._cap_key_pending = None
+        self._cap_pending = None   # (img, key) 한 쌍으로만 주고받는다
         self._cap_built.connect(self._apply_cap_built)
         self._tf_extra = {}       # {ch_idx: {'color','t','h'}} — 카드별 라이브 IR
         self._tf_avg = None       # {'color','t','h','etc_db'} — 라이브 멀티마이크 평균 오버레이
@@ -1632,8 +1644,10 @@ class TFIRCanvas(QWidget):
         self._front_extra = None  # None/-1=primary 맨앞, int=해당 pair idx 맨앞
 
     def _apply_cap_built(self):
-        img, key = self._cap_img_pending, self._cap_key_pending
-        self._cap_img_pending = self._cap_key_pending = None
+        # 이미지와 키를 '한 튜플'로 받는다 — 예전엔 두 필드를 따로 대입해, 백그라운드 빌드가
+        # 겹치면 이미지와 키가 어긋난 짝으로 설치될 수 있었다(리사이즈 연타가 그 조건).
+        _pend = self._cap_pending; self._cap_pending = None
+        img, key = _pend if _pend else (None, None)
         if img is not None:
             self._cap_pix = QPixmap.fromImage(img)
             self._cap_pix_key = key
@@ -1641,6 +1655,10 @@ class TFIRCanvas(QWidget):
 
     def _trigger_cap_build(self, W, H, cap_key):
         if self._cap_building: return
+        # 드래그 리사이즈 중에는 빌드를 미룬다 — 완성되기도 전에 크기가 또 바뀌어
+        # 매번 버려지는 빌드를 스레드로 계속 띄우면(실측 60스텝에 GUI 698ms) 한 코어가 논다.
+        if time.monotonic() - getattr(self, '_last_resize_t', 0.0) < 0.15:
+            return
         self._cap_building = True
         caps = [dict(c) for c in self._captures]
         front = self._front_idx
@@ -1651,8 +1669,7 @@ class TFIRCanvas(QWidget):
     def _bg_cap_build(self, W, H, cap_key, caps, front):
         try:
             img = self._build_cap_img(W, H, caps, front)
-            self._cap_img_pending = img
-            self._cap_key_pending = cap_key
+            self._cap_pending = (img, cap_key)
             self._cap_built.emit()
         except Exception:
             pass

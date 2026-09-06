@@ -101,7 +101,7 @@ class FFTCanvas(QWidget):
         self.calib_offset=0.0
         self.clipping=False
         self._cap_building = False
-        self._cap_img_pending = None; self._cap_key_pending = None
+        self._cap_pending = None   # (img, key) 한 쌍으로만 주고받는다
         self._cap_built.connect(self._apply_cap_built)
         self._ch_curves = {}   # {card_id: {'color', 'ds_f', 'ds_avg', 'visible'}}
         self._ch_visible = {}  # {card_id: bool} — 데이터 도착 전에도 유지되는 채널 가시성(소스 카드와 동기화)
@@ -136,8 +136,10 @@ class FFTCanvas(QWidget):
         self._ch_curves.clear(); self.update()
 
     def _apply_cap_built(self):
-        img, key = self._cap_img_pending, self._cap_key_pending
-        self._cap_img_pending = self._cap_key_pending = None
+        # 이미지와 키를 '한 튜플'로 받는다 — 예전엔 두 필드를 따로 대입해, 백그라운드 빌드가
+        # 겹치면 이미지와 키가 어긋난 짝으로 설치될 수 있었다(리사이즈 연타가 그 조건).
+        _pend = self._cap_pending; self._cap_pending = None
+        img, key = _pend if _pend else (None, None)
         if img is not None:
             self._cap_pix = QPixmap.fromImage(img)
             self._cap_pix_key = key
@@ -145,6 +147,10 @@ class FFTCanvas(QWidget):
 
     def _trigger_cap_build(self, W, H, cap_key):
         if self._cap_building: return
+        # 드래그 리사이즈 중에는 빌드를 미룬다 — 완성되기도 전에 크기가 또 바뀌어
+        # 매번 버려지는 빌드를 스레드로 계속 띄우면(실측 60스텝에 GUI 698ms) 한 코어가 논다.
+        if time.monotonic() - getattr(self, '_last_resize_t', 0.0) < 0.15:
+            return
         self._cap_building = True
         caps = [dict(c) for c in self._captures]
         front = self._front_idx
@@ -155,8 +161,7 @@ class FFTCanvas(QWidget):
     def _bg_cap_build(self, W, H, cap_key, caps, front):
         try:
             img = self._build_cap_img(W, H, caps, front)
-            self._cap_img_pending = img
-            self._cap_key_pending = cap_key
+            self._cap_pending = (img, cap_key)
             self._cap_built.emit()
         except Exception:
             pass
@@ -382,7 +387,8 @@ class FFTCanvas(QWidget):
         self._ch_curves.clear()
         self.update()
 
-    def resizeEvent(self,e): self._cache=None; self.update()
+    def resizeEvent(self,e):
+        self._last_resize_t = time.monotonic()   # 캡처 합성 빌드 정착 가드용 self._cache=None; self.update()
 
     def _build_cache(self,W,H):
         from PyQt5.QtGui import QPixmap
@@ -637,12 +643,14 @@ class OctaveCanvas(QWidget):
         self.calib_offset=0.0
         self.clipping=False
         self._cap_building = False
-        self._cap_img_pending = None; self._cap_key_pending = None
+        self._cap_pending = None   # (img, key) 한 쌍으로만 주고받는다
         self._cap_built.connect(self._apply_cap_built)
 
     def _apply_cap_built(self):
-        img, key = self._cap_img_pending, self._cap_key_pending
-        self._cap_img_pending = self._cap_key_pending = None
+        # 이미지와 키를 '한 튜플'로 받는다 — 예전엔 두 필드를 따로 대입해, 백그라운드 빌드가
+        # 겹치면 이미지와 키가 어긋난 짝으로 설치될 수 있었다(리사이즈 연타가 그 조건).
+        _pend = self._cap_pending; self._cap_pending = None
+        img, key = _pend if _pend else (None, None)
         if img is not None:
             self._cap_pix = QPixmap.fromImage(img)
             self._cap_pix_key = key
@@ -650,6 +658,10 @@ class OctaveCanvas(QWidget):
 
     def _trigger_cap_build(self, W, H, cap_key):
         if self._cap_building: return
+        # 드래그 리사이즈 중에는 빌드를 미룬다 — 완성되기도 전에 크기가 또 바뀌어
+        # 매번 버려지는 빌드를 스레드로 계속 띄우면(실측 60스텝에 GUI 698ms) 한 코어가 논다.
+        if time.monotonic() - getattr(self, '_last_resize_t', 0.0) < 0.15:
+            return
         self._cap_building = True
         caps = [dict(c) for c in self._captures]
         front = self._front_idx
@@ -660,8 +672,7 @@ class OctaveCanvas(QWidget):
     def _bg_cap_build(self, W, H, cap_key, caps, front):
         try:
             img = self._build_cap_img(W, H, caps, front)
-            self._cap_img_pending = img
-            self._cap_key_pending = cap_key
+            self._cap_pending = (img, cap_key)
             self._cap_built.emit()
         except Exception:
             pass
@@ -856,7 +867,8 @@ class OctaveCanvas(QWidget):
         for k in self.peaks:  self.peaks[k][:]=self.db_min
         self.update()
 
-    def resizeEvent(self,e): self._cache=None; self.update()
+    def resizeEvent(self,e):
+        self._last_resize_t = time.monotonic()   # 캡처 합성 빌드 정착 가드용 self._cache=None; self.update()
 
     def _freq_to_x_oct(self, f, pl, uw):
         """옥타브 막대(밴드 인덱스 선형 배치)에 맞춘 주파수→x.
@@ -1160,6 +1172,7 @@ class SpectrogramCanvas(QWidget):
         self._wi=0; self._n=0; self._scroll=0; self.update()
 
     def resizeEvent(self,e):
+        self._last_resize_t = time.monotonic()   # 캡처 합성 빌드 정착 가드용
         self._cache=None
         # 버퍼를 버리지 않는다 — 폭이 바뀌면 _ensure()가 기존 히스토리를 리샘플해 승계한다.
         # (주파수→열 매핑만 무효화하고 다음 push에서 재계산)

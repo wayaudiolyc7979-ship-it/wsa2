@@ -662,6 +662,14 @@ if __name__=='__main__':
         # 창 생성이 끝난 **뒤에** 더해서, 기동 4.4초 중 3.0초(68%)가 순수 대기였다.
         _elapsed_ms = int((time.monotonic() - _T_BOOT) * 1000)
         QTimer.singleShot(max(0, _SPLASH_MIN_MS - _elapsed_ms), _launch)
+    # 기동 시 만들어진 객체(약 7만 개)를 영구 세대로 옮겨 이후 full GC에서 제외한다.
+    # 측정상 GC는 이 앱의 프레임 스파이크 원인이 '아니지만'(numpy 배열은 GC 추적 대상이 아님),
+    # 가끔 도는 full 수집 5.7ms → 0.00ms가 되므로 비용 없이 남는 지터를 줄인다.
+    try:
+        import gc as _gc
+        _gc.collect(); _gc.freeze()
+    except Exception:
+        pass
     else:
         win.show()
 
