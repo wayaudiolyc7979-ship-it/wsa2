@@ -592,11 +592,12 @@ if __name__=='__main__':
     #  Windows 분수 배율(예: 250%) 대응: Qt5 기본은 2.5배를 3.0배로 '반올림'해서 위젯 크기·그리기
     #  배율이 어긋나 글자가 겹치고 번진다(맥은 배율이 정수 Retina라 무해). 실제 분수 배율을
     #  그대로 쓰도록(PassThrough) 지정 — QApplication 생성 전에 호출해야 효력.
-    try:
-        QApplication.setHighDpiScaleFactorRoundingPolicy(
-            Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
-    except Exception:
-        pass   # 구 Qt(<5.14) 폴백 — 종전 반올림 동작 유지
+    if _pl.system() == 'Windows':   # 맥은 정수 배율(Retina)이라 무관 — 명시적으로 Windows 전용
+        try:
+            QApplication.setHighDpiScaleFactorRoundingPolicy(
+                Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+        except Exception:
+            pass   # 구 Qt(<5.14) 폴백 — 종전 반올림 동작 유지
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps,   True)
 

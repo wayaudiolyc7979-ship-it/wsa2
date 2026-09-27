@@ -35,6 +35,7 @@ _LUCIDE_ICONS = {
     'extlink':  ('<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>', False),
     'alert-triangle':('<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>', False),
     'help-circle':('<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>', False),
+    'menu':('<line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/>', False),  # 햄버거(창 상단 메뉴 버튼)
     # ── N2 툴바 리디자인용 (v1.9) — 각 컨트롤 직관 아이콘 ──
     'rows-2':('<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 12h18"/>', False),                 # +Spectro (패널 2단)
     'scale-v':('<path d="M12 3v18"/><path d="M12 3h5"/><path d="M12 9h3"/><path d="M12 15h3"/><path d="M12 21h5"/>', False),  # dB 세로눈금축

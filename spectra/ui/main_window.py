@@ -527,6 +527,15 @@ class MainWindow(QMainWindow):
         _right_lay.addWidget(self._preset_cb); _right_lay.addWidget(self._preset_save_btn); _right_lay.addWidget(self._preset_del_btn)
         self._refresh_preset_cb()
         _right_lay.addWidget(self.calib_btn)
+        # Windows 전용 ☰ 메뉴 버튼 — 맥은 View/Help가 글로벌 메뉴바에 있지만 Windows는 창 안
+        # 메뉴줄을 숨겼으므로(맥과 동일한 상단), 그 항목들을 이 버튼의 팝업으로 제공한다.
+        # (메뉴 내용은 _build_menubar에서 채워 붙임 — 그쪽이 이 뒤에 호출됨)
+        self.menu_btn = None
+        if _pl.system() == 'Windows':
+            self.menu_btn = QPushButton(); self.menu_btn.setIcon(_icon('menu'))
+            self.menu_btn.setFixedSize(28, 28); self.menu_btn.setToolTip('Menu · 메뉴')
+            self.menu_btn.setStyleSheet(ss_btn_neutral() + 'QPushButton{padding:0;}QPushButton::menu-indicator{image:none;width:0;}')
+            _right_lay.addWidget(self.menu_btn)
         hl.addStretch(1)
         hl.addWidget(self.logo_w)
         hl.addSpacing(120)
@@ -4636,6 +4645,28 @@ class MainWindow(QMainWindow):
         quit_act = QAction('Quit SPECTRA', self); quit_act.setMenuRole(QAction.QuitRole)
         quit_act.setShortcut('Ctrl+Q'); quit_act.triggered.connect(self.close)
         help_menu.addAction(quit_act)
+
+        # Windows: 맥은 메뉴가 화면 최상단 글로벌 메뉴바로 올라가 창 안엔 안 보인다. 같은 코드가
+        # Windows에선 창 안에 'View/Help' 한 줄로 잡혀 상단이 한 칸 두꺼워진다 → 맥과 동일한 상단을
+        # 위해 창 안 메뉴바를 숨긴다. 액션을 창 레벨로도 등록해 단축키(Ctrl+Shift+F/S/T/L·?·Ctrl+Q
+        # 등)는 그대로 살아 있고, 기능은 사이드바/툴바 버튼(SPL·팝아웃·Help·Log·License)으로도 접근.
+        if _pl.system() == 'Windows':
+            for _m in (view_menu, help_menu):
+                for _a in _m.actions():
+                    if not _a.isSeparator():
+                        self.addAction(_a)   # 메뉴바 숨겨도 단축키 보장
+            mb.setVisible(False)
+            # 숨긴 메뉴 항목을 상단 ☰ 버튼의 팝업으로 노출(맥 글로벌 메뉴 대체).
+            # 같은 QAction을 재사용 — 한 액션이 여러 메뉴에 속해도 무방(단축키/트리거 그대로).
+            from PyQt5.QtWidgets import QMenu
+            _popup = QMenu(self)
+            for _a in view_menu.actions():
+                _popup.addAction(_a)
+            _popup.addSeparator()
+            for _a in help_menu.actions():
+                _popup.addAction(_a)
+            if getattr(self, 'menu_btn', None) is not None:
+                self.menu_btn.setMenu(_popup)
 
     def _show_shortcuts(self):
         ShortcutsDialog(self).exec()
