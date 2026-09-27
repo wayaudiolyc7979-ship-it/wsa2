@@ -35,6 +35,7 @@ from spectra.ui.colors import (_MC_COLORS, _SPECTRA_GRAD_QSS, _spectra_mark, bar
 from spectra.ui.dialogs import CalibDialog, ShortcutsDialog, _BrandBox, _brand_msg
 from spectra.ui.draw import METER_ATTACK, METER_RELEASE
 from spectra.ui.icons import _icon, _icon_pm, _n2_divider, _n2_icon_color
+from spectra.ui import win_titlebar   # Windows 커스텀(프레임리스) 제목표시줄 [찾기: WIN_CUSTOM_TITLEBAR]
 from spectra.ui.spl import (LeqWindow, ShowModeWindow, SplAlarmWindow, SplMeterWindow,
                             _apply_on_top, _apply_txn, _txn_style)
 from spectra.ui.stereo_page import StereoLoudnessPage, _StereoPopoutWindow
@@ -435,11 +436,27 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, lambda: self._apply_app_state(_sess))
 
     # ─────────────────────────────────────
+    def _toggle_max_restore(self):
+        self.showNormal() if self.isMaximized() else self.showMaximized()
+
+    def nativeEvent(self, et, msg):
+        # Windows 커스텀 제목표시줄(프레임리스)의 캡션 드래그·리사이즈·스냅 처리. 비-Windows/
+        # 미해당 메시지는 win_titlebar가 None을 반환 → 기본 처리로 위임(맥 무영향).
+        r = win_titlebar.handle_native_event(self, et, msg)
+        if r is not None:
+            return r
+        return super().nativeEvent(et, msg)
+
     def _setup_macos_titlebar(self):
         """ctypes로 NSFullSizeContentViewWindowMask + titlebarAppearsTransparent 적용.
         콘텐츠 뷰를 네이티브 타이틀바 영역까지 확장하여 hdr 위젯이 타이틀바 행에 렌더된다."""
         if _pl.system() == 'Windows':
-            _apply_windows_titlebar_dark(self)   # 윈도우: 네이티브 타이틀바 다크(흰 바 충돌 제거)
+            # 네이티브 제목표시줄 제거(프레임리스) — 리사이즈·Aero Snap·그림자는 유지.
+            # 실패하면 종전처럼 네이티브 타이틀바만 다크로.
+            try:
+                win_titlebar.install(self, caption_height=38)
+            except Exception:
+                _apply_windows_titlebar_dark(self)
             return
         try:
             import ctypes, ctypes.util
@@ -536,6 +553,21 @@ class MainWindow(QMainWindow):
             self.menu_btn.setFixedSize(28, 28); self.menu_btn.setToolTip('Menu · 메뉴')
             self.menu_btn.setStyleSheet(ss_btn_neutral() + 'QPushButton{padding:0;}QPushButton::menu-indicator{image:none;width:0;}')
             _right_lay.addWidget(self.menu_btn)
+            # ── Windows 커스텀 캡션 버튼(최소화/최대화/닫기) — 네이티브 제목표시줄을 제거하므로
+            #    그 기능을 여기로 옮긴다. 드래그/리사이즈/스냅은 win_titlebar(nativeEvent)가 처리.
+            def _capbtn(txt, slot, danger=False):
+                b = QPushButton(txt); b.setFixedSize(44, 28); b.setFocusPolicy(Qt.NoFocus)
+                hov = '#E81123' if danger else 'rgba(255,255,255,0.14)'
+                b.setStyleSheet(f'QPushButton{{background:transparent;color:{T("text_dim")};border:none;'
+                                f'font-size:13px;font-family:"Segoe UI Symbol";}}'
+                                f'QPushButton:hover{{background:{hov};color:#ffffff;}}')
+                b.clicked.connect(slot); return b
+            self._cap_min = _capbtn('–', self.showMinimized)
+            self._cap_max = _capbtn('□', self._toggle_max_restore)
+            self._cap_close = _capbtn('✕', self.close, danger=True)
+            _right_lay.addSpacing(4)
+            for _b in (self._cap_min, self._cap_max, self._cap_close):
+                _right_lay.addWidget(_b)
         hl.addStretch(1)
         hl.addWidget(self.logo_w)
         hl.addSpacing(120)
