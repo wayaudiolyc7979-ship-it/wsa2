@@ -2,12 +2,28 @@
 
 v2.0 분해: wayaudo2.py에서 이동(동작 0 변경).
 """
-import math, time, threading
+import math, time, threading, os as _os
 import numpy as np
 from PyQt5.QtGui import (QBrush, QColor, QImage, QPainter, QPainterPath, QPen,
                          QPixmap, QPolygon, QPolygonF)
 from PyQt5.QtCore import Qt, QPoint, QPointF, QRectF, QSize, pyqtSignal, QTimer
 from PyQt5.QtWidgets import QSizePolicy, QWidget
+
+# ── [PERF] Windows GPU 가속: OctaveCanvas 를 QOpenGLWidget 로(맥/비-Windows는 QWidget 그대로) ──
+#   실측: 4K 소프트웨어 렌더 막대 ~18~28ms → GL ~9ms(약 2배). 프로토타입으로 실제 GPU 확인 후 적용.
+#   QOpenGLWidget 사용 불가(구 환경)면 안전하게 QWidget 폴백.  [찾기: PERF_GL_CANVAS]
+_IS_WIN = (_os.name == 'nt')
+_PERF = (_os.environ.get('WSA2_PERF') == '1')
+try:
+    from spectra.core.logging_diag import _diag as _perf_diag
+except Exception:
+    def _perf_diag(*a, **k): pass
+try:
+    from PyQt5.QtWidgets import QOpenGLWidget
+    _OCT_GL = _IS_WIN and (_os.environ.get('WSA2_NO_GL') != '1')   # WSA2_NO_GL=1 로 끌 수 있음(디버그)
+except Exception:
+    QOpenGLWidget = None; _OCT_GL = False
+_OctBase = QOpenGLWidget if _OCT_GL else QWidget
 from spectra.core.config import T, is_dark, theme, MAX_DB, SPEC_ATTACK, SPEED_LEVELS, FREQ_MARKS
 from spectra.dsp.weighting import BANDS, thd_from_spectrum
 from spectra.ui.tokens import CF_ANNO, CF_GRID, CF_MODE, CF_TINY, _qfont
@@ -618,7 +634,7 @@ class FFTCanvas(QWidget):
 # ───────────────────────────────────────────
 
 
-class OctaveCanvas(QWidget):
+class OctaveCanvas(_OctBase):
     PAD_L=40; PAD_R=10; PAD_T=12; PAD_B=28
     _DB_LOCKABLE=True   # dB축 수동 고정 아이콘 표시
     _idle_hint=True   # 시작 전 브랜드 엠프티 스테이트 표시
@@ -991,7 +1007,25 @@ class OctaveCanvas(QWidget):
             self.db_min=mid-span/2; self.db_max=mid+span/2
             self.update()
 
-    def paintEvent(self,ev):
+    def _perf_tick(self, dt):
+        a = self.__dict__.setdefault('_pf', [0, 0.0, 0.0])
+        a[0] += 1; a[1] += dt*1000.0; a[2] = max(a[2], dt*1000.0)
+        if a[0] >= 60:
+            _perf_diag('oct_paint', mode=self.mode, gl=_OCT_GL, n=a[0],
+                       avg_ms=round(a[1]/a[0], 1), max_ms=round(a[2], 1),
+                       wpx=int(self.width()*self.devicePixelRatioF()))
+            self.__dict__['_pf'] = [0, 0.0, 0.0]
+
+    if _OCT_GL:
+        def paintGL(self):
+            if not _PERF: return self._do_paint()
+            _t0 = time.perf_counter(); self._do_paint(); self._perf_tick(time.perf_counter()-_t0)
+    else:
+        def paintEvent(self, ev):
+            if not _PERF: return self._do_paint()
+            _t0 = time.perf_counter(); self._do_paint(); self._perf_tick(time.perf_counter()-_t0)
+
+    def _do_paint(self):
         W=self.width(); H=self.height()
         # [RETINA] 캐시 유효성은 '명시 키'로 판정한다. 예전엔 self._cache.size()(=디바이스 픽셀)와
         # self.size()(=논리 픽셀)를 비교해서 dpr=2(레티나)에선 절대 같아질 수 없었고,
