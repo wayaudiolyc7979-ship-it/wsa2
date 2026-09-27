@@ -2,8 +2,14 @@
 
 v2.0 분해: wayaudo2.py에서 이동(동작 0 변경).
 """
-import math, time, threading
+import math, time, threading, os as _os
 import numpy as np
+_PERF = (_os.environ.get('WSA2_PERF') == '1')   # 실측 계측 게이트(평상시 무영향)
+_IS_WIN = (_os.name == 'nt')                    # Windows 전용 렌더 최적화 게이트(맥 무영향)
+try:
+    from spectra.core.logging_diag import _diag as _perf_diag
+except Exception:
+    def _perf_diag(*a, **k): pass
 from PyQt5.QtGui import (QBrush, QColor, QImage, QPainter, QPainterPath, QPen,
                          QPixmap, QPolygon, QPolygonF)
 from PyQt5.QtCore import Qt, QPoint, QPointF, QRectF, QSize, pyqtSignal, QTimer
@@ -832,16 +838,35 @@ class OctaveCanvas(QWidget):
             col.setAlpha(50); pk_col.setAlpha(50)
         # 막대 세로 그라디언트(위 밝게→아래 어둡게) + 상단 sheen 캡 — 입체 프리미엄 룩, 색 의미(클리핑=빨강) 유지.
         _bar_brush, cap_col = _vbar_gradient(col)
-        for i in range(n):
-            db=float(np.clip(sm[i],self.db_min,self.db_max))
-            lp=(db-self.db_min)/db_range; bh=max(2,int(lp*dh))
-            bx=int(pl+i*bar_w+gap/2); bw=max(1,int(bar_w-gap)); by=pt+dh-bh
-            p.fillRect(bx,by,bw,bh,_bar_brush)
-            if bh>5: p.fillRect(bx,by,bw,1,cap_col)   # 상단 sheen 하이라이트
-            if self.peak_hold and pk[i]>sm[i]+1.5 and pk[i]>self.db_min+2:
-                lp2=float(np.clip((pk[i]-self.db_min)/db_range,0,1))
-                py2=pt+dh-max(2,int(lp2*dh))
-                p.fillRect(bx,py2-1,bw,2,pk_col)
+        # [PERF] Windows 분수배율(예: 2.5x)에서 QPainter의 DPR 스케일 변환 아래 fillRect가 Qt
+        # 소프트웨어 래스터의 '빠른 정수-사각 경로'를 못 타 ~2배 느리다(실측: 26ms vs 14ms).
+        # → device 좌표로 직접 그린다(변환 리셋 + AA off, 축정렬 사각엔 AA 불필요). 그라디언트는
+        # ObjectBoundingMode라 device 사각에도 동일하게 매핑돼 룩 동일. 비-Windows/정수배율은
+        # 기존 경로 그대로(맥 무영향).  [찾기: PERF_DEVICE_BARS]
+        _S = self.devicePixelRatioF()
+        _fast = _IS_WIN and _S > 1.01
+        if _fast:
+            _aa = p.testRenderHint(QPainter.Antialiasing)
+            p.save(); p.resetTransform(); p.setRenderHint(QPainter.Antialiasing, False)
+            def _fr(x, y, w, h, br):
+                p.fillRect(int(x*_S), int(y*_S), max(1, int(w*_S)), max(1, int(h*_S)), br)
+        else:
+            def _fr(x, y, w, h, br):
+                p.fillRect(int(x), int(y), int(w), int(h), br)
+        try:
+            for i in range(n):
+                db=float(np.clip(sm[i],self.db_min,self.db_max))
+                lp=(db-self.db_min)/db_range; bh=max(2,int(lp*dh))
+                bx=int(pl+i*bar_w+gap/2); bw=max(1,int(bar_w-gap)); by=pt+dh-bh
+                _fr(bx,by,bw,bh,_bar_brush)
+                if bh>5: _fr(bx,by,bw,1,cap_col)   # 상단 sheen 하이라이트
+                if self.peak_hold and pk[i]>sm[i]+1.5 and pk[i]>self.db_min+2:
+                    lp2=float(np.clip((pk[i]-self.db_min)/db_range,0,1))
+                    py2=pt+dh-max(2,int(lp2*dh))
+                    _fr(bx,py2-1,bw,2,pk_col)
+        finally:
+            if _fast:
+                p.restore(); p.setRenderHint(QPainter.Antialiasing, _aa)
 
     # ── 멀티-소스 라인 오버레이 (추가 장치/채널 카드) ──
     def set_channel_oct(self, cid, color, values):
@@ -991,7 +1016,35 @@ class OctaveCanvas(QWidget):
             self.db_min=mid-span/2; self.db_max=mid+span/2
             self.update()
 
+    def _pmark(self, name):
+        if _PERF:
+            self._pf_seq.append((name, time.perf_counter()))
+
     def paintEvent(self,ev):
+        if not _PERF:
+            return self._paint_body(ev)
+        self._pf_seq = [('start', time.perf_counter())]
+        self._paint_body(ev)
+        self._pf_seq.append(('end', time.perf_counter()))
+        seq = self._pf_seq
+        total = (seq[-1][1] - seq[0][1]) * 1000.0
+        # 구간 델타 누적
+        stages = self.__dict__.setdefault('_pf_stages', {})
+        for i in range(1, len(seq)):
+            stages[seq[i][0]] = stages.get(seq[i][0], 0.0) + (seq[i][1] - seq[i-1][1]) * 1000.0
+        a = self.__dict__.setdefault('_pf', [0, 0.0, 0.0])
+        a[0] += 1; a[1] += total; a[2] = max(a[2], total)
+        if a[0] >= 60:
+            br = '  '.join(f'{k}={round(v/a[0],1)}' for k, v in stages.items())
+            _perf_diag('oct_paint', mode=self.mode, n=a[0], avg_ms=round(a[1]/a[0], 1),
+                       max_ms=round(a[2], 1), nch=len(getattr(self, '_ch_oct', {})),
+                       ncap=len(getattr(self, '_captures', [])),
+                       wpx=int(self.width()*self.devicePixelRatioF()),
+                       hpx=int(self.height()*self.devicePixelRatioF()), breakdown=br)
+            self.__dict__['_pf'] = [0, 0.0, 0.0]
+            self.__dict__['_pf_stages'] = {}
+
+    def _paint_body(self,ev):
         W=self.width(); H=self.height()
         # [RETINA] 캐시 유효성은 '명시 키'로 판정한다. 예전엔 self._cache.size()(=디바이스 픽셀)와
         # self.size()(=논리 픽셀)를 비교해서 dpr=2(레티나)에선 절대 같아질 수 없었고,
@@ -1004,6 +1057,7 @@ class OctaveCanvas(QWidget):
             self._build_cache(W,H)
         p=QPainter(self); p.setRenderHint(QPainter.Antialiasing,True)
         p.drawPixmap(0,0,self._cache)
+        self._pmark('cache')
         pl=self.PAD_L; pr=self.PAD_R; pt=self.PAD_T; pb=self.PAD_B
         dh=H-pt-pb; uw=W-pl-pr
         db_range=self.db_max-self.db_min
@@ -1056,8 +1110,10 @@ class OctaveCanvas(QWidget):
         else:
             _draw_caps()                # 캡쳐 흐리게(아래)
             _draw_all_live(dim=False)   # 라이브 솔리드(위)
+        self._pmark('bars')
 
         self._draw_grid_lines(p, W, H)
+        self._pmark('grid')
 
         # 우상단 고정 배지: 현재 평균 스펙트럼 최대 주파수 (40 Hz 이상만 탐색)
         unit='dBSPL' if self.calib_offset else 'dB'
