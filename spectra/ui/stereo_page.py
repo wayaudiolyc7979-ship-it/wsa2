@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QPushBut
 from spectra.core.config import T, is_dark
 from spectra.core.i18n import _tx
 from spectra.core.logging_diag import _alog, _diag
-from spectra.audio.engine import _win_extra_settings
+from spectra.audio.engine import _win_extra_settings, _win_com_init, _win_com_uninit
 from spectra.dsp.loudness import LoudnessMeter
 from spectra.ui.tokens import FS_BODY, FS_LG, FS_METRIC, FS_SM, FS_XS
 from spectra.ui.colors import _metric_col
@@ -141,29 +141,33 @@ class StereoAudioThread(QThread):
                 self.chunk_ready.emit(L, R)
             except Exception: pass
         last_err=None
-        for _rnd in range(2):
-            for bs,lat in ((512,'low'),(512,'high'),(0,'high')):
-                try:
-                    with sd.InputStream(device=self.device_idx,
-                                        samplerate=self.sample_rate,
-                                        channels=nc, blocksize=bs,
-                                        callback=cb, latency=lat,
-                                        dtype='float32',
-                                        extra_settings=_win_extra_settings()) as _s:
-                        self._active_stream=_s
-                        try:
-                            while self.running: self.msleep(100)
-                        finally:
-                            self._active_stream=None
-                    return
-                except Exception as e:
-                    last_err=e
-                    if not self.running: return
-            if _rnd==0:
-                for _ in range(15):
-                    if not self.running: return
-                    self.msleep(100)
-        if last_err: self.error_signal.emit(str(last_err))
+        _com_owned=_win_com_init()   # WASAPI/WDM-KS 장치 start용 COM(워커 스레드) [찾기: WIN_COM_INIT]
+        try:
+            for _rnd in range(2):
+                for bs,lat in ((512,'low'),(512,'high'),(0,'high')):
+                    try:
+                        with sd.InputStream(device=self.device_idx,
+                                            samplerate=self.sample_rate,
+                                            channels=nc, blocksize=bs,
+                                            callback=cb, latency=lat,
+                                            dtype='float32',
+                                            extra_settings=_win_extra_settings()) as _s:
+                            self._active_stream=_s
+                            try:
+                                while self.running: self.msleep(100)
+                            finally:
+                                self._active_stream=None
+                        return
+                    except Exception as e:
+                        last_err=e
+                        if not self.running: return
+                if _rnd==0:
+                    for _ in range(15):
+                        if not self.running: return
+                        self.msleep(100)
+            if last_err: self.error_signal.emit(str(last_err))
+        finally:
+            _win_com_uninit(_com_owned)
 
     def stop(self):
         self.running=False

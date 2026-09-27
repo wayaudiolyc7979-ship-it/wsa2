@@ -20,7 +20,8 @@ from PyQt5.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication, 
                              QPlainTextEdit, QPushButton, QScrollArea, QTextEdit, QVBoxLayout,
                              QWidget)
 from spectra.audio.engine import (_EngineChannelSource, _EngineMultiSource, _EngineSyncSource,
-                                  _dev_hostapi_ok, _win_extra_settings, _win_preferred_hostapi)
+                                  _dev_hostapi_ok, _win_extra_settings, _win_preferred_hostapi,
+                                  _win_com_init, _win_com_uninit)
 from spectra.audio.watchdog import StreamStalled, begin_no_sleep, classify_stall, end_no_sleep
 from spectra.core.config import (SPEED_LEVELS, T, _CAPTURES_TF_LOCK, _load_tf_captures_file,
                                  f32_to_b64, b64_to_f32,
@@ -377,6 +378,7 @@ class TFDuplexThread(QThread):
 
         _alog.debug(f'TFDuplexThread.run() opening sd.Stream  in={self.in_dev} out={self.out_dev} sr={self.sample_rate} bs={blocksize} n_in={n_in} ref_ch={self.ref_ch}')
         _dead_reopens = 0   # 연속 실패 재오픈 — 콜백 재개 시 리셋
+        _com_owned = _win_com_init()   # WASAPI/WDM-KS 장치 start용 COM(워커 스레드) [찾기: WIN_COM_INIT]
         begin_no_sleep()    # 측정 중 idle 시스템 절전 차단(콜백 정지 트리거 제거)
         try:
             while self.running:   # 같은 config 재오픈 루프 (running-stall 복구)
@@ -430,6 +432,7 @@ class TFDuplexThread(QThread):
         finally:
             self._active_stream = None
             end_no_sleep()
+            _win_com_uninit(_com_owned)
 
     def stop(self):
         self.running = False
@@ -5201,6 +5204,7 @@ class TFSyncThread(QThread):
 
         last_err = None
         _dead_reopens = 0   # 연속 실패 재오픈 — 콜백 재개 시 리셋(장시간 세션 소진 방지)
+        _com_owned = _win_com_init()   # WASAPI/WDM-KS 장치 start용 COM(워커 스레드) [찾기: WIN_COM_INIT]
         begin_no_sleep()    # 측정 중 idle 시스템 절전 차단(콜백 정지 트리거 제거)
         try:
             for round_n in range(2):
@@ -5251,6 +5255,7 @@ class TFSyncThread(QThread):
             if last_err: self.error_signal.emit(str(last_err))
         finally:
             end_no_sleep()
+            _win_com_uninit(_com_owned)
 
     def stop(self):
         self.running = False

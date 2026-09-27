@@ -64,6 +64,38 @@ def _win_extra_settings():
         return None
 
 
+# ── Windows: 오디오 워커 스레드의 COM 초기화 [찾기: WIN_COM_INIT] ──────────────
+#  PortAudio WASAPI 백엔드는 스트림을 start할 때 내부적으로 COM(및 WDM-KS 장치
+#  카테고리 열거)을 호출한다. 캡처는 워커 QThread(MultiChannelAudioThread)에서 스트림을
+#  여는데, 그 스레드에 CoInitializeEx가 없으면 일부 장치(예: Intel Smart Sound 마이크
+#  배열)에서 start가 -9999 'GetNameFromCategory ...' [Windows WDM-KS error]로 실패한다.
+#  메인 스레드는 Qt/PortAudio가 이미 COM을 초기화해 정상이라, 이 문제는 워커 스레드에서만
+#  나타난다(→ Windows 전용). 메시지 펌프가 없는 워커 스레드이므로 MTA로 초기화한다.
+def _win_com_init():
+    """호출 스레드에 COM(MTA)을 초기화한다. 우리가 성공적으로 초기화해 짝맞춰 해제해야
+    하면 True, 아니면(비-Windows/이미 다른 모드로 초기화됨/실패) False 반환."""
+    if _pl.system() != 'Windows':
+        return False
+    try:
+        import ctypes
+        COINIT_MULTITHREADED = 0x0
+        hr = ctypes.windll.ole32.CoInitializeEx(None, COINIT_MULTITHREADED)
+        # S_OK(0)=초기화됨 / S_FALSE(1)=이미 같은 모드로 초기화됨 → 둘 다 CoUninitialize로 짝맞춤.
+        # RPC_E_CHANGED_MODE 등 음수 HRESULT → 우리가 소유하지 않음 → 해제 금지(COM 자체는 가용).
+        return hr in (0, 1)
+    except Exception:
+        return False
+
+def _win_com_uninit(owned):
+    if not owned:
+        return
+    try:
+        import ctypes
+        ctypes.windll.ole32.CoUninitialize()
+    except Exception:
+        pass
+
+
 class AudioThread(QThread):
     # ⚠️ 죽은 코드(v2.0): 라이브 경로는 전부 engine.subscribe/_EngineChannelSource를 쓴다.
     #    재사용 금지 — 이 클래스의 워치독은 2초 stall을 즉시 device-removed로 단정하고 재오픈·
@@ -281,6 +313,7 @@ class MultiChannelAudioThread(QThread):
         # → 공유 스트림을 TF와 함께 써도 Spectrum 청크당 스무딩 속도가 정상 유지됨.
         _attempts = [(512, self.force_latency), (2048, self.force_latency)] if self.force_latency else [(512,'low'),(512,'high'),(0,'high')]
         last_err = None
+        _com_owned = _win_com_init()   # WASAPI/WDM-KS 장치 start용 COM(워커 스레드) [찾기: WIN_COM_INIT]
         begin_no_sleep()   # 측정 중 idle 시스템 절전 차단(콜백 정지 트리거 제거)
         try:
             for round_n in range(2):
@@ -316,6 +349,7 @@ class MultiChannelAudioThread(QThread):
             if last_err: self.error_signal.emit(str(last_err))
         finally:
             end_no_sleep()
+            _win_com_uninit(_com_owned)
 
     def stop(self):
         self.running = False

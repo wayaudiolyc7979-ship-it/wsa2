@@ -589,6 +589,14 @@ if __name__=='__main__':
     _SPLASH_MIN_MS = 900         # 브랜드 스플래시 최소 노출(ms). 기동이 이보다 오래 걸리면 추가 대기 0
 
     # ── macOS Monterey+ Retina / High-DPI 지원
+    #  Windows 분수 배율(예: 250%) 대응: Qt5 기본은 2.5배를 3.0배로 '반올림'해서 위젯 크기·그리기
+    #  배율이 어긋나 글자가 겹치고 번진다(맥은 배율이 정수 Retina라 무해). 실제 분수 배율을
+    #  그대로 쓰도록(PassThrough) 지정 — QApplication 생성 전에 호출해야 효력.
+    try:
+        QApplication.setHighDpiScaleFactorRoundingPolicy(
+            Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+    except Exception:
+        pass   # 구 Qt(<5.14) 폴백 — 종전 반올림 동작 유지
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps,   True)
 
@@ -617,7 +625,11 @@ if __name__=='__main__':
         return os.path.join(base, name)
 
     # ── 라이선스 확인
-    if not check_license_at_startup():
+    #  개발용 우회: WSA2_SKIP_LICENSE=1 이면 라이선스 게이트를 건너뛴다.
+    #  환경변수로만 켜지므로 배포 빌드/일반 실행에는 영향 없음.
+    if os.environ.get('WSA2_SKIP_LICENSE') == '1':
+        _alog.info('개발 모드(WSA2_SKIP_LICENSE=1) → 라이선스 확인 건너뜀')
+    elif not check_license_at_startup():
         _alog.info('라이선스 미확인 → LicenseDialog 표시')
         dlg = LicenseDialog()
         dlg.setStyleSheet('background:#1C1C1E;color:#FFFFFF;')
