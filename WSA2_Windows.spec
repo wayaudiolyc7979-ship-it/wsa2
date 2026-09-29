@@ -34,7 +34,9 @@ exe = EXE(
     exclude_binaries=True,                # 바이너리/데이터는 COLLECT 로 폴더에 배치
     name='SPECTRA',                       # 사용자에게 보이는 exe명 (브랜딩). 내부 식별자 WSA2와 무관
     debug=False, bootloader_ignore_signals=False, strip=False, upx=False,
-    console=False,
+    # 평소 창 모드(console=False). WSA2_BUILD_CONSOLE=1 이면 콘솔 디버그 빌드 —
+    #   터미널에서 실행 시 시작 초기 import/DLL 오류를 화면에 출력(로그 생성 전 크래시 진단용). [WIN_DEBUG]
+    console=(os.environ.get('WSA2_BUILD_CONSOLE') == '1'),
     icon='icon.ico' if os.path.exists('icon.ico') else None,
     version_file='version_info.txt' if os.path.exists('version_info.txt') else None,
 )

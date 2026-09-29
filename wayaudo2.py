@@ -12,15 +12,17 @@ sys.setswitchinterval(0.001)   # GIL 스위치 간격 1ms — 오디오 콜백 �
 # [WIN_ASIO] sounddevice 는 import 시점에 이 값을 보고 ASIO 포함 PortAudio DLL 을 고른다 →
 # 반드시 첫 sounddevice import 보다 먼저 설정. WSA2_NO_ASIO=1 이면 종전(WASAPI 전용) 그대로.
 def _asio_setting_on():
-    # 설정 메뉴에서 ASIO 를 껐으면 ASIO 드라이버를 아예 로드하지 않는다(불량 드라이버로 시작이 막히는 경우 대비).
+    # ASIO 는 기본 꺼짐(opt-in). 설정 메뉴 'Use ASIO Drivers' 를 켠 경우에만 로드한다.
+    # (배포 빌드의 PortAudio 는 실 ASIO 미지원 + 일부 인터페이스 연결 시 ASIO 초기화가
+    #  sounddevice import 에서 멈춰 앱이 시작조차 못 하는 문제가 있어 기본값을 False 로 둔다. [WIN_ASIO_OPTIN])
     try:
         _p = os.environ.get('WSA2_SETTINGS_PATH') or os.path.join(
             os.environ.get('APPDATA', os.path.expanduser('~')), 'WSA2', 'settings.json')
         with open(_p, 'r', encoding='utf-8') as _f:
             _d = json.load(_f)
-        return bool(_d.get('asio_enabled', True)) if isinstance(_d, dict) else True
+        return bool(_d.get('asio_enabled', False)) if isinstance(_d, dict) else False
     except Exception:
-        return True
+        return False
 if sys.platform == 'win32' and os.environ.get('WSA2_NO_ASIO') != '1' and _asio_setting_on():
     os.environ.setdefault('SD_ENABLE_ASIO', '1')
 

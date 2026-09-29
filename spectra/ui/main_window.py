@@ -386,7 +386,7 @@ class MainWindow(QMainWindow):
 
         # 설정 (마이크별 캘리브레이션)
         self._settings = _load_settings()
-        set_asio_enabled(self._settings.get('asio_enabled', True))   # [WIN_ASIO] 장치 목록 로드 전에 반영
+        set_asio_enabled(self._settings.get('asio_enabled', False))  # [WIN_ASIO_OPTIN] 기본 꺼짐 — 장치 목록 로드 전에 반영
         self._presets_restoring = False
         self._session_timer = QTimer(self); self._session_timer.setSingleShot(True)
         self._session_timer.timeout.connect(self._save_session)
@@ -4677,7 +4677,7 @@ class MainWindow(QMainWindow):
         if _pl.system() == 'Windows':
             # [WIN_ASIO] ASIO 자동 우선을 끄는 스위치 — 드라이버 문제/타 프로그램 점유 시 WASAPI 로 되돌림
             asio_act = QAction('Use ASIO Drivers', self); asio_act.setCheckable(True)
-            asio_act.setChecked(bool(self._settings.get('asio_enabled', True)))
+            asio_act.setChecked(bool(self._settings.get('asio_enabled', False)))
             asio_act.toggled.connect(self._toggle_asio); help_menu.addAction(asio_act)
             self._asio_act = asio_act
         log_act = QAction('Open Log Folder', self)
