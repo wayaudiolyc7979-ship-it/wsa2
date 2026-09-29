@@ -22,11 +22,27 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install PyQt5 numpy scipy sounddevice soundfile pyinstaller
 
-      - name: Build with PyInstaller
+      - name: Build with PyInstaller (onedir)
         run: python -m PyInstaller WSA2_Windows.spec --clean --noconfirm
+        # → dist\SPECTRA\SPECTRA.exe + dist\SPECTRA\_internal\
 
-      - name: Upload SPECTRA.exe artifact
+      - name: Get app version
+        id: ver
+        run: |
+          $m = Select-String -Path wayaudo2.py -Pattern "_APP_VERSION\s*=\s*'([^']+)'" | Select-Object -First 1
+          $v = $m.Matches[0].Groups[1].Value
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "APP_VERSION=$v"
+
+      - name: Build installer (Inno Setup)
+        run: |
+          choco install innosetup --no-progress -y
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DAppVersion=${{ steps.ver.outputs.version }}" installer\SPECTRA.iss
+        # → installer\out\SPECTRA-Setup-<버전>.exe
+
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SPECTRA-Windows-x64
-          path: dist/SPECTRA.exe
+          name: SPECTRA-Windows-Setup
+          path: installer/out/SPECTRA-Setup-*.exe

@@ -26,12 +26,20 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
-# onefile — 단일 SPECTRA.exe 로 배포 (PyQt5/numpy/scipy 자동 수집은 PyInstaller hook 사용)
+# onedir — dist/SPECTRA/ 폴더(SPECTRA.exe + _internal\)로 배포.
+#   installer/SPECTRA.iss(Inno Setup)가 이 폴더를 Program Files 에 설치한다.
+#   onefile(실행 시 %TEMP% 압축해제)에서 onedir로 바꿔 즉시 실행·백신/OneDrive 안정성 확보. [WIN_ONEDIR]
 exe = EXE(
-    pyz, a.scripts, a.binaries, a.datas, [],
+    pyz, a.scripts, [],
+    exclude_binaries=True,                # 바이너리/데이터는 COLLECT 로 폴더에 배치
     name='SPECTRA',                       # 사용자에게 보이는 exe명 (브랜딩). 내부 식별자 WSA2와 무관
     debug=False, bootloader_ignore_signals=False, strip=False, upx=False,
-    runtime_tmpdir=None, console=False,
+    console=False,
     icon='icon.ico' if os.path.exists('icon.ico') else None,
     version_file='version_info.txt' if os.path.exists('version_info.txt') else None,
+)
+coll = COLLECT(
+    exe, a.binaries, a.datas,
+    strip=False, upx=False, upx_exclude=[],
+    name='SPECTRA',                       # → dist/SPECTRA/
 )
