@@ -4,6 +4,7 @@ v2.0 분해: wayaudo2.py에서 이동(동작 0 변경). WASAPI 헬퍼 + AudioThr
 MultiChannelAudioThread/Subscription/_DeviceStream/AudioEngine/_Engine*Source.
 Qt(QThread/QObject/pyqtSignal) 사용. TFDuplexThread는 별도(추후).
 """
+import os
 import sys
 import time
 import numpy as np
@@ -67,6 +68,35 @@ def _win_extra_settings(exclusive=False):
         return sd.WasapiSettings(exclusive=True) if exclusive else sd.WasapiSettings(auto_convert=True)
     except Exception:
         return None
+
+
+# [WIN_WASAPI_EXCLUSIVE] 공유(shared) 캡처가 무음/감쇠하는 장치 캐시(장치명 키). 일부 USB 인터페이스
+# (예: Focusrite Scarlett)는 WASAPI 공유 캡처가 몇 초에 걸쳐 0으로 죽는다 — 반면 SmartLive/내장 마이크는
+# 공유가 정상이라 여러 탭이 공존한다. 그래서 '기본 공유, 감쇠 감지된 장치만 독점'으로 자동 적응한다.
+# 런타임에 감지되면 여기 기록되고, 이후 그 장치는 처음부터 독점으로 연다. TF도 이 판정으로 duplex 여부 결정.
+_SHARED_CAPTURE_BROKEN = {}
+
+class _SilentCaptureError(Exception):
+    """공유 캡처가 감쇠해 사실상 무음 → 독점 모드로 재오픈 유도."""
+
+def _dev_name_key(idx):
+    try:
+        import re as _re
+        name = str(sd.query_devices(idx)['name'])
+        m = _re.search(r'\(([^)]+)\)\s*$', name)
+        return m.group(1).strip() if m else name.strip()
+    except Exception:
+        return None
+
+def device_needs_exclusive(idx):
+    """이 장치가 (감지 결과) 공유 캡처 불가라 독점이 필요한가. TF/엔진 공용 판정."""
+    k = _dev_name_key(idx)
+    return bool(k and _SHARED_CAPTURE_BROKEN.get(k))
+
+def _mark_shared_broken(idx):
+    k = _dev_name_key(idx)
+    if k:
+        _SHARED_CAPTURE_BROKEN[k] = True
 
 
 # ── Windows: 오디오 워커 스레드의 COM 초기화 [찾기: WIN_COM_INIT] ──────────────
@@ -237,6 +267,7 @@ class MultiChannelAudioThread(QThread):
         _got_cb    = [False]   # 첫 콜백 수신 여부 — 시작 지연을 끊김으로 오판 방지
         _dead_retry = [0]      # 연속 실패 재오픈 횟수 — 콜백 재개 시 리셋(장시간 세션 소진 방지)
         _cb_err_logged = [False]  # 콜백 예외 1회 기록 플래그(로그 폭주 없이 원인 추적)
+        _maxabs = [0.0]        # [WIN_WASAPI_EXCLUSIVE] late 윈도우 최대 진폭(공유 캡처 감쇠 감지용)
 
         def cb(indata, frames, ti, status):
             if not self.running: return
@@ -245,6 +276,10 @@ class MultiChannelAudioThread(QThread):
                 if indata.shape[1] == 0:
                     _last_cb[0] = time.monotonic(); self._last_cb_mono = _last_cb[0]
                     return
+                try:
+                    _m = float(np.max(np.abs(indata)))
+                    if _m > _maxabs[0]: _maxabs[0] = _m
+                except Exception: pass
                 raw = {}
                 for ch in self.channels:
                     src = min(ch, indata.shape[1] - 1)
@@ -271,23 +306,24 @@ class MultiChannelAudioThread(QThread):
                     _alog.error(f'오디오 콜백 예외(스트림당 1회만 기록) dev={self.device_idx}: {_e}')
                     _diag('eng_cb_exc', dev=self.device_idx, err=str(_e)[:80])
 
-        def _open(bs, lat):
+        def _open(bs, lat, excl):
             # 객체만 생성 — start()는 _run() 내 _no_stderr() 안에서 호출됨
             return sd.InputStream(device=self.device_idx, samplerate=self.sample_rate,
                                   channels=n_ch, blocksize=bs,
                                   callback=cb, latency=lat, dtype='float32',
-                                  extra_settings=_win_extra_settings())
+                                  extra_settings=_win_extra_settings(exclusive=excl))
 
-        def _run(bs, lat):
+        def _run(bs, lat, excl):
             try:
-                with _no_stderr(), _open(bs, lat) as _s:
+                with _no_stderr(), _open(bs, lat, excl) as _s:
                     self._active_stream = _s
                     try:
-                        _alog.info(f'[DIAG] InputStream opened dev={self.device_idx} ch={n_ch} '
+                        _alog.info(f'[DIAG] InputStream opened dev={self.device_idx} ch={n_ch} excl={excl} '
                                    f'req(bs={bs},lat={lat}) actual(bs={_s.blocksize},lat={_s.latency})')
                     except Exception: pass
                     _got_cb[0] = False   # 이 시도 기준으로 첫 콜백 판정(재시도마다 초기화)
                     _last_cb[0] = time.monotonic(); _open_t = time.monotonic()
+                    _maxabs[0] = 0.0; _late_started = [False]; _detect_done = [False]
                     while self.running:
                         # 폴 간격이 짧아야 stop()이 빨리 빠져나온다. 예전 500ms면 스트림 하나
                         # 정리에 최대 0.5초가 걸려, reinit_audio_devices(전 탭 정지→PortAudio
@@ -309,6 +345,20 @@ class MultiChannelAudioThread(QThread):
                             _diag('eng_cb_stall', dev=self.device_idx,
                                   age_ms=round((time.monotonic() - _last_cb[0]) * 1000))
                             raise _DeadCallbackError()
+                        # [WIN_WASAPI_EXCLUSIVE] 공유 캡처 감쇠(무음) 감지 — 일부 USB 인터페이스는 공유
+                        # 캡처가 몇 초에 걸쳐 0으로 죽는다. late 윈도우(오픈 1.3~2.1초)의 최대 진폭이 바닥
+                        # (-104dB↓)이면 실제 캡처가 아님(실장치는 LSB 노이즈로 이보다 큼) → 그 장치를 독점
+                        # 필요로 기록하고 독점 재오픈 유도. excl 모드/비-Windows/이미 판정됨이면 검사 안 함.
+                        if (not excl) and _excl_ok and (not _detect_done[0]) and _got_cb[0]:
+                            _el = time.monotonic() - _open_t
+                            if (not _late_started[0]) and _el > 1.3:
+                                _late_started[0] = True; _maxabs[0] = 0.0   # 초기 버퍼 배제, late 관찰 시작
+                            elif _late_started[0] and _el > 2.1:
+                                _detect_done[0] = True
+                                if _maxabs[0] < 6e-6:
+                                    _diag('eng_shared_silent', dev=self.device_idx, maxabs=round(_maxabs[0], 8))
+                                    _mark_shared_broken(self.device_idx)
+                                    raise _SilentCaptureError()
                 return False
             except Exception: raise
             finally:
@@ -316,19 +366,36 @@ class MultiChannelAudioThread(QThread):
 
         # force_latency='high': 큰 하드웨어 버퍼(제너레이터 안정) 유지 + blocksize 512(잦은 콜백)
         # → 공유 스트림을 TF와 함께 써도 Spectrum 청크당 스무딩 속도가 정상 유지됨.
-        _attempts = [(512, self.force_latency), (2048, self.force_latency)] if self.force_latency else [(512,'low'),(512,'high'),(0,'high')]
+        _base = [(512, self.force_latency), (2048, self.force_latency)] if self.force_latency else [(512,'low'),(512,'high'),(0,'high')]
+        # [WIN_WASAPI_EXCLUSIVE] 기본은 공유(shared) — SmartLive/내장 마이크 등 대부분은 공유가 정상이고
+        # 여러 탭이 한 스트림을 공유(공존)할 수 있다. 단, 일부 USB 인터페이스(예: Focusrite Scarlett)는
+        # 공유 캡처가 몇 초 뒤 무음으로 죽는다 → _run 의 감쇠감지가 _SilentCaptureError 를 던져 독점으로
+        # 넘어가고 그 장치를 캐시(_SHARED_CAPTURE_BROKEN)한다. 이후 그 장치는 처음부터 독점으로 연다.
+        # 독점은 장치를 단독 점유(공존 불가)하므로, 정말 필요한 장치에만 적용된다. WSA2_NO_WASAPI_EXCLUSIVE=1 로 비활성화.
+        _excl_ok = (_pl.system() == 'Windows' and _win_preferred_hostapi() is not None
+                    and os.environ.get('WSA2_NO_WASAPI_EXCLUSIVE') != '1')
+        _excl_attempt = (0, 'low', True)
+        if _excl_ok and device_needs_exclusive(self.device_idx):
+            _attempts = [_excl_attempt]                                  # 공유불가 판정된 장치 → 바로 독점
+        elif _excl_ok:
+            _attempts = [(bs, lat, False) for (bs, lat) in _base] + [_excl_attempt]  # 공유 시도 → 감쇠 시 독점
+        else:
+            _attempts = [(bs, lat, False) for (bs, lat) in _base]
         last_err = None
         _com_owned = _win_com_init()   # WASAPI/WDM-KS 장치 start용 COM(워커 스레드) [찾기: WIN_COM_INIT]
         begin_no_sleep()   # 측정 중 idle 시스템 절전 차단(콜백 정지 트리거 제거)
         try:
             for round_n in range(2):
-                for (bs, lat) in _attempts:
+                for (bs, lat, excl) in _attempts:
+                    # 이미 공유불가로 판정된 장치는 남은 공유 config를 건너뛰고 독점 config만 시도.
+                    if (not excl) and _excl_ok and device_needs_exclusive(self.device_idx):
+                        continue
                     # 죽은 콜백(스트림 열렸으나 첫 콜백 없음)=같은 config 재시도 → 저지연 유지하며 복구.
                     # running-stall(콜백 흐르다 멈춤)도 같은 경로로 재오픈. open 실패(예외)=다음 config로.
                     _dead_retry[0] = 0
                     while True:
                         try:
-                            if _run(bs, lat): return
+                            if _run(bs, lat, excl): return
                             return
                         except _DeadCallbackError:
                             if not self.running: return
@@ -345,6 +412,9 @@ class MultiChannelAudioThread(QThread):
                                     return
                                 break                     # 같은 config 반복 죽음 → 다음 config
                             continue                      # 같은 config 재오픈
+                        except _SilentCaptureError:
+                            # 공유 캡처가 감쇠(무음) → 이 장치는 독점 필요로 기록됨. 다음 config(독점)로.
+                            last_err = 'shared capture silent → exclusive'; break
                         except Exception as e:
                             last_err = e; break           # open 실패 → 다음 config
                 if round_n == 0:
@@ -523,6 +593,11 @@ class AudioEngine(QObject):
         self._streams = {}            # device_idx -> _DeviceStream
         self._fft_size = fft_size
         self._thread_factory = thread_factory
+        # [WIN_WASAPI_EXCLUSIVE] 장치 중재: WASAPI 독점 장치(예: Scarlett)는 스트림 1개만 허용하므로
+        # 엔진(Spectrum/RTA/Stereo)과 TF duplex 가 같은 장치를 동시에 못 연다. duplex 가 어떤 장치를
+        # 독점 점유하면 그 장치에 stop 콜백을 등록해두고, 엔진이 그 장치를 열기 직전 콜백으로 duplex 를
+        # 먼저 양보(중지)시킨다. (반대로 duplex 는 열기 전 engine.release_device 로 엔진 스트림을 닫는다.)
+        self._excl_owners = {}        # device_idx -> stop_callback (외부 독점 소유자=TF duplex)
 
     def subscribe(self, device_idx, channels, sample_rate, force_latency=None):
         """device_idx의 channels를 sample_rate로 구독. Subscription 반환.
@@ -536,6 +611,7 @@ class AudioEngine(QObject):
             raise ValueError(
                 f'device {device_idx} already open at {st.sample_rate}Hz; '
                 f'cannot subscribe at {sample_rate}Hz (one SR per device)')
+        self._yield_device(device_idx)   # 그 장치를 독점한 외부 소유자(TF duplex)가 있으면 먼저 양보
         sub = Subscription(self, device_idx, channels, force_latency)
         st.add(sub)
         return sub
@@ -547,6 +623,35 @@ class AudioEngine(QObject):
 
     def _remove_stream(self, device_idx):
         self._streams.pop(device_idx, None)
+
+    # ── [WIN_WASAPI_EXCLUSIVE] 장치 중재 API ─────────────────────────────
+    def set_exclusive_owner(self, device_idx, stop_cb):
+        """device_idx 를 독점 점유한 외부 소유자(TF duplex)의 중지 콜백 등록."""
+        self._excl_owners[device_idx] = stop_cb
+
+    def clear_exclusive_owner(self, device_idx):
+        self._excl_owners.pop(device_idx, None)
+
+    def _yield_device(self, device_idx):
+        """엔진이 device_idx 를 열기 전, 그 장치를 독점한 외부 소유자를 중지시켜 장치를 넘겨받는다."""
+        cb = self._excl_owners.pop(device_idx, None)
+        if cb is not None:
+            try:
+                _diag('eng_yield_device', dev=device_idx)
+                cb()
+            except Exception:
+                pass
+
+    def release_device(self, device_idx):
+        """그 장치의 엔진 스트림을 완전히 종료(구독 스트림 해제) — 외부(TF duplex)가 독점하려 할 때 호출.
+        Subscription 객체는 소비자가 그대로 들고 있으므로, duplex 종료 후 소비자의 워치독/재구독으로 복구된다."""
+        st = self._streams.pop(device_idx, None)
+        if st is not None:
+            try:
+                _diag('eng_release_device', dev=device_idx, n_subs=len(getattr(st, 'subs', [])))
+                st._close()
+            except Exception:
+                pass
 
     def current_sr(self, device_idx):
         """이미 열려 있는 장치 스트림의 SR(없으면 None). 같은 장치를 여러 탭이 구독할 때

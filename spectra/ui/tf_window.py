@@ -21,7 +21,7 @@ from PyQt5.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication, 
                              QWidget)
 from spectra.audio.engine import (_EngineChannelSource, _EngineMultiSource, _EngineSyncSource,
                                   _dev_hostapi_ok, _win_extra_settings, _win_preferred_hostapi,
-                                  _win_com_init, _win_com_uninit)
+                                  _win_com_init, _win_com_uninit, device_needs_exclusive)
 from spectra.audio.watchdog import StreamStalled, begin_no_sleep, classify_stall, end_no_sleep
 from spectra.core.config import (SPEED_LEVELS, T, _CAPTURES_TF_LOCK, _load_tf_captures_file,
                                  f32_to_b64, b64_to_f32,
@@ -407,6 +407,7 @@ class TFDuplexThread(QThread):
 
         _alog.debug(f'TFDuplexThread.run() opening sd.Stream  in={self.in_dev} out={self.out_dev} sr={self.sample_rate} bs={blocksize} n_in={n_in} ref_ch={self.ref_ch}')
         _dead_reopens = 0   # 연속 실패 재오픈 — 콜백 재개 시 리셋
+        _busy_retry = [0]   # -9996/-9997(장치 릴리스 지연) 재시도 카운터
         _com_owned = _win_com_init()   # WASAPI/WDM-KS 장치 start용 COM(워커 스레드) [찾기: WIN_COM_INIT]
         begin_no_sleep()    # 측정 중 idle 시스템 절전 차단(콜백 정지 트리거 제거)
         # [WIN_WASAPI_EXCLUSIVE] Windows에선 WASAPI 독점 모드 우선. 같은 USB 인터페이스(예: Scarlett,
@@ -470,11 +471,19 @@ class TFDuplexThread(QThread):
                         self.disconnected_signal.emit('device removed (stall)'); return  # '(stall)'=6회 소진 확정 → UI 개수가드 우회 복구
                     self.msleep(150); continue   # 같은 config 재오픈
                 except Exception as _oe:
-                    # 스트림 오픈 실패 — 독점이면 공유모드로 폴백 후 재시도, 아니면 상위로 전파.
+                    # 스트림 오픈 실패.
                     self._active_stream = None
+                    _es = str(_oe)
+                    # -9996(Invalid device)/-9997 = 다른 스트림(엔진/RTA)이 아직 장치를 릴리스 중일 수 있다
+                    # (WASAPI 독점 해제 지연) → 같은 모드로 잠깐 뒤 재시도. 8회까지 대기 후에도 안 되면 폴백.
+                    if ('-9996' in _es or '-9997' in _es) and _busy_retry[0] < 8:
+                        _busy_retry[0] += 1
+                        _diag('tf_duplex_busy_retry', n=_busy_retry[0], excl=_win_excl)
+                        self.msleep(200); continue
+                    # 독점이 안 되면 공유모드로 폴백 후 재시도, 그것도 실패면 상위로 전파.
                     if _win_excl:
-                        _win_excl = False
-                        _diag('tf_duplex_excl_fallback', err=str(_oe)[:80])
+                        _win_excl = False; _busy_retry[0] = 0
+                        _diag('tf_duplex_excl_fallback', err=_es[:80])
                         self.msleep(120); continue
                     raise
         except Exception as e:
@@ -625,6 +634,7 @@ class TransferFunctionWindow(QWidget):
         self._avg_target = 23; self._running = False
         self._gen_freeze = False; self._gen_off_timer = None
         self._sig_stream = None; self._duplex_thread = None; self._sig_lvl_ref = None
+        self._duplex_excl_dev = None   # [WIN_WASAPI_EXCLUSIVE] duplex 가 독점 점유 중인 입력장치(중재용)
         import threading as _thr
         self._int_ref_buf = np.zeros(131072, dtype=np.float32)  # 32768×4, 순환 버퍼
         self._int_ref_pos = [0]   # 뮤터블 컨테이너, SigGen 콜백과 공유
@@ -2389,14 +2399,12 @@ class TransferFunctionWindow(QWidget):
             # 모든 extra pair는 공유 ref(self.ref_cb) 사용 — 동일 장치이면 MultiChannelAudioThread
             primary_active = (self._level_cards and self._level_cards[0]._display_on)
 
-            # [WIN_SAME_DEV_DUPLEX] 입력·출력이 같은 물리 인터페이스라 TFDuplexThread(단일 스트림)가
-            # primary ref+meas 를 이미 캡처 중이면, 여기서 primary 엔진 입력을 또 열면 같은 장치에
-            # WASAPI 스트림 2개가 겹쳐 캡처가 무음이 된다 → primary 는 duplex 에 맡기고 건너뛴다.
+            # [WIN_SAME_DEV_DUPLEX] 입력·출력이 같은 물리 인터페이스면 TFDuplexThread(단일 스트림)가
+            # primary ref+meas 를 담당한다. 여기서 primary 엔진 입력을 또 열면 같은 장치에 스트림이
+            # 겹쳐(독점 모드는 -9996, 공유 모드는 클럭 드리프트로 무음) → primary 는 duplex 에 맡기고
+            # 건너뛴다. duplex 가 아직 안 열렸어도(Play 전) 스킵 — 내부 루프백과 동일하게 Play 시 열림.
             # (내부 루프백 ref_idx=None 은 위 분기에서 이미 처리. 이건 '외부 ref, 같은 장치' 경우.)
-            _out_dev_now = self.sig_out_cb.currentData()
-            _dup_owns_primary = (self._duplex_thread is not None and self._duplex_thread.isRunning()
-                                 and _same_physical_device(meas_idx, _out_dev_now)
-                                 and _same_physical_device(ref_idx, meas_idx))
+            _dup_owns_primary = self._should_use_duplex()
 
             # 장치별 채널 수집: {dev: [(pair_id, ref_ch, meas_ch)]}
             # pair_id='primary' or int
@@ -3022,6 +3030,13 @@ class TransferFunctionWindow(QWidget):
             #    다시 켜도 _rta_parked가 True로 남아 **영영 구독하지 않는** 닫힌 고리가 됐다
             #    (구독이 없으니 _on_rta_chunk의 해제 경로에도 도달 못 함).
             self._rta_parked = False; self._rta_stale_n = 0
+            return
+        # [WIN_WASAPI_EXCLUSIVE] duplex 가 측정장치를 (독점) 점유 중이면 RTA 엔진 구독이 같은 장치를
+        # 또 열려다 -9996으로 충돌한다 → duplex 실행 중엔 RTA 구독을 열지 않는다(같은 장치 스트림 1개).
+        # duplex 정지 후 다음 틱에서 자동 재구독. (RTA 미리보기는 측정 전/후에만.)
+        if self._duplex_thread is not None and self._duplex_thread.isRunning():
+            if self._rta_sub is not None:
+                self._rta_unsubscribe()
             return
         cur_dev = self.meas_cb.currentData()
         cur_ch = self.meas_ch_cb.currentData() or 0
@@ -4949,6 +4964,55 @@ class TransferFunctionWindow(QWidget):
                 QTimer.singleShot(1400, lambda: self.status_lbl.setText(
                     '● Running' if self._running else '● Standby'))
 
+    def _should_use_duplex(self):
+        """현재 장치/채널 구성이 duplex(입출력 단일 스트림)를 써야 하는지. [WIN_SAME_DEV_DUPLEX]
+        입력·출력이 같은 물리 인터페이스이고 그 출력장치에 활성 extra 카드가 없으며, 내부 루프백/스윕
+        또는 (Windows) 외부 ref가 같은 입력 인터페이스일 때 True. _start_sig_gen(오픈)·_start(중복 엔진
+        입력 스킵)·_update_rta(RTA 구독 억제)가 이 하나의 판정을 공유해 같은 장치에 스트림이 겹치지 않게 한다."""
+        meas_idx = self.meas_cb.currentData()
+        out_dev  = self.sig_out_cb.currentData()
+        ref_idx  = self.ref_cb.currentData()
+        if meas_idx is None or out_dev is None:
+            return False
+        if not _same_physical_device(meas_idx, out_dev):
+            return False
+        _active_extras_on_out = any(
+            p.get('display', False) and p.get('meas_cb') and p['meas_cb'].currentData() == out_dev
+            for p in getattr(self, '_extra_pairs', [])
+        )
+        if _active_extras_on_out:
+            return False
+        # ref 전제: 내부 루프백(ref None) / 스윕 / (Win)외부ref가 같은 입력 인터페이스
+        if not (ref_idx is None or self.sig_sweep_btn.isChecked()
+                or (_IS_WIN and _same_physical_device(ref_idx, meas_idx))):
+            return False
+        # 언제 duplex 를 쓰나:
+        #  - meas_idx==out_dev(맥 등 단일 인덱스 장치): 항상 duplex (기존 동작)
+        #  - 스윕 1-shot: 단일 클럭 필수 → duplex
+        #  - (Windows) 공유 캡처 불가로 판정된 장치(예: Scarlett): 독점 duplex
+        #  그 외(SmartLive/내장 등 공유 정상, 서로 다른 인덱스): standalone(공유) → Spectrum과 공존.
+        if meas_idx == out_dev:
+            return True
+        if self.sig_sweep_btn.isChecked():
+            return True
+        if _IS_WIN and device_needs_exclusive(meas_idx):
+            return True
+        return False
+
+    def _duplex_yield_to_engine(self):
+        """[WIN_WASAPI_EXCLUSIVE] 엔진(다른 탭: Spectrum/Stereo)이 TF duplex 가 점유한 입력장치를
+        요청 → duplex 를 중지해 장치를 넘긴다. (독점 장치는 동시 사용 불가 → 번갈아 쓰기.)
+        엔진 subscribe 흐름(GUI 스레드)에서 호출된다."""
+        _diag('tf_duplex_yield')
+        try:
+            self._stop_sig_gen()      # duplex/출력 중지 + clear_exclusive_owner
+        except Exception: pass
+        # 측정 상태 정리 — 입력을 뺏겼으므로 primary 분석도 멈춤(스트림 없음)
+        try:
+            if self._running:
+                self._stop_analysis()
+        except Exception: pass
+
     def _start_sig_gen(self):
         _alog.debug(f'_start_sig_gen() called  sig_stream={self._sig_stream}  duplex={self._duplex_thread}')
         # [DIAG] 스윕→핑크 등 소스 전환 재생 디버그: 진입 시점 상태(이전 스윕 잔여/스트림 생존)
@@ -4998,28 +5062,13 @@ class TransferFunctionWindow(QWidget):
         mw = self.parent()
         _alog.debug(f'  main_spectrum running={getattr(mw, "_primary_sub", None) is not None}')
 
-        # duplex는 meas_idx==out_dev (같은 장치)이고 extra pair가 없을 때만 사용.
-        # extra pair가 하나라도 display=True이면 standalone으로 강제 → MultiChannelAudioThread로 묶음
-        _active_extras_on_out = any(
-            p.get('display', False) and p.get('meas_cb') and p['meas_cb'].currentData() == out_dev
-            for p in getattr(self, '_extra_pairs', [])
-        )
-        # 외부 레퍼런스(입력 채널)는 standalone 출력 + 입력 스트림으로 처리 → 카드 Start/Stop 시
-        # 출력 스트림을 건드리지 않아 제너레이터가 끊기지 않음 (ref+meas 는 단일 입력 스트림에서 동기 캡처).
-        # duplex 는 내부 루프백 ref(출력=레퍼런스) 또는 Sweep 1-shot 캡처일 때만 필요.
-        # [WIN_SAME_DEV_DUPLEX] 입력·출력이 같은 물리 인터페이스면 duplex(단일 스트림·단일 클럭)로
-        # 연다. Windows는 같은 USB 장치를 입력/출력에 다른 인덱스로 노출해 종전엔 meas_idx==out_dev가
-        # 거짓 → 별도 스트림 2개 → 독립 WASAPI 클럭 드리프트로 캡처가 수 초 내 무음이 됐다(회귀 991e6ea).
-        # 맥은 같은 장치를 단일 인덱스로 노출해 이미 meas_idx==out_dev로 duplex → 동작 불변.
-        _same_dev = _same_physical_device(meas_idx, out_dev)
-        use_duplex = (meas_idx is not None and out_dev is not None and _same_dev
-                      and not _active_extras_on_out
-                      and (ref_idx is None or self.sig_sweep_btn.isChecked()
-                           # Windows: 외부 레퍼런스도 같은 입력 인터페이스면 duplex로(별도스트림 stall 회피).
-                           or (_IS_WIN and _same_physical_device(ref_idx, meas_idx))))
+        use_duplex = self._should_use_duplex()
 
         if use_duplex:
             # 기존 측정 스레드 먼저 해제 (Start 먼저 눌렀을 때 장치 충돌 방지)
+            # [WIN_WASAPI_EXCLUSIVE] RTA 엔진 구독이 같은 장치를 독점 점유하면 duplex가 -9996으로
+            # 못 연다 → duplex 열기 전 RTA 구독부터 해제(같은 장치는 duplex 하나만 점유).
+            self._rta_unsubscribe()
             self._stop_mon_streams()
             for th in [self._ref_thread, self._meas_thread]:
                 if th:
@@ -5043,6 +5092,17 @@ class TransferFunctionWindow(QWidget):
                     except Exception: pass
                     _mc.stop()
             self._stop_sig_gen()
+            # [WIN_WASAPI_EXCLUSIVE] 엔진(Spectrum/Stereo/RTA)이 이 입력장치를 잡고 있으면 독점 duplex가
+            # -9996으로 못 연다 → 엔진 스트림을 완전히 닫아 장치를 넘겨받고, 이후 엔진이 이 장치를
+            # 다시 열려 하면(다른 탭 측정) duplex 를 양보하도록 소유자로 등록. (같은 독점 장치는 1스트림.)
+            if self._engine is not None and meas_idx is not None:
+                try: self._engine.release_device(meas_idx)
+                except Exception: pass
+                if ref_idx is not None and ref_idx != meas_idx:
+                    try: self._engine.release_device(ref_idx)
+                    except Exception: pass
+                self._engine.set_exclusive_owner(meas_idx, self._duplex_yield_to_engine)
+                self._duplex_excl_dev = meas_idx
 
             if ref_idx is None:
                 # 내부 루프백: 출력 신호를 레퍼런스로 사용 (ref_ch=None)
@@ -5250,6 +5310,11 @@ class TransferFunctionWindow(QWidget):
             except Exception: pass
             self._duplex_thread.stop(); self._duplex_thread = None
             _alog.debug('  TFDuplexThread closed')
+        # [WIN_WASAPI_EXCLUSIVE] duplex 독점 소유 해제 — 이제 엔진(Spectrum 등)이 그 장치를 열 수 있다.
+        if self._duplex_excl_dev is not None and self._engine is not None:
+            try: self._engine.clear_exclusive_owner(self._duplex_excl_dev)
+            except Exception: pass
+            self._duplex_excl_dev = None
         self.sig_on_btn.setText('Play'); self._style_sig_play(False); self.sig_on_btn.setChecked(False)
         self.sig_on_btn.setStyleSheet(f'background:{T("panel")};color:{T("text_dim")};'
                                        f'border:1px solid {T("border")};padding:4px;border-radius:{RADIUS_CTRL}px;font-weight:bold;')
