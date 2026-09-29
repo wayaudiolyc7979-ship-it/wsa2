@@ -53,9 +53,26 @@
     <div class="ul"></div>
   </header>
 
-  <!-- v2.0.2 -->
+  <!-- v2.1 -->
   <div class="rel latest">
-    <div class="head"><span class="ver now">v2.0.2</span><span class="date">2026.09</span><span class="badge">최신</span></div>
+    <div class="head"><span class="ver now">v2.1</span><span class="date">2026.09</span><span class="badge">최신</span></div>
+    <h2>Windows 대개편 — ASIO·오디오 안정화·4K 성능·상단 UI 통일</h2>
+    <p class="sub">Windows 사용성을 집중적으로 끌어올린 릴리스입니다. ASIO 드라이버 정식 지원으로 한 인터페이스에서 Transfer Function과 Spectrum을 동시에 측정하고, 입력이 무음으로 죽던 문제를 자동으로 감지·전환하며, 4K·고배율 버벅임을 GPU 가속으로 없앴습니다. 상단 UI도 맥과 동일하게 정리했습니다.</p>
+    <ul>
+      <li><b>[Windows] ASIO 드라이버 정식 지원 — 있으면 자동 우선</b> — 인터페이스에 ASIO 드라이버가 있으면 장치 목록에 ASIO 항목(예: <code>Focusrite USB ASIO</code>)이 나타나고 같은 인터페이스의 일반(WASAPI) 항목은 숨겨집니다. 그 장치를 고르면 되고, 기존 저장된 선택도 자동으로 이어집니다(ASIO4ALL 같은 범용 래퍼는 제외). <code>☰ 메뉴 → Use ASIO Drivers</code>로 끄고 켤 수 있습니다</li>
+      <li><b>[Windows] 한 인터페이스로 Transfer Function과 Spectrum·Stereo 동시 측정</b> — ASIO·독점 장치는 스트림이 하나뿐이라 예전엔 탭을 오가면 한쪽이 멈췄지만, 이제 Transfer Function이 받은 입력을 다른 탭에도 나눠 줘 같은 인터페이스에서 동시에 동작합니다(샘플레이트가 다를 때만 번갈아 사용). ASIO가 안 열리면 자동으로 일반 장치로 전환</li>
+      <li><b>[Windows] 일부 인터페이스(예: Focusrite Scarlett) 측정 입력이 몇 초 뒤 무음이 되던 문제 수정</b> — 시그널 출력+측정 입력을 함께 쓸 때 공유 캡처가 몇 초 뒤 완전 무음(디지털 0)으로 죽던 문제. 이제 장치별로 공유 캡처가 정상인지 자동 감지해, 정상 장치는 공유를 유지해 여러 탭이 동시에 쓰고 무음이 되는 장치만 WASAPI 독점 모드로 자동 전환합니다(독점 장치는 탭 전환 시 자동으로 서로 넘겨받음)</li>
+      <li><b>[Windows] 고해상도(4K)·고배율 스펙트럼 버벅임 해결 — GPU(OpenGL) 가속</b> — 병목이던 막대 그리기(4K 한 프레임 44ms)를 OpenGL 렌더로 전환해 1/24 옥타브 4K 기준 44→29ms(약 40~55% 단축)로 매끄러워졌습니다. 화면 모양은 동일(그라디언트·피크·정렬 유지)</li>
+      <li><b>[Windows] 상단 UI를 맥과 동일하게 정리(프레임리스)</b> — 네이티브 제목표시줄을 없애 앱 내용이 최상단까지 올라오고(최소화·최대화·닫기는 툴바 우측), 창 안 'View/Help' 메뉴줄을 숨겨 그 항목을 상단 툴바 <code>☰</code> 버튼으로 옮겼습니다. 단축키는 그대로. 창 이동·리사이즈·Aero Snap은 네이티브로 유지</li>
+      <li><b>[Windows] Transfer Function 시그널 출력이 '루프/모터보트'처럼 들리던 문제 수정</b> — 출력+입력 단일 스트림 콜백이 무거워져 순간순간 끊기던 것을, 화면 전송을 초당 60회로 줄여 콜백을 가볍게 만들어 해결(측정·화면은 그대로). 같은 인터페이스는 첫 측정부터 안정적으로 열립니다</li>
+      <li><b>[Mac][Windows] Transfer Function — 원거리 마이크에서 임펄스(IR)·딜레이를 못 찾던 문제 수정</b> — 스피커와 마이크가 멀리 떨어지면(대략 맥 ~40m, 윈도우 ~60m부터) 임펄스 표시·자동 딜레이 찾기가 실패하던 문제. 전체 분석창(1.36초)의 광대역 상관으로 지연을 찾아 약 234m(48kHz)까지 견고하게 검출합니다. 양 플랫폼 공통 원인이라 함께 수정</li>
+      <li><b>[Windows] 분수 배율(125/150/175/225/250% 등)에서 화면이 겹치고 번지던 문제 · 옥타브가 세로로 늘어나 보이던 문제 · 일부 마이크가 -9999로 안 열리던 문제(캡처 스레드 COM 초기화) 수정</b></li>
+    </ul>
+  </div>
+
+  <!-- v2.0.2 -->
+  <div class="rel">
+    <div class="head"><span class="ver">v2.0.2</span><span class="date">2026.09</span></div>
     <h2>정확도·안정성 보강 (빌드전 심층리뷰)</h2>
     <p class="sub">v2.0.1 배포 이후 전체 코드를 심층 재점검해 오래된 정확도·안정성 문제를 위험도순으로 바로잡은 유지보수 릴리스입니다. 동작·화면은 그대로.</p>
     <ul>
