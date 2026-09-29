@@ -52,14 +52,19 @@ def _dev_hostapi_ok(d, pref):
     """장치 d를 목록에 포함할지 — pref(None=전체 허용)에 지정된 호스트 API에 속할 때만 True."""
     return pref is None or d.get('hostapi') == pref
 
-def _win_extra_settings():
-    """WASAPI로 필터링 중일 때만 auto_convert ExtraSettings 반환 — 앱이 요청한 샘플레이트가
-    장치 믹스포맷과 달라도 공유모드에서 자동 변환해 스트림 오픈 실패(-9997 등)를 막는다.
-    그 외(비-Windows/WASAPI 미사용)엔 None → 스트림 오픈에 영향 없음(기존 기본값과 동일)."""
+def _win_extra_settings(exclusive=False):
+    """WASAPI ExtraSettings 반환.
+    - 기본(공유): auto_convert=True — 앱 요청 SR이 장치 믹스포맷과 달라도 공유모드에서 자동 변환해
+      스트림 오픈 실패(-9997)를 막는다.
+    - exclusive=True: WASAPI 독점(Exclusive)모드. 공유 믹서/리샘플러를 우회해 장치를 요청 SR로 직접
+      연다. 같은 USB 인터페이스에서 렌더+캡처가 동시에 돌 때 공유모드 auto_convert 리샘플러가
+      드리프트해 캡처가 수 초 내 무음이 되는 문제(예: Focusrite Scarlett 입력48k/출력44.1k 불일치)를
+      회피. 독점은 장치를 단독 점유하므로 TF duplex(측정 전용) 경로에서만 쓴다. [WIN_WASAPI_EXCLUSIVE]
+    비-Windows/WASAPI 미사용이면 None(동작 변화 없음)."""
     if _win_preferred_hostapi() is None:
         return None
     try:
-        return sd.WasapiSettings(auto_convert=True)
+        return sd.WasapiSettings(exclusive=True) if exclusive else sd.WasapiSettings(auto_convert=True)
     except Exception:
         return None
 

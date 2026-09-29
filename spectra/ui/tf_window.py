@@ -47,6 +47,35 @@ from spectra.ui.widgets import (_shortcut_should_yield, RoundComboBox, _BrandHea
                                 _N2Select, _VUProxy, _apply_dark_titlebar, _brand_logo_html, hsep)
 
 
+_IS_WIN = (os.name == 'nt')
+
+def _dev_phys_key(idx):
+    """장치 인덱스 → 물리 인터페이스 식별 키. Windows WASAPI는 같은 USB 인터페이스를 입력/출력에
+    서로 다른 인덱스로 노출하고 이름이 '<역할> (<장치명>)' 형태라, 괄호 안 장치명을 키로 쓴다.
+    (예: '마이크 (Scarlett 2i2 USB)'·'스피커(Scarlett 2i2 USB)' → 'Scarlett 2i2 USB')"""
+    try:
+        name = str(sd.query_devices(idx)['name'])
+    except Exception:
+        return None
+    import re as _re
+    m = _re.search(r'\(([^)]+)\)\s*$', name)
+    return m.group(1).strip() if m else name.strip()
+
+def _same_physical_device(a, b):
+    """두 장치 인덱스가 같은 물리 장치인가. 같은 인덱스면 항상 True(맥/공용). Windows에선
+    입출력이 다른 인덱스라도 괄호 안 장치명이 같으면 True. 그 외 플랫폼은 인덱스 일치만.
+    [WIN_SAME_DEV_DUPLEX] 같은 인터페이스에 별도 WASAPI 스트림 2개를 여는 것(클럭 드리프트로
+    캡처 무음)을 피하고 duplex 1개로 열기 위한 판정."""
+    if a is None or b is None:
+        return False
+    if a == b:
+        return True
+    if not _IS_WIN or os.environ.get('WSA2_NO_SAMEDEV_DUPLEX') == '1':
+        return False
+    ka, kb = _dev_phys_key(a), _dev_phys_key(b)
+    return ka is not None and ka == kb
+
+
 # TF 윈도우 전용 상수 (클러스터 밖 미사용)
 TF_SMOOTH_BPO    = [0, 48, 24, 12, 6, 3, 1]
 TF_SMOOTH_LABELS = ['None', '1/48', '1/24', '1/12', '1/6', '1/3', '1/1 Oct']
@@ -380,18 +409,27 @@ class TFDuplexThread(QThread):
         _dead_reopens = 0   # 연속 실패 재오픈 — 콜백 재개 시 리셋
         _com_owned = _win_com_init()   # WASAPI/WDM-KS 장치 start용 COM(워커 스레드) [찾기: WIN_COM_INIT]
         begin_no_sleep()    # 측정 중 idle 시스템 절전 차단(콜백 정지 트리거 제거)
+        # [WIN_WASAPI_EXCLUSIVE] Windows에선 WASAPI 독점 모드 우선. 같은 USB 인터페이스(예: Scarlett,
+        # 입력48k/출력44.1k 믹스포맷 불일치)에서 렌더+캡처를 공유모드로 동시에 열면 auto_convert
+        # 리샘플러가 드리프트해 캡처가 수 초 내 무음으로 죽는다. 독점은 믹서/리샘플러를 우회해 장치를
+        # 요청 SR로 직접 열어 안정. 장치가 독점을 거부(포맷/점유)하면 공유모드로 자동 폴백.
+        _win_excl = _IS_WIN
         try:
             while self.running:   # 같은 config 재오픈 루프 (running-stall 복구)
+                _es  = _win_extra_settings(exclusive=_win_excl)
+                _bs  = 0 if _win_excl else blocksize   # 독점: 장치 주기 정렬 위해 PA가 blocksize 선택
+                _lat = 'low' if _win_excl else 'high'
                 try:
                     with _no_stderr():
                         with sd.Stream(device=(self.in_dev, self.out_dev),
                                        samplerate=self.sample_rate,
                                        channels=(n_in, self.n_out),
-                                       blocksize=blocksize, dtype='float32',
-                                       callback=cb, latency='high',
-                                       extra_settings=_win_extra_settings()) as stream:
+                                       blocksize=_bs, dtype='float32',
+                                       callback=cb, latency=_lat,
+                                       extra_settings=_es) as stream:
                             self._active_stream = stream
-                            _alog.debug(f'TFDuplexThread sd.Stream opened OK  latency={stream.latency}')
+                            _diag('tf_duplex_open', excl=_win_excl, bs=_bs)
+                            _alog.debug(f'TFDuplexThread sd.Stream opened OK  excl={_win_excl} latency={stream.latency}')
                             _wd_got[0] = False
                             _wd_last[0] = time.monotonic()
                             _open_t = time.monotonic()          # [DIAG] 오픈 시각 — 첫 콜백 지연/미시작 계측
@@ -408,7 +446,7 @@ class TFDuplexThread(QThread):
                                 # 스타트업 죽음: 열렸는데 첫 콜백 2초 미수신 → 같은 config 재오픈
                                 if (not _wd_got[0]) and time.monotonic() - _open_t > 2.0:
                                     _diag('tf_duplex_cb_dead', dev=self.out_dev, in_dev=self.in_dev,
-                                          bs=blocksize)   # ⚠️콜백 2초간 미시작 = 무음 원인 후보
+                                          bs=_bs)   # ⚠️콜백 2초간 미시작 = 무음 원인 후보
                                     raise StreamStalled()
                                 # running-stall: 콜백 흐르다 2초 멈춤(절전/App Nap/글리치) →
                                 # 물리적 제거로 단정 말고 같은 장치 재오픈. [찾기: CB_STALL]
@@ -421,11 +459,24 @@ class TFDuplexThread(QThread):
                 except StreamStalled:
                     self._active_stream = None
                     if not self.running: return
+                    # 독점 첫 콜백 미수신(장치가 독점 거부/포맷 불가) → 공유모드로 폴백 재시도.
+                    if _win_excl and not _wd_got[0]:
+                        _win_excl = False
+                        _diag('tf_duplex_excl_fallback', reason='no_cb')
+                        self.msleep(120); continue
                     _dead_reopens += 1
                     if classify_stall(_dead_reopens) == 'disconnect':
                         _diag('tf_duplex_stall_giveup', dev=self.out_dev, in_dev=self.in_dev)
                         self.disconnected_signal.emit('device removed (stall)'); return  # '(stall)'=6회 소진 확정 → UI 개수가드 우회 복구
                     self.msleep(150); continue   # 같은 config 재오픈
+                except Exception as _oe:
+                    # 스트림 오픈 실패 — 독점이면 공유모드로 폴백 후 재시도, 아니면 상위로 전파.
+                    self._active_stream = None
+                    if _win_excl:
+                        _win_excl = False
+                        _diag('tf_duplex_excl_fallback', err=str(_oe)[:80])
+                        self.msleep(120); continue
+                    raise
         except Exception as e:
             _alog.error(f'TFDuplexThread sd.Stream FAILED: {e}')
             self.error_signal.emit(str(e))
@@ -2338,10 +2389,19 @@ class TransferFunctionWindow(QWidget):
             # 모든 extra pair는 공유 ref(self.ref_cb) 사용 — 동일 장치이면 MultiChannelAudioThread
             primary_active = (self._level_cards and self._level_cards[0]._display_on)
 
+            # [WIN_SAME_DEV_DUPLEX] 입력·출력이 같은 물리 인터페이스라 TFDuplexThread(단일 스트림)가
+            # primary ref+meas 를 이미 캡처 중이면, 여기서 primary 엔진 입력을 또 열면 같은 장치에
+            # WASAPI 스트림 2개가 겹쳐 캡처가 무음이 된다 → primary 는 duplex 에 맡기고 건너뛴다.
+            # (내부 루프백 ref_idx=None 은 위 분기에서 이미 처리. 이건 '외부 ref, 같은 장치' 경우.)
+            _out_dev_now = self.sig_out_cb.currentData()
+            _dup_owns_primary = (self._duplex_thread is not None and self._duplex_thread.isRunning()
+                                 and _same_physical_device(meas_idx, _out_dev_now)
+                                 and _same_physical_device(ref_idx, meas_idx))
+
             # 장치별 채널 수집: {dev: [(pair_id, ref_ch, meas_ch)]}
             # pair_id='primary' or int
             dev_groups = {}
-            if primary_active and meas_idx is not None:
+            if primary_active and meas_idx is not None and not _dup_owns_primary:
                 if meas_idx == ref_idx:
                     dev_groups.setdefault(ref_idx, []).append(('primary', ref_ch, meas_ch))
                 else:
@@ -4947,9 +5007,16 @@ class TransferFunctionWindow(QWidget):
         # 외부 레퍼런스(입력 채널)는 standalone 출력 + 입력 스트림으로 처리 → 카드 Start/Stop 시
         # 출력 스트림을 건드리지 않아 제너레이터가 끊기지 않음 (ref+meas 는 단일 입력 스트림에서 동기 캡처).
         # duplex 는 내부 루프백 ref(출력=레퍼런스) 또는 Sweep 1-shot 캡처일 때만 필요.
-        use_duplex = (meas_idx is not None and out_dev is not None and meas_idx == out_dev
+        # [WIN_SAME_DEV_DUPLEX] 입력·출력이 같은 물리 인터페이스면 duplex(단일 스트림·단일 클럭)로
+        # 연다. Windows는 같은 USB 장치를 입력/출력에 다른 인덱스로 노출해 종전엔 meas_idx==out_dev가
+        # 거짓 → 별도 스트림 2개 → 독립 WASAPI 클럭 드리프트로 캡처가 수 초 내 무음이 됐다(회귀 991e6ea).
+        # 맥은 같은 장치를 단일 인덱스로 노출해 이미 meas_idx==out_dev로 duplex → 동작 불변.
+        _same_dev = _same_physical_device(meas_idx, out_dev)
+        use_duplex = (meas_idx is not None and out_dev is not None and _same_dev
                       and not _active_extras_on_out
-                      and (ref_idx is None or self.sig_sweep_btn.isChecked()))
+                      and (ref_idx is None or self.sig_sweep_btn.isChecked()
+                           # Windows: 외부 레퍼런스도 같은 입력 인터페이스면 duplex로(별도스트림 stall 회피).
+                           or (_IS_WIN and _same_physical_device(ref_idx, meas_idx))))
 
         if use_duplex:
             # 기존 측정 스레드 먼저 해제 (Start 먼저 눌렀을 때 장치 충돌 방지)
@@ -4964,6 +5031,17 @@ class TransferFunctionWindow(QWidget):
                 try: self._sync_thread.frame_ready.disconnect(); self._sync_thread.error_signal.disconnect()
                 except Exception: pass
                 self._sync_thread.stop(); self._sync_thread = None
+            # [WIN_SAME_DEV_DUPLEX] primary 가 MultiSource(_mc_threads)로 열려 있으면(extra 존재 시)
+            # 입력 장치에 엔진 스트림이 남아 duplex 와 겹친다 → 입력 장치의 MC 스트림도 해제.
+            # 다른 장치의 extra MC 는 건드리지 않는다.
+            for _d in {meas_idx, ref_idx}:
+                if _d is None: continue
+                _ent = self._mc_threads.pop(_d, None)
+                if _ent:
+                    _mc = _ent[0]
+                    try: _mc.chunk_ready.disconnect(); _mc.error_signal.disconnect()
+                    except Exception: pass
+                    _mc.stop()
             self._stop_sig_gen()
 
             if ref_idx is None:
