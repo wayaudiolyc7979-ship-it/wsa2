@@ -903,6 +903,9 @@ class OctaveCanvas(_OctBase):
         self.update()
 
     def resizeEvent(self,e):
+        # QOpenGLWidget 은 resizeEvent 에서 프레임버퍼를 새 크기로 다시 만든다 — 부모 호출을 빼먹으면
+        # 버퍼가 예전 크기로 남아 화면이 늘어난 채 표시된다(+Spectro 분할/창 크기 변경 시). [PERF_GL_CANVAS]
+        super().resizeEvent(e)
         self._last_resize_t = time.monotonic()   # 캡처 합성 빌드 정착 가드용
         self._cache=None; self.update()
 
