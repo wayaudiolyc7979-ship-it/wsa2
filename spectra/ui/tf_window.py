@@ -342,6 +342,7 @@ class TFDuplexThread(QThread):
         _sc_armed = self._sc_armed; _sc_pos = self._sc_pos
 
         _xrun_cnt = [0]
+        _emit_t = [0.0]   # frame_ready emit 스로틀 타임스탬프 (매 콜백 emit → 콜백 과부하/출력 언더런 방지)
         _wd_last = [time.monotonic()]   # watchdog: 입력 장치 USB 제거 감지
         _wd_got = [False]   # 첫 콜백 수신 여부 — 시작 지연을 끊김으로 오판 방지
         def cb(indata, outdata, frames, ti, status):
@@ -385,7 +386,13 @@ class TFDuplexThread(QThread):
                 else:
                     ref_buf[-frames:] = indata[:frames, self.ref_ch]  # 외부: 입력 채널
                 meas_buf[:-frames] = meas_buf[frames:]; meas_buf[-frames:] = indata[:frames, self.meas_in_ch]
-                self.frame_ready.emit(ref_buf.copy(), meas_buf.copy())
+                # frame_ready emit 스로틀(~60fps): 롤링 버퍼(ref_buf/meas_buf)는 매 콜백 갱신하되, 무거운
+                # copy 2개 + Qt 크로스스레드 emit 은 초당 ~60회만. 매 콜백 emit 하면 (특히 저지연/작은 버퍼)
+                # 콜백이 과부하로 늦어져 출력이 언더런되고 핑크가 '루프/모터보트'처럼 들린다. 렌더는 30fps라 무손실.
+                _ne = time.monotonic()
+                if _ne - _emit_t[0] >= 0.016:
+                    _emit_t[0] = _ne
+                    self.frame_ready.emit(ref_buf.copy(), meas_buf.copy())
                 # 단일 스윕 캡처: 페이드인 완료 후 sweep_len 샘플을 ref/meas 동시 캡처
                 if _sc_armed[0] and _fade_pos[0] >= _fade_frames:
                     pos = _sc_pos[0]
@@ -418,8 +425,11 @@ class TFDuplexThread(QThread):
         try:
             while self.running:   # 같은 config 재오픈 루프 (running-stall 복구)
                 _es  = _win_extra_settings(exclusive=_win_excl)
-                _bs  = 0 if _win_excl else blocksize   # 독점: 장치 주기 정렬 위해 PA가 blocksize 선택
-                _lat = 'low' if _win_excl else 'high'
+                # 독점도 큰 버퍼(blocksize)+high 레이턴시로 연다. 저지연(bs=0)이면 콜백이 너무 자주 불려,
+                # duplex 콜백의 무거운 작업(65536 버퍼 롤·copy + frame_ready.emit)이 GIL/MTW DSP/GUI 경합에
+                # 밀려 출력 언더런 → 핑크가 '루프/모터보트'처럼 들린다. 공유(맥) 경로와 같은 버퍼로 여유 확보.
+                _bs  = blocksize
+                _lat = 'high'
                 try:
                     with _no_stderr():
                         with sd.Stream(device=(self.in_dev, self.out_dev),
@@ -435,8 +445,15 @@ class TFDuplexThread(QThread):
                             _wd_last[0] = time.monotonic()
                             _open_t = time.monotonic()          # [DIAG] 오픈 시각 — 첫 콜백 지연/미시작 계측
                             _first_logged = False
+                            _xrun_last = [0, time.monotonic()]   # [xrun 진단] (마지막카운트, 마지막로그시각)
                             while self.running:
                                 self.msleep(10)
+                                # [xrun 진단] 출력 언더런(핑크 '루프' 소리 원인) 추적 — 2초마다 증가분 기록.
+                                if time.monotonic() - _xrun_last[1] > 2.0:
+                                    _dx = _xrun_cnt[0] - _xrun_last[0]
+                                    if _dx > 0:
+                                        _diag('tf_duplex_xrun', delta=_dx, total=_xrun_cnt[0])
+                                    _xrun_last[0] = _xrun_cnt[0]; _xrun_last[1] = time.monotonic()
                                 # [DIAG] AUHAL 콜백 시작 진단: 인터페이스 콜드오픈 시 스트림은 열려도 콜백이
                                 # 스케줄 안 되는 레이스(하드웨어 미터도 무음) 추적.
                                 if _wd_got[0] and not _first_logged:
@@ -4989,13 +5006,16 @@ class TransferFunctionWindow(QWidget):
         # 언제 duplex 를 쓰나:
         #  - meas_idx==out_dev(맥 등 단일 인덱스 장치): 항상 duplex (기존 동작)
         #  - 스윕 1-shot: 단일 클럭 필수 → duplex
-        #  - (Windows) 공유 캡처 불가로 판정된 장치(예: Scarlett): 독점 duplex
-        #  그 외(SmartLive/내장 등 공유 정상, 서로 다른 인덱스): standalone(공유) → Spectrum과 공존.
+        #  - (Windows) 입출력이 같은 물리 인터페이스: 항상 duplex.
+        #    같은 USB 인터페이스에 출력+입력을 '별도 스트림(standalone)'으로 열면 독점 필요 장치
+        #    (예: Scarlett)에선 -9997/-9996 으로 실패한다(독점은 장치 전체를 1스트림으로 잠금). 감지
+        #    이전 첫 측정도 실패하지 않도록, 같은 물리장치는 처음부터 duplex(단일 스트림)로 연다.
+        #    duplex 는 독점 우선·공유 폴백이라 공유 정상 장치(SmartLive 등)에서도 동작한다.
         if meas_idx == out_dev:
             return True
         if self.sig_sweep_btn.isChecked():
             return True
-        if _IS_WIN and device_needs_exclusive(meas_idx):
+        if _IS_WIN and _same_physical_device(meas_idx, out_dev):
             return True
         return False
 
