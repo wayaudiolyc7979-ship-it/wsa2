@@ -557,6 +557,11 @@ class TransferFunctionWindow(QWidget):
         self._mtw_reset_pending = False  # xrun 등 비차단 리셋 예약 → 워커 idle 시 안전하게 _mtw.reset()
         self._last_ref_buf = None; self._last_meas_buf = None
         self._mtw_H_lin = None      # MTW 최신 선형그리드 H (영속) — 딜레이 파인더용
+        # MTW 딜레이 파인더용 원시 시간버퍼(영속). stitched H는 스테이지 창(고음 85ms)보다
+        # 지연이 크면 코히런스가 붕괴해 원거리 마이크에서 지연 검출이 실패한다 → 파인더는
+        # 전체 fft_size(65536=1365ms) 창 광대역 상관(GCC)을 쓰도록 원시버퍼를 따로 보관한다.
+        # [LONG_DELAY_FIND]  (~234m/48k, ~255m/44.1k 까지 견고 — fft_size/2 한계)
+        self._mtw_ref_buf = None; self._mtw_meas_buf = None
         self._rta_sub = None        # RTA 전용 엔진 구독(제너레이터/Start 없이 마이크 스펙트럼)
         self._rta_ch = 0
         self._rta_avg_buf = deque(maxlen=16)   # RTA FIFO 평균(스펙트럼 Avg와 동일 처리)
@@ -3433,7 +3438,7 @@ class TransferFunctionWindow(QWidget):
     def _apply_find_result(self, d_ms):
         """백그라운드 계산 완료 후 메인 스레드에서 UI 업데이트."""
         self.find_btn.setEnabled(True); self.find_btn.setText('Find')
-        if 0 <= d_ms <= 500:
+        if 0 <= d_ms <= 700:   # [LONG_DELAY_FIND] 700ms≈240m (fft_size/2 한계)까지 허용
             if float(self.delay_spin.value()) == float(d_ms):
                 self._on_delay_changed(d_ms)   # setValue no-op(같은 값)이어도 적용 보장 [DELAY_FORCE_APPLY]
             else:
@@ -4076,6 +4081,7 @@ class TransferFunctionWindow(QWidget):
             self._cross_acc = None; self._auto_acc_x = None; self._auto_acc_y = None; self._n_avg = 0
         self._extra_pair_acc = [None] * len(self._extra_pairs)
         self._mtw_H_lin = None
+        self._mtw_ref_buf = None; self._mtw_meas_buf = None   # [LONG_DELAY_FIND] 파인더 원시버퍼도 비움
         self._pm_prev = None; self._pm_targ = None; self._pm_done = True   # 모션 스무딩 버퍼 비움
         if self._mtw is not None:
             self._dsp_gen += 1      # 진행 중 워커 결과를 stale로 만들어 폐기(gen 불일치)
@@ -4182,6 +4188,11 @@ class TransferFunctionWindow(QWidget):
         freqs 그리드로 보간 → 공통 렌더 테일(_render_primary_H)로 Single과 완전 동일 거동."""
         if ref_b is None or meas_b is None or rr < 1e-6 or mr < 1e-6:
             return
+        # [LONG_DELAY_FIND] 딜레이 파인더용 원시 시간버퍼 영속 보관. ref_b/meas_b는 _on_frame에서
+        # 현재 delay_ms로 이미 정렬된(_align_pair) 버퍼 → 파인더는 여기서 GCC로 "잔여"를 찾고
+        # base(=delay_ms)를 더해 참 딜레이를 얻는다. stitched H와 달리 전체 창(1365ms)이라 원거리 견고.
+        # 락 불요: 매 프레임 새 배열(제자리 변경 없음)이라 참조 스왑은 원자적, 파인더는 읽을 때 스냅샷.
+        self._mtw_ref_buf = ref_b.copy(); self._mtw_meas_buf = meas_b.copy()
         # 워커 지연 생성 (MTW 렌더 시작 시 1회) — 무거운 멀티레이트 FFT를 GUI 밖에서.
         # hasattr 게이트: 실제 TF 창만 워커, 테스트 Stub 등은 동기 폴백.
         _use_worker = hasattr(self, '_dsp_exec')
@@ -4409,14 +4420,28 @@ class TransferFunctionWindow(QWidget):
 
     def _primary_delay_cross_auto(self):
         """딜레이 파인더용 primary cross/auto_x 스펙트럼.
-        Single=콜백 누적 스펙트럼, MTW=영속 보관 중인 선형그리드 H(_mtw_H_lin) 사용.
-        반환 (cross, auto_x) 또는 (None, None). 워커는 H=cross/auto 로 IR 피크를 찾으므로
-        MTW는 cross=H, auto_x=1 로 주면 H=H 가 되어 동일 로직 재사용."""
+        Single=콜백 누적 스펙트럼, MTW=원시 시간버퍼 전체 창 광대역 상관(GCC).
+        반환 (cross, auto_x) 또는 (None, None). 워커는 H=cross/auto → IR 피크로 딜레이를 찾는다.
+
+        [LONG_DELAY_FIND] 과거엔 MTW에서 stitched H(_mtw_H_lin)로 IR 피크를 찾았으나, 그 H는
+        멀티레이트 스테이지 창(고음 스테이지 85ms)이라 마이크가 멀어져 음향지연이 창을 넘으면
+        코히런스가 붕괴 → 바로 그 데이터로 지연을 찾으려는 자기모순이라 원거리(맥~40m/윈~60m)에서
+        검출이 실패했다. 대신 전체 fft_size(65536=1365ms) 창의 ref/meas 원시버퍼로 크로스스펙트럼을
+        만들면 fft_size/2(≈234m@48k)까지 견고. 지연 확정 후엔 _on_frame의 _align_pair 정렬로 라이브
+        코히런스/IR도 복구된다. 원시버퍼가 아직 없으면(초기/폴백) 기존 stitched H 방식으로 폴백."""
         if self._tf_engine_mtw:
-            H = self._mtw_H_lin
+            with QMutexLocker(self._mutex):
+                ref = self._mtw_ref_buf.copy() if self._mtw_ref_buf is not None else None
+                meas = self._mtw_meas_buf.copy() if self._mtw_meas_buf is not None else None
+            if ref is not None and meas is not None and len(ref) == len(meas) and len(ref) > 0:
+                win = self._hann(len(ref))
+                R = np.fft.rfft(ref * win); M = np.fft.rfft(meas * win)
+                cross  = (M * np.conj(R)).astype(np.complex64)
+                auto_x = (np.abs(R) ** 2).astype(np.float32)
+                return cross, auto_x
+            H = self._mtw_H_lin                        # 폴백: 원시버퍼 미가용 시 종전 경로
             if H is None: return None, None
-            H = H.copy()
-            return H, np.ones(len(H), dtype=np.float32)
+            return H.copy(), np.ones(len(H), dtype=np.float32)
         with QMutexLocker(self._mutex):
             cross  = self._cross_acc.copy()  if self._cross_acc  is not None else None
             auto_x = self._auto_acc_x.copy() if self._auto_acc_x is not None else None

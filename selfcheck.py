@@ -713,6 +713,48 @@ def _mtw_live_method():
 check('MTW 라이브 렌더 = Single 공통테일 + IR 딜레이정렬', _mtw_live_method)
 
 
+def _mtw_long_delay_find():
+    """[LONG_DELAY_FIND] MTW 딜레이 파인더가 마이크 원거리(음향지연이 스테이지 창>고음85ms 를
+    넘는 경우)에서도 지연을 찾는지 검증. 과거엔 stitched H(_mtw_H_lin)로 찾아 원거리에서 코히런스
+    붕괴→검출 실패(맥~40m/윈~60m). 수정 후엔 원시버퍼 전체 창(1365ms) 광대역 상관으로 ~234m 견고."""
+    from PyQt5.QtCore import QMutex
+    sr = 48000; FFT = w.MTWEngine(sr, 4096, 5).master_len
+    class Stub: pass
+    s = Stub(); s._tf_engine_mtw = True; s._mutex = QMutex()
+    s._mtw_ref_buf = None; s._mtw_meas_buf = None; s._mtw_H_lin = None
+    s._hann_cache = {}
+    s._hann = w.TransferFunctionWindow._hann.__get__(s)
+    dca = w.TransferFunctionWindow._primary_delay_cross_auto.__get__(s)
+    rng = np.random.default_rng(11)
+
+    def _peak_ms(cross, auto_x):             # _find_delay_for_pair 워커와 동일 피크 로직
+        H = cross / np.maximum(auto_x, 1e-30)
+        h = np.fft.irfft(H, n=FFT); env = w._hilbert_env(h)
+        pk = int(np.argmax(env))
+        if 0 < pk < len(env) - 1:
+            y0, y1, y2 = float(env[pk-1]), float(env[pk]), float(env[pk+1]); den = 2*(2*y1-y0-y2)
+            if den > 0: pk += (y2 - y0) / den
+        if pk > FFT // 2: pk -= FFT
+        return pk / sr * 1000.0
+
+    res = []
+    for dist in (5, 60, 120, 230):           # 230m ≈ 670ms ≈ fft_size/2 한계 부근
+        D = int(round(dist / 343 * sr)); L = FFT + D + sr
+        ref = rng.standard_normal(L); meas = np.zeros(L); meas[D:] = ref[:L-D]
+        meas += 0.03 * rng.standard_normal(L)
+        s._mtw_ref_buf = ref[-FFT:].astype(np.float32)   # 정렬 전(delay_ms=0) 원시 최신 창
+        s._mtw_meas_buf = meas[-FFT:].astype(np.float32)
+        cross, auto_x = dca()
+        found = _peak_ms(cross, auto_x); exp = D / sr * 1000.0
+        assert abs(found - exp) < 2.0, f"{dist}m: 검출 {found:.1f}ms ≠ 주입 {exp:.1f}ms (원거리 파인더 회귀)"
+        res.append(f"{dist}m→{found:.0f}ms")
+    # 폴백(원시버퍼 없음)도 크래시 없이 (H,1) 반환해야 함
+    s._mtw_ref_buf = None; s._mtw_meas_buf = None; s._mtw_H_lin = np.ones(FFT//2+1, np.complex64)
+    fc, fa = dca(); assert fc is not None and len(fc) == FFT//2+1, "폴백 경로 실패"
+    return "OK  " + "  ".join(res) + "  +fallback"
+check('MTW 원거리 딜레이 파인더(광대역 GCC ~234m)', _mtw_long_delay_find)
+
+
 def _loudness_page():
     """StereoLoudnessPage 전체 렌더 — 브랜드 그라디언트 캔버스 + 브랜드색 메트릭 + PLR/PSR."""
     pg = w.StereoLoudnessPage(); pg.resize(1280, 760)
