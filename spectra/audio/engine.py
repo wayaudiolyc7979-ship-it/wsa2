@@ -37,7 +37,7 @@ class _DeadCallbackError(Exception):
 _ASIO_GENERIC_KW = ('asio4all', 'flexasio', 'fl studio asio', 'realtek asio',
                     'generic low latency', 'voicemeeter', 'magix low latency')
 
-_ASIO_ENABLED = [False]  # 설정 메뉴 'Use ASIO Drivers' — 기본 꺼짐(opt-in). 켜면 ASIO 장치 노출. [WIN_ASIO_OPTIN]
+_ASIO_ENABLED = [True]   # 설정 메뉴 'Use ASIO Drivers' — 끄면 목록이 종전(WASAPI 전용)으로 돌아간다
 _ASIO_FAILED = set()     # 이번 세션에 열기 실패한 ASIO 장치명 → 목록에서 빼고 WASAPI 로 되돌림
 
 def set_asio_enabled(on):

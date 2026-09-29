@@ -11,20 +11,63 @@ import sys, math, time, json, os, logging, atexit, signal, threading
 sys.setswitchinterval(0.001)   # GIL 스위치 간격 1ms — 오디오 콜백 최대 대기 시간 제한
 # [WIN_ASIO] sounddevice 는 import 시점에 이 값을 보고 ASIO 포함 PortAudio DLL 을 고른다 →
 # 반드시 첫 sounddevice import 보다 먼저 설정. WSA2_NO_ASIO=1 이면 종전(WASAPI 전용) 그대로.
+_WIN_SETTINGS_PATH = os.environ.get('WSA2_SETTINGS_PATH') or os.path.join(
+    os.environ.get('APPDATA', os.path.expanduser('~')), 'WSA2', 'settings.json')
 def _asio_setting_on():
-    # ASIO 는 기본 꺼짐(opt-in). 설정 메뉴 'Use ASIO Drivers' 를 켠 경우에만 로드한다.
-    # (배포 빌드의 PortAudio 는 실 ASIO 미지원 + 일부 인터페이스 연결 시 ASIO 초기화가
-    #  sounddevice import 에서 멈춰 앱이 시작조차 못 하는 문제가 있어 기본값을 False 로 둔다. [WIN_ASIO_OPTIN])
+    # ASIO 는 기본 켜짐(자동 우선). 설정 메뉴 'Use ASIO Drivers' 를 껐으면 드라이버를 아예 로드하지 않는다.
+    # (v2.1 초기 설치본의 '인터페이스 연결 시 시작 불가'는 번들된 구버전 MSVC 런타임 탓 —
+    #  WSA2_Windows.spec [WIN_MSVCP] 에서 해결. 그 밖의 불량 드라이버는 아래 [WIN_ASIO_GUARD] 가 막는다.)
     try:
-        _p = os.environ.get('WSA2_SETTINGS_PATH') or os.path.join(
-            os.environ.get('APPDATA', os.path.expanduser('~')), 'WSA2', 'settings.json')
-        with open(_p, 'r', encoding='utf-8') as _f:
+        with open(_WIN_SETTINGS_PATH, 'r', encoding='utf-8') as _f:
             _d = json.load(_f)
-        return bool(_d.get('asio_enabled', False)) if isinstance(_d, dict) else False
+        return bool(_d.get('asio_enabled', True)) if isinstance(_d, dict) else True
     except Exception:
-        return False
-if sys.platform == 'win32' and os.environ.get('WSA2_NO_ASIO') != '1' and _asio_setting_on():
-    os.environ.setdefault('SD_ENABLE_ASIO', '1')
+        return True
+
+# [WIN_ASIO_GUARD] ASIO 드라이버는 sounddevice import(PortAudio 초기화) 때 이 프로세스에 로드되므로,
+#  드라이버가 죽으면 앱이 창도 로그도 없이 죽고 사용자는 설정을 끌 방법조차 없다. 그래서 import 직전에
+#  표식 파일('P n' = n번째 시도 중)을 쓰고 성공하면 지운다. 시작할 때 표식이 남아 있으면 지난 실행이
+#  ASIO 초기화 중 죽은 것 → 이번엔 ASIO 없이(WASAPI) 시작하고 'F n' 으로 기록. 다음 실행에 한 번 더
+#  시도하고, 또 죽으면(n>=2) 'Use ASIO Drivers' 를 다시 켤 때까지(표식 삭제) ASIO 를 쓰지 않는다.
+_ASIO_GUARD_PATH = os.path.join(os.path.dirname(_WIN_SETTINGS_PATH), 'asio_probe.flag')
+_ASIO_GUARD_NOTE = None     # 로그 초기화 뒤에 남길 메시지
+def _asio_guard_begin():
+    """ASIO 를 시도해도 되면 True(표식 기록), 지난 실행이 죽어 건너뛰어야 하면 False."""
+    global _ASIO_GUARD_NOTE
+    _st, _n = None, 0
+    try:
+        with open(_ASIO_GUARD_PATH, 'r', encoding='utf-8') as _f:
+            _st, _n = _f.read().split()[:2]; _n = int(_n)
+    except FileNotFoundError:
+        pass
+    except Exception:
+        _st, _n = 'P', 2    # 읽을 수 없는 표식 — 안전하게 '반복 실패'로 취급
+    try:
+        if _st == 'P' or (_st == 'F' and _n >= 2):
+            if _st == 'P':
+                with open(_ASIO_GUARD_PATH, 'w', encoding='utf-8') as _f:
+                    _f.write('F %d' % _n)
+            _ASIO_GUARD_NOTE = 'asio_guard skip state=%s n=%d' % (_st, _n)
+            return False
+        os.makedirs(os.path.dirname(_ASIO_GUARD_PATH), exist_ok=True)
+        with open(_ASIO_GUARD_PATH, 'w', encoding='utf-8') as _f:
+            _f.write('P %d' % (_n + 1))
+        return True
+    except Exception:
+        return True         # 표식을 못 쓰는 환경 — 가드 없이 종전대로 시도
+
+def _asio_guard_end():
+    try:
+        os.remove(_ASIO_GUARD_PATH)
+    except Exception:
+        pass
+
+_ASIO_PROBING = False
+if (sys.platform == 'win32' and os.environ.get('WSA2_NO_ASIO') != '1'
+        and 'SD_ENABLE_ASIO' not in os.environ and _asio_setting_on()):
+    _ASIO_PROBING = _asio_guard_begin()
+    if _ASIO_PROBING:
+        os.environ['SD_ENABLE_ASIO'] = '1'
 
 def _emergency_cleanup():
     try:
@@ -47,12 +90,17 @@ _saved_stderr_fd = os.dup(2)
 os.dup2(_devnull_fd, 2); os.close(_devnull_fd)
 import sounddevice as sd
 os.dup2(_saved_stderr_fd, 2); os.close(_saved_stderr_fd)
+if _ASIO_PROBING:
+    _asio_guard_end()       # [WIN_ASIO_GUARD] ASIO 드라이버 초기화 통과
 from collections import deque
 import contextlib as _cl
 
 # _no_stderr — v2.0 분해: spectra/ui/tf_window.py, re-import
 from spectra.ui.tf_window import _no_stderr
 from spectra.core.logging_diag import _alog, _diag, _LOG_PATH, _LOG_DIR
+if _ASIO_GUARD_NOTE:
+    _alog.warning('[WIN_ASIO_GUARD] 지난 실행이 ASIO 드라이버 초기화 중 종료됨 → 이번 실행은 WASAPI 로 시작 (%s)',
+                  _ASIO_GUARD_NOTE)
 
 # 오디오 엔진 — v2.0 분해: spectra/audio/engine.py 로 이동, 일괄 re-import(동작 불변)
 # (WASAPI 헬퍼 + AudioThread/MultiChannel/Subscription/_DeviceStream/AudioEngine/어댑터3종)

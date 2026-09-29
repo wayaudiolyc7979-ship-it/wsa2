@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (QAction, QApplication, QColorDialog, QComboBox, QDi
 from spectra.audio.engine import (AudioEngine, _CoreAudioDeviceWatcher, _dev_hostapi_ok,
                                   _win_preferred_hostapi, _win_restore_name,
                                   set_asio_enabled, asio_available)
-from spectra.core.config import (MAX_DB, SPEC_ATTACK, SPEED_LEVELS, T, _CAPTURES_LOCK,
+from spectra.core.config import (MAX_DB, SPEC_ATTACK, SPEED_LEVELS, T, _CAPTURES_LOCK, _SETTINGS_PATH,
                                  _load_captures_file, _load_settings, _save_captures_file,
                                  _save_settings, is_dark, theme, set_theme, toggle_theme)
 from spectra.core.i18n import _tx, cur_lang
@@ -386,7 +386,7 @@ class MainWindow(QMainWindow):
 
         # 설정 (마이크별 캘리브레이션)
         self._settings = _load_settings()
-        set_asio_enabled(self._settings.get('asio_enabled', False))  # [WIN_ASIO_OPTIN] 기본 꺼짐 — 장치 목록 로드 전에 반영
+        set_asio_enabled(self._settings.get('asio_enabled', True))   # [WIN_ASIO] 장치 목록 로드 전에 반영
         self._presets_restoring = False
         self._session_timer = QTimer(self); self._session_timer.setSingleShot(True)
         self._session_timer.timeout.connect(self._save_session)
@@ -4677,7 +4677,7 @@ class MainWindow(QMainWindow):
         if _pl.system() == 'Windows':
             # [WIN_ASIO] ASIO 자동 우선을 끄는 스위치 — 드라이버 문제/타 프로그램 점유 시 WASAPI 로 되돌림
             asio_act = QAction('Use ASIO Drivers', self); asio_act.setCheckable(True)
-            asio_act.setChecked(bool(self._settings.get('asio_enabled', False)))
+            asio_act.setChecked(bool(self._settings.get('asio_enabled', True)))
             asio_act.toggled.connect(self._toggle_asio); help_menu.addAction(asio_act)
             self._asio_act = asio_act
         log_act = QAction('Open Log Folder', self)
@@ -4715,6 +4715,12 @@ class MainWindow(QMainWindow):
         ASIO 없이 시작한 세션에서 켜는 경우엔 PortAudio DLL 이 달라 다음 실행부터 적용된다."""
         self._settings['asio_enabled'] = bool(on); _save_settings(self._settings)
         _diag('asio_toggle', on=bool(on), available=asio_available())
+        if on:
+            # [WIN_ASIO_GUARD] 다시 켜기 = 재시도 요청 → 시작 실패 표식을 지운다(wayaudo2.py 상단 참고)
+            try:
+                os.remove(os.path.join(os.path.dirname(_SETTINGS_PATH), 'asio_probe.flag'))
+            except OSError:
+                pass
         if on and not asio_available():
             _BrandBox.information(self, 'ASIO', _tx('ASIO will be used the next time SPECTRA starts.'))
             return

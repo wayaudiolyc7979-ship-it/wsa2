@@ -24,6 +24,40 @@ a = Analysis(
     excludes=['tkinter', 'matplotlib', 'PIL', 'lxml', 'IPython', 'jupyter'],
     noarchive=False, optimize=0,
 )
+# [WIN_MSVCP] PyQt5 휠은 구버전 MSVC 런타임(msvcp140.dll 14.26)을 Qt5\bin 에 싣고 오고, 번들에서는 이 DLL 이
+#   프로세스에 먼저 올라간다. 최신 MSVC 로 빌드된 ASIO 드라이버(예: Focusrite USB ASIO)가 그 구버전에 묶이면
+#   드라이버 초기화 중 MSVCP140.dll 접근 위반(0xc0000005)으로 앱이 창도 로그도 없이 죽는다(인터페이스 연결 시).
+#   → 번들의 MSVC 런타임을 빌드 머신 System32 의 최신본으로 교체하고 _internal 루트에도 둔다(런타임은 하위 호환).
+_MSVC_RT = ('msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')
+_MSVC_MIN = (14, 40)   # std::mutex 레이아웃이 바뀐 버전 — 이보다 낮으면 최신 드라이버와 충돌
+
+def _dll_version(path):
+    import pefile
+    pe = pefile.PE(path, fast_load=True)
+    pe.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_RESOURCE']])
+    ffi = pe.VS_FIXEDFILEINFO[0]
+    pe.close()
+    return (ffi.FileVersionMS >> 16, ffi.FileVersionMS & 0xFFFF, ffi.FileVersionLS >> 16, ffi.FileVersionLS & 0xFFFF)
+
+def _fresh_msvc_runtime(binaries):
+    sysdir = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32')
+    fresh = {n: os.path.join(sysdir, n) for n in _MSVC_RT if os.path.exists(os.path.join(sysdir, n))}
+    if 'msvcp140.dll' not in fresh or _dll_version(fresh['msvcp140.dll'])[:2] < _MSVC_MIN:
+        raise SystemExit('[WIN_MSVCP] 빌드 머신의 System32\\msvcp140.dll 이 없거나 %d.%d 미만 — '
+                         '최신 VC++ 재배포 패키지를 설치한 뒤 다시 빌드하세요.' % _MSVC_MIN)
+    out, at_root = [], set()
+    for dest, src, typ in binaries:
+        base = os.path.basename(dest).lower()
+        if base in fresh and _dll_version(fresh[base]) > _dll_version(src):
+            src = fresh[base]
+        if base in fresh and os.path.dirname(dest) == '':
+            at_root.add(base)
+        out.append((dest, src, typ))
+    out += [(n, p, 'BINARY') for n, p in fresh.items() if n not in at_root]
+    return out
+
+a.binaries = _fresh_msvc_runtime(a.binaries)
+
 pyz = PYZ(a.pure)
 
 # onedir — dist/SPECTRA/ 폴더(SPECTRA.exe + _internal\)로 배포.
