@@ -1,12 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
 # WSA2 Windows (x64) 빌드 spec — Windows에서 PyInstaller로 실행
 import os
+from PyInstaller.utils.hooks import collect_data_files
 
 a = Analysis(
     ['wayaudo2.py'],
     pathex=[],
     binaries=[],
-    datas=[('splash.png', '.'), ('MANUAL.html', '.'), ('RELEASE_NOTES.md', '.'), ('docs/img', 'docs/img')],
+    # _sounddevice_data: ASIO 포함 PortAudio DLL(libportaudio64bit-asio.dll)을 확실히 번들 [WIN_ASIO]
+    datas=[('splash.png', '.'), ('MANUAL.html', '.'), ('RELEASE_NOTES.md', '.'), ('docs/img', 'docs/img')]
+          + collect_data_files('_sounddevice_data'),
     hiddenimports=[
         'soundfile', '_soundfile', 'cffi', '_cffi_backend',
         'scipy', 'scipy.io', 'scipy.io.wavfile', 'scipy.signal',

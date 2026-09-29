@@ -9,6 +9,20 @@
 # ═══════════════════════════════════════════════════
 import sys, math, time, json, os, logging, atexit, signal, threading
 sys.setswitchinterval(0.001)   # GIL 스위치 간격 1ms — 오디오 콜백 최대 대기 시간 제한
+# [WIN_ASIO] sounddevice 는 import 시점에 이 값을 보고 ASIO 포함 PortAudio DLL 을 고른다 →
+# 반드시 첫 sounddevice import 보다 먼저 설정. WSA2_NO_ASIO=1 이면 종전(WASAPI 전용) 그대로.
+def _asio_setting_on():
+    # 설정 메뉴에서 ASIO 를 껐으면 ASIO 드라이버를 아예 로드하지 않는다(불량 드라이버로 시작이 막히는 경우 대비).
+    try:
+        _p = os.environ.get('WSA2_SETTINGS_PATH') or os.path.join(
+            os.environ.get('APPDATA', os.path.expanduser('~')), 'WSA2', 'settings.json')
+        with open(_p, 'r', encoding='utf-8') as _f:
+            _d = json.load(_f)
+        return bool(_d.get('asio_enabled', True)) if isinstance(_d, dict) else True
+    except Exception:
+        return True
+if sys.platform == 'win32' and os.environ.get('WSA2_NO_ASIO') != '1' and _asio_setting_on():
+    os.environ.setdefault('SD_ENABLE_ASIO', '1')
 
 def _emergency_cleanup():
     try:
@@ -41,7 +55,7 @@ from spectra.core.logging_diag import _alog, _diag, _LOG_PATH, _LOG_DIR
 # 오디오 엔진 — v2.0 분해: spectra/audio/engine.py 로 이동, 일괄 re-import(동작 불변)
 # (WASAPI 헬퍼 + AudioThread/MultiChannel/Subscription/_DeviceStream/AudioEngine/어댑터3종)
 from spectra.audio.engine import (
-    _win_preferred_hostapi, _dev_hostapi_ok, _win_extra_settings, _HI_LAT,
+    _win_preferred_hostapi, _dev_hostapi_ok, _win_extra_settings, _win_restore_name, _HI_LAT,
     AudioThread, MultiChannelAudioThread, Subscription, _DeviceStream, AudioEngine,
     _EngineSyncSource, _EngineMultiSource, _EngineChannelSource)
 # _MC_COLORS(TF카드색) — v2.0: spectra/ui/colors.py 로 이전, re-import

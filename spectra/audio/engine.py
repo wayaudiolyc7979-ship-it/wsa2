@@ -28,8 +28,148 @@ class _DeadCallbackError(Exception):
 # Windows에선 PortAudio가 같은 USB 인터페이스를 MME/DirectSound/WASAPI/WDM-KS/ASIO 로
 # '중복' 열거하고 기본값이 MME라, MME의 샘플레이트 경직·다채널 제한·31자 이름잘림 때문에
 # "USB 인터페이스가 안 잡힘/안 열림"이 발생한다 → 장치 목록을 WASAPI로 통일해 해결한다.
-# (ASIO는 장치당 단일 스트림만 허용 → 공유엔진 다중구독(스펙트럼+TF 동시) 구조와 충돌하므로
-#  의도적으로 제외하고 WASAPI 공유모드를 택한다.)
+# [WIN_ASIO] ASIO 드라이버가 있는 인터페이스는 ASIO 장치를 자동 우선한다(같은 인터페이스의 WASAPI
+#  항목은 목록에서 숨김). ASIO는 장치당 단일 스트림만 허용하지만, 엔진이 이미 '장치당 스트림 1개 +
+#  다중 구독'이고 TF duplex 와는 [WIN_WASAPI_EXCLUSIVE] 장치 중재로 번갈아 쓰므로 독점 장치와 같은
+#  경로로 처리된다. ASIO 호스트 API 는 wayaudo2.py 가 sounddevice import 전에 SD_ENABLE_ASIO=1 을
+#  설정해야 노출된다. WSA2_NO_ASIO=1 로 비활성화(종전 WASAPI 전용 동작).
+# 같은 장치를 감싸기만 하는 범용/래퍼 ASIO 드라이버 — 이득이 없고 불안정해 목록에서 제외한다.
+_ASIO_GENERIC_KW = ('asio4all', 'flexasio', 'fl studio asio', 'realtek asio',
+                    'generic low latency', 'voicemeeter', 'magix low latency')
+
+_ASIO_ENABLED = [True]   # 설정 메뉴 'Use ASIO Drivers' — 끄면 목록이 종전(WASAPI 전용)으로 돌아간다
+_ASIO_FAILED = set()     # 이번 세션에 열기 실패한 ASIO 장치명 → 목록에서 빼고 WASAPI 로 되돌림
+
+def set_asio_enabled(on):
+    _ASIO_ENABLED[0] = bool(on)
+
+def _asio_hostapi_raw():
+    """PortAudio 에 ASIO 호스트 API 가 로드돼 있으면 그 인덱스(설정과 무관). 없으면 None."""
+    if _pl.system() != 'Windows':
+        return None
+    try:
+        return next((i for i, h in enumerate(sd.query_hostapis())
+                     if str(h.get('name', '')).strip().lower() == 'asio'), None)
+    except Exception:
+        return None
+
+def asio_available():
+    """ASIO 포함 PortAudio 가 로드됐는가(설정에서 즉시 켤 수 있는지 판단용)."""
+    return _asio_hostapi_raw() is not None
+
+def _win_asio_hostapi():
+    """장치 목록에 쓸 ASIO 호스트 API 인덱스(없거나 비활성/비-Windows면 None)."""
+    if not _ASIO_ENABLED[0] or os.environ.get('WSA2_NO_ASIO') == '1':
+        return None
+    return _asio_hostapi_raw()
+
+def _asio_usable(d, asio):
+    """장치 dict d 가 목록에 노출할 (범용 래퍼가 아니고, 열기 실패한 적 없는) ASIO 장치인가."""
+    if asio is None or d.get('hostapi') != asio:
+        return False
+    if d.get('name') in _ASIO_FAILED:
+        return False
+    return not any(kw in str(d.get('name', '')).lower() for kw in _ASIO_GENERIC_KW)
+
+def _asio_fallback_name(asio_name, devs=None, kind='input'):
+    """ASIO 장치명에 대응하는 WASAPI 장치명(kind='input'|'output'). 없으면 None."""
+    try:
+        b = _asio_base(asio_name)
+        pref = _win_preferred_hostapi()
+        if not b or pref is None:
+            return None
+        if devs is None:
+            devs = sd.query_devices()
+        key = 'max_input_channels' if kind == 'input' else 'max_output_channels'
+        for d in devs:
+            if d.get('hostapi') == pref and d.get(key, 0) >= 1 and b in str(d.get('name', '')).lower():
+                return d.get('name')
+    except Exception:
+        pass
+    return None
+
+def _asio_fallback_device(idx, kind='input'):
+    """ASIO 장치 인덱스 → 같은 인터페이스의 WASAPI 장치 인덱스(없으면 None). 열기 실패 폴백용."""
+    try:
+        devs = sd.query_devices()
+        name = _asio_fallback_name(devs[idx]['name'], devs, kind)
+        pref = _win_preferred_hostapi()
+        if name is None:
+            return None
+        return next((i for i, d in enumerate(devs)
+                     if d.get('hostapi') == pref and d.get('name') == name), None)
+    except Exception:
+        return None
+
+def _mark_asio_failed(idx):
+    try:
+        _ASIO_FAILED.add(sd.query_devices(idx)['name'])
+    except Exception:
+        pass
+
+def _win_restore_name(saved, devs=None, kind='input'):
+    """저장된 장치명을 현재 목록에 있는 이름으로 변환(Windows). ASIO 자동 우선으로 숨겨진 WASAPI 명은
+    ASIO 명으로, 반대로 지금 제공되지 않는 ASIO 명(설정 꺼짐/열기 실패/드라이버 제거)은 WASAPI 명으로."""
+    if not saved or _pl.system() != 'Windows':
+        return saved
+    try:
+        if devs is None:
+            devs = sd.query_devices()
+        rep = _win_asio_replacement(saved, devs)
+        if rep:
+            return rep
+        if 'asio' in str(saved).lower():
+            asio = _win_asio_hostapi()
+            if not any(d.get('name') == saved and _asio_usable(d, asio) for d in devs):
+                return _asio_fallback_name(saved, devs, kind) or saved
+    except Exception:
+        pass
+    return saved
+
+def _asio_base(name):
+    """ASIO 드라이버명에서 'ASIO' 를 뗀 인터페이스 식별 문자열(소문자). 너무 짧으면 None.
+    (예: 'Focusrite USB ASIO' → 'focusrite usb' — WASAPI '… (Focusrite USB Audio)' 와 대조용)"""
+    import re as _re
+    b = _re.sub(r'\s+', ' ', _re.sub(r'\basio\b', ' ', str(name), flags=_re.I)).strip().lower()
+    return b if len(b) >= 4 else None
+
+def _win_asio_replacement(name, devs=None):
+    """WASAPI 장치명 name 을 대체하는 ASIO 장치명(없으면 None). 입력/출력 방향이 맞는 것만.
+    장치 목록 필터(숨김)와 저장된 '마지막 장치' 복원(WASAPI명→ASIO명)에 공용."""
+    asio = _win_asio_hostapi()
+    if asio is None:
+        return None
+    try:
+        if devs is None:
+            devs = sd.query_devices()
+        name_l = str(name).lower()
+        src = next((d for d in devs if d.get('name') == name and d.get('hostapi') != asio), None)
+        for d in devs:
+            if not _asio_usable(d, asio):
+                continue
+            b = _asio_base(d.get('name', ''))
+            if not b or b not in name_l:
+                continue
+            if src is not None:
+                if src.get('max_input_channels', 0) >= 1 and d.get('max_input_channels', 0) < 1:
+                    continue
+                if src.get('max_output_channels', 0) >= 1 and d.get('max_output_channels', 0) < 1:
+                    continue
+            return d.get('name')
+    except Exception:
+        pass
+    return None
+
+def _is_asio_device(idx):
+    """장치 인덱스가 ASIO 호스트 API 장치인가(설정과 무관한 사실 판정 — COM/ExtraSettings 선택용)."""
+    asio = _asio_hostapi_raw()
+    if asio is None or idx is None:
+        return False
+    try:
+        return sd.query_devices(idx)['hostapi'] == asio
+    except Exception:
+        return False
+
 def _win_preferred_hostapi():
     """Windows에서 입력 장치를 1개 이상 노출하는 WASAPI 호스트 API의 인덱스를 반환.
     WASAPI가 없거나 비-Windows면 None → 호출부는 필터링 없이 종전과 동일하게 동작."""
@@ -50,11 +190,21 @@ def _win_preferred_hostapi():
     return None
 
 def _dev_hostapi_ok(d, pref):
-    """장치 d를 목록에 포함할지 — pref(None=전체 허용)에 지정된 호스트 API에 속할 때만 True."""
-    return pref is None or d.get('hostapi') == pref
+    """장치 d를 목록에 포함할지 — pref(None=전체 허용)에 지정된 호스트 API에 속할 때만 True.
+    [WIN_ASIO] ASIO 장치는 함께 포함하고, ASIO 로 대체되는 WASAPI 장치는 숨긴다(ASIO 자동 우선)."""
+    if pref is None:
+        return True
+    asio = _win_asio_hostapi()
+    if asio is not None and d.get('hostapi') == asio:
+        return _asio_usable(d, asio)
+    if d.get('hostapi') != pref:
+        return False
+    return asio is None or _win_asio_replacement(d.get('name', '')) is None
 
-def _win_extra_settings(exclusive=False):
+def _win_extra_settings(exclusive=False, device=None):
     """WASAPI ExtraSettings 반환.
+    device 가 ASIO 장치면 None — ASIO 스트림에 WasapiSettings 를 넘기면 -9984 로 열리지 않는다.
+    (duplex 는 (in, out) 튜플도 허용 — 둘 중 하나라도 ASIO 면 None.) [WIN_ASIO]
     - 기본(공유): auto_convert=True — 앱 요청 SR이 장치 믹스포맷과 달라도 공유모드에서 자동 변환해
       스트림 오픈 실패(-9997)를 막는다.
     - exclusive=True: WASAPI 독점(Exclusive)모드. 공유 믹서/리샘플러를 우회해 장치를 요청 SR로 직접
@@ -63,6 +213,8 @@ def _win_extra_settings(exclusive=False):
       회피. 독점은 장치를 단독 점유하므로 TF duplex(측정 전용) 경로에서만 쓴다. [WIN_WASAPI_EXCLUSIVE]
     비-Windows/WASAPI 미사용이면 None(동작 변화 없음)."""
     if _win_preferred_hostapi() is None:
+        return None
+    if any(_is_asio_device(_d) for _d in (device if isinstance(device, (tuple, list)) else (device,))):
         return None
     try:
         return sd.WasapiSettings(exclusive=True) if exclusive else sd.WasapiSettings(auto_convert=True)
@@ -89,7 +241,10 @@ def _dev_name_key(idx):
         return None
 
 def device_needs_exclusive(idx):
-    """이 장치가 (감지 결과) 공유 캡처 불가라 독점이 필요한가. TF/엔진 공용 판정."""
+    """이 장치가 (감지 결과) 공유 캡처 불가라 독점이 필요한가. TF/엔진 공용 판정.
+    [WIN_ASIO] ASIO 장치는 항상 단일 스트림 → 독점 장치와 동일하게 취급."""
+    if _is_asio_device(idx):
+        return True
     k = _dev_name_key(idx)
     return bool(k and _SHARED_CAPTURE_BROKEN.get(k))
 
@@ -106,15 +261,22 @@ def _mark_shared_broken(idx):
 #  배열)에서 start가 -9999 'GetNameFromCategory ...' [Windows WDM-KS error]로 실패한다.
 #  메인 스레드는 Qt/PortAudio가 이미 COM을 초기화해 정상이라, 이 문제는 워커 스레드에서만
 #  나타난다(→ Windows 전용). 메시지 펌프가 없는 워커 스레드이므로 MTA로 초기화한다.
-def _win_com_init():
-    """호출 스레드에 COM(MTA)을 초기화한다. 우리가 성공적으로 초기화해 짝맞춰 해제해야
-    하면 True, 아니면(비-Windows/이미 다른 모드로 초기화됨/실패) False 반환."""
+#  [WIN_ASIO] 단, ASIO 드라이버는 아파트먼트 스레드 COM 객체라 MTA(또는 COM 미초기화) 스레드에서는
+#  -9999 'Failed to load ASIO driver' 로 열리지 않는다(실측) → ASIO 장치를 열 스레드는 STA로 초기화.
+def _win_com_init(device=None):
+    """호출 스레드에 COM을 초기화한다(기본 MTA, device 가 ASIO 장치면 STA). 우리가 성공적으로
+    초기화해 짝맞춰 해제해야 하면 True, 아니면(비-Windows/이미 다른 모드로 초기화됨/실패) False 반환.
+    device 는 인덱스 또는 (in, out) 튜플."""
     if _pl.system() != 'Windows':
         return False
     try:
         import ctypes
         COINIT_MULTITHREADED = 0x0
-        hr = ctypes.windll.ole32.CoInitializeEx(None, COINIT_MULTITHREADED)
+        COINIT_APARTMENTTHREADED = 0x2
+        _asio = any(_is_asio_device(_d)
+                    for _d in (device if isinstance(device, (tuple, list)) else (device,)))
+        hr = ctypes.windll.ole32.CoInitializeEx(
+            None, COINIT_APARTMENTTHREADED if _asio else COINIT_MULTITHREADED)
         # S_OK(0)=초기화됨 / S_FALSE(1)=이미 같은 모드로 초기화됨 → 둘 다 CoUninitialize로 짝맞춤.
         # RPC_E_CHANGED_MODE 등 음수 HRESULT → 우리가 소유하지 않음 → 해제 금지(COM 자체는 가용).
         return hr in (0, 1)
@@ -170,7 +332,7 @@ class AudioThread(QThread):
                 return sd.InputStream(device=self.device_idx, samplerate=self.sample_rate,
                                       channels=n_ch, blocksize=bs,
                                       callback=cb, latency=lat, dtype='float32',
-                                      extra_settings=_win_extra_settings())
+                                      extra_settings=_win_extra_settings(device=self.device_idx))
 
         def _run(bs, lat):
             """스트림 열기 시도. watchdog로 USB disconnect 감지.
@@ -311,7 +473,8 @@ class MultiChannelAudioThread(QThread):
             return sd.InputStream(device=self.device_idx, samplerate=self.sample_rate,
                                   channels=n_ch, blocksize=bs,
                                   callback=cb, latency=lat, dtype='float32',
-                                  extra_settings=_win_extra_settings(exclusive=excl))
+                                  extra_settings=_win_extra_settings(exclusive=excl,
+                                                                     device=self.device_idx))
 
         def _run(bs, lat, excl):
             try:
@@ -375,52 +538,70 @@ class MultiChannelAudioThread(QThread):
         _excl_ok = (_pl.system() == 'Windows' and _win_preferred_hostapi() is not None
                     and os.environ.get('WSA2_NO_WASAPI_EXCLUSIVE') != '1')
         _excl_attempt = (0, 'low', True)
-        if _excl_ok and device_needs_exclusive(self.device_idx):
-            _attempts = [_excl_attempt]                                  # 공유불가 판정된 장치 → 바로 독점
-        elif _excl_ok:
-            _attempts = [(bs, lat, False) for (bs, lat) in _base] + [_excl_attempt]  # 공유 시도 → 감쇠 시 독점
-        else:
-            _attempts = [(bs, lat, False) for (bs, lat) in _base]
+        def _mk_attempts():
+            if _excl_ok and device_needs_exclusive(self.device_idx):
+                return [_excl_attempt]                                  # 공유불가 판정된 장치 → 바로 독점
+            elif _excl_ok:
+                return [(bs, lat, False) for (bs, lat) in _base] + [_excl_attempt]  # 공유 시도 → 감쇠 시 독점
+            return [(bs, lat, False) for (bs, lat) in _base]
         last_err = None
-        _com_owned = _win_com_init()   # WASAPI/WDM-KS 장치 start용 COM(워커 스레드) [찾기: WIN_COM_INIT]
+        _com_owned = _win_com_init(self.device_idx)   # WASAPI/WDM-KS 장치 start용 COM(워커 스레드, ASIO=STA) [찾기: WIN_COM_INIT]
         begin_no_sleep()   # 측정 중 idle 시스템 절전 차단(콜백 정지 트리거 제거)
         try:
-            for round_n in range(2):
-                for (bs, lat, excl) in _attempts:
-                    # 이미 공유불가로 판정된 장치는 남은 공유 config를 건너뛰고 독점 config만 시도.
-                    if (not excl) and _excl_ok and device_needs_exclusive(self.device_idx):
-                        continue
-                    # 죽은 콜백(스트림 열렸으나 첫 콜백 없음)=같은 config 재시도 → 저지연 유지하며 복구.
-                    # running-stall(콜백 흐르다 멈춤)도 같은 경로로 재오픈. open 실패(예외)=다음 config로.
-                    _dead_retry[0] = 0
-                    while True:
-                        try:
-                            if _run(bs, lat, excl): return
-                            return
-                        except _DeadCallbackError:
-                            if not self.running: return
-                            last_err = 'dead AUHAL callback'; _dead_retry[0] += 1
-                            if classify_stall(_dead_retry[0]) == 'disconnect':
-                                # MAX_DEAD_REOPENS(=6)회 재오픈해도 콜백 미수신 → 콜백을 한 번이라도
-                                # 받았던 스트림이면 물리적 제거로 판정(disconnected). TF duplex 경로와
-                                # 동일한 중앙 임계값(watchdog.classify_stall) — 예전 인라인 3에서 통일.
-                                # 처음부터 죽은 스타트업이면 다음 config.
-                                if getattr(self, '_got_cb_flag', False):
-                                    # '(stall)' 마커 = 6회 재오픈까지 소진한 확정 신호(단순 churn 아님).
-                                    # UI가 장치 개수 가드로 무시하면 안 됨 → 같은 장치 재초기화+자동복구 유발.
-                                    self.disconnected_signal.emit('device removed (stall)')
-                                    return
-                                break                     # 같은 config 반복 죽음 → 다음 config
-                            continue                      # 같은 config 재오픈
-                        except _SilentCaptureError:
-                            # 공유 캡처가 감쇠(무음) → 이 장치는 독점 필요로 기록됨. 다음 config(독점)로.
-                            last_err = 'shared capture silent → exclusive'; break
-                        except Exception as e:
-                            last_err = e; break           # open 실패 → 다음 config
-                if round_n == 0:
-                    for _ in range(15):
-                        if not self.running: return
-                        self.msleep(100)
+            def _cycle(_attempts):
+                nonlocal last_err
+                for round_n in range(2):
+                    for (bs, lat, excl) in _attempts:
+                        # 이미 공유불가로 판정된 장치는 남은 공유 config를 건너뛰고 독점 config만 시도.
+                        if (not excl) and _excl_ok and device_needs_exclusive(self.device_idx):
+                            continue
+                        # 죽은 콜백(스트림 열렸으나 첫 콜백 없음)=같은 config 재시도 → 저지연 유지하며 복구.
+                        # running-stall(콜백 흐르다 멈춤)도 같은 경로로 재오픈. open 실패(예외)=다음 config로.
+                        _dead_retry[0] = 0
+                        while True:
+                            try:
+                                if _run(bs, lat, excl): return True
+                                return True
+                            except _DeadCallbackError:
+                                if not self.running: return True
+                                last_err = 'dead AUHAL callback'; _dead_retry[0] += 1
+                                if classify_stall(_dead_retry[0]) == 'disconnect':
+                                    # MAX_DEAD_REOPENS(=6)회 재오픈해도 콜백 미수신 → 콜백을 한 번이라도
+                                    # 받았던 스트림이면 물리적 제거로 판정(disconnected). TF duplex 경로와
+                                    # 동일한 중앙 임계값(watchdog.classify_stall) — 예전 인라인 3에서 통일.
+                                    # 처음부터 죽은 스타트업이면 다음 config.
+                                    if getattr(self, '_got_cb_flag', False):
+                                        # '(stall)' 마커 = 6회 재오픈까지 소진한 확정 신호(단순 churn 아님).
+                                        # UI가 장치 개수 가드로 무시하면 안 됨 → 같은 장치 재초기화+자동복구 유발.
+                                        self.disconnected_signal.emit('device removed (stall)')
+                                        return True
+                                    break                     # 같은 config 반복 죽음 → 다음 config
+                                continue                      # 같은 config 재오픈
+                            except _SilentCaptureError:
+                                # 공유 캡처가 감쇠(무음) → 이 장치는 독점 필요로 기록됨. 다음 config(독점)로.
+                                last_err = 'shared capture silent → exclusive'; break
+                            except Exception as e:
+                                last_err = e; break           # open 실패 → 다음 config
+                    if round_n == 0:
+                        for _ in range(15):
+                            if not self.running: return True
+                            self.msleep(100)
+                return False
+            if _cycle(_mk_attempts()): return
+            # [WIN_ASIO] ASIO 가 열리지 않으면(다른 프로그램이 점유/드라이버 문제) 같은 인터페이스의
+            # WASAPI 입력으로 자동 폴백. 실패한 ASIO 장치는 이후 목록에서 빠지고 WASAPI 항목이 다시 나온다.
+            if self.running and _is_asio_device(self.device_idx):
+                _fb = _asio_fallback_device(self.device_idx, 'input')
+                if _fb is not None:
+                    _alog.warning(f'ASIO 입력 열기 실패 → WASAPI 폴백  asio={self.device_idx} wasapi={_fb} err={last_err}')
+                    _diag('eng_asio_fallback', dev=self.device_idx, to=_fb, err=str(last_err)[:80])
+                    _mark_asio_failed(self.device_idx)
+                    self.device_idx = _fb
+                    try: n_ch = max(1, min(n_ch, int(sd.query_devices(_fb)['max_input_channels'])))
+                    except Exception: pass
+                    _win_com_uninit(_com_owned); _com_owned = _win_com_init(_fb)   # STA → MTA
+                    last_err = None
+                    if _cycle(_mk_attempts()): return
             if last_err: self.error_signal.emit(str(last_err))
         finally:
             end_no_sleep()
@@ -479,6 +660,13 @@ class _DeviceStream:
         self.thread = None
         self.union = set()      # 현재 스트림이 캡처 중인 채널 합집합
         self.force_latency = None  # 현재 스트림 latency ('high' or None)
+        # [WIN_ASIO] external=True: 이 장치의 입력은 엔진 스레드가 아니라 외부 스트림(TF duplex)이
+        # feed()로 공급한다. 단일 스트림 장치(ASIO/WASAPI 독점)에서 TF 와 Spectrum/Stereo 가 동시에
+        # 돌 수 있게 하는 경로 — 이 동안 엔진은 그 장치에 자체 스트림을 열지 않는다.
+        self.external = False
+        self._ext_bufs = {}
+        self._ext_last_emit = 0.0
+        self._ext_last_cb = 0.0
 
     def _resolve_latency(self):
         # 구독자 중 하나라도 high 요청(TF 동기 안정성)이 있으면 high.
@@ -488,8 +676,42 @@ class _DeviceStream:
         # TF 가 도는 동안만 공유 스트림이 _HI_LAT(40ms) → 'high'(88ms)보다 지연↓ = Spectrum 덜 느림.
         return _HI_LAT if any(getattr(s, 'force_latency', None) for s in self.subs) else None
 
+    def feed(self, indata):
+        """[WIN_ASIO] 외부 스트림(TF duplex) 콜백이 받은 입력 블록을 구독자에게 배포.
+        오디오 콜백 스레드에서 호출된다 — MultiChannelAudioThread 콜백과 같은 배포 형식."""
+        try:
+            now = time.monotonic()
+            self._ext_last_cb = now
+            if not self.external or not self.subs:
+                return
+            nc = indata.shape[1]
+            if nc == 0:
+                return
+            fft = self._engine._fft_size
+            raw = {}
+            for ch in tuple(self.union):
+                chunk = indata[:, min(ch, nc - 1)].astype(np.float32)
+                raw[ch] = chunk
+                b = self._ext_bufs.get(ch)
+                if b is None or len(b) != fft:
+                    b = self._ext_bufs[ch] = np.zeros(fft, dtype=np.float32)
+                n = min(len(chunk), fft)
+                b[:-n] = b[n:]; b[-n:] = chunk[:n]
+            self._dispatch_raw(raw)
+            if now - self._ext_last_emit >= 0.016:
+                self._ext_last_emit = now
+                self._dispatch({ch: self._ext_bufs[ch].copy() for ch in raw})
+        except Exception:
+            pass
+
     def add(self, sub):
         self.subs.append(sub)
+        if self.external:
+            # 외부 공급 중 — 스트림을 열지 않고 채널만 등록(집합 교체: 콜백 스레드가 순회 중일 수 있음)
+            self.union = set(self.union) | set(sub.channels)
+            _diag('eng_add', dev=self.device_idx, n_subs=len(self.subs),
+                  sub_ch=list(sub.channels), reopen=False, lat='external')
+            return
         need = self.union | set(sub.channels)
         need_lat = self._resolve_latency()
         # 채널 확장 또는 latency 상승 시 (재)오픈
@@ -501,6 +723,8 @@ class _DeviceStream:
 
     def remove(self, sub):
         if sub in self.subs: self.subs.remove(sub)
+        if self.external:
+            return              # 외부 공급 중 — 스트림 항목을 유지해야 새 구독이 자체 스트림을 열지 않는다
         if not self.subs:       # 마지막 구독 해제 → 스트림 종료 (union 축소는 v1 생략)
             self._close()
         # ⚠️ 여기서 latency를 낮추려고 _open()으로 재오픈하지 않는다(v2.0.2에서 시도했다 원복).
@@ -653,6 +877,37 @@ class AudioEngine(QObject):
             except Exception:
                 pass
 
+    # ── [WIN_ASIO] 외부 공급(TF duplex → 엔진 구독자) ────────────────────
+    def attach_external(self, device_idx, sample_rate):
+        """단일 스트림 장치를 외부 스트림(TF duplex)이 열기 전에 호출. 엔진의 자체 스트림만 닫고
+        구독자는 유지한 채, 외부 콜백이 부를 feed(indata) 를 돌려준다 → TF 와 Spectrum/Stereo 동시 동작.
+        이미 다른 SR 로 구독 중이면 공유 불가 → None(호출부는 종전 '번갈아 쓰기'로 폴백)."""
+        st = self._streams.get(device_idx)
+        if st is not None and st.subs and st.sample_rate != sample_rate:
+            return None
+        if st is None:
+            st = _DeviceStream(self, device_idx, sample_rate)
+            self._streams[device_idx] = st
+        st._close_thread()
+        st.sample_rate = sample_rate
+        st.union = set(ch for s in st.subs for ch in s.channels)
+        st._ext_bufs = {}; st._ext_last_cb = 0.0
+        st.external = True
+        _diag('eng_attach_external', dev=device_idx, n_subs=len(st.subs), sr=sample_rate)
+        return st.feed
+
+    def detach_external(self, device_idx):
+        """외부 스트림이 닫힌 뒤 호출. 구독자가 남아 있으면 엔진 자체 스트림으로 이어받는다."""
+        st = self._streams.get(device_idx)
+        if st is None or not st.external:
+            return
+        st.external = False
+        _diag('eng_detach_external', dev=device_idx, n_subs=len(st.subs))
+        if st.subs:
+            st._open(st.union, st._resolve_latency())
+        else:
+            self._streams.pop(device_idx, None)
+
     def current_sr(self, device_idx):
         """이미 열려 있는 장치 스트림의 SR(없으면 None). 같은 장치를 여러 탭이 구독할 때
         SR을 합의시켜 'one SR per device' 충돌을 피하는 데 사용(먼저 연 쪽 SR을 따른다)."""
@@ -669,6 +924,13 @@ class AudioEngine(QObject):
         USB가 사용 중 빠지면 콜백이 끊겨 이 값이 계속 커진다 → 외부에서 끊김 백스톱 판정에 사용."""
         now = time.monotonic(); best = None
         for st in list(self._streams.values()):
+            if getattr(st, 'external', False):
+                if not st._ext_last_cb:
+                    continue
+                age = now - st._ext_last_cb
+                if best is None or age < best:
+                    best = age
+                continue
             th = getattr(st, 'thread', None)
             if th is None or not getattr(th, '_got_cb_flag', False):
                 continue

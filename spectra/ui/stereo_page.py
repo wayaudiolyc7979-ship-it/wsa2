@@ -141,7 +141,7 @@ class StereoAudioThread(QThread):
                 self.chunk_ready.emit(L, R)
             except Exception: pass
         last_err=None
-        _com_owned=_win_com_init()   # WASAPI/WDM-KS 장치 start용 COM(워커 스레드) [찾기: WIN_COM_INIT]
+        _com_owned=_win_com_init(self.device_idx)   # WASAPI/WDM-KS 장치 start용 COM(워커 스레드, ASIO=STA) [찾기: WIN_COM_INIT]
         try:
             for _rnd in range(2):
                 for bs,lat in ((512,'low'),(512,'high'),(0,'high')):
@@ -151,7 +151,7 @@ class StereoAudioThread(QThread):
                                             channels=nc, blocksize=bs,
                                             callback=cb, latency=lat,
                                             dtype='float32',
-                                            extra_settings=_win_extra_settings()) as _s:
+                                            extra_settings=_win_extra_settings(device=self.device_idx)) as _s:
                             self._active_stream=_s
                             try:
                                 while self.running: self.msleep(100)

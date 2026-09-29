@@ -18,7 +18,8 @@ from PyQt5.QtWidgets import (QAction, QApplication, QColorDialog, QComboBox, QDi
                              QSizePolicy, QSplitter, QStackedWidget, QTextBrowser, QVBoxLayout,
                              QWidget)
 from spectra.audio.engine import (AudioEngine, _CoreAudioDeviceWatcher, _dev_hostapi_ok,
-                                  _win_preferred_hostapi)
+                                  _win_preferred_hostapi, _win_restore_name,
+                                  set_asio_enabled, asio_available)
 from spectra.core.config import (MAX_DB, SPEC_ATTACK, SPEED_LEVELS, T, _CAPTURES_LOCK,
                                  _load_captures_file, _load_settings, _save_captures_file,
                                  _save_settings, is_dark, theme, set_theme, toggle_theme)
@@ -385,6 +386,7 @@ class MainWindow(QMainWindow):
 
         # 설정 (마이크별 캘리브레이션)
         self._settings = _load_settings()
+        set_asio_enabled(self._settings.get('asio_enabled', True))   # [WIN_ASIO] 장치 목록 로드 전에 반영
         self._presets_restoring = False
         self._session_timer = QTimer(self); self._session_timer.setSingleShot(True)
         self._session_timer.timeout.connect(self._save_session)
@@ -2703,6 +2705,8 @@ class MainWindow(QMainWindow):
                 self.dev_cb.addItem(name,i)
             self.mic_st.setText(f'{self.dev_cb.count()} detected')
             last = self._settings.get('last_device', '')
+            # [WIN_ASIO] 저장된 이름을 현재 목록의 이름으로(WASAPI↔ASIO: 자동 우선/설정 꺼짐/폴백)
+            last = _win_restore_name(last, devs, 'input')
             found_last = False
             for i in range(self.dev_cb.count()):
                 if self.dev_cb.itemText(i) == last:
@@ -4670,6 +4674,12 @@ class MainWindow(QMainWindow):
         sc_act.triggered.connect(self._show_shortcuts); help_menu.addAction(sc_act)
         rn_act = QAction('Release Notes', self)
         rn_act.triggered.connect(self._show_release_notes); help_menu.addAction(rn_act)
+        if _pl.system() == 'Windows':
+            # [WIN_ASIO] ASIO 자동 우선을 끄는 스위치 — 드라이버 문제/타 프로그램 점유 시 WASAPI 로 되돌림
+            asio_act = QAction('Use ASIO Drivers', self); asio_act.setCheckable(True)
+            asio_act.setChecked(bool(self._settings.get('asio_enabled', True)))
+            asio_act.toggled.connect(self._toggle_asio); help_menu.addAction(asio_act)
+            self._asio_act = asio_act
         log_act = QAction('Open Log Folder', self)
         log_act.triggered.connect(lambda: (os.startfile(_LOG_DIR) if _pl.system() == 'Windows'
                                            else _sp.Popen(['open', _LOG_DIR])))
@@ -4699,6 +4709,17 @@ class MainWindow(QMainWindow):
                 _popup.addAction(_a)
             if getattr(self, 'menu_btn', None) is not None:
                 self.menu_btn.setMenu(_popup)
+
+    def _toggle_asio(self, on):
+        """[WIN_ASIO] 설정 메뉴 'Use ASIO Drivers'. 저장 후 장치 목록을 다시 불러온다(측정은 자동 재시작).
+        ASIO 없이 시작한 세션에서 켜는 경우엔 PortAudio DLL 이 달라 다음 실행부터 적용된다."""
+        self._settings['asio_enabled'] = bool(on); _save_settings(self._settings)
+        _diag('asio_toggle', on=bool(on), available=asio_available())
+        if on and not asio_available():
+            _BrandBox.information(self, 'ASIO', _tx('ASIO will be used the next time SPECTRA starts.'))
+            return
+        set_asio_enabled(on)
+        self.reinit_audio_devices(reason='asio_toggle')
 
     def _show_shortcuts(self):
         ShortcutsDialog(self).exec()

@@ -21,7 +21,9 @@ from PyQt5.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication, 
                              QWidget)
 from spectra.audio.engine import (_EngineChannelSource, _EngineMultiSource, _EngineSyncSource,
                                   _dev_hostapi_ok, _win_extra_settings, _win_preferred_hostapi,
-                                  _win_com_init, _win_com_uninit, device_needs_exclusive)
+                                  _win_com_init, _win_com_uninit, device_needs_exclusive,
+                                  _win_restore_name, _is_asio_device, _asio_fallback_device,
+                                  _mark_asio_failed)
 from spectra.audio.watchdog import StreamStalled, begin_no_sleep, classify_stall, end_no_sleep
 from spectra.core.config import (SPEED_LEVELS, T, _CAPTURES_TF_LOCK, _load_tf_captures_file,
                                  f32_to_b64, b64_to_f32,
@@ -292,6 +294,7 @@ class TFDuplexThread(QThread):
         self.ref_ch = ref_ch; self.meas_in_ch = meas_in_ch
         self._active_stream = None   # abort()용 스트림 레퍼런스
         self._muted = False
+        self.engine_feed = None      # [WIN_ASIO] 입력 블록을 공유 엔진 구독자에게도 공급(단일 스트림 장치)
         # 단일 스윕 캡처 상태 (arm_sweep_capture()로 활성화)
         self._sc_armed  = [False]   # True → 페이드인 완료 후 캡처 시작
         self._sc_pos    = [0]
@@ -333,6 +336,11 @@ class TFDuplexThread(QThread):
         pos_r = [0]
         pb_r = self._pink_buf_ref; lv_r = self._sig_level_ref; bc_r = self._buf_changed
         n_in = (self.meas_in_ch + 1) if self.ref_ch is None else max(self.ref_ch, self.meas_in_ch) + 1
+        _feed = self.engine_feed
+        if _feed is not None:
+            # 엔진 구독자(Spectrum/Stereo)가 어떤 채널을 쓰든 받을 수 있게 입력 전 채널을 연다
+            try: n_in = max(n_in, int(sd.query_devices(self.in_dev)['max_input_channels']))
+            except Exception: pass
         # 50ms 페이드인 — 스트림 첫 시작/unmute 시 클릭 방지
         _fade_frames = int(self.sample_rate * 0.05)
         _ramp = np.linspace(0.0, 1.0, _fade_frames, dtype=np.float32)
@@ -351,6 +359,8 @@ class TFDuplexThread(QThread):
                 if status: _xrun_cnt[0] += 1  # 콜백 내 I/O 금지 — xrun 카운트만
                 if not self.running:
                     outdata[:] = 0; return
+                if _feed is not None:
+                    _feed(indata)   # mute 중에도 엔진 구독자는 계속 받는다
                 lvl = lv_r[0]   # 매 콜백마다 최신 레벨 읽기
                 if bc_r[0]: pos_r[0] = 0; bc_r[0] = False  # 버퍼 교체 → 포지션 리셋
                 pb = pb_r[0]; pn = len(pb)  # 매 콜백마다 최신 버퍼 읽기
@@ -415,7 +425,7 @@ class TFDuplexThread(QThread):
         _alog.debug(f'TFDuplexThread.run() opening sd.Stream  in={self.in_dev} out={self.out_dev} sr={self.sample_rate} bs={blocksize} n_in={n_in} ref_ch={self.ref_ch}')
         _dead_reopens = 0   # 연속 실패 재오픈 — 콜백 재개 시 리셋
         _busy_retry = [0]   # -9996/-9997(장치 릴리스 지연) 재시도 카운터
-        _com_owned = _win_com_init()   # WASAPI/WDM-KS 장치 start용 COM(워커 스레드) [찾기: WIN_COM_INIT]
+        _com_owned = _win_com_init((self.in_dev, self.out_dev))   # WASAPI/WDM-KS 장치 start용 COM(워커 스레드, ASIO=STA) [찾기: WIN_COM_INIT]
         begin_no_sleep()    # 측정 중 idle 시스템 절전 차단(콜백 정지 트리거 제거)
         # [WIN_WASAPI_EXCLUSIVE] Windows에선 WASAPI 독점 모드 우선. 같은 USB 인터페이스(예: Scarlett,
         # 입력48k/출력44.1k 믹스포맷 불일치)에서 렌더+캡처를 공유모드로 동시에 열면 auto_convert
@@ -424,7 +434,7 @@ class TFDuplexThread(QThread):
         _win_excl = _IS_WIN
         try:
             while self.running:   # 같은 config 재오픈 루프 (running-stall 복구)
-                _es  = _win_extra_settings(exclusive=_win_excl)
+                _es  = _win_extra_settings(exclusive=_win_excl, device=(self.in_dev, self.out_dev))
                 # 독점도 큰 버퍼(blocksize)+high 레이턴시로 연다. 저지연(bs=0)이면 콜백이 너무 자주 불려,
                 # duplex 콜백의 무거운 작업(65536 버퍼 롤·copy + frame_ready.emit)이 GIL/MTW DSP/GUI 경합에
                 # 밀려 출력 언더런 → 핑크가 '루프/모터보트'처럼 들린다. 공유(맥) 경로와 같은 버퍼로 여유 확보.
@@ -493,7 +503,8 @@ class TFDuplexThread(QThread):
                     _es = str(_oe)
                     # -9996(Invalid device)/-9997 = 다른 스트림(엔진/RTA)이 아직 장치를 릴리스 중일 수 있다
                     # (WASAPI 독점 해제 지연) → 같은 모드로 잠깐 뒤 재시도. 8회까지 대기 후에도 안 되면 폴백.
-                    if ('-9996' in _es or '-9997' in _es) and _busy_retry[0] < 8:
+                    # [WIN_ASIO] ASIO 는 장치 점유 중이면 -9985(Device unavailable) 로 실패한다.
+                    if ('-9996' in _es or '-9997' in _es or '-9985' in _es) and _busy_retry[0] < 8:
                         _busy_retry[0] += 1
                         _diag('tf_duplex_busy_retry', n=_busy_retry[0], excl=_win_excl)
                         self.msleep(200); continue
@@ -501,6 +512,17 @@ class TFDuplexThread(QThread):
                     if _win_excl:
                         _win_excl = False; _busy_retry[0] = 0
                         _diag('tf_duplex_excl_fallback', err=_es[:80])
+                        self.msleep(120); continue
+                    # [WIN_ASIO] ASIO 가 열리지 않으면 같은 인터페이스의 WASAPI 입출력으로 폴백(1회).
+                    _fbp = self._asio_fallback_pair()
+                    if _fbp is not None:
+                        _alog.warning(f'ASIO duplex 열기 실패 → WASAPI 폴백  in={_fbp[0]} out={_fbp[1]} err={_es[:80]}')
+                        _diag('tf_duplex_asio_fallback', to_in=_fbp[0], to_out=_fbp[1], err=_es[:80])
+                        self.in_dev, self.out_dev = _fbp
+                        try: n_in = max(1, min(n_in, int(sd.query_devices(self.in_dev)['max_input_channels'])))
+                        except Exception: pass
+                        _win_com_uninit(_com_owned); _com_owned = _win_com_init(_fbp)   # STA → MTA
+                        _win_excl = _IS_WIN; _busy_retry[0] = 0
                         self.msleep(120); continue
                     raise
         except Exception as e:
@@ -510,6 +532,19 @@ class TFDuplexThread(QThread):
             self._active_stream = None
             end_no_sleep()
             _win_com_uninit(_com_owned)
+
+    def _asio_fallback_pair(self):
+        """[WIN_ASIO] 현재 (in, out) 중 ASIO 장치를 같은 인터페이스의 WASAPI 장치로 바꾼 쌍. 불가면 None."""
+        _a_in, _a_out = _is_asio_device(self.in_dev), _is_asio_device(self.out_dev)
+        if not (_a_in or _a_out):
+            return None
+        _i = _asio_fallback_device(self.in_dev, 'input') if _a_in else self.in_dev
+        _o = _asio_fallback_device(self.out_dev, 'output') if _a_out else self.out_dev
+        if _i is None or _o is None:
+            return None
+        if _a_in: _mark_asio_failed(self.in_dev)
+        if _a_out: _mark_asio_failed(self.out_dev)
+        return (_i, _o)
 
     def stop(self):
         self.running = False
@@ -652,6 +687,7 @@ class TransferFunctionWindow(QWidget):
         self._gen_freeze = False; self._gen_off_timer = None
         self._sig_stream = None; self._duplex_thread = None; self._sig_lvl_ref = None
         self._duplex_excl_dev = None   # [WIN_WASAPI_EXCLUSIVE] duplex 가 독점 점유 중인 입력장치(중재용)
+        self._duplex_ext_dev = None    # [WIN_ASIO] duplex 가 엔진 구독자에게 입력을 공급 중인 장치(동시 동작)
         import threading as _thr
         self._int_ref_buf = np.zeros(131072, dtype=np.float32)  # 32768×4, 순환 버퍼
         self._int_ref_pos = [0]   # 뮤터블 컨테이너, SigGen 콜백과 공유
@@ -1373,6 +1409,8 @@ class TransferFunctionWindow(QWidget):
             # 마지막 사용 장치 및 채널 복원 (오염되지 않은 저장값을 읽음)
             for cb, key in [(self.ref_cb, 'tf_ref_device'), (self.meas_cb, 'tf_meas_device'), (self.sig_out_cb, 'tf_out_device')]:
                 saved = self._settings.get(key, '')
+                # [WIN_ASIO] 저장된 이름을 현재 목록의 이름으로(WASAPI↔ASIO: 자동 우선/설정 꺼짐/폴백)
+                saved = _win_restore_name(saved, payload, 'output' if key == 'tf_out_device' else 'input')
                 for i in range(cb.count()):
                     if self._strip_star(cb.itemText(i)) == saved:
                         cb.setCurrentIndex(i); break
@@ -1976,7 +2014,7 @@ class TransferFunctionWindow(QWidget):
                     self._mon_ref_stream = sd.InputStream(
                         device=ref_idx, channels=nch, samplerate=sr,
                         blocksize=2048, callback=_make_cb('ref', ref_ch),
-                        extra_settings=_win_extra_settings())
+                        extra_settings=_win_extra_settings(device=ref_idx))
                     self._mon_ref_stream.start()
         except Exception as e:
             _alog.warning(f'Mon ref stream failed: {e}')
@@ -1987,7 +2025,7 @@ class TransferFunctionWindow(QWidget):
                     self._mon_meas_stream = sd.InputStream(
                         device=meas_idx, channels=nch, samplerate=sr,
                         blocksize=2048, callback=_make_cb('meas', meas_ch),
-                        extra_settings=_win_extra_settings())
+                        extra_settings=_win_extra_settings(device=meas_idx))
                     self._mon_meas_stream.start()
         except Exception as e:
             _alog.warning(f'Mon meas stream failed: {e}')
@@ -3051,7 +3089,9 @@ class TransferFunctionWindow(QWidget):
         # [WIN_WASAPI_EXCLUSIVE] duplex 가 측정장치를 (독점) 점유 중이면 RTA 엔진 구독이 같은 장치를
         # 또 열려다 -9996으로 충돌한다 → duplex 실행 중엔 RTA 구독을 열지 않는다(같은 장치 스트림 1개).
         # duplex 정지 후 다음 틱에서 자동 재구독. (RTA 미리보기는 측정 전/후에만.)
-        if self._duplex_thread is not None and self._duplex_thread.isRunning():
+        # [WIN_ASIO] duplex 가 엔진에 입력을 공급 중이면(_duplex_ext_dev) 충돌이 없으므로 RTA 구독 허용.
+        if (self._duplex_thread is not None and self._duplex_thread.isRunning()
+                and self._duplex_ext_dev is None):
             if self._rta_sub is not None:
                 self._rta_unsubscribe()
             return
@@ -5115,14 +5155,23 @@ class TransferFunctionWindow(QWidget):
             # [WIN_WASAPI_EXCLUSIVE] 엔진(Spectrum/Stereo/RTA)이 이 입력장치를 잡고 있으면 독점 duplex가
             # -9996으로 못 연다 → 엔진 스트림을 완전히 닫아 장치를 넘겨받고, 이후 엔진이 이 장치를
             # 다시 열려 하면(다른 탭 측정) duplex 를 양보하도록 소유자로 등록. (같은 독점 장치는 1스트림.)
+            # [WIN_ASIO] 단일 스트림 장치(ASIO/독점)는 뺏고 뺏기는 대신 duplex 가 받은 입력을 엔진
+            # 구독자에게도 공급 → TF 와 Spectrum/Stereo 동시 동작. SR 이 달라 공유 불가면 종전 방식.
+            _eng_feed = None
             if self._engine is not None and meas_idx is not None:
-                try: self._engine.release_device(meas_idx)
-                except Exception: pass
+                if device_needs_exclusive(meas_idx):
+                    try: _eng_feed = self._engine.attach_external(meas_idx, self.sample_rate)
+                    except Exception: _eng_feed = None
                 if ref_idx is not None and ref_idx != meas_idx:
                     try: self._engine.release_device(ref_idx)
                     except Exception: pass
-                self._engine.set_exclusive_owner(meas_idx, self._duplex_yield_to_engine)
-                self._duplex_excl_dev = meas_idx
+                if _eng_feed is not None:
+                    self._duplex_ext_dev = meas_idx
+                else:
+                    try: self._engine.release_device(meas_idx)
+                    except Exception: pass
+                    self._engine.set_exclusive_owner(meas_idx, self._duplex_yield_to_engine)
+                    self._duplex_excl_dev = meas_idx
 
             if ref_idx is None:
                 # 내부 루프백: 출력 신호를 레퍼런스로 사용 (ref_ch=None)
@@ -5137,7 +5186,10 @@ class TransferFunctionWindow(QWidget):
             if meas_idx is None or out_dev is None:
                 from PyQt5.QtWidgets import QMessageBox
                 _BrandBox.warning(self, _tx('Signal Generator'), _tx('Select a Measurement device first.'))
-                self.sig_on_btn.setChecked(False); return
+                self.sig_on_btn.setChecked(False)
+                if self._duplex_ext_dev is not None and self._engine is not None:
+                    self._engine.detach_external(self._duplex_ext_dev); self._duplex_ext_dev = None
+                return
             out_ch  = self.sig_out_ch_cb.currentData() or 0
             out_ch2 = self.sig_out_ch2_cb.currentData()   # None = Off
             n_out = max(out_ch + 1, (out_ch2 + 1) if out_ch2 is not None else 0)
@@ -5145,6 +5197,7 @@ class TransferFunctionWindow(QWidget):
                 meas_idx, out_dev, self.sample_rate, self.fft_size,
                 self._pink_buf, self._sig_level_lin, n_out, out_ch,
                 ref_ch=ref_ch_param, meas_in_ch=meas_in_ch_param, out_ch2=out_ch2)
+            self._duplex_thread.engine_feed = _eng_feed
             self._duplex_thread.frame_ready.connect(self._on_frame, Qt.QueuedConnection)
             self._duplex_thread.error_signal.connect(self._on_err, Qt.QueuedConnection)
             self._duplex_thread.disconnected_signal.connect(self._on_tf_disconnect, Qt.QueuedConnection)
@@ -5258,7 +5311,7 @@ class TransferFunctionWindow(QWidget):
                                                             channels=n_ch, dtype='float32',
                                                             blocksize=_blk_size,
                                                             latency='high', callback=cb,
-                                                            extra_settings=_win_extra_settings())
+                                                            extra_settings=_win_extra_settings(device=out_dev))
                         self._sig_stream.start()
                     try:
                         _alog.info(f'[DIAG] OutputStream started out={out_dev} ch={n_ch} '
@@ -5279,6 +5332,11 @@ class TransferFunctionWindow(QWidget):
                         except Exception: pass
                         self._sig_stream = None
                     if _attempt == 0:
+                        # [WIN_ASIO] ASIO 출력이 안 열리면 같은 인터페이스의 WASAPI 출력으로 재시도
+                        _fbo = _asio_fallback_device(out_dev, 'output') if _is_asio_device(out_dev) else None
+                        if _fbo is not None:
+                            _diag('sig_asio_fallback', dev=out_dev, to=_fbo, err=str(e)[:80])
+                            _mark_asio_failed(out_dev); out_dev = _fbo
                         time.sleep(0.15)   # AUHAL 해제 대기 후 재시도
                     else:
                         self.sig_on_btn.setChecked(False)
@@ -5335,6 +5393,11 @@ class TransferFunctionWindow(QWidget):
             try: self._engine.clear_exclusive_owner(self._duplex_excl_dev)
             except Exception: pass
             self._duplex_excl_dev = None
+        # [WIN_ASIO] 엔진 공급 종료 — duplex 가 닫힌 뒤, 남은 구독자(Spectrum 등)는 엔진 스트림이 이어받는다.
+        if self._duplex_ext_dev is not None and self._engine is not None:
+            try: self._engine.detach_external(self._duplex_ext_dev)
+            except Exception: pass
+            self._duplex_ext_dev = None
         self.sig_on_btn.setText('Play'); self._style_sig_play(False); self.sig_on_btn.setChecked(False)
         self.sig_on_btn.setStyleSheet(f'background:{T("panel")};color:{T("text_dim")};'
                                        f'border:1px solid {T("border")};padding:4px;border-radius:{RADIUS_CTRL}px;font-weight:bold;')
@@ -5392,7 +5455,7 @@ class TFSyncThread(QThread):
 
         last_err = None
         _dead_reopens = 0   # 연속 실패 재오픈 — 콜백 재개 시 리셋(장시간 세션 소진 방지)
-        _com_owned = _win_com_init()   # WASAPI/WDM-KS 장치 start용 COM(워커 스레드) [찾기: WIN_COM_INIT]
+        _com_owned = _win_com_init(self.device_idx)   # WASAPI/WDM-KS 장치 start용 COM(워커 스레드, ASIO=STA) [찾기: WIN_COM_INIT]
         begin_no_sleep()    # 측정 중 idle 시스템 절전 차단(콜백 정지 트리거 제거)
         try:
             for round_n in range(2):
@@ -5403,7 +5466,7 @@ class TFSyncThread(QThread):
                                 with sd.InputStream(device=self.device_idx, samplerate=self.sample_rate,
                                                     channels=n_ch, blocksize=bs,
                                                     callback=cb, latency='high', dtype='float32',
-                                                    extra_settings=_win_extra_settings()) as _s:
+                                                    extra_settings=_win_extra_settings(device=self.device_idx)) as _s:
                                     self._active_stream = _s
                                     _got_cb[0] = False
                                     _last_cb[0] = time.monotonic(); _open_t = time.monotonic()

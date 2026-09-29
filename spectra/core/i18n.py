@@ -311,6 +311,7 @@ _TR_KO = {        # {english_ui_string: 쉬운_한국어}
     'License': '라이선스',
     'Device search timed out': '장치 검색 시간 초과',
     'Release Notes': '릴리즈 노트',
+    'ASIO will be used the next time SPECTRA starts.': '다음에 SPECTRA를 실행할 때부터 ASIO를 사용합니다.',
     'About SPECTRA': 'SPECTRA 정보',
     'Spectrum Analyzer': '스펙트럼 분석기',
     'Single': '단일',
